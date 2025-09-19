@@ -47,14 +47,14 @@ class ApiUsageLog(Base):
     __tablename__ = "api_usage_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # optional: 若有 user 模型
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # optional: 若有 user 模型
     path = Column(String(255), nullable=False)
     duration = Column(Float, nullable=False)
     status_code = Column(Integer, nullable=False)
     ip = Column(String(45), nullable=True)
     user_agent = Column(String(255), nullable=True)
     referer = Column(String(255), nullable=True)
-    called_at = Column(DateTime, server_default=func.now())
+    called_at = Column(DateTime, server_default=func.now(), index=True)
     request_size = Column(Integer, nullable=False, default=0)  # 新增：请求大小
     response_size = Column(Integer, nullable=False, default=0)  # 新增：响应大小
 
