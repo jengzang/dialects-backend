@@ -12,7 +12,7 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
     # 假设 query_dialect_abbreviations 函数返回一个地点简称的列表
     all_locations = query_dialect_abbreviations(regions, locations, db_path=db_path,region_mode=region_mode)
     if not all_locations:
-        raise HTTPException(status_code=404, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
+        raise HTTPException(status_code=400, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
 
     # 打开数据库连接
     conn = sqlite3.connect(db_path)

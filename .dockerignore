@@ -1,0 +1,22 @@
+# 全局忽略
+**
+!.dockerignore
+!requirements.txt
+!serve.py
+!app/**
+!common/**
+!data/dependency/**
+
+# 常见无关/大文件
+.git/
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.sqlite
+*.db
+*.db-wal
+*.db-shm
+data/**        # 避免误收大库
+!data/dependency/**  # 反选保留小依赖

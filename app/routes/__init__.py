@@ -15,7 +15,7 @@ from .search import router as search_router
 from .index import router as index_router
 from .auth import router as auth_router
 from .get_locs import router as locs_router
-
+from .admin import router as admin_router
 
 
 def setup_routes(app: FastAPI):
@@ -30,3 +30,4 @@ def setup_routes(app: FastAPI):
     app.include_router(index_router)
     app.include_router(locs_router, prefix="/api")
     app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+    app.include_router(admin_router, prefix="/admin")

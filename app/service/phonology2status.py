@@ -1,5 +1,6 @@
 import re
 import sqlite3
+from collections import defaultdict
 
 import pandas as pd
 from fastapi import HTTPException
@@ -136,7 +137,7 @@ def analyze_characters_from_db(
     df = pd.read_sql_query(query, conn, params=char_list)
     conn.close()
 
-    for col in ["攝", "呼", "等", "韻", "調", "系", "組", "母", "多地位標記"]:
+    for col in ["攝", "韻", "等", "呼", "入", "清濁", "系", "組", "母", "調", "部位", "方式", "多地位標記"]:
         if col not in df.columns:
             df[col] = None
 
@@ -184,7 +185,7 @@ def analyze_characters_from_db(
             summary = []
             for _, row in sub.iterrows():
                 parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
-                meta = f"{row['系']}·{row['組']}·{row['母']}"
+                meta = f"{row['部位']}·{row['方式']}·{row['母']}"
                 summary.append(f"{parts},{meta}")
             poly_details.append(f"{hz}: {' | '.join(summary)}")
         # print(f"🧩 當前分析地點：{loc}")
@@ -235,7 +236,7 @@ def pho2sta(locations, regions, features, status_inputs,
     match_results = match_locations_batch(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         # print("🛑 沒有任何地點完全匹配，終止分析。")
-        raise HTTPException(status_code=404, detail="🛑 沒有任何地點完全匹配，終止分析。")
+        raise HTTPException(status_code=400, detail="🛑 沒有任何地點完全匹配，終止分析。")
         # return []
 
     unique_abbrs = list({abbr for res in match_results for abbr in res[0]})
@@ -302,6 +303,76 @@ def pho2sta(locations, regions, features, status_inputs,
 
     return results
 
+
+def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
+    """
+    优化版本：分别在 SQL 查询中统计每个地点的聲母、韻母、聲調特征的值和字数。
+    每个特征（聲母、韻母、聲調）单独查询，不互相干扰。
+    """
+    result = defaultdict(lambda: defaultdict(dict))
+
+    # 为每个特征分别进行查询，统计每个地点的聲母、韻母、聲調字数
+
+    # 1. 查询聲母
+    query_shengmu = f"""
+    SELECT 簡稱, 聲母, COUNT(DISTINCT 漢字) AS 字數
+    FROM {table}
+    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
+    GROUP BY 簡稱, 聲母
+    """
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(query_shengmu, locations)
+
+    # 处理聲母查询结果
+    rows = cursor.fetchall()
+    for row in rows:
+        loc = row[0]
+        shengmu = row[1]
+        count = row[2]
+        result[loc]['聲母'][shengmu] = count
+
+    # 2. 查询韻母
+    query_yunmu = f"""
+    SELECT 簡稱, 韻母, COUNT(DISTINCT 漢字) AS 字數
+    FROM {table}
+    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
+    GROUP BY 簡稱, 韻母
+    """
+
+    cursor.execute(query_yunmu, locations)
+
+    # 处理韻母查询结果
+    rows = cursor.fetchall()
+    for row in rows:
+        loc = row[0]
+        yunmu = row[1]
+        count = row[2]
+        result[loc]['韻母'][yunmu] = count
+
+    # 3. 查询聲調
+    query_shengdiao = f"""
+    SELECT 簡稱, 聲調, COUNT(DISTINCT 漢字) AS 字數
+    FROM {table}
+    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
+    GROUP BY 簡稱, 聲調
+    """
+
+    cursor.execute(query_shengdiao, locations)
+
+    # 处理聲調查询结果
+    rows = cursor.fetchall()
+    for row in rows:
+        loc = row[0]
+        shengdiao = row[1]
+        count = row[2]
+        result[loc]['聲調'][shengdiao] = count
+
+    conn.close()
+
+    return result
+
 # if __name__ == "__main__":
 #     pd.set_option('display.max_rows', None)
 #     pd.set_option('display.max_columns', None)
@@ -318,3 +389,13 @@ def pho2sta(locations, regions, features, status_inputs,
 #
 #     for row in results:
 #         print(row)
+
+# location = ['東莞莞城', '雲浮富林']
+# result = get_feature_counts(location)
+# for loc, features in result.items():
+#     print(f"地点: {loc}")
+#     for feature, values in features.items():
+#         print(f"  {feature}:")
+#         for value, count in values.items():
+#             print(f"    {value}: {count} 字")
+#     print("\n")

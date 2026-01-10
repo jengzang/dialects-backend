@@ -1,0 +1,72 @@
+=== Total Summary ===
+locations:
+  梅縣: 5
+  廣州: 4
+  汕頭: 4
+  廣州,梅縣,汕頭: 3
+regions:
+  : 6
+  晉語: 1
+mode:
+  s2p: 3
+features:
+  韻母: 3
+status_inputs:
+  流攝: 2
+  流: 1
+region_mode:
+  map: 5
+flag:
+  True: 2
+input_string:
+  高州: 4
+  汕頭: 3
+  高州泗水: 2
+  高州shig: 1
+  高州si: 1
+  高州俟: 1
+  高州泗: 1
+filter_valid_abbrs_only:
+  True: 13
+pho_values:
+  : 1
+need_features:
+  流: 1
+
+=== Daily Summary ===
+2025-09-04:
+locations:
+  梅縣: 5
+  廣州: 4
+  汕頭: 4
+  廣州,梅縣,汕頭: 3
+regions:
+  : 6
+mode:
+  s2p: 3
+features:
+  韻母: 3
+status_inputs:
+  流攝: 2
+  流: 1
+region_mode:
+  map: 5
+flag:
+  True: 2
+input_string:
+  高州: 4
+  汕頭: 3
+  高州泗水: 2
+  高州shig: 1
+  高州si: 1
+  高州俟: 1
+  高州泗: 1
+filter_valid_abbrs_only:
+  True: 13
+pho_values:
+  : 1
+need_features:
+  流: 1
+2026-01-10:
+regions:
+  晉語: 1

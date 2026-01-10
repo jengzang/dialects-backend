@@ -18,13 +18,14 @@ async def api_get_partitions(request: Request, parent: Optional[str] = Query(Non
     - 傳入parent-當前分區名（某一級，例如嶺南）；
     - 返回下一級所有的音典分區（partitions子數組），以及層級（level）
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, {"parent": parent})
-    start = time.time()
+    # start = time.time()
     try:
         result = read_partition_hierarchy(parent)
         return result
     finally:
-        duration = time.time() - start
-        log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
-                         request.headers.get("referer", ""))
+        print("api_get_partitions")
+        # duration = time.time() - start
+        # log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
+        #                  request.headers.get("referer", ""))

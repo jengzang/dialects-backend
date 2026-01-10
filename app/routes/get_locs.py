@@ -30,9 +30,9 @@ async def get_all_locs(
     - regions-要查的分區，可多個（輸入某一級的分區）
     - region_mode-使用的分區
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, {"locations": locations, "regions": regions})
-    start = time.time()
+    # start = time.time()
     try:
         locations_processed = []
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
@@ -50,11 +50,12 @@ async def get_all_locs(
         )
         return {"locations_result": result}
     finally:
-        duration = time.time() - start
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        print("get_all_loc")
+        # duration = time.time() - start
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )
 

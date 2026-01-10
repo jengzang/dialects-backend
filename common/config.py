@@ -5,20 +5,43 @@ import socket
 # 計算專案根目錄路徑
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+# HTML_PATH = os.path.join(BASE_DIR, "index.html")
+# JS_PATH = os.path.join(BASE_DIR, "app", "js")
+# CSS_PATH = os.path.join(BASE_DIR, "app", "css")
+
+# database路徑依賴
+QUERY_DB_PATH = os.path.join(BASE_DIR, "data", "query_dialects.db")
 QUERY_DB_ADMIN = os.path.join(BASE_DIR, "data", "query_admin.db")
 QUERY_DB_USER = os.path.join(BASE_DIR, "data", "query_user.db")
 
+DIALECTS_DB_PATH = os.path.join(BASE_DIR, "data", "dialects_all.db")
 DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_admin.db")
 DIALECTS_DB_USER = os.path.join(BASE_DIR, "data", "dialects_user.db")
 
 CHARACTERS_DB_PATH = os.path.join(BASE_DIR, "data", "characters.db")
 SUPPLE_DB_PATH = os.path.join(BASE_DIR, "data", "supplements.db")
 SUPPLE_DB_URL = f"sqlite:///{SUPPLE_DB_PATH}"
+# QUERY_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dialects_query.db"
+# DIALECTS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dialects_all.db"
+# CHARACTERS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/characters.db"
 
+# 字表寫入SQL路徑依賴
+APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")
+HAN_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "漢字音典字表檔案（長期更新）.xlsx")
+HAN_CSV_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "漢字音典字表檔案（長期更新）-檔案.csv")  # 暫未使用
+PHO_TABLE_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "聲韻.xlsx")
+RAW_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "raw")
+PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "processed")
+YINDIAN_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "yindian")
+# APPEND_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/Append_files.xlsx"
+# HAN_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/漢字音典字表檔案（長期更新）.xlsx"
+# PHO_TABLE_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/聲韻.xlsx"
 
 # 通用路徑依賴
 ZHENGZI_PATH = os.path.join(BASE_DIR, "data", "dependency", "正字.tsv")
 MULCODECHAR_PATH = os.path.join(BASE_DIR, "data", "dependency", "mulcodechar.dt")
+# ZHENGZI_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/正字.tsv"
+# MULCODECHAR_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/mulcodechar.dt"
 
 # api_logs路徑依賴
 log_dir = "logs"
@@ -35,7 +58,7 @@ WRITE_INFO_LOG = os.path.join(BASE_DIR, "logs", "write.txt")
 WRITE_ERROR_LOG = os.path.join(BASE_DIR, "logs", "write_error.txt")
 
 # 是否刪除一星期前的api記錄
-CLEAR_WEEK = False
+CLEAR_WEEK = True
 # 只记录路径中包含以下词的 API
 RECORD_API = [
     "phonology",  # 可以匹配 "/api/phonology"
@@ -50,9 +73,9 @@ RECORD_API = [
 USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
 USER_DATABASE_URL = f"sqlite:///{USER_DATABASE_PATH}"
 
-SECRET_KEY = "your-key"
+SECRET_KEY = "super-secret-key"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 10000
+ACCESS_TOKEN_EXPIRE_MINUTES = 100000
 ISSUER = "dialects_api"  # 可自定義
 AUDIENCE = "dialects_web"  # 可自定義
 
@@ -68,19 +91,25 @@ MAX_LOGIN_PER_MINUTE = 10
 REQUIRE_LOGIN = False
 
 # 一小時內用戶使用api時長
-MAX_USER_USAGE_PER_HOUR = 1000  # 1000秒
-MAX_IP_USAGE_PER_HOUR = 500
+MAX_USER_USAGE_PER_HOUR = 2000  # 1000秒
+MAX_IP_USAGE_PER_HOUR = 300
 
 # 用戶能接收的最大json包
 MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
 MAX_USER_SIZE = 6 * 1024 * 1024   # 6MB for authenticated users
+# 压缩阈值
+SIZE_THRESHOLD = 10 * 1024  # 10KB
+# 每20条日志写入一次
+BATCH_SIZE = 20
+# 缓存过期时间（例如：1小时）
+CACHE_EXPIRATION_TIME = 3600  # 秒
 
 # =============== 配置 =======================
 # banner配置
 APP_NAME = "Dialect Compare Tool — FastAPI Backend"
 AUTHOR = "不羈 (JengZang)"
-VERSION = "1.0.2"
-DATE_STR = "2025-09-01"
+VERSION = "1.0.1"
+DATE_STR = "2025-08-18"
 
 # --------運行方式------------
 _RUN_TYPE = 'MINE'  # MINE/EXE/WEB

@@ -6,8 +6,9 @@ from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth.database import get_db
 from app.routes import setup_routes
-from app.service.api_logger import TrafficLoggingMiddleware
+from app.service.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
 from app.statics.static_utils import get_resource_path, ensure_user_data  # 如果你要用它挂载静态资源
 from common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
@@ -45,13 +46,19 @@ async def lifespan(app: FastAPI):
             _printer_started = True
             t = threading.Thread(target=_periodic_printer, daemon=True)
             t.start()
+
+    # 获取数据库连接，并启动日志线程
+    # 假设这里手动获取 db 会话（可以使用连接池或其他方式）
+    db = next(get_db())  # 这里手动获取 db 会话
+    start_api_logger_workers(db)
+
     try:
-        yield  # 應用運行中
+        yield  # 应用运行中
     finally:
-        print("ok")
+        # 停止日志写入线程
+        stop_api_logger_workers()
 
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 # 允許跨域
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 # api統計、json壓縮

@@ -42,9 +42,9 @@ async def submit_form(
     :param user: 後端校驗得到的用戶身份
     :return: - 無返回值
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, payload.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         result = handle_form_submission(payload.dict(), user, db)
@@ -57,18 +57,19 @@ async def submit_form(
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")
     finally:
-        duration = time.time() - start
+        print("submit_form")
+        # duration = time.time() - start
         # path = request.url.path
         # ip = request.client.host
         # agent = request.headers.get("user-agent", "")
         # referer = request.headers.get("referer", "")
         # user_id = user.id if user else None
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )
         # log_detailed_api_to_db(db_user, path,
         #                        duration, 200, ip,
         #                        agent, referer, user_id, CLEAR_2HOUR)
@@ -96,9 +97,9 @@ async def delete_form(
     :param user: 後端校驗得到的用戶身份
     :return: - 無返回值
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, payload.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         result = handle_form_deletion(payload.dict(), user, db)
@@ -111,18 +112,19 @@ async def delete_form(
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")
     finally:
-        duration = time.time() - start
+        print("delete_form")
+        # duration = time.time() - start
         # path = request.url.path
         # ip = request.client.host
         # agent = request.headers.get("user-agent", "")
         # referer = request.headers.get("referer", "")
         # user_id = user.id if user else None
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )
         # log_detailed_api_to_db(db_user, path,
         #                        duration, 200, ip,
         #                        agent, referer, user_id, CLEAR_2HOUR)

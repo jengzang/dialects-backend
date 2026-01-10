@@ -37,8 +37,9 @@ async def search_chars(
     """
     ip_address = request.client.host
     check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
-    update_count(request.url.path)
-    start = time.time()
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, {"chars": chars, "locations": locations, "regions": regions})
+    # start = time.time()
     try:
         locations_processed = []
         for location in locations or []:
@@ -57,7 +58,19 @@ async def search_chars(
         )
         return {"result": result}
     finally:
-        duration = time.time() - start
+        print("search_chars")
+        # duration = time.time() - start
+        # log_detailed_api(request.url.path, duration, 200,
+        #                  request.client.host,
+        #                  request.headers.get("user-agent", ""),
+        #                  request.headers.get("referer", ""))
+
+        # path = request.url.path
+        # ip = request.client.host
+        # agent = request.headers.get("user-agent", "")
+        # referer = request.headers.get("referer", "")
+        # user_id = user.id if user else None
+        # log_detailed_api_to_db(db, path, duration, 200, ip, agent, referer, user_id, CLEAR_2HOUR)
 
 
 @router.get("/search_tones/")
@@ -77,8 +90,9 @@ async def search_tones_o(
     """
     ip_address = request.client.host
     check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
-    update_count(request.url.path)
-    start = time.time()
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, {"locations": locations, "regions": regions})
+    # start = time.time()
     try:
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         locations_processed = []
@@ -95,4 +109,23 @@ async def search_tones_o(
         )
         return {"tones_result": result}
     finally:
-        duration = time.time() - start
+        print("search_tones")
+        # duration = time.time() - start
+        # log_detailed_api(request.url.path, duration, 200,
+        #                  request.client.host,
+        #                  request.headers.get("user-agent", ""),
+        #                  request.headers.get("referer", ""))
+        # 记录到数据库
+        # log_detailed_api_to_db(
+        #     db,
+        #     request.url.path,
+        #     duration,
+        #     200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", ""),
+        #     user.id if user else None,
+        #     request_size=request_size,
+        #     response_size=response_size,
+        #     clear_old=CLEAR_2HOUR
+        # )

@@ -12,7 +12,7 @@ from common.getloc_by_name_region import query_dialect_abbreviations
 def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian'):
     all_locations = query_dialect_abbreviations(regions, locations, region_mode=region_mode)
     if not all_locations:
-        raise HTTPException(status_code=404, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
+        raise HTTPException(status_code=400, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
 
     if isinstance(chars, str):
         chars = list(chars)
@@ -39,7 +39,7 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
     char2positions = {}
     for char in clean_str:
         characters_query = """
-            SELECT 攝, 呼, 等, 韻, 調, 組, 母, 多地位標記
+            SELECT 攝, 呼, 等, 韻, 調, 組, 母, 部位, 方式, 多地位標記
             FROM characters
             WHERE 漢字 = ?
         """
@@ -51,19 +51,23 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
 
         if is_multi:
             position_query = """
-                SELECT 攝, 呼, 等, 韻, 調, 組, 母
+                SELECT 攝, 呼, 等, 韻, 調, 組, 母, 部位, 方式,
                 FROM characters
                 WHERE 多地位標記 = 1 AND 漢字 = ?
             """
             position_cursor.execute(position_query, [char])
             for row in position_cursor.fetchall():
                 parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
-                meta = f"{row['組']}「組」{row['母']}「母」"
+                meta = f"{row['組']}·{row['母']}•{row['部位']}·{row['方式']}音"
+                # if row['釋義']:
+                #     meta += f"<br>（{row['釋義']}）"
                 positions.append(f"{parts},{meta}")
         else:
             for row in characters_results:
                 parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
-                meta = f"{row['組']}「組」{row['母']}「母」"
+                meta = f"{row['組']}·{row['母']}•{row['部位']}·{row['方式']}音"
+                # if row['釋義']:
+                #     meta += f"<br>（{row['釋義']}）"
                 positions.append(f"{parts},{meta}")
 
         char2positions[char] = positions

@@ -125,15 +125,15 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 # ========== Me（恢复 & 最小化改动）==========
 @router.get("/me", response_model=schemas.UserResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # 这里必须用“登录生成的 access token”，其 sub=username
     try:
-        payload = utils.decode_access_token(token)
+        payload = utils.decode_access_token(token)  # 解码 token
         username = payload.get("sub")
         if not username:
             raise HTTPException(status_code=401, detail="Invalid token (no subject)")
     except JWTError as e:
         print("JWTError:", e)  # 临时日志
-        raise HTTPException(status_code=401, detail="Invalid token")
+        # 如果 token 过期了，给出明确的错误信息
+        raise HTTPException(status_code=401, detail="Token 已過期，請重新登錄")
 
     user = db.query(models.User) \
         .options(joinedload(models.User.usage_summary)) \

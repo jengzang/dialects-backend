@@ -42,9 +42,9 @@ async def get_coordinates(
         "zoom_level": 建議地圖縮放層級
     }
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, query.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         if not query.regions.strip() and not query.locations.strip():
@@ -89,10 +89,11 @@ async def get_coordinates(
         return result
 
     finally:
-        duration = time.time() - start
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        print("get_coordinates")
+        # duration = time.time() - start
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )

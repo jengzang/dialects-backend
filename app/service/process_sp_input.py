@@ -21,7 +21,6 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
         extended_column_values = COLUMN_VALUES.copy()
         extended_column_values["母"] = COLUMN_VALUES["母"] + ["@清"]
         extended_column_values["韻"] = COLUMN_VALUES["韻"] + ["#清"]
-        extended_column_values["清濁"] = COLUMN_VALUES["清濁"] + ["*清"]
 
         value_to_columns = {}
         for col, values in extended_column_values.items():
@@ -30,8 +29,6 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
 
         # 優先順序產生器
         def generate_priority(priority_key: Optional[str]):
-
-
             if not priority_key:
                 return default_priority
 
@@ -59,7 +56,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             for j in range(3, 0, -1):
                 frag = input_text[i:i + j]
 
-                if frag in {"清", "*清", "@清", "#清"}:
+                if frag in {"清", "@清", "#清"}:
                     pending_clear.append((frag, i, j))
                     i += j
                     matched = True
@@ -127,14 +124,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             voice_used = "母" in used_columns
             rhyme_used = "韻" in used_columns
 
-            if frag == "*清":
-                if "清濁" in options and "清濁" not in used_columns:
-                    result.append(f"[清]{{清濁}}")
-                    used_columns.add("清濁")
-                    match_count += 1
-                else:
-                    return False, 0
-            elif frag == "@清":
+            if frag == "@清":
                 if "母" in options and "母" not in used_columns:
                     result.append(f"[清]{{母}}")
                     used_columns.add("母")
@@ -151,7 +141,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             elif frag == "清":
                 if "母" in options and "韻" in options:
                     if not voice_used and not rhyme_used:
-                        print("⚠️『清』有歧義（可屬於母或韻），請使用 @清 或 #清 或 *清 來明確指定。")
+                        print("⚠️『清』有歧義（可屬於母或韻），請使用 @清 或 #清 來明確指定。")
                         return False, 0
                     elif voice_used and not rhyme_used:
                         result.append(f"[清]{{韻}}")

@@ -35,9 +35,9 @@ async def query_location_data(
     - 返回用於繪圖的、自定義點的相關信息
     """
     query_params = QueryParams(locations=locations, regions=regions, need_features=need_features)
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, query_params.dict())
-    start = time.time()
+    # start = time.time()
     try:
         result = get_from_submission(query_params.locations, query_params.regions, query_params.need_features, user, db)
         if not result:
@@ -48,9 +48,10 @@ async def query_location_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        duration = time.time() - start
-        log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
-                         request.headers.get("referer", ""))
+        print("query_location_data")
+        # duration = time.time() - start
+        # log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
+        #                  request.headers.get("referer", ""))
 
 
 @router.get("/get_custom_feature")
@@ -71,9 +72,9 @@ async def get_custom_feature(
     """
     # print(user)
     query_params = FeatureQueryParams(locations=locations, regions=regions, word=word)
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, query_params.dict())
-    start = time.time()
+    # start = time.time()
     try:
         result = match_custom_feature(
             query_params.locations,
@@ -89,6 +90,7 @@ async def get_custom_feature(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        duration = time.time() - start
-        log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
-                         request.headers.get("referer", ""))
+        print("get_custom_feature")
+        # duration = time.time() - start
+        # log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
+        #                  request.headers.get("referer", ""))
