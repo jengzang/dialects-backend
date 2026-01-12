@@ -81,7 +81,7 @@ if __name__ == "__main__":
     print_banner_once(style="block")  # 可选: "block" / "boxed" / "minimal"
     if _RUN_TYPE == 'MINE':
         # 跑在局域網ip地址上
-        threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+        # threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
         uvicorn.run("run:app", host="0.0.0.0", port=5000, reload=True)
 
     elif _RUN_TYPE == 'EXE':

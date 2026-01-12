@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.database import get_db
+from app.redis_client import close_redis
 from app.routes import setup_routes
 from app.service.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
 from app.statics.static_utils import get_resource_path, ensure_user_data  # 如果你要用它挂载静态资源
@@ -57,6 +58,8 @@ async def lifespan(app: FastAPI):
     finally:
         # 停止日志写入线程
         stop_api_logger_workers()
+        print("🛑 App shutting down...")
+        await close_redis()  # ✅ 關閉 Redis 連接
 
 app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 # 允許跨域

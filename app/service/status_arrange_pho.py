@@ -64,43 +64,33 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
 
     # 讀取資料
     conn = sqlite3.connect(db_path)
-    # ✅ 最小化改動：處理等=三 的情況，查四次合併
-    if any(val == "三" and col == "等" for val, col in matches):
-        dfs = []
-        for variant in ["三A", "三B", "三C", "三銳"]:
-            new_matches = [
-                (variant if (val == "三" and col == "等") else val, col)
-                for val, col in matches
-            ]
-            where_clause = " AND ".join([f"{col} = ?" for val, col in new_matches])
-            values = [val for val, col in new_matches]
-            query = f"SELECT * FROM {table} WHERE {where_clause}"
-            df_part = pd.read_sql_query(query, conn, params=values)
-            dfs.append(df_part)
-        df = pd.concat(dfs, ignore_index=True)
-    else:
-        # 動態組裝 WHERE 子句（根據 matches）
-        where_clause = " AND ".join([f"{col} = ?" for _, col in matches])
-        values = [val for val, _ in matches]
-        query = f"SELECT * FROM {table} WHERE {where_clause}"
-        df = pd.read_sql_query(query, conn, params=values)
+    # --- 🚀 優化開始：動態組裝更高效的 SQL ---
+    conditions = []
+    params = []
 
-    conn.close()
-
-    # 執行篩選
-    filtered_df = df.copy()
-    for value, column in matches:
-        before = len(filtered_df)
-
-        if column == "等" and value == "三":
-            filtered_df = filtered_df[filtered_df[column].isin(["三A", "三B", "三C", "三銳"])]
+    for val, col in matches:
+        # 針對「等=三」的特殊處理：使用 SQL 的 IN 語法
+        if col == "等" and val == "三":
+            conditions.append(f"{col} IN (?, ?, ?, ?)")
+            params.extend(["三A", "三B", "三C", "三銳"])
         else:
-            filtered_df = filtered_df[filtered_df[column] == value]
+            conditions.append(f"{col} = ?")
+            params.append(val)
 
-        after = len(filtered_df)
-        # print(f"🔽 篩選 {column} = {value}：剩下 {after} 筆（原本 {before} 筆）")
-        if after == 0:
-            return [], []
+    where_clause = " AND ".join(conditions)
+    query = f"SELECT * FROM {table} WHERE {where_clause}"
+
+    # 只執行一次查詢
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    # --- 🚀 優化結束 ---
+
+    # ⚠️ 原本這裡的 Python for 迴圈篩選是多餘的，因為 SQL 已經做完了，直接移除。
+    # filtered_df 就是 df
+    filtered_df = df
+
+    if filtered_df.empty:
+        return [], []
 
     # 提取漢字
     if "漢字" not in filtered_df.columns:
@@ -110,21 +100,20 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     characters = filtered_df["漢字"].dropna().tolist()
     # print(f"\n🎯 符合條件的漢字共 {len(characters)} 個")
 
-    # 多地位過濾（優化判斷）
+    # 多地位過濾
     multi_chars = []
     if "多地位標記" in filtered_df.columns:
         candidates = filtered_df[
             filtered_df["多地位標記"] == "1"
             ]["漢字"].dropna().unique().tolist()
-
         # print(f"🟡 初步多地位標記候選：{len(candidates)} 字")
 
         for word in candidates:
+            # 這裡邏輯保持不變：檢查該字在當前篩選結果中是否有多個條目
             all_rows = df[df["漢字"] == word]
             sub = all_rows[filter_columns].drop_duplicates()
             if len(sub) > 1:
                 multi_chars.append(word)
-
         # print(f"🟠 經過比對後確定有多地位的漢字：{len(multi_chars)} 字")
     else:
         print("⚠️ 無「多地位標記」欄")
@@ -186,7 +175,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         # 構建該地點的多音字字典
         poly_dict = poly_data.groupby("漢字")["音節"].apply(lambda x: '|'.join(x)).to_dict()
         poly_dicts[loc] = poly_dict
-        print(f"✅ 地點 {loc} 的多音字字典建構完成，共 {len(poly_dict)} 條")
+        # print(f"✅ 地點 {loc} 的多音字字典建構完成，共 {len(poly_dict)} 條")
 
     # 3. 開始處理資料
     results = []
@@ -574,23 +563,25 @@ def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
 
     return unique_values
 
+
 # if __name__ == "__main__":
 #     pd.set_option('display.max_rows', None)
 #     pd.set_option('display.max_columns', None)
 #     pd.set_option('display.max_colwidth', None)
 #     pd.set_option('display.width', 0)
 #
-#     status_inputs = ["蟹-系等", "知組三 端", "通开三"]
-#     # status_inputs = ["蟹-等"]
-#     locations = ['东莞莞城', '雲浮富林']
-#     # features = ['聲母', '韻母', '聲調']
-#     # regions = ['封綏', '儋州']
-#     regions = [""]
-#     features = ['聲母']
-#
-#     results = sta2pho(locations, regions, features, status_inputs)
-#     # print(all_summaries)
-#
-#     for row in results:
-#         print(row)
+    # status_inputs = ["蟹-系等", "知組三 端", "通开三"]
+    # # status_inputs = ["蟹-等"]
+    # locations = ['东莞莞城', '雲浮富林']
+    # # features = ['聲母', '韻母', '聲調']
+    # # regions = ['封綏', '儋州']
+    # regions = [""]
+    # features = ['聲母']
+    #
+    # results = sta2pho(locations, regions, features, status_inputs)
+    # # print(all_summaries)
+    #
+    # for row in results:
+    #     print(row)
 # query_characters_by_path('[三]{等}')
+

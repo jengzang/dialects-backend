@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.auth.database import get_db
-from app.auth.dependencies import get_current_user, get_current_user_sync
+from app.auth.dependencies import get_current_user, get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
     CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
@@ -319,9 +319,21 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
         if not any(keyword in request.url.path for keyword in RECORD_API):
             return await call_next(request)  # 如果路径不包含任何允许的词，跳过日志记录
 
-        # 手动调用 get_current_user 获取用户
-        db = next(get_db())  # 确保我们从生成器中获取会话对象
-        user = get_current_user_sync(request, db=db)  # 这里是同步调用
+        # 1. 獲取 DB Session
+        # ⚠️ 警告：直接用 next(get_db()) 會導致連接洩漏！必須手動關閉。
+        db = next(get_db())
+        user = None
+
+        try:
+            # 2. ✅ 使用 await 調用異步函數
+            user = await get_current_user_for_middleware(request, db=db)
+        except Exception as e:
+            print(f"Middleware Auth Error: {e}")
+            # 認證出錯不應影響請求繼續，視為匿名用戶
+            user = None
+        finally:
+            # 3. ✅ 必須關閉數據庫連接！這非常重要！
+            db.close()
 
         # 如果是 GET 请求，计算 URL 和查询参数的大小
         if request.method == "GET":

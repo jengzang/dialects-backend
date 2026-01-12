@@ -66,7 +66,10 @@ RECORD_API = [
     "search_tones",  # 可以匹配 "/api/search_tones/"
     "search_chars",  # 可以匹配 "/api/search_chars/"
     "submit_form",
-    "delete_form"
+    "delete_form",
+    "ZhongGu",
+    "YinWei",
+    "charlist"
 ]
 
 # ========== 登錄系統 =============

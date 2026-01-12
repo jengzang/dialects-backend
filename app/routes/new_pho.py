@@ -1,0 +1,149 @@
+from typing import Optional, List, Dict
+
+import pandas as pd
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from app.auth.database import get_db
+from app.auth.dependencies import get_current_user, check_api_usage_limit
+from app.auth.models import User
+from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
+
+from app.service.api_logger import update_count, log_all_fields, log_detailed_api_to_db
+from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
+    _run_dialect_analysis_sync
+from app.service.phonology2status import pho2sta
+from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN
+
+router = APIRouter()
+
+
+@router.post("/charlist")
+async def generate_combinations_and_query(
+        request: Request,
+        payload: CharListRequest,
+        db: Session = Depends(get_db),
+        user: Optional[User] = Depends(get_current_user),
+) -> List[Dict]:
+    path_strings = payload.path_strings
+    column = payload.column
+    combine_query = payload.combine_query
+
+    ip_address = request.client.host
+    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, payload.dict())
+
+    # 2. 生成緩存 Key
+    cache_key = generate_cache_key(path_strings, column, combine_query)
+
+    # 3. 【嘗試讀取緩存】
+    # ✅ 加上 await
+    cached_result = await get_cache(cache_key)
+    if cached_result is not None:
+        return cached_result
+    # print("🐢 No Cache, computing...")
+
+    # 這裡的 process_chars_status 依然是同步函數，沒關係，計算完再異步存緩存
+    # 注意：如果 process_chars_status 裡有數據庫操作，建議確保它是高效的
+    # 或者是用 run_in_executor 放到線程池裡跑，防止阻塞 async loop
+    result = process_chars_status(path_strings, column, combine_query)
+
+    if result:
+        # ✅ 加上 await
+        await set_cache(cache_key, result, expire_seconds=600)
+
+    return result
+
+
+@router.post("/ZhongGu")
+async def analyze_zhonggu(
+        request: Request,
+        payload: ZhongGuAnalysis,
+        db: Session = Depends(get_db),
+        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+):
+    """
+    全新的接口：
+    1. Await 緩存接口獲取漢字
+    2. 調用同步函數分析方言
+    """
+    ip_address = request.client.host  # 默认是请求的客户端 IP 地址
+    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, payload.dict())
+
+    # 1. 獲取漢字 (Step 1)
+    char_request_payload = CharListRequest(
+        path_strings=payload.path_strings,
+        column=payload.column,
+        combine_query=payload.combine_query
+    )
+    cached_char_result = await generate_combinations_and_query(
+        request=request,
+        payload=char_request_payload,
+        db=db,
+        user=user,
+    )
+
+    if not cached_char_result:
+        return {"status": "empty", "message": "無符合條件的漢字", "data": []}
+
+    # 2. 方言分析 (Step 2)
+    # 直接從 payload 取出第二部分的參數
+    locations = payload.locations
+    regions = payload.regions
+    features = payload.features
+    db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+    analysis_results = await run_in_threadpool(
+        _run_dialect_analysis_sync,
+        char_data_list=cached_char_result,
+        locations=locations,
+        regions=regions,
+        features=features,
+        region_mode=payload.region_mode,  # 如果需要的話
+        db_path_dialect=db_path
+    )
+
+    return {
+        "status": "success",
+        "data": analysis_results
+    }
+
+
+@router.post("/YinWei")
+async def analyze_yinwei(
+        request: Request,
+        payload: YinWeiAnalysis,
+        db: Session = Depends(get_db),
+        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+):
+    ip_address = request.client.host  # 默认是请求的客户端 IP 地址
+    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, payload.dict())
+
+    try:
+        locations = payload.locations
+        regions = payload.regions
+        features = payload.features
+        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        analysis_results = await run_in_threadpool(
+            pho2sta,
+            locations=locations,
+            regions=regions,
+            features=features,
+            status_inputs=payload.group_inputs,
+            pho_values=payload.pho_values,
+            region_mode=payload.region_mode,  # 如果需要的話
+            dialect_db_path=db_path
+        )
+        if isinstance(analysis_results, pd.DataFrame):
+            return {"success": True, "results": analysis_results.to_dict(orient="records")}
+        if isinstance(analysis_results, list) and all(isinstance(df, pd.DataFrame) for df in analysis_results):
+            merged = pd.concat(analysis_results, ignore_index=True)
+            return {"success": True, "results": merged.to_dict(orient="records")}
+        return {"success": False, "error": "未識別的分析結果格式"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

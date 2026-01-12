@@ -5,6 +5,7 @@
 
 from fastapi import FastAPI
 from .phonology import router as phonology_router
+from .new_pho import router as new_pho_router
 from .get_regions import router as region_router
 from .get_partitions import router as partitions_router
 from .batch_match import router as batch_match_router
@@ -20,6 +21,7 @@ from .admin import router as admin_router
 
 def setup_routes(app: FastAPI):
     app.include_router(phonology_router, prefix="/api", tags=["query"])
+    app.include_router(new_pho_router, prefix="/api", tags=["query"])
     app.include_router(partitions_router, prefix="/api")
     app.include_router(region_router, prefix="/api")
     app.include_router(batch_match_router, prefix="/api")

@@ -11,11 +11,10 @@ from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
 from app.auth.models import User, ApiUsageLog
+from app.redis_client import redis_client
 from common.config import SECRET_KEY, ALGORITHM, MAX_USER_USAGE_PER_HOUR, \
     MAX_IP_USAGE_PER_HOUR, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
 
-# 配置 Redis 连接
-redis_client = redis.StrictRedis(host='172.28.199.1', port=6379, db=0, decode_responses=True)
 
 
 def user_to_dict(user: models.User) -> dict:
@@ -49,7 +48,7 @@ async def get_current_user(
             return None  # Token 解碼失敗
 
     # 1. 首先检查缓存中是否存在该用户
-    cached_user = redis_client.get(f"user:{username}")
+    cached_user = await redis_client.get(f"user:{username}")
     if cached_user:
         # 如果缓存中有数据，反序列化为 User 对象
         cached_data = json.loads(cached_user)  # 获取缓存的 JSON 字符串
@@ -64,15 +63,17 @@ async def get_current_user(
     if not user:
         return None  # 用户不存在
 
-        # 将用户信息存入缓存，并设置过期时间
+    # 将用户信息存入缓存，并设置过期时间
     try:
-        cache_result =  redis_client.setex(f"user:{username}", CACHE_EXPIRATION_TIME, json.dumps(user_to_dict(user)))
-        if cache_result:
-            print(f"缓存写入成功: user:{username}")
-        else:
-            print(f"缓存写入失败: user:{username}")
+        # await 是關鍵！
+        await redis_client.setex(
+            f"user:{username}",
+            CACHE_EXPIRATION_TIME,
+            json.dumps(user_to_dict(user))
+        )
+        print(f"💾 緩存寫入成功: user:{username}")
     except Exception as e:
-        print(f"写入缓存时发生错误: {e}")
+        print(f"❌ 寫入緩存時發生錯誤: {e}")
 
     if require_admin and user.role != "admin":
         raise HTTPException(status_code=403, detail="你沒有訪問此資源的權限")
@@ -80,8 +81,9 @@ async def get_current_user(
     return user
 
 
-def get_current_user_sync(request: Request, db: Session) -> User:
-    # 处理用户认证（例如从请求头获取 JWT token）
+# ✅ 1. 改為 async def
+async def get_current_user_for_middleware(request: Request, db: Session):
+    # --- 前半部分邏輯不變 ---
     auth_header = request.headers.get("Authorization")
     # 打印调试信息，查看 token
     # print(f"Authorization header: {auth_header}")
@@ -100,21 +102,35 @@ def get_current_user_sync(request: Request, db: Session) -> User:
         print(f"JWT decode error: {e}")  # 打印错误信息，帮助调试
         return None  # 如果解码失败，返回 None
 
-    # 1. 首先检查缓存中是否存在该用户
-    cached_user = redis_client.get(f"user:{username}")
-    if cached_user:
-        # 如果缓存中有数据，反序列化为 User 对象
-        cached_data = json.loads(cached_user)  # 获取缓存的 JSON 字符串
-        user = models.User(**cached_data)  # 使用 User 的字段初始化 User 对象
-        return user
+    # --- Redis 部分改為異步 ---
+    try:
+        # ✅ 2. 加上 await
+        cached_user = await redis_client.get(f"user:{username}")
+        if cached_user:
+            cached_data = json.loads(cached_user)
+            user = models.User(**cached_data)
+            return user
+    except Exception as e:
+        print(f"Redis error in middleware: {e}")
+        # 如果 Redis 掛了，不要崩潰，繼續查數據庫
 
-    # 2. 如果缓存中没有，查询数据库
+    # --- 數據庫部分 (保持同步阻塞) ---
+    # ⚠️ 注意：這裡 db.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
     user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        return None  # 用户不存在，返回 None
 
-    # 将用户信息存入缓存，并设置过期时间
-    redis_client.setex(f"user:{username}", CACHE_EXPIRATION_TIME, json.dumps(user_to_dict(user)))
+    if not user:
+        return None
+
+    # --- 寫回 Redis 改為異步 ---
+    try:
+        # ✅ 3. 加上 await
+        await redis_client.setex(
+            f"user:{username}",
+            CACHE_EXPIRATION_TIME,
+            json.dumps(user_to_dict(user))
+        )
+    except Exception as e:
+        print(f"Redis set error: {e}")
 
     return user
 
@@ -139,7 +155,7 @@ def check_api_usage_limit(
     - 未登录用户: 根据 IP 地址限制流量。
     """
     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-    print(user)
+    # print(user)
     # 1) 可选登录场景处理
     if user is None:
         if require_login:  # 匿名用户：无法按用户做配额，这里选择放行（如需限制可改为 raise 或基于 IP 做限流）

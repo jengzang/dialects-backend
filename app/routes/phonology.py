@@ -5,24 +5,22 @@
 """
 
 import asyncio
-import itertools
-import time
 from typing import Optional, List, Dict
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, check_api_usage_limit
 from app.auth.models import User
 from app.schemas import AnalysisPayload
+
 from app.service.phonology2status import pho2sta, get_feature_counts
 from app.service.status_arrange_pho import sta2pho, query_characters_by_path
 from app.service.api_logger import update_count, log_all_fields, log_detailed_api_to_db
 from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER
 from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN
-from common.constants import COLUMN_VALUES
 
 router = APIRouter()
 
@@ -137,81 +135,17 @@ def run_phonology_analysis(
         raise ValueError("🔴 mode 必須為 's2p' 或 'p2s'")
 
 
-@router.get("/charlist")
-async def generate_combinations_and_query(path_string: str = None, column: List[str] = None, combine_query: bool = True) -> List[Dict]:
-    """
-    根據指定的 column 和 COLUMN_VALUES 生成查詢語法組合，並查詢每個組合對應的漢字數量。
-    如果提供了 query_string，則直接查詢該 query_string。
-
-    返回格式：
-    {
-        '組合1': {'字數': count, '漢字': [list of characters]},
-        '組合2': {'字數': count, '漢字': [list of characters]},
-        ...
-    }
-    """
-    result = []
-    if combine_query:
-        # 如果 combine_query 为 True, 处理 path_string 和 column 组合叠加
-        if path_string:
-            # 获取 column 中所有列的值
-            value_combinations = []
-            for col in column:
-                values = COLUMN_VALUES.get(col)
-                if values:
-                    value_combinations.append(values)
-
-            # 生成跨列组合，并叠加 path_string 中的查询条件
-            if value_combinations:
-                for value_combination in itertools.product(*value_combinations):
-                    # 构建新的查询字符串：path_string + 每一列的值
-                    query_string = path_string
-                    for value, col in zip(value_combination, column):
-                        query_string += f"[{value}]{{{col}}}"
-
-                    # 查询生成的组合
-                    characters, _ = query_characters_by_path(query_string)
-                    if characters:
-                        result.append({'query': query_string, '字數': len(characters), '漢字': characters})
-    else:
-        # 如果直接傳入了 query_string，則直接查詢並將結果附加到 result 中
-        if path_string:
-            characters, _ = query_characters_by_path(path_string)
-            if characters:
-                result.append({'query': path_string, '字數': len(characters), '漢字': characters})
-
-        # 如果沒有傳入 path_string，則根據 column 和 COLUMN_VALUES 生成查詢組合
-        if column:
-            # 使用 itertools.product 进行跨列值的组合
-            value_combinations = []
-            for col in column:
-                # 获取当前列的所有值
-                values = COLUMN_VALUES.get(col)
-
-                if not values:
-                    print(f"⚠️ 列「{col}」在 COLUMN_VALUES 中未找到值")
-                    continue
-                value_combinations.append(values)
-
-            # 生成跨列组合
-            if value_combinations:
-                for value_combination in itertools.product(*value_combinations):
-                    query_string = ''.join([f"[{value}]" + f"{{{col}}}" for value, col in zip(value_combination, column)])
-                    characters, _ = query_characters_by_path(query_string)
-                    if characters:
-                        result.append({'query': query_string, '字數': len(characters), '漢字': characters})
-
-    return result
-
 
 @router.get("/feature_counts")
 async def feature_counts(
-    locations: List[str],
+    locations: List[str] = Query(...),
     user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
 ):
     try:
         # 根據用戶身分決定資料庫
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        # print(db_path)
+        # print(locations)
         result = get_feature_counts(locations, db_path)
         # 如果结果为空，可以抛出 HTTP 404 错误
         if not result:
@@ -221,8 +155,3 @@ async def feature_counts(
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
-# path_string = "[咸]{攝}[一]{等}"
-# column = ['韻', '母']
-# result = generate_combinations_and_query(path_string,column)
-# for r in result:
-#     print(r)
