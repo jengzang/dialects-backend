@@ -241,6 +241,22 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     # 返回結果
     return pd.DataFrame(results)
 
+def convert_path_str(path_str: str) -> str:
+        """
+        將格式 [莊]{組}[宕]{攝} 轉換為：
+        - 若值在 AMBIG_VALUES 中（有歧義），保留 {欄位} → 莊組
+        - 否則只保留值 → 宕
+        最終以 - 串接
+        """
+        items = re.findall(r'[\[\{](.*?)[\]\}]', path_str)
+        pairs = []
+        for i in range(0, len(items), 2):
+            val, col = items[i], items[i + 1]
+            if val in AMBIG_VALUES:
+                pairs.append(val + col)
+            else:
+                pairs.append(val)
+        return '·'.join(pairs)
 
 def run_status(
         input_strings,
@@ -273,23 +289,6 @@ def run_status(
            )
     """
     results_summary = []
-
-    def convert_path_str(path_str: str) -> str:
-        """
-        將格式 [莊]{組}[宕]{攝} 轉換為：
-        - 若值在 AMBIG_VALUES 中（有歧義），保留 {欄位} → 莊組
-        - 否則只保留值 → 宕
-        最終以 - 串接
-        """
-        items = re.findall(r'[\[\{](.*?)[\]\}]', path_str)
-        pairs = []
-        for i in range(0, len(items), 2):
-            val, col = items[i], items[i + 1]
-            if val in AMBIG_VALUES:
-                pairs.append(val + col)
-            else:
-                pairs.append(val)
-        return '·'.join(pairs)
 
     for s in input_strings:
         if "-" in s:

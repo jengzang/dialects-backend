@@ -2,7 +2,7 @@ import itertools
 
 from app.redis_client import redis_client
 from app.service.match_input_tip import match_locations_batch
-from app.service.status_arrange_pho import query_characters_by_path, query_by_status
+from app.service.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
 from common.config import DIALECTS_DB_USER
 from common.constants import COLUMN_VALUES
 
@@ -47,12 +47,14 @@ def process_chars_status(path_strings, column, combine_query):
                         # 查询生成的组合
                         characters, _ = query_characters_by_path(query_string)
                         if characters:
-                            result.append({'query': query_string, '字数': len(characters), '汉字': characters})
+                            display_name = convert_path_str(query_string)
+                            result.append({'query': display_name, '字数': len(characters), '汉字': characters})
             else:
                 # 如果直接传入了 query_string，則直接查詢並將結果附加到 result 中
                 characters, _ = query_characters_by_path(path_string)
                 if characters:
-                    result.append({'query': path_string, '字数': len(characters), '汉字': characters})
+                    display_name = convert_path_str(path_string)
+                    result.append({'query': display_name, '字数': len(characters), '汉字': characters})
 
     return result
 

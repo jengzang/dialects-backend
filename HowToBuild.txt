@@ -54,4 +54,5 @@ mv /srv/myapp/tmp/data /srv/myapp/data
 scp api_keywords_log.txt root@47.115.57.138:/srv/myapp/logs
 scp api_usage_stats.txt root@47.115.57.138:/srv/myapp/logs
 
-
+scp villages.db root@47.115.57.138:/srv/myapp/data
+scp yc_spoken.db root@47.115.57.138:/srv/myapp/data

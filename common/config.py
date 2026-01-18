@@ -25,6 +25,13 @@ SUPPLE_DB_URL = f"sqlite:///{SUPPLE_DB_PATH}"
 # DIALECTS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dialects_all.db"
 # CHARACTERS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/characters.db"
 
+YC_SPOKEN_DB_PATH = os.path.join(BASE_DIR, "data", "yc_spoken.db")
+GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
+DB_MAPPING = {
+    "spoken": YC_SPOKEN_DB_PATH,
+    "village": GD_VILLAGE_DB_PATH
+}
+
 # 字表寫入SQL路徑依賴
 APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")
 HAN_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "漢字音典字表檔案（長期更新）.xlsx")
@@ -69,7 +76,8 @@ RECORD_API = [
     "delete_form",
     "ZhongGu",
     "YinWei",
-    "charlist"
+    "charlist",
+    "sql/query"
 ]
 
 # ========== 登錄系統 =============
