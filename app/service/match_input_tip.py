@@ -157,6 +157,7 @@ def match_custom_feature(locations, regions, keyword, user: User, db: Session):
             if any(c in 特徵 for c in candidate_set):
                 result.append({
                     "簡稱": record.簡稱,
+                    "聲韻調": record.聲韻調,
                     "特徵": 特徵
                 })
                 continue
@@ -167,6 +168,7 @@ def match_custom_feature(locations, regions, keyword, user: User, db: Session):
             if ratio > 0.7:
                 result.append({
                     "簡稱": record.簡稱,
+                    "聲韻調": record.聲韻調,
                     "特徵": 特徵
                 })
 

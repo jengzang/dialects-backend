@@ -18,6 +18,7 @@ from .auth import router as auth_router
 from .get_locs import router as locs_router
 from .admin import router as admin_router
 from .sql import router as sql_router
+from .logs_stats import router as logs_stats_router  # ✅ 新增日志统计路由
 
 
 def setup_routes(app: FastAPI):
@@ -35,3 +36,5 @@ def setup_routes(app: FastAPI):
     app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(sql_router, prefix="/sql")
+    app.include_router(logs_stats_router, prefix="/logs", tags=["日志统计"])  # ✅ 注册日志统计路由
+

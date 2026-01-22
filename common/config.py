@@ -84,6 +84,10 @@ RECORD_API = [
 USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
 USER_DATABASE_URL = f"sqlite:///{USER_DATABASE_PATH}"
 
+# ========== 日志系統 =============
+LOGS_DATABASE_PATH = os.path.join(BASE_DIR, "data", "logs.db")
+LOGS_DATABASE_URL = f"sqlite:///{LOGS_DATABASE_PATH}"
+
 SECRET_KEY = "super-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 100000
@@ -123,7 +127,7 @@ VERSION = "1.0.1"
 DATE_STR = "2025-08-18"
 
 # --------運行方式------------
-_RUN_TYPE = 'MINE'  # MINE/EXE/WEB
+_RUN_TYPE = 'WEB'  # MINE/EXE/WEB
 # --------------------------
 
 def get_local_ip():

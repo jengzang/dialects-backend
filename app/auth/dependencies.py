@@ -3,7 +3,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-import redis
 from fastapi import Depends, HTTPException, Request
 from jose import JWTError, jwt
 from sqlalchemy import func, select

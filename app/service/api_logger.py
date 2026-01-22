@@ -15,148 +15,260 @@ from typing import AsyncIterable, Optional
 
 from fastapi import HTTPException, Request, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
+from app.logs.database import SessionLocal as LogsSessionLocal
+from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
     CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
 
 # === 队列 ===
-keyword_queue = queue.Queue()
-# detailed_queue = queue.Queue()
-log_queue = queue.Queue()
+# keyword_queue = queue.Queue()  # ❌ 不再使用 txt文件队列
+log_queue = queue.Queue()  # ✅ ApiUsageLog 队列（auth.db）
+keyword_log_queue = queue.Queue()  # ✅ ApiKeywordLog 队列（logs.db）
+statistics_queue = queue.Queue()  # ✅ ApiStatistics 队列（logs.db）
+html_visit_queue = queue.Queue()  # ✅ HTML 页面访问统计队列（logs.db）
 
 
-# === 关键词日志 ===
+# === 关键词日志（写入logs.db） ===
 def log_keyword(path: str, field: str, value):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    keyword_queue.put((timestamp, path, field, value))
+    """记录 API 调用的参数关键词到数据库"""
+    timestamp = datetime.now()
+    log = ApiKeywordLog(
+        timestamp=timestamp,
+        path=path,
+        field=field,
+        value=str(value)
+    )
+    keyword_log_queue.put(log)
 
 
 def log_all_fields(path: str, param_dict: dict):
+    """记录 API 调用的所有参数"""
     for field, value in param_dict.items():
         if value is not None and value != [] and value != "":
             log_keyword(path, field, value)
 
 
-def keyword_writer():
-    with open(KEYWORD_LOG_FILE, "a", encoding="utf-8") as f:
-        while True:
-            item = keyword_queue.get()
-            if item is None:
+# ===关键词日志写入线程（logs.db）===
+def keyword_log_writer():
+    """后台线程：批量写入 ApiKeywordLog 到 logs.db"""
+    batch = []
+    batch_size = 50  # 每 50 条批量写入一次
+
+    while True:
+        try:
+            # 等待队列中的数据，超时1秒
+            item = keyword_log_queue.get(timeout=1)
+            if item is None:  # 停止信号
                 break
-            timestamp, path, field, value = item
-            line = f"{timestamp} | {path} | {field}: {repr(value)}\n"
-            f.write(line)
-            f.flush()
+
+            batch.append(item)
+
+            # 批量写入
+            if len(batch) >= batch_size:
+                db = LogsSessionLocal()
+                try:
+                    db.bulk_save_objects(batch)
+                    db.commit()
+                    batch = []
+                except Exception as e:
+                    print(f"❌ 写入关键词日志失败: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
+        except queue.Empty:
+            # 队列空时，写入剩余数据
+            if batch:
+                db = LogsSessionLocal()
+                try:
+                    db.bulk_save_objects(batch)
+                    db.commit()
+                    batch = []
+                except Exception as e:
+                    print(f"❌ 写入关键词日志失败: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+        except Exception as e:
+            print(f"❌ 关键词日志线程错误: {e}")
+
+    # 线程结束前，写入剩余数据
+    if batch:
+        db = LogsSessionLocal()
+        try:
+            db.bulk_save_objects(batch)
+            db.commit()
+        except Exception as e:
+            print(f"❌ 写入关键词日志失败: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 
-# === 聚合关键词日志 ===
-def aggregate_keyword_log():
-    total_counts = defaultdict(lambda: defaultdict(int))
-    daily_counts = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    today = datetime.now().strftime("%Y-%m-%d")
+# === API统计更新线程（logs.db）===
+def statistics_writer():
+    """后台线程：更新 ApiStatistics"""
+    while True:
+        try:
+            item = statistics_queue.get(timeout=5)
+            if item is None:  # 停止信号
+                break
 
-    if not os.path.exists(KEYWORD_LOG_FILE):
-        return
-
-    with open(KEYWORD_LOG_FILE, "r", encoding="utf-8") as f:
-        for line in f:
+            path, date_obj = item
+            db = LogsSessionLocal()
             try:
-                timestamp, path, rest = line.strip().split(" | ", 2)
-                field_part, value_part = rest.split(": ", 1)
-                field = field_part.strip()
-                value = ast.literal_eval(value_part.strip())
-                date = timestamp.split(" ")[0]
-                if not isinstance(value, list):
-                    value = [value]
-                for item in value:
-                    total_counts[field][item] += 1
-                    daily_counts[date][field][item] += 1
-            except HTTPException:
-                raise  # ✅ 让 HTTPException 保持原样传递
+                today_str = date_obj.strftime("%Y-%m-%d") if date_obj else None
+
+                # 更新总计
+                update_statistic(db, "usage_total", None, "path", path)
+
+                # 更新每日统计
+                if today_str:
+                    update_statistic(db, "usage_daily", date_obj, "path", path)
+
+                db.commit()
             except Exception as e:
-                print(f"[aggregate_keyword_log] Error: {e} | Line: {line}")
+                print(f"❌ 更新统计失败: {e}")
+                db.rollback()
+            finally:
+                db.close()
 
-    with open(SUMMARY_FILE, "w", encoding="utf-8") as f:
-        f.write("=== Total Summary ===\n")
-        for field, keywords in total_counts.items():
-            f.write(f"{field}:")
-            for k, v in sorted(keywords.items(), key=lambda x: -x[1]):
-                f.write(f"\n  {k}: {v}")
-            f.write("\n")
-
-        f.write("\n=== Daily Summary ===\n")
-        for date in sorted(daily_counts.keys()):
-            f.write(f"{date}:\n")
-            for field, keywords in daily_counts[date].items():
-                f.write(f"{field}:")
-                for k, v in sorted(keywords.items(), key=lambda x: -x[1]):
-                    f.write(f"\n  {k}: {v}")
-                f.write("\n")
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"❌ 统计线程错误: {e}")
 
 
-# === API调用统计 ===
+def update_statistic(db: Session, stat_type: str, date: datetime, category: str, item: str):
+    """更新或创建统计记录（使用 UPSERT 避免并发问题）"""
+    from sqlalchemy import text
+
+    # 使用 SQLite 的 INSERT OR IGNORE + UPDATE 策略
+    try:
+        # 先尝试更新
+        result = db.execute(
+            text("""
+                UPDATE api_statistics
+                SET count = count + 1, updated_at = datetime('now')
+                WHERE stat_type = :stat_type
+                  AND category = :category
+                  AND item = :item
+                  AND (
+                    (date IS NULL AND :date IS NULL) OR
+                    (date = :date)
+                  )
+            """),
+            {
+                "stat_type": stat_type,
+                "date": date,
+                "category": category,
+                "item": item
+            }
+        )
+
+        # 如果没有更新任何行（记录不存在），则插入新记录
+        if result.rowcount == 0:
+            db.execute(
+                text("""
+                    INSERT OR IGNORE INTO api_statistics (stat_type, date, category, item, count, updated_at)
+                    VALUES (:stat_type, :date, :category, :item, 1, datetime('now'))
+                """),
+                {
+                    "stat_type": stat_type,
+                    "date": date,
+                    "category": category,
+                    "item": item
+                }
+            )
+    except Exception as e:
+        print(f"❌ 更新统计失败: stat_type={stat_type}, category={category}, item={item}, error={e}")
+        raise
+
+
+
+# === API调用统计（写入logs.db）===
 def update_count(path: str):
-    today = datetime.now().strftime("%Y-%m-%d")
-    with threading.Lock():
-        if not os.path.exists(API_USAGE_FILE):
-            with open(API_USAGE_FILE, "w", encoding="utf-8") as f:
-                f.write("=== Total Counts ===\n")
-                f.write(f"{path}\t1\n")
-                f.write("\n=== Daily Counts ===\n")
-                f.write(f"{today}\n{path}\t1\n")
-            return
+    """更新 API 调用次数统计"""
+    today = datetime.now()
+    statistics_queue.put((path, today))
 
-        with open(API_USAGE_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
 
-        total_counts = defaultdict(int)
-        daily_counts = defaultdict(lambda: defaultdict(int))
-        section = None
-        current_day = None
-        for line in lines:
-            line = line.strip()
-            if line == "=== Total Counts ===":
-                section = "total"
-                continue
-            elif line == "=== Daily Counts ===":
-                section = "daily"
-                continue
-            elif section == "daily" and re.match(r"\d{4}-\d{2}-\d{2}", line):
-                current_day = line
-                continue
-            elif section == "total" and line:
-                if "\t" in line:
-                    k, v = line.split("\t")
-                else:
-                    # 处理没有制表符的情况，或者记录日志、跳过该行
-                    print(f"Skipping invalid line: {line}")
+def update_html_visit(path: str):
+    """更新 HTML 页面访问次数统计"""
+    today = datetime.now()
+    html_visit_queue.put((path, today))
 
-                total_counts[k] = int(v)
-            elif section == "daily" and line:
-                if "\t" in line:
-                    k, v = line.split("\t")
-                else:
-                    # 处理没有制表符的情况，或者记录日志、跳过该行
-                    print(f"Skipping invalid line: {line}")
 
-                daily_counts[current_day][k] = int(v)
+# === HTML 页面访问统计写入线程（logs.db）===
+def html_visit_writer():
+    """后台线程：更新 HTML 页面访问统计"""
+    while True:
+        try:
+            item = html_visit_queue.get(timeout=5)
+            if item is None:  # 停止信号
+                break
 
-        total_counts[path] += 1
-        daily_counts[today][path] += 1
+            path, date_obj = item
+            db = LogsSessionLocal()
+            try:
+                # 更新总计
+                update_html_visit_stat(db, path, None)
 
-        with open(API_USAGE_FILE, "w", encoding="utf-8") as f:
-            f.write("=== Total Counts ===\n")
-            for k, v in sorted(total_counts.items()):
-                f.write(f"{k}\t{v}\n")
-            f.write("\n=== Daily Counts ===\n")
-            for date in sorted(daily_counts):
-                f.write(f"{date}\n")
-                for k, v in sorted(daily_counts[date].items()):
-                    f.write(f"{k}\t{v}\n")
+                # 更新每日统计
+                update_html_visit_stat(db, path, date_obj.date())
+
+                db.commit()
+            except Exception as e:
+                print(f"❌ 更新 HTML 访问统计失败: {e}")
+                db.rollback()
+            finally:
+                db.close()
+
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"❌ HTML 访问统计线程错误: {e}")
+
+
+def update_html_visit_stat(db: Session, path: str, date):
+    """更新或创建 HTML 页面访问统计记录（使用 UPSERT 避免并发问题）"""
+    from sqlalchemy import text
+
+    # 使用 SQLite 的 INSERT OR REPLACE 语法（UPSERT）
+    # 这样可以避免 rollback 影响整个 session
+    try:
+        # 先尝试更新
+        result = db.execute(
+            text("""
+                UPDATE api_visit_log
+                SET count = count + 1, updated_at = datetime('now')
+                WHERE path = :path AND (
+                    (date IS NULL AND :date IS NULL) OR
+                    (date = :date)
+                )
+            """),
+            {"path": path, "date": date}
+        )
+
+        # 如果没有更新任何行（记录不存在），则插入新记录
+        if result.rowcount == 0:
+            db.execute(
+                text("""
+                    INSERT OR IGNORE INTO api_visit_log (path, date, count, updated_at)
+                    VALUES (:path, :date, 1, datetime('now'))
+                """),
+                {"path": path, "date": date}
+            )
+    except Exception as e:
+        print(f"❌ 更新 HTML 访问统计失败: path={path}, date={date}, error={e}")
+        raise
+
 
 
 def log_writer_thread(db: Session):
@@ -282,33 +394,51 @@ _start_lock = threading.Lock()
 
 
 def start_api_logger_workers(db: Session):
+    """启动所有日志后台线程"""
     global _workers_started
     with _start_lock:
         if _workers_started:
             return
-        threading.Thread(target=keyword_writer, daemon=True).start()
-        # 启动日志写入线程
-        threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()  # 启动 log_writer_thread 处理 log_queue
-        # threading.Thread(target=detailed_writer, daemon=True).start()
-        threading.Thread(target=aggregate_keyword_log, daemon=True).start()
+
+        # ✅ 启动关键词日志写入线程（logs.db）
+        threading.Thread(target=keyword_log_writer, daemon=True).start()
+
+        # ✅ 启动API统计更新线程（logs.db）
+        threading.Thread(target=statistics_writer, daemon=True).start()
+
+        # ✅ 启动HTML页面访问统计线程（logs.db）
+        threading.Thread(target=html_visit_writer, daemon=True).start()
+
+        # ✅ 启动 ApiUsageLog 写入线程（auth.db）
+        threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()
+
         _workers_started = True
+        print("✅ API 日志后台线程已启动")
 
 
 def stop_api_logger_workers():
-    # 发哨兵，尽量优雅退出
+    """停止所有日志后台线程"""
     try:
-        keyword_queue.put_nowait(None)
+        keyword_log_queue.put_nowait(None)  # ✅ 停止关键词日志线程
     except:
         pass
-    # 发送停止信号给日志线程
+
     try:
-        log_queue.put_nowait(None)  # 停止 log_writer_thread
+        statistics_queue.put_nowait(None)  # ✅ 停止统计线程
     except:
         pass
-    # try:
-    #     detailed_queue.put_nowait(None)
-    # except:
-    #     pass
+
+    try:
+        html_visit_queue.put_nowait(None)  # ✅ 停止HTML访问统计线程
+    except:
+        pass
+
+    try:
+        log_queue.put_nowait(None)  # 停止 ApiUsageLog 线程
+    except:
+        pass
+
+    print("🛑 API 日志后台线程已停止")
 
 
 # 这里是中间件，负责记录请求和响应的流量大小

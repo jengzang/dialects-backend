@@ -300,3 +300,35 @@
 2026-01-11 23:46:07 | /api/charlist | combine_query: False
 2026-01-12 00:37:30 | /api/charlist | path_strings: ['[假]{攝}']
 2026-01-12 00:37:30 | /api/charlist | combine_query: False
+2026-01-21 14:14:31 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-21 14:14:31 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-21 14:14:32 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:14:32 | /api/charlist | combine_query: False
+2026-01-21 14:14:37 | /api/get_coordinates | regions: '瓊崖'
+2026-01-21 14:14:37 | /api/get_coordinates | locations: '广州 梅縣 汕头'
+2026-01-21 14:14:37 | /api/get_coordinates | region_mode: 'yindian'
+2026-01-21 14:14:37 | /api/get_coordinates | iscustom: True
+2026-01-21 14:14:37 | /api/get_coordinates | flag: False
+2026-01-21 14:25:16 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-21 14:25:16 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-21 14:25:16 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:16 | /api/charlist | combine_query: False
+2026-01-21 14:25:18 | /api/get_coordinates | regions: '瓊崖'
+2026-01-21 14:25:18 | /api/get_coordinates | locations: '广州 梅縣 汕头'
+2026-01-21 14:25:18 | /api/get_coordinates | region_mode: 'yindian'
+2026-01-21 14:25:18 | /api/get_coordinates | iscustom: True
+2026-01-21 14:25:18 | /api/get_coordinates | flag: False
+2026-01-21 14:25:18 | /api/ZhongGu | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:18 | /api/ZhongGu | combine_query: False
+2026-01-21 14:25:18 | /api/ZhongGu | locations: ['广州 梅縣 汕头']
+2026-01-21 14:25:18 | /api/ZhongGu | regions: ['瓊崖']
+2026-01-21 14:25:18 | /api/ZhongGu | features: ['韻母']
+2026-01-21 14:25:18 | /api/ZhongGu | region_mode: 'yindian'
+2026-01-21 14:25:18 | /api/ZhongGu | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:18 | /api/ZhongGu | combine_query: False
+2026-01-21 14:25:34 | /api/batch_match | input_string: 'ts'
+2026-01-21 14:25:34 | /api/batch_match | filter_valid_abbrs_only: False
+2026-01-21 14:25:35 | /api/batch_match | input_string: 'test'
+2026-01-21 14:25:35 | /api/batch_match | filter_valid_abbrs_only: False
+2026-01-21 15:10:15 | /api/charlist | path_strings: ['[假]{攝}']
+2026-01-21 15:10:15 | /api/charlist | combine_query: False

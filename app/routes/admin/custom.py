@@ -30,6 +30,7 @@ async def get_informations():
                     "簡稱": info.簡稱,
                     "音典分區": info.音典分區,
                     "經緯度": info.經緯度,
+                    "聲韻調": info.聲韻調,
                     "特徵": info.特徵,
                     "值": info.值,
                     "說明": info.說明,

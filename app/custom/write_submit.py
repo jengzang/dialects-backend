@@ -27,11 +27,12 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     location = form_data.get('location')
     region = form_data.get('region')
     coordinates = form_data.get('coordinates')
+    phonology = form_data.get('phonology')
     feature = form_data.get('feature')
     value = form_data.get('value')
     description = form_data.get('description', None)
 
-    if not location or not region or not coordinates or not feature or not value:
+    if not location or not region or not coordinates or not phonology or not feature or not value:
         return {"success": False, "message": "⚠️ 所有字段（除說明）必須填寫！"}
 
 
@@ -59,6 +60,7 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
         簡稱=location,
         音典分區=region,
         經緯度=coordinates,
+        聲韻調=phonology,
         特徵=feature,
         值=value,
         說明=description,

@@ -4,9 +4,9 @@ locations:
   饒平: 32
   永安: 32
   福州: 32
-  梅縣: 20
-  广州: 14
-  汕头: 14
+  梅縣: 21
+  广州: 15
+  汕头: 15
   台山斗山墟: 13
   恩平恩城: 13
   鶴山雅瑤: 13
@@ -31,8 +31,9 @@ locations:
   邢臺: 1
   髙安: 1
   修水: 1
+  广州 梅縣 汕头: 1
 regions:
-  瓊崖: 46
+  瓊崖: 48
   南海: 13
   吳化: 10
   銅容: 10
@@ -57,8 +58,10 @@ status_inputs:
   流: 1
 region_mode:
   map: 5
+  yindian: 1
 flag:
   True: 2
+  False: 1
 input_string:
   高州: 4
   汕頭: 3
@@ -76,8 +79,8 @@ pho_values:
 need_features:
   流: 1
 path_strings:
-  [流]{攝}: 10
-  [深]{攝}: 10
+  [流]{攝}: 11
+  [深]{攝}: 11
   [精]{母}: 7
   [假]{攝}: 3
   [次濁]{清濁}[上]{調}: 3
@@ -105,7 +108,9 @@ path_strings:
   [蟹]{攝}[四]{等}: 1
   [見]{組}[二]{等}: 1
 combine_query:
-  False: 29
+  False: 30
+iscustom:
+  True: 1
 
 === Daily Summary ===
 2025-09-04:
@@ -238,4 +243,23 @@ filter_valid_abbrs_only:
 path_strings:
   [假]{攝}: 1
 combine_query:
+  False: 1
+2026-01-21:
+locations:
+  广州: 1
+  梅縣: 1
+  汕头: 1
+  广州 梅縣 汕头: 1
+regions:
+  瓊崖: 2
+path_strings:
+  [流]{攝}: 1
+  [深]{攝}: 1
+combine_query:
+  False: 1
+region_mode:
+  yindian: 1
+iscustom:
+  True: 1
+flag:
   False: 1

@@ -56,3 +56,4 @@ scp api_usage_stats.txt root@47.115.57.138:/srv/myapp/logs
 
 scp villages.db root@47.115.57.138:/srv/myapp/data
 scp yc_spoken.db root@47.115.57.138:/srv/myapp/data
+scp logs.db root@47.115.57.138:/srv/myapp/data

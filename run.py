@@ -15,6 +15,7 @@ import shutil
 # === Banner 配置 ===
 _banner_printed = False  # 在启动时打印（只打一次）
 
+
 def print_banner_once(style="minimal"):
     global _banner_printed
 
@@ -78,6 +79,8 @@ if __name__ == "__main__":
     def _open_browser(url: str):
         time.sleep(1)
         webbrowser.open(url)
+
+
     print_banner_once(style="block")  # 可选: "block" / "boxed" / "minimal"
     if _RUN_TYPE == 'MINE':
         # 跑在局域網ip地址上
@@ -87,3 +90,4 @@ if __name__ == "__main__":
     elif _RUN_TYPE == 'EXE':
         threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
         uvicorn.run(app, host="127.0.0.1", port=5000, reload=False, workers=1)
+        # uvicorn.run("run:app", host="localhost", port=5000, reload=True)

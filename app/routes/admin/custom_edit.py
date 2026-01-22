@@ -75,7 +75,7 @@ async def create_custom_by_admin(infos: List[InformationBase]):
         base_time = datetime.utcnow()
 
         for index, info in enumerate(infos):
-            if not info.簡稱 or not info.音典分區 or not info.經緯度 or not info.特徵 or not info.值 :
+            if not info.簡稱 or not info.音典分區 or not info.經緯度 or not info.聲韻調 or not info.特徵 or not info.值 :
                 raise HTTPException(status_code=400, detail="有字段為空！")
             # 根据 username 获取对应的 user_id
             user = session_user.query(User).filter(User.username == info.username).first()
@@ -93,6 +93,7 @@ async def create_custom_by_admin(infos: List[InformationBase]):
                 簡稱=info.簡稱,
                 音典分區=info.音典分區,
                 經緯度=info.經緯度,
+                聲韻調=info.聲韻調,
                 特徵=info.特徵,
                 值=info.值,
                 說明=info.說明,
