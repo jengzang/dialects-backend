@@ -21,7 +21,7 @@ def _sqlite_pragmas(dbapi_conn, _):
     try:
         cur.execute("PRAGMA journal_mode=WAL;")
     except Exception as e:
-        print(f"⚠️ 无法设置 WAL 模式: {e}，使用默认 DELETE 模式")
+        print(f"[!] 无法设置 WAL 模式: {e}，使用默认 DELETE 模式")
         cur.execute("PRAGMA journal_mode=DELETE;")
     cur.execute("PRAGMA synchronous=NORMAL;")
     cur.execute("PRAGMA cache_size=-64000;")  # 64MB 缓存
@@ -42,7 +42,7 @@ def migrate_api_visit_log_table():
 
     # 检查表是否存在
     if 'api_visit_log' not in inspector.get_table_names():
-        print("ℹ️ api_visit_log 表不存在，将自动创建")
+        print("[i] api_visit_log 表不存在，将自动创建")
         return
 
     # 检查表结构
@@ -51,11 +51,11 @@ def migrate_api_visit_log_table():
 
     # 如果表结构不匹配（存在旧字段 timestamp 或 status_code）
     if 'timestamp' in columns or 'status_code' in columns or columns != expected_columns:
-        print("⚠️ 检测到旧版本的 api_visit_log 表结构，正在重建...")
+        print("[!] 检测到旧版本的 api_visit_log 表结构，正在重建...")
         with engine.connect() as conn:
             conn.execute(text("DROP TABLE IF EXISTS api_visit_log"))
             conn.commit()
-        print("✅ 旧表已删除，将创建新表结构")
+        print("[OK] 旧表已删除，将创建新表结构")
 
 
 # 先迁移表结构
@@ -63,7 +63,7 @@ migrate_api_visit_log_table()
 
 # 创建所有表
 Base.metadata.create_all(bind=engine)
-print("✅ logs.db 数据库表已创建")
+print("[OK] logs.db 数据库表已创建")
 
 
 # FastAPI 依赖

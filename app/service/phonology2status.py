@@ -129,7 +129,7 @@ def analyze_characters_from_db(
     if not group_fields:
         group_fields = default_grouping.get(feature_type)
         if not group_fields:
-            raise ValueError(f"❌ 未定義的 feature_type：{feature_type}")
+            raise ValueError(f"[X] 未定義的 feature_type：{feature_type}")
 
     conn = sqlite3.connect(char_db_path)
     placeholders = ','.join(['?'] * len(char_list))
@@ -219,17 +219,17 @@ def pho2sta(locations, regions, features, status_inputs,
     for idx, feature in enumerate(features):
         user_input = status_inputs[idx] if idx < len(status_inputs) else ""
 
-        # ✅ 最開始就做簡體轉繁體轉換
+        # [OK] 最開始就做簡體轉繁體轉換
         user_input = convert_simplified_to_traditional(user_input)
 
         # 嘗試匹配欄位
         user_columns = [col for col in HIERARCHY_COLUMNS if col in user_input]
 
         if user_columns:
-            print(f"✅ 特徵【{feature}】使用分組欄位：{user_columns}")
+            print(f"[OK] 特徵【{feature}】使用分組欄位：{user_columns}")
             grouping_columns_map[feature] = user_columns
         else:
-            print(f"❌ 輸入「{user_input}」未匹配任何欄位，特徵【{feature}】將使用預設分組欄位")
+            print(f"[X] 輸入「{user_input}」未匹配任何欄位，特徵【{feature}】將使用預設分組欄位")
             grouping_columns_map[feature] = None
 
     locations_new = query_dialect_abbreviations(regions, locations,region_mode=region_mode)
@@ -278,7 +278,7 @@ def pho2sta(locations, regions, features, status_inputs,
                     # print(f"     📌 過濾特徵值：{[fv for fv, _ in filtered_items]}")
                     feature_items = filtered_items
                 else:
-                    print("     ⚠️ 無匹配特徵值，fallback 使用全部")
+                    print("     [!] 無匹配特徵值，fallback 使用全部")
 
             for feature_value, data in feature_items:
                 sub_df = data["sub_df"]
@@ -286,7 +286,7 @@ def pho2sta(locations, regions, features, status_inputs,
                 # print(f"     ➤ 運算特徵值：{feature_value}（字數：{len(loc_chars)}）")
 
                 if not loc_chars:
-                    # print("        ⚠️ 該特徵值在此地點無資料，略過")
+                    # print("        [!] 該特徵值在此地點無資料，略過")
                     continue
 
                 result = analyze_characters_from_db(
@@ -306,68 +306,51 @@ def pho2sta(locations, regions, features, status_inputs,
 
 def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
     """
-    优化版本：分别在 SQL 查询中统计每个地点的聲母、韻母、聲調特征的值和字数。
-    每个特征（聲母、韻母、聲調）单独查询，不互相干扰。
+    优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
+    显著提升查询性能（3次扫描 → 1次扫描）
     """
     result = defaultdict(lambda: defaultdict(dict))
 
-    # 为每个特征分别进行查询，统计每个地点的聲母、韻母、聲調字数
-
-    # 1. 查询聲母
-    query_shengmu = f"""
-    SELECT 簡稱, 聲母, COUNT(DISTINCT 漢字) AS 字數
-    FROM {table}
-    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
-    GROUP BY 簡稱, 聲母
-    """
-
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute(query_shengmu, locations)
 
-    # 处理聲母查询结果
-    rows = cursor.fetchall()
-    for row in rows:
-        loc = row[0]
-        shengmu = row[1]
-        count = row[2]
-        result[loc]['聲母'][shengmu] = count
+    # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
+    placeholders = ','.join(['?' for _ in locations])
 
-    # 2. 查询韻母
-    query_yunmu = f"""
-    SELECT 簡稱, 韻母, COUNT(DISTINCT 漢字) AS 字數
-    FROM {table}
-    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
-    GROUP BY 簡稱, 韻母
+    query_combined = f"""
+        SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
+        FROM {table}
+        WHERE 簡稱 IN ({placeholders})
+        GROUP BY 簡稱, 聲母
+
+        UNION ALL
+
+        SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
+        FROM {table}
+        WHERE 簡稱 IN ({placeholders})
+        GROUP BY 簡稱, 韻母
+
+        UNION ALL
+
+        SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
+        FROM {table}
+        WHERE 簡稱 IN ({placeholders})
+        GROUP BY 簡稱, 聲調
     """
 
-    cursor.execute(query_yunmu, locations)
+    # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
+    cursor.execute(query_combined, locations * 3)
 
-    # 处理韻母查询结果
-    rows = cursor.fetchall()
-    for row in rows:
+    # 处理所有结果，按特征类型分离
+    all_rows = cursor.fetchall()
+    for row in all_rows:
         loc = row[0]
-        yunmu = row[1]
-        count = row[2]
-        result[loc]['韻母'][yunmu] = count
+        feature_type = row[1]
+        value = row[2]
+        count = row[3]
 
-    # 3. 查询聲調
-    query_shengdiao = f"""
-    SELECT 簡稱, 聲調, COUNT(DISTINCT 漢字) AS 字數
-    FROM {table}
-    WHERE 簡稱 IN ({','.join(['?' for _ in locations])})
-    GROUP BY 簡稱, 聲調
-    """
-
-    cursor.execute(query_shengdiao, locations)
-
-    # 处理聲調查询结果
-    rows = cursor.fetchall()
-    for row in rows:
-        loc = row[0]
-        shengdiao = row[1]
-        count = row[2]
-        result[loc]['聲調'][shengdiao] = count
+        # 根据特征类型填充结果字典
+        result[loc][feature_type][value] = count
 
     conn.close()
 
@@ -381,8 +364,8 @@ def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
 #     locations = ['高州泗水 高州根子']
 #     # features = ['聲母', '韻母', '聲調']
 #     features = ['韻母']
-#     # group_inputs = ['組', '攝等', '清濁調']  # ✅ 用戶指定分組欄位
-#     group_inputs = ['攝']  # ✅ 用戶指定分組欄位
+#     # group_inputs = ['組', '攝等', '清濁調']  # [OK] 用戶指定分組欄位
+#     group_inputs = ['攝']  # [OK] 用戶指定分組欄位
 #     pho_value = ['l', 'm', 'an']
 #     regions = ['封綏', '儋州']
 #     results = pho2sta(locations, regions, features, group_inputs, pho_value)

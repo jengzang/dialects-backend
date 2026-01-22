@@ -19,7 +19,7 @@ def handle_form_deletion(form_data: dict, user: User, db: Session):
         created_at = created_at.replace('T', ' ')
 
     if not location or not feature or not value:
-        return {"success": False, "message": "⚠️ 程序出錯，地點/特徵/值存在空值"}
+        return {"success": False, "message": "[!] 程序出錯，地點/特徵/值存在空值"}
 
     # 查詢符合條件的紀錄
     records_to_delete = db.query(Information).filter(
@@ -31,7 +31,7 @@ def handle_form_deletion(form_data: dict, user: User, db: Session):
     ).all()
 
     if not records_to_delete:
-        return {"success": False, "message": "❌ 找不到符合條件的資料以刪除"}
+        return {"success": False, "message": "[X] 找不到符合條件的資料以刪除"}
 
     def model_to_dict_non_empty(obj):
         return {
@@ -60,6 +60,6 @@ def handle_form_deletion(form_data: dict, user: User, db: Session):
 
     return {
         "success": True,
-        "message": f"🗑️ 詳細信息：\n{deleted_records_str}"
+        "message": f"[DEL] 詳細信息：\n{deleted_records_str}"
     }
 

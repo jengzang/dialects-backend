@@ -39,7 +39,7 @@ async def generate_combinations_and_query(
     cache_key = generate_cache_key(path_strings, column, combine_query)
 
     # 3. 【嘗試讀取緩存】
-    # ✅ 加上 await
+    # [OK] 加上 await
     cached_result = await get_cache(cache_key)
     if cached_result is not None:
         return cached_result
@@ -51,7 +51,7 @@ async def generate_combinations_and_query(
     result = process_chars_status(path_strings, column, combine_query)
 
     if result:
-        # ✅ 加上 await
+        # [OK] 加上 await
         await set_cache(cache_key, result, expire_seconds=600)
 
     return result
@@ -62,7 +62,7 @@ async def analyze_zhonggu(
         request: Request,
         payload: ZhongGuAnalysis,
         db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
 ):
     """
     全新的接口：
@@ -117,7 +117,7 @@ async def analyze_yinwei(
         request: Request,
         payload: YinWeiAnalysis,
         db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
 ):
     ip_address = request.client.host  # 默认是请求的客户端 IP 地址
     check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問

@@ -1,6 +1,6 @@
 # routes/form_submit.py
 """
-📦 路由模塊：處理 /api/submit_form 提交用戶填寫的語音資料。
+[PKG] 路由模塊：處理 /api/submit_form 提交用戶填寫的語音資料。
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends
@@ -52,7 +52,7 @@ async def submit_form(
             raise HTTPException(status_code=422, detail=result.get("message"))
         return result
     except HTTPException:
-        raise  # ✅ 让 HTTPException 保持原样传递
+        raise  # [OK] 让 HTTPException 保持原样传递
     except Exception as e:
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")
@@ -107,7 +107,7 @@ async def delete_form(
             raise HTTPException(status_code=422, detail=result.get("message"))
         return result
     except HTTPException:
-        raise  # ✅ 让 HTTPException 保持原样传递
+        raise  # [OK] 让 HTTPException 保持原样传递
     except Exception as e:
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")

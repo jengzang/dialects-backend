@@ -1,6 +1,6 @@
 # app/static_utils.py
 """
-📦 靜態資源工具模塊：處理 get_resource_path，用於靜態文件路徑兼容 PyInstaller。
+[PKG] 靜態資源工具模塊：處理 get_resource_path，用於靜態文件路徑兼容 PyInstaller。
 """
 
 import os

@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import and_
+from sqlalchemy import and_, text
 
 from app.logs.database import SessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
@@ -32,7 +32,7 @@ def cleanup_old_logs():
     - api_visit_log 每日统计（保留总计，date=NULL）
     - api_statistics 每日统计（保留总计）
     """
-    logger.info("🗑️ 开始清理旧日志...")
+    logger.info("[DEL] 开始清理旧日志...")
     db = SessionLocal()
 
     try:
@@ -61,10 +61,10 @@ def cleanup_old_logs():
 
         db.commit()
 
-        logger.info(f"✅ 清理完成: 删除了 {deleted_keywords} 条关键词日志, {deleted_visits} 条访问统计, {deleted_stats} 条每日统计")
+        logger.info(f"[OK] 清理完成: 删除了 {deleted_keywords} 条关键词日志, {deleted_visits} 条访问统计, {deleted_stats} 条每日统计")
 
     except Exception as e:
-        logger.error(f"❌ 清理旧日志失败: {e}")
+        logger.error(f"[X] 清理旧日志失败: {e}")
         db.rollback()
     finally:
         db.close()
@@ -78,7 +78,7 @@ def aggregate_keyword_statistics():
     - keyword_total: 总计统计
     - keyword_daily: 最近 7 天的每日统计
     """
-    logger.info("📊 开始聚合关键词统计...")
+    logger.info("[DB] 开始聚合关键词统计...")
     db = SessionLocal()
 
     try:
@@ -88,7 +88,7 @@ def aggregate_keyword_statistics():
         ).delete()
 
         # 聚合总计
-        db.execute("""
+        db.execute(text("""
             INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
             SELECT
                 'keyword_total' as stat_type,
@@ -99,11 +99,11 @@ def aggregate_keyword_statistics():
                 datetime('now') as updated_at
             FROM api_keyword_log
             GROUP BY field, value
-        """)
+        """))
 
         # 聚合最近 7 天的每日统计
         seven_days_ago = datetime.now() - timedelta(days=7)
-        db.execute("""
+        db.execute(text("""
             INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
             SELECT
                 'keyword_daily' as stat_type,
@@ -115,7 +115,7 @@ def aggregate_keyword_statistics():
             FROM api_keyword_log
             WHERE timestamp >= :cutoff_date
             GROUP BY DATE(timestamp), field, value
-        """, {"cutoff_date": seven_days_ago})
+        """), {"cutoff_date": seven_days_ago})
 
         db.commit()
 
@@ -129,10 +129,10 @@ def aggregate_keyword_statistics():
             ApiStatistics.stat_type == "keyword_daily"
         ).scalar()
 
-        logger.info(f"✅ 聚合完成: 总计 {keyword_total} 条, 每日 {keyword_daily} 条")
+        logger.info(f"[OK] 聚合完成: 总计 {keyword_total} 条, 每日 {keyword_daily} 条")
 
     except Exception as e:
-        logger.error(f"❌ 聚合统计失败: {e}")
+        logger.error(f"[X] 聚合统计失败: {e}")
         db.rollback()
     finally:
         db.close()
@@ -159,7 +159,7 @@ def start_scheduler():
     )
 
     scheduler.start()
-    logger.info("✅ 定时任务调度器已启动")
+    logger.info("[OK] 定时任务调度器已启动")
     logger.info("   - 清理旧日志: 每周日 03:00")
     logger.info("   - 聚合统计: 每小时第 5 分钟")
 

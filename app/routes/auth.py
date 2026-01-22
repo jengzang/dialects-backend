@@ -47,13 +47,13 @@ def register(user: schemas.UserCreate, request: Request, db: Session = Depends(g
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = utils.extract_client_ip(request)
 
-    # ✅ 檢查 IP 是否超過登入次數限制
+    # [OK] 檢查 IP 是否超過登入次數限制
     check_login_rate_limit(db, client_ip)
     agent = request.headers.get("user-agent", "")
     try:
         user = service.authenticate_user(db, form_data.username, form_data.password, login_ip=client_ip)
     except PermissionError:
-        # ❌ 驗證失敗也記 log
+        # [X] 驗證失敗也記 log
         db.add(ApiUsageLog(
             user_id=None,
             path="/login",
@@ -78,7 +78,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # ✅ 成功登入後也寫入一筆記錄
+    # [OK] 成功登入後也寫入一筆記錄
     db.add(ApiUsageLog(
         user_id=user.id,
         path="/login",

@@ -1,9 +1,10 @@
 import os
 import sqlite3
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
-from app.schemas.sql import MutationParams, QueryParams, DistinctQueryRequest
+from app.schemas.sql import MutationParams, QueryParams, DistinctQueryRequest, BatchMutationParams
+from app.auth.dependencies import get_current_admin_user
 from common.config import DB_MAPPING
 
 router = APIRouter()
@@ -29,7 +30,7 @@ async def query_table(params: QueryParams):
     cursor = conn.cursor()
 
     # 1. 基础 SQL
-    sql = f"SELECT * FROM {params.table_name}"
+    sql = f"SELECT rowid, * FROM {params.table_name}"
     where_clauses = []
     values = []
 
@@ -214,7 +215,20 @@ async def get_distinct_values(req: DistinctQueryRequest):
 
 
 @router.post("/mutate")
-async def mutate_table(params: MutationParams):
+async def mutate_table(
+    params: MutationParams,
+    current_user=Depends(get_current_admin_user)
+):
+    """
+    单个记录操作（创建/更新/删除）- 需要管理员权限
+
+    支持的操作：
+    - create: 插入单条记录
+    - update: 更新单条记录（基于主键）
+    - delete: 删除单条记录（基于主键）
+
+    权限要求：管理员
+    """
     # 从 params 中取出 db_key 传进去
     conn = get_db_connection(params.db_key)
     cursor = conn.cursor()
@@ -237,10 +251,171 @@ async def mutate_table(params: MutationParams):
             cursor.execute(sql, (params.pk_value,))
 
         conn.commit()
-        return {"status": "success"}
+        return {"status": "success", "message": f"单个{params.action}操作成功"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/batch-mutate")
+async def batch_mutate_table(
+    params: BatchMutationParams,
+    current_user=Depends(get_current_admin_user)
+):
+    """
+    批量操作（批量创建/更新/删除）- 需要管理员权限
+
+    支持的操作：
+    - batch_create: 批量插入多条记录
+    - batch_update: 批量更新多条记录（每条记录必须包含主键）
+    - batch_delete: 批量删除多条记录（通过主键列表）
+
+    权限要求：管理员
+
+    示例请求：
+
+    1. 批量创建：
+    {
+        "db_key": "dialects",
+        "table_name": "dialects",
+        "action": "batch_create",
+        "create_data": [
+            {"漢字": "我", "簡稱": "北京", "聲母": "w"},
+            {"漢字": "你", "簡稱": "北京", "聲母": "n"}
+        ]
+    }
+
+    2. 批量更新：
+    {
+        "db_key": "dialects",
+        "table_name": "dialects",
+        "action": "batch_update",
+        "pk_column": "id",
+        "update_data": [
+            {"id": 1, "漢字": "我", "聲母": "w"},
+            {"id": 2, "漢字": "你", "聲母": "n"}
+        ]
+    }
+
+    3. 批量删除：
+    {
+        "db_key": "dialects",
+        "table_name": "dialects",
+        "action": "batch_delete",
+        "pk_column": "id",
+        "delete_ids": [1, 2, 3, 4, 5]
+    }
+    """
+    conn = get_db_connection(params.db_key)
+    cursor = conn.cursor()
+
+    success_count = 0
+    error_count = 0
+    errors = []
+
+    try:
+        if params.action == "batch_create":
+            if not params.create_data:
+                raise HTTPException(status_code=400, detail="create_data 不能为空")
+
+            # 获取列名（假设所有记录的列相同）
+            first_record = params.create_data[0]
+            cols = list(first_record.keys())
+            placeholders = ",".join(["?"] * len(cols))
+            sql = f"INSERT INTO {params.table_name} ({','.join(cols)}) VALUES ({placeholders})"
+
+            # 批量插入
+            for i, record in enumerate(params.create_data):
+                try:
+                    values = [record.get(col) for col in cols]
+                    cursor.execute(sql, values)
+                    success_count += 1
+                except Exception as e:
+                    error_count += 1
+                    errors.append(f"第{i+1}条记录失败: {str(e)}")
+
+        elif params.action == "batch_update":
+            if not params.update_data:
+                raise HTTPException(status_code=400, detail="update_data 不能为空")
+
+            # 批量更新
+            for i, record in enumerate(params.update_data):
+                try:
+                    if params.pk_column not in record:
+                        raise ValueError(f"记录缺少主键字段 '{params.pk_column}'")
+
+                    pk_value = record[params.pk_column]
+                    update_fields = {k: v for k, v in record.items() if k != params.pk_column}
+
+                    if not update_fields:
+                        raise ValueError("没有需要更新的字段")
+
+                    set_clause = ", ".join([f"{k} = ?" for k in update_fields.keys()])
+                    sql = f"UPDATE {params.table_name} SET {set_clause} WHERE {params.pk_column} = ?"
+
+                    values = list(update_fields.values())
+                    values.append(pk_value)
+
+                    cursor.execute(sql, values)
+
+                    if cursor.rowcount > 0:
+                        success_count += 1
+                    else:
+                        error_count += 1
+                        errors.append(f"第{i+1}条记录未找到 (主键={pk_value})")
+
+                except Exception as e:
+                    error_count += 1
+                    errors.append(f"第{i+1}条记录失败: {str(e)}")
+
+        elif params.action == "batch_delete":
+            if not params.delete_ids:
+                raise HTTPException(status_code=400, detail="delete_ids 不能为空")
+
+            # 批量删除
+            placeholders = ",".join(["?"] * len(params.delete_ids))
+            sql = f"DELETE FROM {params.table_name} WHERE {params.pk_column} IN ({placeholders})"
+
+            try:
+                cursor.execute(sql, params.delete_ids)
+                success_count = cursor.rowcount
+
+                # 检查是否所有ID都被删除
+                if success_count < len(params.delete_ids):
+                    error_count = len(params.delete_ids) - success_count
+                    errors.append(f"有 {error_count} 条记录未找到或已删除")
+
+            except Exception as e:
+                error_count = len(params.delete_ids)
+                errors.append(f"批量删除失败: {str(e)}")
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的批量操作: {params.action}。支持的操作: batch_create, batch_update, batch_delete"
+            )
+
+        # 提交事务
+        conn.commit()
+
+        return {
+            "status": "completed",
+            "action": params.action,
+            "success_count": success_count,
+            "error_count": error_count,
+            "total": success_count + error_count,
+            "errors": errors if errors else None,
+            "message": f"批量操作完成: 成功 {success_count} 条, 失败 {error_count} 条"
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"批量操作失败: {str(e)}")
     finally:
         conn.close()
 

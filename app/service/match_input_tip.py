@@ -104,7 +104,7 @@ def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
         # 保留原來的結構，並加上 level
         result[region] = {"partitions": result[region],
                           "level": level,
-                          "hasChildren": bool(result[region])  # ✅ 判斷是否有子分區
+                          "hasChildren": bool(result[region])  # [OK] 判斷是否有子分區
         }
 
     return result
@@ -318,7 +318,7 @@ def match_locations_batch(input_string: str, filter_valid_abbrs_only=True, exact
                           , db: Session = None, user=None):
     input_string = input_string.strip()
     if not input_string:
-        # print("⚠️ 輸入為空，無法處理。")
+        # print("[!] 輸入為空，無法處理。")
         return []
 
     # 以多種分隔符切分
@@ -352,7 +352,7 @@ def match_locations_batch(input_string: str, filter_valid_abbrs_only=True, exact
                 else:
                     results.append(res)
             except Exception as e:
-                print(f"   ❌ 發生錯誤：{e}")
+                print(f"   [X] 發生錯誤：{e}")
                 results.append((False, 0, [], [], [], [], [], []))
 
     return results

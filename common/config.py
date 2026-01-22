@@ -52,7 +52,7 @@ MULCODECHAR_PATH = os.path.join(BASE_DIR, "data", "dependency", "mulcodechar.dt"
 
 # api_logs路徑依賴
 log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)  # ✅ 主动创建 logs 目录
+os.makedirs(log_dir, exist_ok=True)  # [OK] 主动创建 logs 目录
 KEYWORD_LOG_FILE = os.path.join(log_dir, "api_keywords_log.txt")
 SUMMARY_FILE = os.path.join(log_dir, "api_keywords_summary.txt")
 API_USAGE_FILE = os.path.join(log_dir, "api_usage_stats.txt")

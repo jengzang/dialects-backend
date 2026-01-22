@@ -51,20 +51,20 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     matches = re.findall(pattern, path_string)
 
     if not matches:
-        print("❌ 無法解析輸入語法。請使用 [值]{欄位} 的格式")
+        print("[X] 無法解析輸入語法。請使用 [值]{欄位} 的格式")
         return [], []
 
-    # print(f"🔍 解析出的條件：{matches}")
+    # print(f"[SEARCH] 解析出的條件：{matches}")
 
     filter_columns = [col for _, col in matches]
     for col in filter_columns:
         if col not in HIERARCHY_COLUMNS:
-            print(f"⚠️ 欄位「{col}」不在允許的層級欄位中")
+            print(f"[!] 欄位「{col}」不在允許的層級欄位中")
             return [], []
 
     # 讀取資料
     conn = sqlite3.connect(db_path)
-    # --- 🚀 優化開始：動態組裝更高效的 SQL ---
+    # --- [RUN] 優化開始：動態組裝更高效的 SQL ---
     conditions = []
     params = []
 
@@ -83,9 +83,9 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     # 只執行一次查詢
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
-    # --- 🚀 優化結束 ---
+    # --- [RUN] 優化結束 ---
 
-    # ⚠️ 原本這裡的 Python for 迴圈篩選是多餘的，因為 SQL 已經做完了，直接移除。
+    # [!] 原本這裡的 Python for 迴圈篩選是多餘的，因為 SQL 已經做完了，直接移除。
     # filtered_df 就是 df
     filtered_df = df
 
@@ -94,11 +94,11 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
 
     # 提取漢字
     if "漢字" not in filtered_df.columns:
-        print("❌ 缺少「漢字」欄")
+        print("[X] 缺少「漢字」欄")
         return [], []
 
     characters = filtered_df["漢字"].dropna().tolist()
-    # print(f"\n🎯 符合條件的漢字共 {len(characters)} 個")
+    # print(f"\n[->] 符合條件的漢字共 {len(characters)} 個")
 
     # 多地位過濾
     multi_chars = []
@@ -116,7 +116,7 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
                 multi_chars.append(word)
         # print(f"🟠 經過比對後確定有多地位的漢字：{len(multi_chars)} 字")
     else:
-        print("⚠️ 無「多地位標記」欄")
+        print("[!] 無「多地位標記」欄")
 
     return characters, multi_chars
 
@@ -134,7 +134,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     回傳：
     - 每筆統計結果以字典方式輸出，最終轉為 DataFrame
     """
-    # print(f"📦 連接資料庫：{db_path}")
+    # print(f"[PKG] 連接資料庫：{db_path}")
     conn = sqlite3.connect(db_path)
 
     # 1. 只選擇需要的欄位並添加過濾條件，減少資料庫加載量
@@ -146,16 +146,16 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     """
     try:
         df = pd.read_sql_query(query, conn)
-        print(f"✅ 查詢結果：載入 {len(df)} 條資料")
+        print(f"[OK] 查詢結果：載入 {len(df)} 條資料")
     except Exception as e:
-        print(f"❌ 查詢失敗：{e}")
+        print(f"[X] 查詢失敗：{e}")
     conn.close()
 
     # 2. 為每個地點分別查詢多音字資料，並構建多音字字典
     poly_dicts = {}  # 存儲每個地點的多音字字典
     for loc in locations:
         # 針對每個地點進行查詢
-        # print(f"🔍 查詢地點：{loc}")
+        # print(f"[SEARCH] 查詢地點：{loc}")
         conn = sqlite3.connect(db_path)
         try:
             # 查詢該地點的多音字資料
@@ -167,23 +167,23 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
             AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
             """
             poly_data = pd.read_sql_query(query, conn)
-            # print(f"✅ 地點 {loc} 的多音字資料載入完成，共 {len(poly_data)} 條")
+            # print(f"[OK] 地點 {loc} 的多音字資料載入完成，共 {len(poly_data)} 條")
         except Exception as e:
-            print(f"❌ 查詢地點 {loc} 的多音字資料失敗：{e}")
+            print(f"[X] 查詢地點 {loc} 的多音字資料失敗：{e}")
         conn.close()
 
         # 構建該地點的多音字字典
         poly_dict = poly_data.groupby("漢字")["音節"].apply(lambda x: '|'.join(x)).to_dict()
         poly_dicts[loc] = poly_dict
-        # print(f"✅ 地點 {loc} 的多音字字典建構完成，共 {len(poly_dict)} 條")
+        # print(f"[OK] 地點 {loc} 的多音字字典建構完成，共 {len(poly_dict)} 條")
 
     # 3. 開始處理資料
     results = []
 
-    # print("🔍 開始處理地點和特徵...")
+    # print("[SEARCH] 開始處理地點和特徵...")
 
     for loc in locations:
-        # print(f"\n🔍 處理地點：{loc}")
+        # print(f"\n[SEARCH] 處理地點：{loc}")
         loc_df = df[df["簡稱"] == loc]
         # print(f"   - 該地資料筆數：{len(loc_df)}")
 
@@ -191,7 +191,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         # print(f"   - 匹配輸入漢字筆數：{len(loc_chars_df)} / {len(char_list)}")
 
         if loc_chars_df.empty:
-            print("   ⚠️ 無符合漢字，略過此地點")
+            print("   [!] 無符合漢字，略過此地點")
             results.append({
                 "地點": loc,
                 "特徵類別": "無",
@@ -200,7 +200,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 "字數": 0,
                 "佔比": 0.0,
                 "對應字": [],
-                "多音字詳情": "❌ 無符合漢字"
+                "多音字詳情": "[X] 無符合漢字"
             })
             continue
 
@@ -236,7 +236,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                     "多音字詳情": "; ".join(poly_details) if poly_details else ""
                 })
 
-    # print("\n✅ 分析完成！")
+    # print("\n[OK] 分析完成！")
 
     # 返回結果
     return pd.DataFrame(results)
@@ -297,7 +297,7 @@ def run_status(
 
             if not isinstance(batch_result, list):
                 results_summary.append((s, False, False))
-                print(f"  ❌ 無法處理（非 list 結果）：{s}")
+                print(f"  [X] 無法處理（非 list 結果）：{s}")
                 continue
 
             has_error = any(
@@ -333,7 +333,7 @@ def run_status(
                 results_summary.append((s, False, False, []))
 
             if has_error:
-                print(f"  ⚠️ 部分片段轉換失敗：{s}")
+                print(f"  [!] 部分片段轉換失敗：{s}")
 
         elif " " in s:
             # ➤ 不含破折號但有空格：多段合併處理
@@ -376,7 +376,7 @@ def run_status(
                 results_summary.append((s, False, False, []))
 
             if has_error:
-                print(f"  ⚠️ 部分片段轉換失敗：{s}")
+                print(f"  [!] 部分片段轉換失敗：{s}")
 
         else:
             # ➤ 單段處理（無破折號、無空格）
@@ -384,7 +384,7 @@ def run_status(
 
             if not isinstance(batch_result, list):
                 results_summary.append((s, False, False))
-                print(f"  ❌ 無法處理（非 list 結果）：{s}")
+                print(f"  [X] 無法處理（非 list 結果）：{s}")
                 continue
 
             has_error = any(
@@ -420,7 +420,7 @@ def run_status(
                 results_summary.append((s, False, False, []))
 
             if has_error:
-                print(f"  ⚠️ 部分片段轉換失敗：{s}")
+                print(f"  [!] 部分片段轉換失敗：{s}")
 
     return results_summary
 
@@ -449,7 +449,7 @@ def sta2pho(
     # print(f"\n📍 完全匹配地點簡稱：{unique_abbrs}")
 
     if not test_inputs:
-        print("ℹ️ inputs 為空，自動推導條件字串...")
+        print("[i] inputs 為空，自動推導條件字串...")
         conn = sqlite3.connect(db_path_char)
         df_char = pd.read_sql_query("SELECT * FROM characters", conn)
         conn.close()
@@ -477,12 +477,12 @@ def sta2pho(
                         auto_features.append("聲調")
 
             else:
-                print(f"⚠️ 未支持的特徵類型：{feat}，略過")
+                print(f"[!] 未支持的特徵類型：{feat}，略過")
 
         test_inputs = auto_inputs
         features = auto_features
         # print(test_inputs)
-        # print(f"🔧 產生輸入條件 {len(test_inputs)} 筆 ➤ 前5項：{test_inputs[:5]}")
+        # print(f"[FIX] 產生輸入條件 {len(test_inputs)} 筆 ➤ 前5項：{test_inputs[:5]}")
 
     all_results = []
 
@@ -493,7 +493,7 @@ def sta2pho(
 
             summary = run_status([user_input], db_path=db_path_char)
             # if not summary[1]:  # 这里检查 summary 中第二个元素
-            #     raise HTTPException(status_code=404, detail="❌ 輸入的中古地位不存在")
+            #     raise HTTPException(status_code=404, detail="[X] 輸入的中古地位不存在")
 
             for path_input, chars, multi, path_details in summary:
                 if chars is False:
@@ -507,7 +507,7 @@ def sta2pho(
                     if not path_chars:
                         continue
 
-                    # print(f"\n🔧 開始分析『{path_str}』的特徵分布 ({features[0]})...\n")
+                    # print(f"\n[FIX] 開始分析『{path_str}』的特徵分布 ({features[0]})...\n")
                     # simplified_input = ''.join(re.findall(r'\[(.*?)\]', path_str))
                     df = query_by_status(path_chars, unique_abbrs, [features[0]], path_str,
                                          db_path=db_path_dialect)
@@ -520,7 +520,7 @@ def sta2pho(
 
             summary = run_status([user_input], db_path=db_path_char)
             # if not summary[1]:  # 这里检查 summary 中第二个元素
-            #     raise HTTPException(status_code=404, detail="❌ 輸入的中古地位不存在")
+            #     raise HTTPException(status_code=404, detail="[X] 輸入的中古地位不存在")
 
             for path_input, chars, multi, path_details in summary:
                 if chars is False:
@@ -534,7 +534,7 @@ def sta2pho(
                     if not path_chars:
                         continue
 
-                    # print(f"\n🔧 開始分析『{path_str}』的特徵分布 ({feature})...\n")
+                    # print(f"\n[FIX] 開始分析『{path_str}』的特徵分布 ({feature})...\n")
                     # simplified_input = ''.join(re.findall(r'\[(.*?)\]', path_str))
                     df = query_by_status(path_chars, unique_abbrs, [feature], path_str, db_path=db_path_dialect)
 
@@ -558,7 +558,7 @@ def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
             unique_values[col] = values
         else:
             unique_values[col] = []
-            print(f"⚠️ 欄位「{col}」不存在")
+            print(f"[!] 欄位「{col}」不存在")
 
     return unique_values
 

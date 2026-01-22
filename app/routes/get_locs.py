@@ -1,5 +1,5 @@
 """
-📦 路由模塊：處理 /api/get_locs 查詢地點。
+[PKG] 路由模塊：處理 /api/get_locs 查詢地點。
 """
 
 from fastapi import APIRouter, Request, Query, Depends
@@ -21,7 +21,7 @@ async def get_all_locs(
         request: Request,
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，yindian 或 map"),  # ✅ 加上這行
+        region_mode: str = Query("yindian", description="分區模式，yindian 或 map"),  # [OK] 加上這行
         user: Optional[User] = Depends(get_current_user)
 ):
     """
@@ -41,7 +41,7 @@ async def get_all_locs(
             extracted = [res[0][0] for res in matched if res[0]]
             locations_processed.extend(extracted)
 
-        # ✅ 加入 region_mode 傳入查詢函數
+        # [OK] 加入 region_mode 傳入查詢函數
         result = query_dialect_abbreviations(
             region_input=regions,
             location_sequence=locations_processed,

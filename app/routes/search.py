@@ -1,5 +1,5 @@
 """
-📦 路由模塊：處理 /api/search_chars 與 /api/search_tones 查詢音節與聲調。
+[PKG] 路由模塊：處理 /api/search_chars 與 /api/search_tones 查詢音節與聲調。
 """
 
 from fastapi import APIRouter, Request, Query, Depends
@@ -24,7 +24,7 @@ async def search_chars(
         chars: List[str] = Query(..., description="要查的漢字序列"),
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),  # ✅ 加入這一行
+        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),  # [OK] 加入這一行
         db: Session = Depends(get_db),
         user: Optional[User] = Depends(get_current_user)
 ):
@@ -54,7 +54,7 @@ async def search_chars(
             locations=locations_processed,
             regions=regions,
             db_path=db_path,
-            region_mode=region_mode  # ✅ 傳入參數
+            region_mode=region_mode  # [OK] 傳入參數
         )
         return {"result": result}
     finally:
@@ -78,7 +78,7 @@ async def search_tones_o(
         request: Request,
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),  # ✅ 加入這一行
+        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),  # [OK] 加入這一行
         db: Session = Depends(get_db),
         user: Optional[User] = Depends(get_current_user)
 ):
@@ -105,7 +105,7 @@ async def search_tones_o(
             locations=locations_processed,
             regions=regions,
             db_path=query_db,
-            region_mode=region_mode  # ✅ 傳入參數
+            region_mode=region_mode  # [OK] 傳入參數
         )
         return {"tones_result": result}
     finally:

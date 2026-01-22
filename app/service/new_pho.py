@@ -94,7 +94,7 @@ def _run_dialect_analysis_sync(
 
         # 3. 針對每個特徵調用底層的 query_by_status
         for feature in features:
-            # ✅ 這裡直接調用你原本的底層函數，完全不需要改動它
+            # [OK] 這裡直接調用你原本的底層函數，完全不需要改動它
             df = query_by_status(
                 char_list=path_chars,
                 locations=unique_abbrs,
@@ -146,20 +146,20 @@ def generate_cache_key(path_strings: Any, column: Any, combine_query: bool) -> s
 # 緩存讀取 (Async)
 async def get_cache(key: str) -> Optional[List[Dict]]:
     try:
-        # ✅ 加上 await
+        # [OK] 加上 await
         cached_val = await redis_client.get(key)
         if cached_val:
             print(f"🔥 [Redis Cache] Hit: {key}")
             return json.loads(cached_val)
     except Exception as e:
-        print(f"❌ Redis Read Error: {e}")
+        print(f"[X] Redis Read Error: {e}")
     return None
 
 # 緩存寫入 (Async)
 async def set_cache(key: str, data: List[Dict], expire_seconds: int = 600):
     try:
-        # ✅ 加上 await
+        # [OK] 加上 await
         await redis_client.set(key, json.dumps(data), ex=expire_seconds)
-        print(f"💾 [Redis Cache] Set: {key}")
+        print(f"[SAVE] [Redis Cache] Set: {key}")
     except Exception as e:
-        print(f"❌ Redis Write Error: {e}")
+        print(f"[X] Redis Write Error: {e}")

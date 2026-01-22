@@ -27,11 +27,11 @@ from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DE
     CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
 
 # === 队列 ===
-# keyword_queue = queue.Queue()  # ❌ 不再使用 txt文件队列
-log_queue = queue.Queue()  # ✅ ApiUsageLog 队列（auth.db）
-keyword_log_queue = queue.Queue()  # ✅ ApiKeywordLog 队列（logs.db）
-statistics_queue = queue.Queue()  # ✅ ApiStatistics 队列（logs.db）
-html_visit_queue = queue.Queue()  # ✅ HTML 页面访问统计队列（logs.db）
+# keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
+log_queue = queue.Queue()  # [OK] ApiUsageLog 队列（auth.db）
+keyword_log_queue = queue.Queue()  # [OK] ApiKeywordLog 队列（logs.db）
+statistics_queue = queue.Queue()  # [OK] ApiStatistics 队列（logs.db）
+html_visit_queue = queue.Queue()  # [OK] HTML 页面访问统计队列（logs.db）
 
 
 # === 关键词日志（写入logs.db） ===
@@ -77,7 +77,7 @@ def keyword_log_writer():
                     db.commit()
                     batch = []
                 except Exception as e:
-                    print(f"❌ 写入关键词日志失败: {e}")
+                    print(f"[X] 写入关键词日志失败: {e}")
                     db.rollback()
                 finally:
                     db.close()
@@ -91,12 +91,12 @@ def keyword_log_writer():
                     db.commit()
                     batch = []
                 except Exception as e:
-                    print(f"❌ 写入关键词日志失败: {e}")
+                    print(f"[X] 写入关键词日志失败: {e}")
                     db.rollback()
                 finally:
                     db.close()
         except Exception as e:
-            print(f"❌ 关键词日志线程错误: {e}")
+            print(f"[X] 关键词日志线程错误: {e}")
 
     # 线程结束前，写入剩余数据
     if batch:
@@ -105,7 +105,7 @@ def keyword_log_writer():
             db.bulk_save_objects(batch)
             db.commit()
         except Exception as e:
-            print(f"❌ 写入关键词日志失败: {e}")
+            print(f"[X] 写入关键词日志失败: {e}")
             db.rollback()
         finally:
             db.close()
@@ -134,7 +134,7 @@ def statistics_writer():
 
                 db.commit()
             except Exception as e:
-                print(f"❌ 更新统计失败: {e}")
+                print(f"[X] 更新统计失败: {e}")
                 db.rollback()
             finally:
                 db.close()
@@ -142,7 +142,7 @@ def statistics_writer():
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"❌ 统计线程错误: {e}")
+            print(f"[X] 统计线程错误: {e}")
 
 
 def update_statistic(db: Session, stat_type: str, date: datetime, category: str, item: str):
@@ -187,7 +187,7 @@ def update_statistic(db: Session, stat_type: str, date: datetime, category: str,
                 }
             )
     except Exception as e:
-        print(f"❌ 更新统计失败: stat_type={stat_type}, category={category}, item={item}, error={e}")
+        print(f"[X] 更新统计失败: stat_type={stat_type}, category={category}, item={item}, error={e}")
         raise
 
 
@@ -225,7 +225,7 @@ def html_visit_writer():
 
                 db.commit()
             except Exception as e:
-                print(f"❌ 更新 HTML 访问统计失败: {e}")
+                print(f"[X] 更新 HTML 访问统计失败: {e}")
                 db.rollback()
             finally:
                 db.close()
@@ -233,7 +233,7 @@ def html_visit_writer():
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"❌ HTML 访问统计线程错误: {e}")
+            print(f"[X] HTML 访问统计线程错误: {e}")
 
 
 def update_html_visit_stat(db: Session, path: str, date):
@@ -266,7 +266,7 @@ def update_html_visit_stat(db: Session, path: str, date):
                 {"path": path, "date": date}
             )
     except Exception as e:
-        print(f"❌ 更新 HTML 访问统计失败: path={path}, date={date}, error={e}")
+        print(f"[X] 更新 HTML 访问统计失败: path={path}, date={date}, error={e}")
         raise
 
 
@@ -400,36 +400,36 @@ def start_api_logger_workers(db: Session):
         if _workers_started:
             return
 
-        # ✅ 启动关键词日志写入线程（logs.db）
+        # [OK] 启动关键词日志写入线程（logs.db）
         threading.Thread(target=keyword_log_writer, daemon=True).start()
 
-        # ✅ 启动API统计更新线程（logs.db）
+        # [OK] 启动API统计更新线程（logs.db）
         threading.Thread(target=statistics_writer, daemon=True).start()
 
-        # ✅ 启动HTML页面访问统计线程（logs.db）
+        # [OK] 启动HTML页面访问统计线程（logs.db）
         threading.Thread(target=html_visit_writer, daemon=True).start()
 
-        # ✅ 启动 ApiUsageLog 写入线程（auth.db）
+        # [OK] 启动 ApiUsageLog 写入线程（auth.db）
         threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()
 
         _workers_started = True
-        print("✅ API 日志后台线程已启动")
+        print("[OK] API 日志后台线程已启动")
 
 
 def stop_api_logger_workers():
     """停止所有日志后台线程"""
     try:
-        keyword_log_queue.put_nowait(None)  # ✅ 停止关键词日志线程
+        keyword_log_queue.put_nowait(None)  # [OK] 停止关键词日志线程
     except:
         pass
 
     try:
-        statistics_queue.put_nowait(None)  # ✅ 停止统计线程
+        statistics_queue.put_nowait(None)  # [OK] 停止统计线程
     except:
         pass
 
     try:
-        html_visit_queue.put_nowait(None)  # ✅ 停止HTML访问统计线程
+        html_visit_queue.put_nowait(None)  # [OK] 停止HTML访问统计线程
     except:
         pass
 
@@ -450,19 +450,19 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
             return await call_next(request)  # 如果路径不包含任何允许的词，跳过日志记录
 
         # 1. 獲取 DB Session
-        # ⚠️ 警告：直接用 next(get_db()) 會導致連接洩漏！必須手動關閉。
+        # [!] 警告：直接用 next(get_db()) 會導致連接洩漏！必須手動關閉。
         db = next(get_db())
         user = None
 
         try:
-            # 2. ✅ 使用 await 調用異步函數
+            # 2. [OK] 使用 await 調用異步函數
             user = await get_current_user_for_middleware(request, db=db)
         except Exception as e:
             print(f"Middleware Auth Error: {e}")
             # 認證出錯不應影響請求繼續，視為匿名用戶
             user = None
         finally:
-            # 3. ✅ 必須關閉數據庫連接！這非常重要！
+            # 3. [OK] 必須關閉數據庫連接！這非常重要！
             db.close()
 
         # 如果是 GET 请求，计算 URL 和查询参数的大小
@@ -500,7 +500,7 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
         elif user and user.role != "admin" and response_size > MAX_USER_SIZE:
             raise HTTPException(
                 status_code=413,  # Payload Too Large
-                detail="🚫 由於服務器限制，您的返回數據超過限制，請減少請求範圍 🛑💾"
+                detail="🚫 由於服務器限制，您的返回數據超過限制，請減少請求範圍 🛑[SAVE]"
             )
 
         # 计算处理时间

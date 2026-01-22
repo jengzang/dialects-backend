@@ -1,5 +1,5 @@
 """
-🚀 項目啟動腳本：負責啟動 FastAPI，支援開發模式與打包模式。
+[RUN] 項目啟動腳本：負責啟動 FastAPI，支援開發模式與打包模式。
 """
 import socket
 import time

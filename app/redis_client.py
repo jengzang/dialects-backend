@@ -41,18 +41,18 @@ if _RUN_TYPE == 'WEB':
     )
 
     redis_client = redis.Redis(connection_pool=pool)
-    print(f"✅ Redis 已启用 (WEB 模式)")
+    print(f"[OK] Redis 已启用 (WEB 模式)")
 
 else:
     # MINE/EXE 模式：使用空实现
     redis_client = DummyRedis()
-    print(f"⚠️ Redis 已禁用 ({_RUN_TYPE} 模式)")
+    print(f"[!] Redis 已禁用 ({_RUN_TYPE} 模式)")
 
 
 async def close_redis():
     """关闭 Redis 连接，在应用关闭时调用"""
     if _RUN_TYPE == 'WEB':
         await redis_client.close()
-        print("🔒 Redis connection closed.")
+        print("[CLOSE] Redis connection closed.")
     else:
-        print(f"⚠️ Redis 未启用，无需关闭 ({_RUN_TYPE} 模式)")
+        print(f"[!] Redis 未启用，无需关闭 ({_RUN_TYPE} 模式)")

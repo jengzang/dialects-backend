@@ -78,16 +78,16 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
                         # print(f"🧪 嘗試匹配 frag='{frag}' → val='{val}', col='{col}'")
                         if val in COLUMN_VALUES.get(col, []):
                             if col not in used_columns:
-                                # print(f"✅ 命中：[ {val} ]{{ {col} }}")
+                                # print(f"[OK] 命中：[ {val} ]{{ {col} }}")
                                 result.append(f"[{val}]{{{col}}}")
                                 used_columns.add(col)
                                 match_count += 1
                                 i += j
                                 matched = True
-                                break  # ✅ 跳出 col 的排序迴圈
+                                break  # [OK] 跳出 col 的排序迴圈
 
                 if matched:
-                    break  # ✅ 跳出 j 的迴圈（for j in 3,2,1）
+                    break  # [OK] 跳出 j 的迴圈（for j in 3,2,1）
 
                 if frag not in value_to_columns:
                     continue
@@ -141,7 +141,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             elif frag == "清":
                 if "母" in options and "韻" in options:
                     if not voice_used and not rhyme_used:
-                        print("⚠️『清』有歧義（可屬於母或韻），請使用 @清 或 #清 來明確指定。")
+                        print("[!]『清』有歧義（可屬於母或韻），請使用 @清 或 #清 來明確指定。")
                         return False, 0
                     elif voice_used and not rhyme_used:
                         result.append(f"[清]{{韻}}")
@@ -198,7 +198,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             #             break
 
             if not matched:
-                print(f"❌ 無效欄位名：「{suffix}」中斷於「{temp}」")
+                print(f"[X] 無效欄位名：「{suffix}」中斷於「{temp}」")
                 return False, 0
 
         # 優先順序：傳入的順序最優先
@@ -226,7 +226,7 @@ def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, i
             # print(res)
             # res = process(full_input)
             if res[0] is False:
-                print(f"⚠️ 略過非法組合：{full_input}")
+                print(f"[!] 略過非法組合：{full_input}")
                 continue
             all_results.append(res)
 

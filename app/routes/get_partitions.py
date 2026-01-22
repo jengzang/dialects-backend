@@ -1,6 +1,6 @@
 # routes/get_partitions.py
 """
-📦 路由模塊：處理 /api/partitions 調用分區階層。
+[PKG] 路由模塊：處理 /api/partitions 調用分區階層。
 """
 import time
 from typing import Optional

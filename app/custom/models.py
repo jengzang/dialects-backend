@@ -28,4 +28,4 @@ class Information(Base):
 
     # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     # username = Column(String, nullable=False)
-    # user = relationship("User", back_populates="informations")  # ✅ 字串只寫 "User"
+    # user = relationship("User", back_populates="informations")  # [OK] 字串只寫 "User"

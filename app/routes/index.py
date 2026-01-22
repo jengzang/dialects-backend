@@ -1,6 +1,6 @@
 # routes/index.py
 """
-📦 路由模塊：處理根路由 / 返回 index.html 靜態頁面。
+[PKG] 路由模塊：處理根路由 / 返回 index.html 靜態頁面。
 """
 
 from fastapi import APIRouter, Request

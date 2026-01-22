@@ -27,7 +27,7 @@ def user_to_dict(user: models.User) -> dict:
 async def get_current_user(
         request: Request,
         db: Session = Depends(get_db),
-        require_admin: bool = False  # ✅ 預設不要求管理員
+        require_admin: bool = False  # [OK] 預設不要求管理員
 ) -> models.User:
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -70,9 +70,9 @@ async def get_current_user(
             CACHE_EXPIRATION_TIME,
             json.dumps(user_to_dict(user))
         )
-        print(f"💾 緩存寫入成功: user:{username}")
+        print(f"[SAVE] 緩存寫入成功: user:{username}")
     except Exception as e:
-        print(f"❌ 寫入緩存時發生錯誤: {e}")
+        print(f"[X] 寫入緩存時發生錯誤: {e}")
 
     if require_admin and user.role != "admin":
         raise HTTPException(status_code=403, detail="你沒有訪問此資源的權限")
@@ -80,7 +80,7 @@ async def get_current_user(
     return user
 
 
-# ✅ 1. 改為 async def
+# [OK] 1. 改為 async def
 async def get_current_user_for_middleware(request: Request, db: Session):
     # --- 前半部分邏輯不變 ---
     auth_header = request.headers.get("Authorization")
@@ -103,7 +103,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
 
     # --- Redis 部分改為異步 ---
     try:
-        # ✅ 2. 加上 await
+        # [OK] 2. 加上 await
         cached_user = await redis_client.get(f"user:{username}")
         if cached_user:
             cached_data = json.loads(cached_user)
@@ -114,7 +114,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
         # 如果 Redis 掛了，不要崩潰，繼續查數據庫
 
     # --- 數據庫部分 (保持同步阻塞) ---
-    # ⚠️ 注意：這裡 db.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
+    # [!] 注意：這裡 db.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
     user = db.query(models.User).filter(models.User.username == username).first()
 
     if not user:
@@ -122,7 +122,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
 
     # --- 寫回 Redis 改為異步 ---
     try:
-        # ✅ 3. 加上 await
+        # [OK] 3. 加上 await
         await redis_client.setex(
             f"user:{username}",
             CACHE_EXPIRATION_TIME,
@@ -159,7 +159,7 @@ def check_api_usage_limit(
     if user is None:
         if require_login:  # 匿名用户：无法按用户做配额，这里选择放行（如需限制可改为 raise 或基于 IP 做限流）
             # print("1111")
-            raise HTTPException(status_code=401, detail="💡 請先登錄")
+            raise HTTPException(status_code=401, detail="[TIP] 請先登錄")
         # 未登录用户，按 IP 进行限制
         if ip_address is None:
             raise HTTPException(status_code=400, detail="🚫 IP 地址缺失")
@@ -173,7 +173,7 @@ def check_api_usage_limit(
 
         if total_duration >= MAX_IP_USAGE_PER_HOUR:
             raise HTTPException(status_code=429,
-                                detail="❌ API使用已達每小時上限，請稍後再試\n ✨ 小提醒：登入帳號可繼續查詢！🚀")
+                                detail="[X] API使用已達每小時上限，請稍後再試\n [NEW] 小提醒：登入帳號可繼續查詢！[RUN]")
 
         return
     # 2)管理員不受限制
@@ -212,7 +212,7 @@ def check_api_usage_limit(
             wait_seconds = int((released_time - now).total_seconds())
             if wait_seconds > 0:
                 wait_time_str = str(timedelta(seconds=wait_seconds))  # hh:mm:ss
-                # ✅ 直接加 8 小時作為北京時間
+                # [OK] 直接加 8 小時作為北京時間
                 released_time_bj = released_time + timedelta(hours=8)
                 formatted_time_bj = released_time_bj.strftime("%Y-%m-%d %H:%M:%S 北京時間")
 

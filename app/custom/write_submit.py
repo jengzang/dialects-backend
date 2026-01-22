@@ -33,7 +33,7 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     description = form_data.get('description', None)
 
     if not location or not region or not coordinates or not phonology or not feature or not value:
-        return {"success": False, "message": "⚠️ 所有字段（除說明）必須填寫！"}
+        return {"success": False, "message": "[!] 所有字段（除說明）必須填寫！"}
 
 
     max_value = get_max_value(value)
@@ -74,7 +74,7 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     db.add(info)
     db.commit()
 
-    # ✅ 再次查詢用戶目前的總提交數
+    # [OK] 再次查詢用戶目前的總提交數
     total_submitted = db.query(Information).filter(
         Information.user_id == user.id
     ).count()
@@ -86,8 +86,8 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     return {
         "success": True,
         "message": (
-            f"🎉 這是你提交的第 {total_submitted} 份數據！\n"
-            f"💾 本小時已提交 {submitted_this_hour} 份數據。"
+            f"[DONE] 這是你提交的第 {total_submitted} 份數據！\n"
+            f"[SAVE] 本小時已提交 {submitted_this_hour} 份數據。"
         )
     }
 

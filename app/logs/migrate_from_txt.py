@@ -18,7 +18,7 @@ from common.config import KEYWORD_LOG_FILE, API_USAGE_FILE
 def migrate_keyword_log():
     """迁移 api_keywords_log.txt 到数据库"""
     if not os.path.exists(KEYWORD_LOG_FILE):
-        print("⚠️ api_keywords_log.txt 不存在，跳过迁移")
+        print("[!] api_keywords_log.txt 不存在，跳过迁移")
         return 0
 
     print("📖 正在读取 api_keywords_log.txt...")
@@ -62,7 +62,7 @@ def migrate_keyword_log():
                             print(f"  已导入 {count} 条记录...")
                             batch = []
                         except Exception as e:
-                            print(f"  ⚠️ 批量插入失败: {e}")
+                            print(f"  [!] 批量插入失败: {e}")
                             db.rollback()
                             batch = []
                             # 如果是权限问题，提前中断
@@ -70,7 +70,7 @@ def migrate_keyword_log():
                                 raise
 
                 except Exception as e:
-                    print(f"  ⚠️ 第 {line_num} 行解析失败: {e}")
+                    print(f"  [!] 第 {line_num} 行解析失败: {e}")
                     # 如果是数据库错误，需要 rollback session
                     if 'rolled back' in str(e).lower() or 'readonly' in str(e).lower():
                         db.rollback()
@@ -83,14 +83,14 @@ def migrate_keyword_log():
                 db.bulk_save_objects(batch)
                 db.commit()
             except Exception as e:
-                print(f"  ⚠️ 批量插入失败: {e}")
+                print(f"  [!] 批量插入失败: {e}")
                 db.rollback()
 
-        print(f"✅ api_keywords_log.txt 迁移完成，共 {count} 条记录")
+        print(f"[OK] api_keywords_log.txt 迁移完成，共 {count} 条记录")
         return count
 
     except Exception as e:
-        print(f"❌ 迁移 api_keywords_log.txt 失败: {e}")
+        print(f"[X] 迁移 api_keywords_log.txt 失败: {e}")
         db.rollback()
         return 0
     finally:
@@ -100,7 +100,7 @@ def migrate_keyword_log():
 def migrate_api_usage_stats():
     """迁移 api_usage_stats.txt 到 ApiVisitLog 表（HTML 页面访问统计）"""
     if not os.path.exists(API_USAGE_FILE):
-        print("⚠️ api_usage_stats.txt 不存在，跳过迁移")
+        print("[!] api_usage_stats.txt 不存在，跳过迁移")
         return 0
 
     print("📖 正在读取 api_usage_stats.txt...")
@@ -161,14 +161,14 @@ def migrate_api_usage_stats():
                 db.bulk_save_objects(batch)
                 db.commit()
             except Exception as e:
-                print(f"  ⚠️ 批量插入失败: {e}")
+                print(f"  [!] 批量插入失败: {e}")
                 db.rollback()
 
-        print(f"✅ api_usage_stats.txt 迁移完成，共 {count} 条记录")
+        print(f"[OK] api_usage_stats.txt 迁移完成，共 {count} 条记录")
         return count
 
     except Exception as e:
-        print(f"❌ 迁移 api_usage_stats.txt 失败: {e}")
+        print(f"[X] 迁移 api_usage_stats.txt 失败: {e}")
         db.rollback()
         return 0
     finally:
@@ -177,7 +177,7 @@ def migrate_api_usage_stats():
 
 def aggregate_keyword_statistics():
     """从 api_keyword_log 聚合生成关键词统计"""
-    print("📊 正在聚合关键词统计...")
+    print("[DB] 正在聚合关键词统计...")
     db = SessionLocal()
 
     try:
@@ -213,11 +213,11 @@ def aggregate_keyword_statistics():
         daily_count = result.rowcount
         db.commit()
 
-        print(f"✅ 关键词统计聚合完成: 总计 {total_count} 条, 每日 {daily_count} 条")
+        print(f"[OK] 关键词统计聚合完成: 总计 {total_count} 条, 每日 {daily_count} 条")
         return total_count + daily_count
 
     except Exception as e:
-        print(f"❌ 聚合关键词统计失败: {e}")
+        print(f"[X] 聚合关键词统计失败: {e}")
         db.rollback()
         return 0
     finally:
@@ -236,12 +236,12 @@ def check_migration_status():
         try:
             visit_count = db.query(ApiVisitLog).count()
         except Exception as e:
-            print(f"⚠️ 无法查询 ApiVisitLog（可能表结构不匹配）: {e}")
+            print(f"[!] 无法查询 ApiVisitLog（可能表结构不匹配）: {e}")
             visit_count = 0
 
         return keyword_count > 0 or stats_count > 0
     except Exception as e:
-        print(f"⚠️ 检查迁移状态失败: {e}")
+        print(f"[!] 检查迁移状态失败: {e}")
         return False
     finally:
         db.close()
@@ -256,11 +256,11 @@ def run_migration(force=False):
     """
     # 检查是否已迁移
     if not force and check_migration_status():
-        print("✅ 数据已迁移，跳过")
+        print("[OK] 数据已迁移，跳过")
         return True
 
     if force:
-        print("⚠️ 强制重新迁移，清空现有数据...")
+        print("[!] 强制重新迁移，清空现有数据...")
         db = SessionLocal()
         try:
             db.query(ApiKeywordLog).delete()
@@ -270,17 +270,17 @@ def run_migration(force=False):
             try:
                 db.query(ApiVisitLog).delete()
             except Exception as e:
-                print(f"⚠️ 无法删除 ApiVisitLog 数据（可能表结构不匹配）: {e}")
+                print(f"[!] 无法删除 ApiVisitLog 数据（可能表结构不匹配）: {e}")
 
             db.commit()
         except Exception as e:
-            print(f"⚠️ 清空数据失败: {e}")
+            print(f"[!] 清空数据失败: {e}")
             db.rollback()
         finally:
             db.close()
 
     print("=" * 60)
-    print("🚀 开始从 txt 文件迁移数据到 logs.db")
+    print("[RUN] 开始从 txt 文件迁移数据到 logs.db")
     print("=" * 60)
 
     # 执行迁移
@@ -289,7 +289,7 @@ def run_migration(force=False):
     agg_count = aggregate_keyword_statistics()
 
     print("=" * 60)
-    print(f"✅ 迁移完成！")
+    print(f"[OK] 迁移完成！")
     print(f"   - 关键词日志: {keyword_count} 条")
     print(f"   - HTML页面访问统计: {usage_count} 条")
     print(f"   - 聚合统计: {agg_count} 条")

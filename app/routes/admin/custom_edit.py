@@ -54,7 +54,7 @@ async def delete_custom_by_admin(requests: List[EditRequest],
 
         return deleted_records
     except HTTPException:
-        raise   # ✅ 让 HTTPException 保持原样传递
+        raise   # [OK] 让 HTTPException 保持原样传递
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
