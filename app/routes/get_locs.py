@@ -2,16 +2,13 @@
 [PKG] 路由模塊：處理 /api/get_locs 查詢地點。
 """
 
-from fastapi import APIRouter, Request, Query, Depends
-from typing import List, Optional
+from fastapi import APIRouter, Query
+from typing import List
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch
 from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
 from common.getloc_by_name_region import query_dialect_abbreviations
-import time
-from app.service.api_logger import *
+from app.logs.api_logger import *
 
 router = APIRouter()
 

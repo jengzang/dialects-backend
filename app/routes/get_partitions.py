@@ -2,12 +2,10 @@
 """
 [PKG] 路由模塊：處理 /api/partitions 調用分區階層。
 """
-import time
-from typing import Optional
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Query
 from app.service.match_input_tip import read_partition_hierarchy
-from app.service.api_logger import *
+from app.logs.api_logger import *
 
 router = APIRouter()
 

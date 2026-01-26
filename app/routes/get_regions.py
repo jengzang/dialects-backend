@@ -9,8 +9,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.custom.database import get_db
 from app.service.locs_regions import fetch_dialect_region
-from app.service.api_logger import update_count, log_all_fields
-import time
+from app.logs.api_logger import log_all_fields
 
 router = APIRouter()
 

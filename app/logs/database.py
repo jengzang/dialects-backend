@@ -59,11 +59,11 @@ def migrate_api_visit_log_table():
 
 
 # 先迁移表结构
-migrate_api_visit_log_table()
+# migrate_api_visit_log_table()
 
 # 创建所有表
-Base.metadata.create_all(bind=engine)
-print("[OK] logs.db 数据库表已创建")
+# Base.metadata.create_all(bind=engine)
+# print("[OK] logs.db 数据库表已创建")
 
 
 # FastAPI 依赖

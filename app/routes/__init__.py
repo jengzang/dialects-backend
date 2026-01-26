@@ -38,3 +38,7 @@ def setup_routes(app: FastAPI):
     app.include_router(sql_router, prefix="/sql")
     app.include_router(logs_stats_router, prefix="/logs", tags=["日志统计"])  # [OK] 注册日志统计路由
 
+    # [OK] 注册工具路由
+    from app.tools import setup_tools_routes
+    setup_tools_routes(app)
+

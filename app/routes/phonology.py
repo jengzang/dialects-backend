@@ -5,7 +5,7 @@
 """
 
 import asyncio
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 import pandas as pd
 from fastapi import APIRouter, Request, Depends, HTTPException, Query
@@ -17,9 +17,9 @@ from app.auth.models import User
 from app.schemas import AnalysisPayload
 
 from app.service.phonology2status import pho2sta, get_feature_counts
-from app.service.status_arrange_pho import sta2pho, query_characters_by_path
-from app.service.api_logger import update_count, log_all_fields, log_detailed_api_to_db
-from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER
+from app.service.status_arrange_pho import sta2pho
+from app.logs.api_logger import log_all_fields
+from common.config import REQUIRE_LOGIN
 from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN
 
 router = APIRouter()

@@ -53,7 +53,7 @@ def migrate_database():
 
 
 # 执行迁移
-migrate_database()
+# migrate_database()
 
 
 # FastAPI 依賴（保持原样）

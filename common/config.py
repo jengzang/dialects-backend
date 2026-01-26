@@ -127,7 +127,7 @@ VERSION = "1.0.1"
 DATE_STR = "2025-08-18"
 
 # --------運行方式------------
-_RUN_TYPE = 'WEB'  # MINE/EXE/WEB
+_RUN_TYPE = 'EXE'  # MINE/EXE/WEB
 # --------------------------
 
 def get_local_ip():

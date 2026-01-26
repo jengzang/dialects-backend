@@ -3,19 +3,13 @@
 [PKG] 路由模塊：處理 /api/submit_form 提交用戶填寫的語音資料。
 """
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter
 
-
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
-from app.auth.database import get_db as get_db_user
 from app.custom.delete import handle_form_deletion
 from app.schemas import FormData
 from app.custom.write_submit import handle_form_submission
-import time
-from app.service.api_logger import *
-from common.config import CLEAR_WEEK
+from app.logs.api_logger import *
 
 router = APIRouter()
 

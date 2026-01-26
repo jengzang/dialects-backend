@@ -2,18 +2,15 @@
 [PKG] 路由模塊：處理 /api/search_chars 與 /api/search_tones 查詢音節與聲調。
 """
 
-from fastapi import APIRouter, Request, Query, Depends
-from typing import List, Optional
+from fastapi import APIRouter, Query
+from typing import List
 
-from app.auth.database import get_db
-from app.auth.dependencies import check_api_usage_limit, get_current_user
-from app.auth.models import User
+from app.auth.dependencies import check_api_usage_limit
 from app.service.match_input_tip import match_locations_batch
 from app.service.search_chars import search_characters
-from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
+from common.config import REQUIRE_LOGIN, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
 from common.search_tones import search_tones
-import time
-from app.service.api_logger import *
+from app.logs.api_logger import *
 
 router = APIRouter()
 

@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -10,11 +10,11 @@ from app.auth.dependencies import get_current_user, check_api_usage_limit
 from app.auth.models import User
 from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
-from app.service.api_logger import update_count, log_all_fields, log_detailed_api_to_db
+from app.logs.api_logger import log_all_fields
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
     _run_dialect_analysis_sync
 from app.service.phonology2status import pho2sta
-from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN
+from common.config import REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN
 
 router = APIRouter()
 

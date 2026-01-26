@@ -3,17 +3,14 @@
 [PKG] 路由模塊：處理 /api/get_custom 及 /api/get_custom_feature 查詢提交資料。
 """
 
-from fastapi import APIRouter, Request, HTTPException, Query, Depends
-from typing import List, Optional
+from fastapi import APIRouter, Query
+from typing import List
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
 from app.schemas import QueryParams, FeatureQueryParams
 from app.custom.read_custom import get_from_submission
 from app.service.match_input_tip import match_custom_feature
-import time
-from app.service.api_logger import *
+from app.logs.api_logger import *
 
 router = APIRouter()
 

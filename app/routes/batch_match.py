@@ -3,15 +3,10 @@
 [PKG] 路由模塊：處理 /api/batch_match 地點名稱匹配。
 """
 
-import time
-from typing import Optional
+from fastapi import APIRouter, Query
 
-from fastapi import APIRouter, Request, Query, Depends
-
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
-from app.service.api_logger import *
+from app.logs.api_logger import *
 from app.service.match_input_tip import match_locations_batch
 from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
 

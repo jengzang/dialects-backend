@@ -2,21 +2,17 @@
 """
 [PKG] 路由模塊：處理 /api/get_coordinates 查詢地點座標資料。
 """
-from typing import Optional
 
-from fastapi import APIRouter, Request, Query, HTTPException, Depends
+from fastapi import APIRouter
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
 from app.auth.database import get_db as get_db_user
 from app.schemas import CoordinatesQuery
 from app.service.locs_regions import get_coordinates_from_db
 from common.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
 from app.service.match_input_tip import match_locations_batch
-from common.config import QUERY_DB_ADMIN, QUERY_DB_USER, CLEAR_WEEK
-import time
-from app.service.api_logger import *
+from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
+from app.logs.api_logger import *
 
 router = APIRouter()
 
