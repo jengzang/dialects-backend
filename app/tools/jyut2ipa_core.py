@@ -129,7 +129,7 @@ def replace(component, condition, rules_df=None):
     for _, row in sorted_df.iterrows():
         if row['to_replace'] in component:
             result = component.replace(row['to_replace'], row['replacement'])
-            print(f"  [{condition}] 替换: {component} → {result}")
+            # print(f"  [{condition}] 替换: {component} → {result}")
             return result
     print(f"  [{condition}] 无替换: {component}")
     return component

@@ -63,3 +63,4 @@ python-multipart
 redis~=7.1.0
 
 APScheduler~=3.11.2
+python-docx==1.2.0

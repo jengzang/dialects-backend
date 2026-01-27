@@ -4,7 +4,6 @@ Check工具核心逻辑
 只包含API需要的2个函数，保持原有逻辑完全不变
 """
 import re
-import pandas as pd
 
 # 常量定义（原checks.py的第101-102行）
 RU_FINALS = set("ptkʔˀᵖᵏᵗbdg")
@@ -46,7 +45,7 @@ def 處理自定義編輯指令(df, col_hanzi, col_ipa, command):
                     continue
 
                 # 提取調值
-                match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4})$", ipa)
+                match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa)
                 if not match:
                     continue
 
@@ -164,8 +163,12 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
         if not is_single_chinese(hanzi):
             errors["非單字漢字"].append((i, hanzi))
 
-        match = re.search(r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}$", ipa)
+
+        # 邏輯：數字(1-4位) + 可選的(ABCDabcd) + 結尾
+        pattern = r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?$"
+        match = re.search(pattern, ipa.strip())
         if not match:
+            # 既不符合純數字結尾，也不符合數字+字母結尾
             errors["缺聲調"].append((i, hanzi))
             continue
 
@@ -245,7 +248,7 @@ def 整理並顯示調值(df, col_hanzi, col_ipa):
             continue
 
         # 提取调值
-        match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4})$", ipa)
+        match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa)
         if not match:
             continue
 
@@ -275,3 +278,5 @@ def 整理並顯示調值(df, col_hanzi, col_ipa):
         "ru_tones": ru_tones,
         "shu_tones": shu_tones
     }
+
+

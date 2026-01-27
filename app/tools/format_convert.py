@@ -7,6 +7,7 @@
 """
 
 import csv
+import math
 import os
 import re
 from itertools import product
@@ -23,10 +24,9 @@ from common.config import WRITE_ERROR_LOG
 from common.constants import col_map
 from common.s2t import s2t_pro
 
-
 # def get_tsv_name(path):
 #     return os.path.splitext(path)[0] + ".tsv"
-
+# print(docx.__version__)
 def get_tsv_name(xls):
     name = os.path.basename(xls)
     name = re.sub(r" ?(\(\d{0,3}\))+$", "", name.rsplit(".", 1)[0]) + ".tsv"
@@ -258,8 +258,6 @@ def process_音典(file, level=1, output_path=None):
 
     if '漢字' not in index or '音標' not in index:
         print("❌ 欄位對應失敗，請確認有『漢字』與『音標』欄位")
-        with open(WRITE_ERROR_LOG, "a", encoding="utf-8") as f:
-            f.write(f"❌ [{file}]欄位對應失敗，請確認有『漢字』與『音標』欄位\t【format_convert->process_音典】\n")
         return
 
     print(f"[處理] 開始掃描資料行，共 {len(lines) - 1} 筆")
@@ -385,10 +383,10 @@ def process_跳跳老鼠(file, level=1, output_path=None):
             return []
         result = []
         matches = re.findall(r"(.)(?:\{(.*?)\}|\[(.*?)\])?", 組)
-        print(f"🔍 第 {line_num} 行組拆分：{matches}")
+        # print(f"🔍 第 {line_num} 行組拆分：{matches}")
         for 字, 註1, 註2 in matches:
             註 = 註1 or 註2 or ""
-            print(f"🧩 字：{字}，音：{phon}，註：{註}")
+            # print(f"🧩 字：{字}，音：{phon}，註：{註}")
             result.append((字, phon, 註))
         return result
 
@@ -405,7 +403,7 @@ def process_跳跳老鼠(file, level=1, output_path=None):
                 rows.append([cand, 音, 註])
                 if cand != 字:
                     simplified_rows.append([cand, 音, 註, "簡"])
-                    print(f"🔁 字形轉換：{字} → {cand}")
+                    # print(f"🔁 字形轉換：{字} → {cand}")
 
     outpath = output_path or os.path.splitext(file)[0] + ".tsv"
     with open(outpath, "w", encoding="utf-8", newline="\n") as out:
@@ -431,7 +429,7 @@ def process_縣志_excel(file, level=1, output_path=None):
     # cc = OpenCC('s2t')
     rows = []
     simplified_rows = []
-    debug = True
+    debug = False
 
     # def s2t(text, level=1):
     #     return cc.convert(text)
@@ -720,16 +718,346 @@ def process_縣志(file, level=1, output_path=None):
         process_縣志_word(file, level, output_path)
 
 
-# if __name__ == "__main__":
-#     # ✅ tkinter 檔案選擇器
-#     Tk().withdraw()  # 不顯示主視窗
-#     file_path = filedialog.askopenfilename(
-#         title="選擇縣志檔案",
-#         filetypes=[("word Files", "*.docx"),("excel files", "*.xlsx"), ("All Files", "*.*")]
-#     )
-#
-#     if file_path:
-#         # convert_to_tsv_if_needed(file_path)
-#         process_縣志_word(file_path)
-#     else:
-#         print("❌ 沒有選擇任何檔案")
+def extract_all_from_files(file_path: str, preserve_empty_rows: bool = True) -> pd.DataFrame:
+    TONE_MAP = {
+        "1": "陰平", "1a": "陰平甲", "1b": "陰平乙", "1A": "陰平甲", "1B": "陰平乙",
+        "2": "陽平", "2a": "陽平甲", "2b": "陽平乙", "2A": "陽平甲", "2B": "陽平乙",
+        "3": "陰上", "3a": "陰上甲", "3b": "陰上乙", "3A": "陰上甲", "3B": "陰上乙",
+        "4": "陽上", "4a": "陽上甲", "4b": "陽上乙", "4A": "陽上甲", "4B": "陽上乙",
+        "5": "陰去", "5a": "陰去甲", "5b": "陰去乙", "5A": "陰去甲", "5B": "陰去乙",
+        "6": "陽去", "6a": "陽去甲", "6b": "陽去乙", "6A": "陽去甲", "6B": "陽去乙",
+        "7": "陰入", "7a": "上陰入", "7b": "下陰入", "7c": "陰入丙", "7A": "上陰入", "7B": "下陰入",
+        "8": "陽入", "8a": "上陽入", "8b": "下陽入", "8A": "上陽入", "8B": "下陽入",
+        "9": "變調", "9a": "變調1", "9b": "變調2", "0": "變調", "10": "輕聲", "輕聲": "輕聲"
+    }
+    vowel_pattern = r"[iyɨʉɯuɪʏɿʅʅɭıɪſɩɷʮɥʯʊeɘɵəɤoοоɛεɝɚᴇœɜɞʌɔæaɶɑɒᴀɐãẽĩỹõúαᵘᶷᶤᶶᵚʸᶦᵊⁱ◌øɻβʝɹǝуеṃṇīā∅Ø]"
+    tone_map_yindian = TONE_MAP
+
+    # tone_map_jyutping = {
+    #     "1": "陰平", "2": "陰上", "3": "陰去", "4": "陽平", "5": "陽上", "6": "陽去",
+    #     "7": "上陰入", "8": "下陰入", "9": "陽入", "10": "下陽入", "0": "變調"
+    # }
+
+
+    def get_standard_column_name(col_name, col_map):
+        """
+        根據 col_map 返回標準化的列名。
+        :param col_name: 當前列名
+        :param col_map: 列名映射
+        :return: 返回對應的標準化列名
+        """
+        for standard_col, possible_names in col_map.items():
+            if col_name in possible_names:
+                return standard_col
+        return col_name  # 如果找不到對應的列名，返回原列名
+
+    # 檢查文件的副檔名來決定使用哪種方法
+    file_extension = os.path.splitext(file_path)[1].lower()
+    # print(file_extension)
+    if file_extension == ".tsv":
+        df = pd.read_csv(file_path, sep="\t", dtype=str)
+    elif file_extension in [".xls", ".xlsx"]:
+        df = pd.read_excel(file_path, dtype=str)
+    else:
+        raise ValueError("Unsupported file format. Please provide a TSV or Excel file.")
+
+        # 處理欄位名稱，根據 col_map 進行模糊對應
+    df.columns = [get_standard_column_name(col, col_map) for col in df.columns]
+    df = df.fillna("")
+
+    # 判斷 tone 系統
+    # def extract_tone_number(df, char):
+    #     row = df[df['漢字'] == char]
+    #     if not row.empty:
+    #         phonetic = row.iloc[0]['音標']
+    #         if isinstance(phonetic, str):
+    #             match = re.search(r"(\d+)", phonetic)
+    #             if match:
+    #                 return match.group(1).lstrip("0")
+    #     return None
+
+    # tone_shi = extract_tone_number(df, "時")
+    # tone_qiong = extract_tone_number(df, "窮")
+    tone_map = tone_map_yindian
+    # tone_map = tone_map_yindian if "2" in [tone_shi, tone_qiong] else tone_map_jyutping
+
+    results = []
+
+    for _, row in df.iterrows():
+        hanzi = row.get("漢字", "").strip()
+        phonetic = row.get("音標", "").strip()
+        note = row.get("解釋", "").strip()
+        if isinstance(phonetic, str):
+            phonetic = phonetic.strip()
+        if not hanzi or not phonetic or phonetic == "0" or hanzi == "0":
+            if preserve_empty_rows:
+                results.append({
+                    '汉字': '',
+                    '音标': '',
+                    '声母': '',
+                    '韵母': '',
+                    '声调': '',
+                    '註釋': ''
+                })
+                continue
+            continue
+        if re.search(r"[□■⬜⬛☐☑☒▯▢▣█�]", hanzi):
+            if preserve_empty_rows:
+                results.append({
+                    '汉字': '',
+                    '音标': '',
+                    '声母': '',
+                    '韵母': '',
+                    '声调': '',
+                    '註釋': ''
+                })
+                continue
+            continue
+        if phonetic and (isinstance(phonetic, float) and math.isnan(phonetic)):
+            if preserve_empty_rows:
+                results.append({
+                    '汉字': '',
+                    '音标': '',
+                    '声母': '',
+                    '韵母': '',
+                    '声调': '',
+                    '註釋': ''
+                })
+                continue
+            continue
+        if isinstance(phonetic, str) and phonetic and phonetic[0].isdigit():
+            if preserve_empty_rows:
+                results.append({
+                    '汉字': '',
+                    '音标': '',
+                    '声母': '',
+                    '韵母': '',
+                    '声调': '',
+                    '註釋': ''
+                })
+                continue
+            continue
+
+        phonetic_variants = phonetic.split("/") if "/" in phonetic and phonetic.strip() != '/' else [phonetic]
+
+        for phon in phonetic_variants:
+            phon = phon.strip()  # 先清乾淨
+            if not phon:  # 若為空，跳過（這一步是關鍵防炸）
+                continue
+            if re.match(r'^[\d\/?\'"’”、|；：，。:;,.]+$', phon):
+                continue
+
+            # 提取聲母
+            consonant = ""
+            if phon and phon[0] in {"∅", "Ø"}:
+                consonant = "ʔ"
+            else:
+                if not re.search(vowel_pattern, re.split(r"\d", phon)[0]):
+                    vowel_fallback = r"([ʐɣmnŋɲȵƞʋvʒlḷfzr])"
+                    # if phon[0] in ['l', 'f']:
+                    #     consonant = phon[0]
+                    if re.match(vowel_fallback, phon[0]):
+                        consonant = "/"
+                    elif not re.search(vowel_fallback, phon):
+                        # consonant = f"報錯：{phon}"
+                        consonant = ""
+                    else:
+                        for char in phon:
+                            if re.match(vowel_fallback, char) or re.match(r'\d', char):
+                                break
+                            consonant += char
+                else:
+                    if re.match(vowel_pattern, phon[0]):
+                        consonant = "/"
+                    elif 'j' in phon[1:] or 'ʲ' in phon[1:]:
+                        for char in phon:
+                            if re.match(vowel_pattern, char) or char in ('j', 'ʲ'):
+                                break
+                            consonant += char
+                    else:
+                        for char in phon:
+                            if re.match(vowel_pattern, char):
+                                break
+                            consonant += char
+                consonant = re.sub(r"\d", "", consonant)
+
+            # 韻母提取
+            all_rhymes = []
+            tmp_phon = phon[1:] if phon.startswith(("∅", "Ø")) else phon
+            if 'j' not in tmp_phon[1:] and 'ʲ' not in tmp_phon[1:]:
+                vowel_found = False
+                for c in tmp_phon:
+                    if re.match(vowel_pattern, c) and not vowel_found:
+                        vowel_found = True
+                        all_rhymes.append(c)
+                    elif vowel_found and (c.isdigit() or c.isspace()):
+                        break
+                    elif vowel_found:
+                        all_rhymes.append(c)
+                if not vowel_found and any(c in tmp_phon for c in "ʐzflḷɣmnŋȵɲƞʋvʒr"):
+                    match = re.search(r".*?([ʐzflḷɣrmnŋɲȵƞʋvʒ].*?)(?=\d|\s|$)", tmp_phon)
+                    if match:
+                        all_rhymes += list(match.group(1))
+            else:
+                match = re.search(rf"[{vowel_pattern.strip('[]')}jʲ][^\d\s]*", tmp_phon)
+                if match:
+                    all_rhymes = list(match.group(0))
+
+            rhyme = ''.join(c for c in all_rhymes if not (c.isdigit() or re.match(r'[一-鿿]', c)))
+            for old, new in {
+                'ε': 'ɛ', "α": "ɑ", "ʯ": "ʮ", "∅": "ø", "ο": "o", "ǝ": "ə", "о": "o", "у": "y", "е": "e",
+                "ã": "ã", "ẽ": "ẽ", "ĩ": "ĩ", "ī": "ĩ", "ā": "ã", "ỹ": "ỹ", "õ": "õ", "ʱ": "ʰ"
+            }.items():
+                rhyme = rhyme.replace(old, new)
+
+            for old, new in {
+                '∫': 'ʃ', 'th': 'tʰ', 'kh': 'kʰ', 'ph': 'pʰ',
+                'tsh': 'tsʰ', "ς": "ɕ", 'ts': 'ʦ', 'tʃ': 'ʧ', 'tɕ': 'ʨ',
+                "∨": "v", "ł": "ɬ", "tʰs": "ʦʰ", "(ʔ)": "ʔ", "∅": "ʔ", "Ǿ": "ʔ"
+            }.items():
+                consonant = consonant.replace(old, new)
+
+            results.append({
+                '汉字': hanzi,
+                '音标': phon,
+                '声母': consonant,
+                '韵母': rhyme,
+                '声调': '',
+                '註釋': note
+            })
+
+            # 提取聲調
+            if "輕聲" in phon:
+                tone = "輕聲"
+            else:
+                tone_match = re.search(r"([A-Da-d0-9]+)", phon[::-1])
+                tone_code = tone_match.group(1) if tone_match else ""
+                if tone_code:
+                    # 使用正則表達式刪除末尾的字母，直到遇到數字
+                    tone_code = re.sub(r'[a-dA-D]+$', '', tone_code)
+                tone_code = tone_code[::-1] if tone_code else ""
+                tone = tone_map.get(tone_code, tone_map.get(tone_code, "未知")) if tone_code else ""
+
+            results.append({
+                '汉字': hanzi,
+                '音标': phon,
+                '声母': consonant,
+                '韵母': rhyme,
+                '声调': tone,
+                '註釋': note
+            })
+
+    return pd.DataFrame(results)
+
+
+def extract_onset_rime_from_ipa(ipa: str) -> tuple[str, str, str]:
+    """
+    从单个IPA字符串提取声母、韵母、声调
+
+    复制自 format_convert.py 的 extract_all_from_files() 核心逻辑
+
+    Args:
+        ipa: IPA音标字符串（如 "pʰai21"）
+
+    Returns:
+        (声母, 韵母, 声调)  例如：("pʰ", "ai", "21")
+
+    Examples:
+        >>> extract_onset_rime_from_ipa("pʰai21")
+        ('pʰ', 'ai', '21')
+        >>> extract_onset_rime_from_ipa("iŋ55")
+        ('/', 'iŋ', '55')
+    """
+    import re
+
+    # 元音模式（从 format_convert.py line 733）
+    vowel_pattern = r"[iyɨʉɯuɪʏɿʅʅɭıɪſɩɷʮɥʯʊeɘɵəɤoοоɛεɝɚᴇœɜɞʌɔæaɶɑɒᴀɐãẽĩỹõúαᵘᶷᶤᶶᵚʸᶦᵊⁱ◌øɻβʝɹǝуеṃṇīā∅Ø]"
+
+    phon = ipa.strip()
+    if not phon:
+        return ("", "", "")
+
+    # === 提取声母（format_convert.py line 850-882）===
+    consonant = ""
+    if phon and phon[0] in {"∅", "Ø"}:
+        consonant = "ʔ"
+    else:
+        if not re.search(vowel_pattern, re.split(r"\d", phon)[0]):
+            vowel_fallback = r"([ʐɣmnŋɲȵƞʋvʒlḷfzr])"
+            if re.match(vowel_fallback, phon[0]):
+                consonant = "/"
+            elif not re.search(vowel_fallback, phon):
+                consonant = ""
+            else:
+                for char in phon:
+                    if re.match(vowel_fallback, char) or re.match(r'\d', char):
+                        break
+                    consonant += char
+        else:
+            if re.match(vowel_pattern, phon[0]):
+                consonant = "/"
+            elif 'j' in phon[1:] or 'ʲ' in phon[1:]:
+                for char in phon:
+                    if re.match(vowel_pattern, char) or char in ('j', 'ʲ'):
+                        break
+                    consonant += char
+            else:
+                for char in phon:
+                    if re.match(vowel_pattern, char):
+                        break
+                    consonant += char
+        consonant = re.sub(r"\d", "", consonant)
+
+    # === 提取韵母（format_convert.py line 884-911）===
+    all_rhymes = []
+    tmp_phon = phon[1:] if phon.startswith(("∅", "Ø")) else phon
+    if 'j' not in tmp_phon[1:] and 'ʲ' not in tmp_phon[1:]:
+        vowel_found = False
+        for c in tmp_phon:
+            if re.match(vowel_pattern, c) and not vowel_found:
+                vowel_found = True
+                all_rhymes.append(c)
+            elif vowel_found and (c.isdigit() or c.isspace()):
+                break
+            elif vowel_found:
+                all_rhymes.append(c)
+        if not vowel_found and any(c in tmp_phon for c in "ʐzflḷɣmnŋȵɲƞʋvʒr"):
+            match = re.search(r".*?([ʐzflḷɣrmnŋɲȵƞʋvʒ].*?)(?=\d|\s|$)", tmp_phon)
+            if match:
+                all_rhymes += list(match.group(1))
+    else:
+        match = re.search(rf"[{vowel_pattern.strip('[]')}jʲ][^\d\s]*", tmp_phon)
+        if match:
+            all_rhymes = list(match.group(0))
+
+    rhyme = ''.join(c for c in all_rhymes if not (c.isdigit() or re.match(r'[一-鿿]', c)))
+
+    # 韵母标准化（format_convert.py line 907-911）
+    for old, new in {
+        'ε': 'ɛ', "α": "ɑ", "ʯ": "ʮ", "∅": "ø", "ο": "o", "ǝ": "ə", "о": "o", "у": "y", "е": "e",
+        "ã": "ã", "ẽ": "ẽ", "ĩ": "ĩ", "ī": "ĩ", "ā": "ã", "ỹ": "ỹ", "õ": "õ", "ʱ": "ʰ"
+    }.items():
+        rhyme = rhyme.replace(old, new)
+
+    # 声母标准化（format_convert.py line 913-918）
+    for old, new in {
+        '∫': 'ʃ', 'th': 'tʰ', 'kh': 'kʰ', 'ph': 'pʰ',
+        'tsh': 'tsʰ', "ς": "ɕ", 'ts': 'ʦ', 'tʃ': 'ʧ', 'tɕ': 'ʨ',
+        "∨": "v", "ł": "ɬ", "tʰs": "ʦʰ", "(ʔ)": "ʔ", "∅": "ʔ", "Ǿ": "ʔ"
+    }.items():
+        consonant = consonant.replace(old, new)
+
+    # === 提取声调（format_convert.py line 929-939）===
+    tone = ""
+    if "輕聲" in phon:
+        tone = "輕聲"
+    else:
+        tone_match = re.search(r"([A-Da-d0-9]+)", phon[::-1])
+        if tone_match:
+            tone_code = tone_match.group(1)
+            tone_code = re.sub(r'[a-dA-D]+$', '', tone_code)
+            tone_code = tone_code[::-1]
+            # 简化处理，直接返回数字调值
+            tone = tone_code if tone_code else ""
+
+    return (consonant, rhyme, tone)

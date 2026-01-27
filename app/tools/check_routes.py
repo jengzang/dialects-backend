@@ -3,10 +3,10 @@
 Check工具的API路由：方言音位数据检查编辑器
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import pandas as pd
 from pathlib import Path
 import sys
@@ -25,7 +25,7 @@ from .format_convert import (
     process_跳跳老鼠,
     process_縣志_excel,
     process_縣志_word,
-    convert_to_tsv_if_needed
+    convert_to_tsv_if_needed, extract_onset_rime_from_ipa
 )
 import shutil
 
@@ -61,15 +61,9 @@ class AnalysisResult(BaseModel):
 
 
 class CommandRequest(BaseModel):
-    """命令执行请求"""
     task_id: str
-    commands: List[str]  # 命令列表，例如 ["c-帥-好", "i-帥-jat4"]
-
-
-class SingleCommandRequest(BaseModel):
-    """单个命令执行请求（用于批量替换）"""
-    task_id: str
-    command: str  # 单个命令字符串，例如 "p-'-ʰ" 或 "r5>2"
+    commands: Union[str, List[str]]  # 支援單一字串或字串列表
+    overwrite: Optional[bool] = True  # 是否覆蓋原檔，預設 False (產生 modified_ 檔案)
 
 
 class CommandResponse(BaseModel):
@@ -235,7 +229,7 @@ def get_error_message(error_type: str) -> str:
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
-    format_type: str = None  # 可选：'音典', '跳跳老鼠', '县志'
+    format_type: Optional[str] = Form(None)  # 修改這裡：使用 Form(None)
 ):
     """
     上传文件并创建任务
@@ -313,18 +307,15 @@ async def upload_file(
             # 如果缺少必需列，尝试格式转换
             required_cols = {"漢字", "音標"}
             if not (required_cols <= set(mapped_cols.keys())):
-                print(f"[FORMAT] 缺少标准列，尝试格式转换")
-                print(f"[FORMAT] 当前列: {df_cols}")
-                print(f"[FORMAT] 映射到的列: {mapped_cols}")
 
                 task_dir = file_manager.get_task_dir(task_id, "check")
                 output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
-
+                print("format_type",format_type)
                 # 根据format_type选择处理方式
                 if format_type == '跳跳老鼠':
                     print(f"[FORMAT] 使用跳跳老鼠格式处理")
                     process_跳跳老鼠(str(file_path), level=1, output_path=str(output_tsv))
-                elif format_type == '县志':
+                elif format_type == '縣志':
                     print(f"[FORMAT] 使用县志格式处理")
                     process_縣志_excel(str(file_path), level=1, output_path=str(output_tsv))
                 else:
@@ -343,6 +334,34 @@ async def upload_file(
 
         # 读取最终文件
         df = pd.read_excel(file_path, dtype=str)
+
+        # 【新增】调用 extract_all_from_files 提取声韵数据
+        from .format_convert import extract_all_from_files
+        print(f"[INFO] 开始提取声母、韵母、声调...")
+        df_extracted = extract_all_from_files(str(file_path), preserve_empty_rows=True)
+
+        # 【新增】验证行数一致
+        if len(df_extracted) != len(df):
+            print(f"[WARNING] 提取结果行数不一致: 原始{len(df)}行, 提取{len(df_extracted)}行")
+            # 截断或补齐
+            if len(df_extracted) < len(df):
+                # 补齐空行
+                missing_rows = len(df) - len(df_extracted)
+                empty_rows = pd.DataFrame([{"声母": "", "韵母": "", "声调": ""}] * missing_rows)
+                df_extracted = pd.concat([df_extracted, empty_rows], ignore_index=True)
+            else:
+                # 截断多余行
+                df_extracted = df_extracted.iloc[:len(df)]
+
+        # 【新增】合并声母、韵母、声调列（覆盖已有列）
+        df['声母'] = df_extracted['声母'].fillna("")
+        df['韵母'] = df_extracted['韵母'].fillna("")
+        df['声调'] = df_extracted['声调'].fillna("")
+
+        # 【新增】保存回文件
+        df.to_excel(file_path, index=False)
+        print(f"[INFO] 声韵数据已提取并保存")
+
         total_rows = len(df)
 
         # 更新任务信息
@@ -426,15 +445,10 @@ async def analyze_file(task_id: str):
 
 
 @router.post("/execute", response_model=CommandResponse)
-async def execute_command(request: CommandRequest):
+async def execute_commands(request: CommandRequest):
     """
-    执行命令（使用原有的處理自定義編輯指令函数）
-
-    支持的命令格式：
-    - c-漢字-新字: 替换汉字
-    - c-漢字-d: 删除行
-    - i-漢字-新音標: 修改音标
-    - p-原字元-新字元: 全表音标替换
+    統一執行指令 API
+    支持單個指令 (str) 或多個指令 (List[str])
     """
     task = task_manager.get_task(request.task_id)
     if not task:
@@ -445,100 +459,56 @@ async def execute_command(request: CommandRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
-        # 读取Excel
+        # 1. 統一指令格式為 List[str]
+        commands = [request.commands] if isinstance(request.commands, str) else request.commands
+        command_str = "; ".join(commands)
+
+        # 2. 讀取 Excel
         df = pd.read_excel(file_path)
 
-        # 获取列名
-        col_hanzi = task.data.get("col_hanzi")
-        col_ipa = task.data.get("col_ipa")
+        # 3. 獲取列名
+        col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
+        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
 
-        if not col_hanzi or not col_ipa:
-            # 重新查找
-            col_hanzi = find_standard_column(df, '漢字')
-            col_ipa = find_standard_column(df, '音標')
-
-        # 执行命令（使用原有函数）
-        command_str = "; ".join(request.commands)
+        # 4. 執行指令
         results, errors = 處理自定義編輯指令(df, col_hanzi, col_ipa, command_str)
+        for idx, row in df.iterrows():
+            ipa = str(row.get(col_ipa, "")).strip()
+            if ipa:
+                onset, rime, tone = extract_onset_rime_from_ipa(ipa)
+                df.at[idx, '声母'] = onset
+                df.at[idx, '韵母'] = rime
+                df.at[idx, '声调'] = tone
+        # 5. 決定儲存路徑 (根據 overwrite 參數)
+        if request.overwrite:
+            save_path = file_path
+        else:
+            save_path = file_path.parent / f"modified_{file_path.name}"
 
-        # 保存修改后的文件
-        output_path = file_path.parent / f"modified_{file_path.name}"
-        df.to_excel(output_path, index=False)
+        df.to_excel(save_path, index=False)
 
-        # 更新任务信息
-        task_manager.update_task(
-            request.task_id,
-            data={
-                **task.data,
-                "modified_file_path": str(output_path)
-            }
-        )
-
-        # 合并结果和错误
-        all_logs = results + errors
+        # 6. 更新任務資訊 (如果是新文件則記錄路徑)
+        if not request.overwrite:
+            task_manager.update_task(
+                request.task_id,
+                data={**task.data, "modified_file_path": str(save_path)}
+            )
 
         return CommandResponse(
             success=len(errors) == 0,
             affected_rows=len(results),
-            message=f"执行完成，成功{len(results)}条，失败{len(errors)}条",
-            logs=all_logs
+            message=f"執行完成，成功 {len(results)} 條，失敗 {len(errors)} 條",
+            logs=results + errors
         )
 
     except Exception as e:
+        # 這裡統一回傳 CommandResponse 格式，保持前端處理邏輯一致
         return CommandResponse(
             success=False,
             affected_rows=0,
-            message=f"执行失败: {str(e)}",
+            message=f"執行失敗: {str(e)}",
             logs=[str(e)]
         )
-
-
-@router.post("/command")
-async def execute_single_command(request: SingleCommandRequest):
-    """
-    执行单个命令（用于批量替换功能）
-
-    支持的命令格式：
-    - p-原字元-新字元: 全表音标替换
-    - r{原调值}>{新调值}: 入声调替换
-    - s{原调值}>{新调值}: 舒声调替换
-    """
-    task = task_manager.get_task(request.task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-
-    file_path = Path(task.data.get("file_path"))
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-
-    try:
-        # 读取Excel
-        df = pd.read_excel(file_path)
-
-        # 获取列名
-        col_hanzi = task.data.get("col_hanzi")
-        col_ipa = task.data.get("col_ipa")
-
-        if not col_hanzi or not col_ipa:
-            # 重新查找
-            col_hanzi = find_standard_column(df, '漢字')
-            col_ipa = find_standard_column(df, '音標')
-
-        # 执行命令
-        results, errors = 處理自定義編輯指令(df, col_hanzi, col_ipa, request.command)
-
-        # 保存修改后的文件（直接覆盖原文件）
-        df.to_excel(file_path, index=False)
-
-        return {
-            "success": len(errors) == 0,
-            "results": results,
-            "errors": errors
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"执行失败: {str(e)}")
-
 
 @router.post("/save")
 async def save_changes(request: SaveChangesRequest):
@@ -556,17 +526,29 @@ async def save_changes(request: SaveChangesRequest):
     try:
         # 读取Excel
         df = pd.read_excel(file_path)
+        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
 
-        # 应用修改
+        modified_ipa_rows = []  # 记录修改了IPA的行
         for modified_row in request.modified_rows:
             row_num = modified_row["row"]
             data = modified_row["data"]
-            df_index = row_num - 2  # Excel行号转DataFrame索引
+            df_index = row_num - 2
 
             if 0 <= df_index < len(df):
                 for key, value in data.items():
                     if key in df.columns:
                         df.at[df_index, key] = value
+                        # 【新增】记录IPA修改
+                        if key == col_ipa:
+                            modified_ipa_rows.append(df_index)
+
+        for idx in modified_ipa_rows:
+            ipa = str(df.at[idx, col_ipa]).strip()
+            if ipa:
+                onset, rime, tone = extract_onset_rime_from_ipa(ipa)
+                df.at[idx, '声母'] = onset
+                df.at[idx, '韵母'] = rime
+                df.at[idx, '声调'] = tone
 
         # 保存修改后的文件
         output_path = file_path.parent / f"modified_{file_path.name}"
@@ -631,6 +613,7 @@ async def get_data(request: GetDataRequest):
 
     try:
         df = pd.read_excel(file_path)
+        df = df.fillna("")
 
         # 获取列名
         col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
@@ -644,13 +627,15 @@ async def get_data(request: GetDataRequest):
                 "row": idx + 2,  # Excel行号（从2开始）
                 "char": str(row.get(col_hanzi, "")).strip(),
                 "ipa": str(row.get(col_ipa, "")).strip(),
+                "onset": str(row.get('声母', "")).strip(),      # 新增
+                "rime": str(row.get('韵母', "")).strip(),       # 新增
                 "tone": "",  # 从IPA中提取声调
                 "note": str(row.get(col_note, "")).strip() if col_note else ""
             }
 
             # 提取声调
             ipa_str = row_data["ipa"]
-            match = re.search(r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}$", ipa_str)
+            match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa_str)
             if match:
                 row_data["tone"] = match.group(0)
 
@@ -740,6 +725,13 @@ async def update_row(request: UpdateRowRequest):
             col_name = col_map_update.get(key)
             if col_name and col_name in df.columns:
                 df.at[df_index, col_name] = value
+                # 【新增】如果修改了IPA，重新提取声韵
+                if key == "ipa":
+                    from .check_core import extract_onset_rime_from_ipa
+                    onset, rime, tone = extract_onset_rime_from_ipa(value)
+                    df.at[df_index, '声母'] = onset
+                    df.at[df_index, '韵母'] = rime
+                    df.at[df_index, '声调'] = tone
 
         # 保存到原文件（立即生效）
         df.to_excel(file_path, index=False)
