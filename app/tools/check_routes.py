@@ -25,9 +25,8 @@ from .format_convert import (
     process_跳跳老鼠,
     process_縣志_excel,
     process_縣志_word,
-    convert_to_tsv_if_needed, extract_onset_rime_from_ipa
+    convert_to_tsv_if_needed, extract_onset_rime_from_ipa, extract_all_from_files
 )
-import shutil
 
 router = APIRouter()
 
@@ -228,8 +227,8 @@ def get_error_message(error_type: str) -> str:
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(
-    file: UploadFile = File(...),
-    format_type: Optional[str] = Form(None)  # 修改這裡：使用 Form(None)
+        file: UploadFile = File(...),
+        format_type: Optional[str] = Form(None)  # 修改這裡：使用 Form(None)
 ):
     """
     上传文件并创建任务
@@ -310,7 +309,7 @@ async def upload_file(
 
                 task_dir = file_manager.get_task_dir(task_id, "check")
                 output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
-                print("format_type",format_type)
+                print("format_type", format_type)
                 # 根据format_type选择处理方式
                 if format_type == '跳跳老鼠':
                     print(f"[FORMAT] 使用跳跳老鼠格式处理")
@@ -335,8 +334,6 @@ async def upload_file(
         # 读取最终文件
         df = pd.read_excel(file_path, dtype=str)
 
-        # 【新增】调用 extract_all_from_files 提取声韵数据
-        from .format_convert import extract_all_from_files
         print(f"[INFO] 开始提取声母、韵母、声调...")
         df_extracted = extract_all_from_files(str(file_path), preserve_empty_rows=True)
 
@@ -510,6 +507,7 @@ async def execute_commands(request: CommandRequest):
             logs=[str(e)]
         )
 
+
 @router.post("/save")
 async def save_changes(request: SaveChangesRequest):
     """
@@ -612,7 +610,7 @@ async def get_data(request: GetDataRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
         df = df.fillna("")
 
         # 获取列名
@@ -627,17 +625,11 @@ async def get_data(request: GetDataRequest):
                 "row": idx + 2,  # Excel行号（从2开始）
                 "char": str(row.get(col_hanzi, "")).strip(),
                 "ipa": str(row.get(col_ipa, "")).strip(),
-                "onset": str(row.get('声母', "")).strip(),      # 新增
-                "rime": str(row.get('韵母', "")).strip(),       # 新增
-                "tone": "",  # 从IPA中提取声调
+                "onset": str(row.get('声母', "")).strip(),  # 新增
+                "rime": str(row.get('韵母', "")).strip(),  # 新增
+                "tone": str(row.get('声调', "")).strip(),
                 "note": str(row.get(col_note, "")).strip() if col_note else ""
             }
-
-            # 提取声调
-            ipa_str = row_data["ipa"]
-            match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa_str)
-            if match:
-                row_data["tone"] = match.group(0)
 
             data_rows.append(row_data)
 
@@ -727,7 +719,6 @@ async def update_row(request: UpdateRowRequest):
                 df.at[df_index, col_name] = value
                 # 【新增】如果修改了IPA，重新提取声韵
                 if key == "ipa":
-                    from .check_core import extract_onset_rime_from_ipa
                     onset, rime, tone = extract_onset_rime_from_ipa(value)
                     df.at[df_index, '声母'] = onset
                     df.at[df_index, '韵母'] = rime
@@ -743,7 +734,6 @@ async def update_row(request: UpdateRowRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
-
 
 
 @router.post("/batch_delete")
@@ -791,4 +781,3 @@ async def batch_delete(request: BatchDeleteRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
-

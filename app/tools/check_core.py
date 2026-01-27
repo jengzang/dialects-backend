@@ -181,6 +181,9 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
         if ipa.isdigit():
             errors["異常音標"].append((i, hanzi, ipa))
             continue
+        if ipa.strip()[0].isdigit():
+            errors["異常音標"].append((i, hanzi, ipa))
+            continue
         if not all(is_normal_ipa(p.strip()) for p in parts if p.strip()):
             errors["異常音標"].append((i, hanzi, ipa))
 
