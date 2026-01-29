@@ -1,16 +1,8 @@
 """
 [RUN] 項目啟動腳本：負責啟動 FastAPI，支援開發模式與打包模式。
 """
-import socket
-import time
-import threading
-import webbrowser
-import uvicorn
-from app.main import app
-from common.config import _RUN_TYPE, APP_NAME, AUTHOR, VERSION, DATE_STR, APP_URL
-import sys
+import argparse
 import os
-import shutil
 
 # === Banner 配置 ===
 _banner_printed = False  # 在启动时打印（只打一次）
@@ -74,6 +66,19 @@ def print_banner_once(style="minimal"):
         print_banner(style=style)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='启动 FastAPI 服务')
+    parser.add_argument(
+        '-r', '--run',
+        type=str,
+        nargs='?',  # 使位置参数变为可选，有默认值
+        choices=['WEB', 'EXE', 'MINE'],
+        default='WEB',
+        help='运行模式: WEB (默认), EXE, MINE'
+    )
+    return parser.parse_args()
+
+
 # 启动服务并自动打开浏览器
 if __name__ == "__main__":
     def _open_browser(url: str):
@@ -81,7 +86,23 @@ if __name__ == "__main__":
         webbrowser.open(url)
 
 
+    args = parse_args()
+    print(f"[INFO] 运行模式: {args.run}")
+    # 设置环境变量，这样 config.py 就能读取到
+    os.environ['_RUN_TYPE'] = args.run
+    # 重新导入 config 以获取更新后的值
+    from common.config import _RUN_TYPE
+    import time
+    import threading
+    import webbrowser
+    import uvicorn
+    from app.main import app
+    from common.config import APP_NAME, AUTHOR, VERSION, DATE_STR, APP_URL
+    import sys
+    import shutil
+
     print_banner_once(style="block")  # 可选: "block" / "boxed" / "minimal"
+    # print(_RUN_TYPE)
     if _RUN_TYPE == 'MINE':
         # 跑在局域網ip地址上
         # threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()

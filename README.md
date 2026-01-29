@@ -191,9 +191,9 @@ pip install -r requirements.txt
 
 ```python
 # 运行模式（选择一个）
-_RUN_TYPE = 'WEB'   # 生产环境
-# _RUN_TYPE = 'MINE'  # 开发环境
-# _RUN_TYPE = 'EXE'   # 本地可执行
+python run.py -r WEB # 本地部署到服务器
+python run.py -r EXE # 本地可执行模式
+python run.py -r MINE # 开发环境模式
 
 # Redis 配置（WEB 模式需要）
 REDIS_HOST = "172.28.199.1"

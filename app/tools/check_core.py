@@ -138,16 +138,28 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
         # 定义所有允许的特殊符号
         valid_symbols = "□■⬜⬛☐☑☒▯▢▣█"
 
-        return len(char) == 1 and (
-                '\u4e00' <= char <= '\u9fff' or  # 判断是否为常用汉字
-                char in valid_symbols  # 判断是否在允许的符号列表中
+        if len(char) != 1:
+            return False
+
+        # 获取字符的 Unicode 编码点
+        cp = ord(char)
+
+        return (
+                # 1. 基本区 (最常用)
+                0x4E00 <= cp <= 0x9FFF or
+                # 2. 扩展 A 区 (Ext-A) - 包含 6,500+ 字
+                0x3400 <= cp <= 0x4DBF or
+                # 3. 扩展 B 区 (Ext-B) - 包含 42,000+ 字 (很多方言字在这里)
+                0x20000 <= cp <= 0x2A6DF or
+                # 4. 允许的特殊符号
+                char in valid_symbols
         )
 
     def is_normal_ipa(s):
         allowed = set(
             "abcdefghijklmnopqrstuvwxyz"
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞǝθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀ"
+            "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞǝθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀØ"
             "ʦʧʨʂʐʑʒʮʰʲː˞ˠˤ~^̃"
             "ıſɩɷʅɥʯεɝɚᴇãẽĩỹõúαɤᵘᶷᶤᶶᵚʸᶦᵊⁱ◌∅ɯʦʒɿ̍ʷ̯̩"
             "0123456789"

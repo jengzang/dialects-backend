@@ -17,9 +17,10 @@ from .index import router as index_router
 from .auth import router as auth_router
 from .get_locs import router as locs_router
 from .admin import router as admin_router
-from .logs_stats import router as logs_stats_router  # [OK] 新增日志统计路由
+from ..logs import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
+
 
 def setup_routes(app: FastAPI):
     app.include_router(phonology_router, prefix="/api", tags=["query"])
@@ -36,8 +37,6 @@ def setup_routes(app: FastAPI):
     app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
     app.include_router(admin_router, prefix="/admin")
 
-    app.include_router(logs_stats_router, prefix="/logs", tags=["日志统计"])  # [OK] 注册日志统计路由
-
     setup_tools_routes(app)
     setup_sql_routes(app)
-
+    setup_logs_routes(app)

@@ -17,13 +17,14 @@ import threading
 
 from starlette.responses import StreamingResponse
 
+from common.constants import replace_data
+
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from .task_manager import task_manager, TaskStatus
 from .file_manager import file_manager
 from .jyut2ipa_core import process_yutping, init_replace_df
-from .constants import replace_data, col_map
 
 # 初始化替换规则DataFrame
 init_replace_df(replace_data)

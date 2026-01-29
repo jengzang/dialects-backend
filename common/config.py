@@ -1,6 +1,10 @@
 import os
 import socket
 
+# --------運行方式------------
+# _RUN_TYPE = 'WEB'  # MINE/EXE/WEB
+_RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
+
 # ============ 路徑 =================
 # 計算專案根目錄路徑
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -78,8 +82,11 @@ RECORD_API = [
     "YinWei",
     "charlist",
     "sql/query",
+    "sql/tree",
     "api/tools"
 ]
+# 不記錄帶有以下字段的api
+IGNORE_API = ["download"]
 
 # ========== 登錄系統 =============
 USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
@@ -112,7 +119,7 @@ MAX_IP_USAGE_PER_HOUR = 300
 
 # 用戶能接收的最大json包
 MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
-MAX_USER_SIZE = 6 * 1024 * 1024   # 6MB for authenticated users
+MAX_USER_SIZE = 6 * 1024 * 1024  # 6MB for authenticated users
 # 压缩阈值
 SIZE_THRESHOLD = 10 * 1024  # 10KB
 # 每20条日志写入一次
@@ -124,11 +131,10 @@ CACHE_EXPIRATION_TIME = 3600  # 秒
 # banner配置
 APP_NAME = "Dialect Compare Tool — FastAPI Backend"
 AUTHOR = "不羈 (JengZang)"
-VERSION = "1.0.1"
-DATE_STR = "2025-08-18"
+VERSION = "2.0.1"
+DATE_STR = "2026-01-29"
 
-# --------運行方式------------
-_RUN_TYPE = 'WEB'  # MINE/EXE/WEB
+
 # --------------------------
 
 def get_local_ip():

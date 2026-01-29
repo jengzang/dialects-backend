@@ -114,8 +114,8 @@ def _periodic_cleanup():
         except Exception as e:
             print(f"[CLEANUP] 定期清理失败: {str(e)}")
 
+
 if _RUN_TYPE in ['EXE', 'MINE']:
-    # print("111111111111111111111111111111")
     app = FastAPI(lifespan=lifespan)
 else:
     app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -137,7 +137,6 @@ if _RUN_TYPE == 'EXE':
         finally:
             with print_lock:
                 active_requests -= 1
-
 
 # === 掛載子路由與靜態資源 ===
 setup_routes(app)

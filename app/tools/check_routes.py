@@ -16,13 +16,14 @@ import re
 
 from starlette.responses import StreamingResponse
 
+from common.constants import col_map
+
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from .task_manager import task_manager, TaskStatus
 from .file_manager import file_manager
 from .check_core import 處理自定義編輯指令, 檢查資料格式, 整理並顯示調值
-from .constants import col_map
 from .format_convert import (
     process_音典,
     process_跳跳老鼠,
@@ -145,7 +146,7 @@ def analyze_excel_file(file_path: Path) -> tuple[pd.DataFrame, List[ErrorItem], 
         (数据框, 错误列表, 错误统计, 汉字列名, 音标列名)
     """
     # 读取Excel文件
-    df = pd.read_excel(file_path)
+    df = pd.read_excel(file_path, dtype=str)
 
     # 查找关键列
     col_hanzi = find_standard_column(df, '漢字')
@@ -473,7 +474,7 @@ async def execute_commands(request: CommandRequest):
         command_str = "; ".join(commands)
 
         # 2. 讀取 Excel
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
 
         # 3. 獲取列名
         col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
@@ -542,7 +543,7 @@ async def save_changes(request: SaveChangesRequest):
 
     try:
         # 读取Excel
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
         col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         modified_ipa_rows = []  # 记录修改了IPA的行
@@ -731,7 +732,7 @@ async def get_tone_stats(request: GetDataRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
 
         # 获取列名
         col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
@@ -763,7 +764,7 @@ async def update_row(request: UpdateRowRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
         df_index = request.row - 2  # Excel行号转DataFrame索引
 
         if df_index < 0 or df_index >= len(df):
@@ -830,7 +831,7 @@ async def batch_delete(request: BatchDeleteRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, dtype=str)
 
         # 转换Excel行号为DataFrame索引（Excel行号从2开始）
         df_indices = [row - 2 for row in request.rows if 0 <= row - 2 < len(df)]

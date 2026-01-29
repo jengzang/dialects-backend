@@ -16,10 +16,7 @@ CREATE INDEX idx_level_3 ON 广东省自然村(行政村);
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import sqlite3
-import os
 
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import FullTreeParams, LazyTreeParams
@@ -402,7 +399,7 @@ async def get_tree_children(params: LazyTreeParams):
 #   "table_name": "广东省自然村",
 #   "level_columns": [0, 1, 2, 3, 4],  # 市级、区县级、乡镇级、行政村、自然村
 #   "filters": {
-#     0: ["广州"]  # 只查广州，数据量从20万降到几万
+#     0: ["广州市"]  # 只查广州，数据量从20万降到几万
 #   }
 # }
 # 性能：DISTINCT后约1-2万条，构建树约100-300ms
@@ -433,12 +430,12 @@ async def get_tree_children(params: LazyTreeParams):
 # 返回：["广州", "深圳", "珠海", ...]（约21个城市）
 #
 # 示例4：获取"广州市"下的子节点（所有区县）
-# POST /api/tree/lazy
+# POST /sql/tree/lazy
 # {
 #   "db_key": "village",
 #   "table_name": "广东省自然村",
 #   "level_columns": [0, 1, 2, 3, 4],
-#   "parent_path": ["广州"]
+#   "parent_path": ["广州市"]
 # }
 # 性能：WHERE 市级='广州'，查询第1列的DISTINCT，约20-80ms
 # 返回：["天河区", "越秀区", ...]（约11个区）

@@ -24,7 +24,7 @@ from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logs.database import SessionLocal as LogsSessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
-    CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
+    CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD, IGNORE_API
 
 # === 队列 ===
 # keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
@@ -445,6 +445,9 @@ def stop_api_logger_workers():
 class TrafficLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()  # 记录开始时间
+
+        if any(keyword in request.url.path for keyword in IGNORE_API):
+            return await call_next(request)
 
         if not any(keyword in request.url.path for keyword in RECORD_API):
             return await call_next(request)  # 如果路径不包含任何允许的词，跳过日志记录

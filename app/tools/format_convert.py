@@ -21,7 +21,7 @@ from openpyxl import load_workbook
 from xlrd import open_workbook
 
 from common.config import WRITE_ERROR_LOG
-from common.constants import col_map
+from common.constants import col_map, vowel_pattern
 from common.s2t import s2t_pro
 
 
@@ -241,9 +241,9 @@ def process_音典(file, level=1, output_path=None):
         lines = [line.rstrip("\n").split("\t") for line in f if line.strip() and not line.startswith("#")]
 
     if not lines:
-        print("⚠️ 無有效數據，檔案內容為空或格式錯誤")
-        with open(WRITE_ERROR_LOG, "a", encoding="utf-8") as f:
-            f.write(f"⚠️ [{file}] 無有效數據，檔案內容為空或格式錯誤\t【format_convert->process_音典】\n")
+        # print("⚠️ 無有效數據，檔案內容為空或格式錯誤")
+        # with open(WRITE_ERROR_LOG, "a", encoding="utf-8") as f:
+        #     f.write(f"⚠️ [{file}] 無有效數據，檔案內容為空或格式錯誤\t【format_convert->process_音典】\n")
         return
 
     header = lines[0]
@@ -739,7 +739,7 @@ def process_縣志(file, level=1, output_path=None):
 # 1. 将核心提取逻辑提取为独立工具函数，供两者调用
 def _core_extract_logic(phon: str, tone_map: dict = None) -> tuple[str, str, str]:
     """核心提取逻辑：处理单个音标字符串，返回 (声母, 韵母, 声调)"""
-    vowel_pattern = r"[iyɨʉɯuɪʏɿʅʅɭıɪſɩɷʮɥʯʊeɘɵəɤoοоɛεɝɚᴇœɜɞʌɔæaɶɑɒᴀɐãẽĩỹõúαᵘᶷᶤᶶᵚʸᶦᵊⁱ◌øɻβʝɹǝуеṃṇīā∅Ø]"
+
     phon = phon.strip()
     if not phon: return "", "", ""
 
@@ -865,18 +865,18 @@ def extract_all_from_files(file_path: str, preserve_empty_rows: bool = True) -> 
                 })
                 continue
             continue
-        if re.search(r"[□■⬜⬛☐☑☒▯▢▣█�]", hanzi):
-            if preserve_empty_rows:
-                results.append({
-                    '汉字': '',
-                    '音标': '',
-                    '声母': '',
-                    '韵母': '',
-                    '声调': '',
-                    '註釋': ''
-                })
-                continue
-            continue
+        # if re.search(r"[□■⬜⬛☐☑☒▯▢▣█�]", hanzi):
+        #     if preserve_empty_rows:
+        #         results.append({
+        #             '汉字': '',
+        #             '音标': '',
+        #             '声母': '',
+        #             '韵母': '',
+        #             '声调': '',
+        #             '註釋': ''
+        #         })
+        #         continue
+        #     continue
         if phonetic and (isinstance(phonetic, float) and math.isnan(phonetic)):
             if preserve_empty_rows:
                 results.append({
