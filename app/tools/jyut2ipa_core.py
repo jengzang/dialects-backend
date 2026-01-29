@@ -156,10 +156,10 @@ def process_yutping(text, custom_replace_data=None):
         # 验证DataFrame不为空
         if len(temp_replace_df) > 0:
             rules_df = temp_replace_df
-            print(f"[DEBUG] 使用自定义规则DataFrame，共{len(rules_df)}条规则")
+            # print(f"[DEBUG] 使用自定义规则DataFrame，共{len(rules_df)}条规则")
         else:
             # 如果DataFrame为空，回退到默认规则
-            print(f"[WARN] 自定义规则DataFrame为空，使用默认规则")
+            # print(f"[WARN] 自定义规则DataFrame为空，使用默认规则")
             if replace_df is None:
                 raise RuntimeError("replace_df未初始化，请先调用init_replace_df()")
             rules_df = replace_df
@@ -168,7 +168,7 @@ def process_yutping(text, custom_replace_data=None):
         if replace_df is None:
             raise RuntimeError("replace_df未初始化，请先调用init_replace_df()")
         rules_df = replace_df
-        print(f"[DEBUG] 使用默认规则DataFrame，共{len(rules_df)}条规则")
+        # print(f"[DEBUG] 使用默认规则DataFrame，共{len(rules_df)}条规则")
 
     if not text:
         return pd.Series([""] * 11)
@@ -219,9 +219,9 @@ def process_yutping(text, custom_replace_data=None):
             fields['IPA'].append(ipa)
     
     # 【诊断日志】检查fields是否被填充
-    print(f"[DEBUG] fields填充情况: 声母={len(fields['声母'])}, 韵母={len(fields['韵母'])}, IPA={len(fields['IPA'])}")
-    if len(fields['声母']) > 0:
-        print(f"[DEBUG] fields内容示例: 声母={fields['声母']}, IPA={fields['IPA']}")
+    # print(f"[DEBUG] fields填充情况: 声母={len(fields['声母'])}, 韵母={len(fields['韵母'])}, IPA={len(fields['IPA'])}")
+    # if len(fields['声母']) > 0:
+    #     print(f"[DEBUG] fields内容示例: 声母={fields['声母']}, IPA={fields['IPA']}")
 
     def conditional_join(parts):
         if not parts:  # 如果列表为空，直接返回空字符串

@@ -3,26 +3,13 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.schemas.sql import MutationParams, QueryParams, DistinctQueryRequest, BatchMutationParams
+from app.sql.choose_db import get_db_connection
+from app.sql.sql_schemas import MutationParams, QueryParams, DistinctQueryRequest, BatchMutationParams
 from app.auth.dependencies import get_current_admin_user
-from common.config import DB_MAPPING
 
 router = APIRouter()
 
 
-def get_db_connection(db_key: str):
-    """根据代号获取对应的数据库连接"""
-    db_path = DB_MAPPING.get(db_key)
-
-    if not db_path:
-        raise HTTPException(status_code=400, detail=f"无效的数据库代号: {db_key}")
-
-    if not os.path.exists(db_path):
-        raise HTTPException(status_code=500, detail=f"数据库文件不存在: {db_path}")
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
 @router.post("/query")
 async def query_table(params: QueryParams):
     # 从 params 中取出 db_key 传进去

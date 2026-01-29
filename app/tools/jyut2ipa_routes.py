@@ -2,6 +2,7 @@
 """
 Jyut2IPA工具的API路由：粤语拼音转IPA
 """
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
@@ -13,6 +14,8 @@ import asyncio
 import sys
 import os
 import threading
+
+from starlette.responses import StreamingResponse
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -184,9 +187,9 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
         # 【关键修复】确保索引对齐
         if len(results) == 0:
             raise ValueError("处理结果为空，没有生成任何转换结果")
-        
+
         result_df = pd.DataFrame(results, columns=columns)
-        
+
         # 【关键修复】确保空字符串不被转换为NaN
         result_df = result_df.fillna('')  # 将所有NaN替换为空字符串
         result_df = result_df.astype(str)  # 确保所有列都是字符串类型
@@ -195,11 +198,11 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
         # 验证长度一致
         if len(result_df) != len(df):
             raise ValueError(f"结果行数不匹配: result_df={len(result_df)}, df={len(df)}")
-        
+
         # 验证结果不为空
         non_empty_count = result_df['IPA'].astype(str).str.strip().ne('').sum()
         print(f"[INFO] 转换结果统计: 总行数={len(result_df)}, 非空IPA行数={non_empty_count}")
-        
+
         # 【诊断日志】检查前几行的实际内容
         if len(result_df) > 0:
             print(f"[DEBUG] result_df前3行内容:")
@@ -213,7 +216,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
 
         # 使用concat而非逐列赋值（更可靠）
         df = pd.concat([df, result_df], axis=1)
-        
+
         # 【关键修复】确保合并后的DataFrame中空字符串不被转换为NaN
         for col in columns:
             if col in df.columns:
@@ -225,7 +228,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
         non_empty_声母 = df['声母'].astype(str).str.strip().ne('').sum()
         non_empty_IPA = df['IPA'].astype(str).str.strip().ne('').sum()
         print(f"[INFO] 新增列验证: 声母(非空)={non_empty_声母}/{len(df)}行, IPA(非空)={non_empty_IPA}/{len(df)}行")
-        
+
         # 【诊断日志】检查前几行的实际内容
         if len(df) > 0:
             print(f"[DEBUG] 合并后df前3行的声母和IPA列:")
@@ -373,10 +376,14 @@ async def process_file(request: ProcessRequest, background_tasks: BackgroundTask
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    # 获取文件路径
-    file_path = Path(task.data.get("file_path"))
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
+    # 👇 关键修复：安全获取路径，防止 Path(None) 报错
+    file_path_str = task['data'].get("file_path")
+    if not file_path_str:
+        raise HTTPException(status_code=404, detail="文件路径记录丢失")
+
+    file_path = Path(file_path_str)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件在服务器上不存在")
 
     # 启动后台处理任务，传递自定义规则
     background_tasks.add_task(
@@ -411,40 +418,46 @@ async def get_progress(task_id: str):
 
     return ProcessResponse(
         task_id=task_id,
-        status=task.status.value,
-        progress=task.progress,
-        message=task.message
+        status=task['status'],  # 👈 改这里
+        progress=task['progress'],  # 👈 改这里
+        message=task['message']  # 👈 改这里
     )
 
 
 @router.get("/download/{task_id}")
 async def download_result(task_id: str):
-    """
-    下载结果文件（可多次下载，文件在生成5分钟后自动清理）
-
-    Args:
-        task_id: 任务ID
-
-    Returns:
-        文件响应
-    """
+    """下载结果文件 (使用流式传输)"""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    if task.status != TaskStatus.COMPLETED:
+    # 👇 修复：字典访问
+    if task['status'] != TaskStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="任务尚未完成")
 
-    output_path = task.data.get("output_path")
-    if not output_path:
-        raise HTTPException(status_code=404, detail="结果文件不存在")
+    # 👇 修复：字典访问
+    output_path_str = task['data'].get("output_path")
+    if not output_path_str:
+        raise HTTPException(status_code=404, detail="结果文件记录不存在")
 
-    file_path = Path(output_path)
+    file_path = Path(output_path_str)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="结果文件不存在")
+        raise HTTPException(status_code=404, detail="结果文件已在服务器上被清理")
 
-    return FileResponse(
-        path=file_path,
-        filename=f"jyut2ipa_result_{task.data.get('filename')}",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # 准备下载文件名 (保留原始文件名逻辑)
+    original_filename = task['data'].get('filename', 'result.xlsx')
+    filename = f"jyut2ipa_result_{original_filename}"
+    encoded_filename = quote(filename)
+
+    # 👇 升级：流式响应
+    def iterfile():
+        with open(file_path, mode="rb") as file_like:
+            yield from file_like
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
+        }
     )

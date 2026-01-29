@@ -2,6 +2,7 @@
 """
 Check工具的API路由：方言音位数据检查编辑器
 """
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
@@ -12,6 +13,8 @@ from pathlib import Path
 import sys
 import os
 import re
+
+from starlette.responses import StreamingResponse
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -228,7 +231,8 @@ def get_error_message(error_type: str) -> str:
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(
         file: UploadFile = File(...),
-        format_type: Optional[str] = Form(None)  # 修改這裡：使用 Form(None)
+        format_type: Optional[str] = Form(None),  # 修改這裡：使用 Form(None)
+        level: int = Form(0),
 ):
     """
     上传文件并创建任务
@@ -269,12 +273,12 @@ async def upload_file(
             task_dir = file_manager.get_task_dir(task_id, "check")
             output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
 
-            process_縣志_word(str(file_path), level=1, output_path=str(output_tsv))
+            process_縣志_word(str(file_path), level, output_path=str(output_tsv))
 
             # TSV转换为XLSX
             if output_tsv.exists():
                 df = pd.read_csv(output_tsv, sep="\t", dtype=str)
-                converted_path = task_dir / f"{Path(file.filename).stem}_converted.xlsx"
+                converted_path = task_dir / f"{Path(file.filename).stem}.xlsx"
                 df.to_excel(converted_path, index=False)
                 file_path = converted_path
                 needs_conversion = True
@@ -313,19 +317,19 @@ async def upload_file(
                 # 根据format_type选择处理方式
                 if format_type == '跳跳老鼠':
                     print(f"[FORMAT] 使用跳跳老鼠格式处理")
-                    process_跳跳老鼠(str(file_path), level=1, output_path=str(output_tsv))
+                    process_跳跳老鼠(str(file_path), level, output_path=str(output_tsv))
                 elif format_type == '縣志':
                     print(f"[FORMAT] 使用县志格式处理")
-                    process_縣志_excel(str(file_path), level=1, output_path=str(output_tsv))
+                    process_縣志_excel(str(file_path), level, output_path=str(output_tsv))
                 else:
                     # 默认使用音典格式
                     print(f"[FORMAT] 使用音典格式处理")
-                    process_音典(str(file_path), level=1, output_path=str(output_tsv))
+                    process_音典(str(file_path), level, output_path=str(output_tsv))
 
                 # TSV转换为XLSX
                 if output_tsv.exists():
                     df = pd.read_csv(output_tsv, sep="\t", dtype=str)
-                    converted_path = task_dir / f"{Path(file.filename).stem}_converted.xlsx"
+                    converted_path = task_dir / f"{Path(file.filename).stem}.xlsx"
                     df.to_excel(converted_path, index=False)
                     file_path = converted_path
                     needs_conversion = True
@@ -359,16 +363,24 @@ async def upload_file(
         df.to_excel(file_path, index=False)
         print(f"[INFO] 声韵数据已提取并保存")
 
+        # 1. 确定最终的文件名
+        final_filename = file.filename
+        if needs_conversion:
+            # 如果发生了转换，把文件名后缀改成 .xlsx
+            # 例如: "县志.docx" -> "县志.xlsx"
+            final_filename = f"{Path(file.filename).stem}.xlsx"
+
         total_rows = len(df)
 
-        # 更新任务信息
+        # 2. 更新任务信息
         task_manager.update_task(
             task_id,
             status=TaskStatus.COMPLETED,
             progress=100.0,
             message=f"文件上传成功，共{total_rows}行" + (" (已转换格式)" if needs_conversion else ""),
             data={
-                "filename": file.filename,
+                "filename": final_filename,  # <--- 改这里！存 .xlsx
+                "original_filename": file.filename,  # <--- 新增！保留原始名字备查
                 "total_rows": total_rows,
                 "file_path": str(file_path),
                 "converted": needs_conversion
@@ -377,7 +389,7 @@ async def upload_file(
 
         return UploadResponse(
             task_id=task_id,
-            filename=file.filename,
+            filename=final_filename,
             total_rows=total_rows,
             message="文件上传成功" + (" (已自动转换格式)" if needs_conversion else "")
         )
@@ -404,7 +416,7 @@ async def analyze_file(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -420,7 +432,7 @@ async def analyze_file(task_id: str):
             progress=100.0,
             message=f"分析完成，发现{len(errors)}个错误",
             data={
-                **task.data,
+                **task['data'],
                 "errors": [error.dict() for error in errors],
                 "error_stats": error_stats,
                 "col_hanzi": col_hanzi,
@@ -451,7 +463,7 @@ async def execute_commands(request: CommandRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -464,8 +476,8 @@ async def execute_commands(request: CommandRequest):
         df = pd.read_excel(file_path)
 
         # 3. 獲取列名
-        col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
-        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
+        col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
+        col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         # 4. 執行指令
         results, errors = 處理自定義編輯指令(df, col_hanzi, col_ipa, command_str)
@@ -484,11 +496,18 @@ async def execute_commands(request: CommandRequest):
 
         df.to_excel(save_path, index=False)
 
-        # 6. 更新任務資訊 (如果是新文件則記錄路徑)
+        # 6. 更新任務資訊（確保更新時間戳，防止任務被清理）
         if not request.overwrite:
             task_manager.update_task(
                 request.task_id,
-                data={**task.data, "modified_file_path": str(save_path)}
+                message=f"已執行指令，成功 {len(results)} 條，失敗 {len(errors)} 條",
+                data={**task['data'], "modified_file_path": str(save_path)}
+            )
+        else:
+            # 即使覆蓋原文件，也要更新任務時間戳
+            task_manager.update_task(
+                request.task_id,
+                message=f"已執行指令，成功 {len(results)} 條，失敗 {len(errors)} 條"
             )
 
         return CommandResponse(
@@ -517,14 +536,14 @@ async def save_changes(request: SaveChangesRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
         # 读取Excel
         df = pd.read_excel(file_path)
-        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
+        col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         modified_ipa_rows = []  # 记录修改了IPA的行
         for modified_row in request.modified_rows:
@@ -552,11 +571,12 @@ async def save_changes(request: SaveChangesRequest):
         output_path = file_path.parent / f"modified_{file_path.name}"
         df.to_excel(output_path, index=False)
 
-        # 更新任务信息
+        # 更新任务信息（确保更新时间戳，防止任务被清理）
         task_manager.update_task(
             request.task_id,
+            message=f"已保存{len(request.modified_rows)}处修改",
             data={
-                **task.data,
+                **task['data'],
                 "modified_file_path": str(output_path)
             }
         )
@@ -577,22 +597,70 @@ async def download_file(task_id: str):
     """
     task = task_manager.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        # 尝试从文件路径恢复任务信息（如果文件还存在）
+        # 检查可能的文件路径
+        from .file_manager import file_manager
+        task_dir = file_manager.get_task_dir(task_id, "check")
+        possible_files = []
+        if task_dir.exists():
+            possible_files = list(task_dir.glob("*.xlsx"))
+            possible_files.extend(list(task_dir.glob("modified_*.xlsx")))
+        
+        if possible_files:
+            # 找到文件，尝试恢复任务
+            file_path = possible_files[0]
+            # 重新创建任务记录
+            recovered_task_id = task_manager.create_task("check", {
+                "filename": file_path.name,
+                "file_path": str(file_path),
+                "recovered": True
+            })
+            # 如果恢复的任务ID不同，说明原任务已彻底丢失
+            if recovered_task_id != task_id:
+                raise HTTPException(
+                    status_code=404, 
+                    detail="任务不存在。任务可能已过期（超过1小时未使用），请重新上传文件。"
+                )
+            task = task_manager.get_task(task_id)
+        
+        if not task:
+            raise HTTPException(
+                status_code=404, 
+                detail="任务不存在。任务可能已过期（超过1小时未使用），请重新上传文件。"
+            )
 
-    # 优先返回修改后的文件
-    modified_path = task.data.get("modified_file_path")
-    if modified_path:
+    modified_path = task['data'].get("modified_file_path")
+    if modified_path and Path(modified_path).exists():
         file_path = Path(modified_path)
     else:
-        file_path = Path(task.data.get("file_path"))
+        file_path = Path(task['data'].get("file_path"))
 
-    if not file_path or not file_path.exists():
+    file_path = file_path.resolve()
+
+    if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    return FileResponse(
-        path=file_path,
-        filename=file_path.name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # 2. 准备下载文件名
+    # 强制以 .xlsx 结尾
+    filename_stem = Path(task['data'].get("filename", file_path.name)).stem
+    download_filename = f"{filename_stem}.xlsx"
+    encoded_filename = quote(download_filename)
+
+    # 3. 定义文件读取生成器
+    # 这是一个生成器函数，它会一点一点读取硬盘文件，防止大文件撑爆内存
+    def iterfile():
+        with open(file_path, mode="rb") as file_like:
+            yield from file_like
+
+    # 4. 返回流式响应
+    # 这就是你想要的"明确返回 xlsx"
+    # 我们发送的是"流"，不是"文件路径"，所以原本的文件名后缀完全失效，只有 Header 里的才是真理
+    return StreamingResponse(
+        iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
+        }
     )
 
 
@@ -605,7 +673,7 @@ async def get_data(request: GetDataRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -614,8 +682,8 @@ async def get_data(request: GetDataRequest):
         df = df.fillna("")
 
         # 获取列名
-        col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
-        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
+        col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
+        col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
         col_note = find_standard_column(df, '解釋')
 
         # 构建数据列表
@@ -635,7 +703,7 @@ async def get_data(request: GetDataRequest):
 
         # 如果只需要错误行，进行筛选
         if not request.include_all:
-            errors = task.data.get("errors", [])
+            errors = task['data'].get("errors", [])
             error_rows = {e["row"] for e in errors}
             data_rows = [r for r in data_rows if r["row"] in error_rows]
 
@@ -658,7 +726,7 @@ async def get_tone_stats(request: GetDataRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -666,8 +734,8 @@ async def get_tone_stats(request: GetDataRequest):
         df = pd.read_excel(file_path)
 
         # 获取列名
-        col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
-        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
+        col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
+        col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         # 调用核心函数获取调值统计
         tone_stats = 整理並顯示調值(df, col_hanzi, col_ipa)
@@ -690,7 +758,7 @@ async def update_row(request: UpdateRowRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -702,8 +770,8 @@ async def update_row(request: UpdateRowRequest):
             raise HTTPException(status_code=400, detail="行号超出范围")
 
         # 获取列名
-        col_hanzi = task.data.get("col_hanzi") or find_standard_column(df, '漢字')
-        col_ipa = task.data.get("col_ipa") or find_standard_column(df, '音標')
+        col_hanzi = task['data'].get("col_hanzi") or find_standard_column(df, '漢字')
+        col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
         col_note = find_standard_column(df, '解釋')
 
         # 更新数据
@@ -726,6 +794,12 @@ async def update_row(request: UpdateRowRequest):
 
         # 保存到原文件（立即生效）
         df.to_excel(file_path, index=False)
+
+        # 更新任务信息（确保更新时间戳，防止任务被清理）
+        task_manager.update_task(
+            request.task_id,
+            message=f"已更新第 {request.row} 行"
+        )
 
         return {
             "success": True,
@@ -751,7 +825,7 @@ async def batch_delete(request: BatchDeleteRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task.data.get("file_path"))
+    file_path = Path(task['data'].get("file_path"))
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 

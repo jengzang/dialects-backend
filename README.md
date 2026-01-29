@@ -209,7 +209,7 @@ REQUIRE_LOGIN = False  # 是否强制登录
 首次启动会自动创建数据库索引：
 
 ```bash
-python app/db/index_manager.py
+python app/sql/index_manager.py
 ```
 
 #### 6. 启动服务
@@ -970,20 +970,20 @@ _RUN_TYPE = 'WEB'   # 生产环境（使用真实Redis）
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 # 方言数据库
-DIALECTS_DB_USER = os.path.join(BASE_DIR, "data", "dialects_user.db")
-DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_admin.db")
+DIALECTS_DB_USER = os.path.join(BASE_DIR, "data", "dialects_user.sql")
+DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_admin.sql")
 
 # 字符数据库
-CHARACTERS_DB_PATH = os.path.join(BASE_DIR, "data", "characters.db")
+CHARACTERS_DB_PATH = os.path.join(BASE_DIR, "data", "characters.sql")
 
 # 用户数据库
-USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
+USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.sql")
 
 # 日志数据库
-LOGS_DATABASE_PATH = os.path.join(BASE_DIR, "data", "logs.db")
+LOGS_DATABASE_PATH = os.path.join(BASE_DIR, "data", "logs.sql")
 
 # 自定义数据库
-SUPPLE_DB_PATH = os.path.join(BASE_DIR, "data", "supplements.db")
+SUPPLE_DB_PATH = os.path.join(BASE_DIR, "data", "supplements.sql")
 ```
 
 #### 认证配置
@@ -1571,10 +1571,10 @@ app = FastAPI(
 
 ```bash
 # 检查数据库文件
-ls -lh data/*.db
+ls -lh data/*.sql
 
 # 如果缺少文件，从备份恢复
-cp backup/*.db data/
+cp backup/*.sql data/
 ```
 
 ### Q2: Redis连接失败
@@ -1612,7 +1612,7 @@ redis-cli INFO stats | grep keyspace
 3. **数据库大小是否过大**
 ```bash
 # 清理旧日志
-sqlite3 data/logs.db "DELETE FROM api_keyword_log WHERE created_at < datetime('now', '-30 days')"
+sqlite3 data/logs.sql "DELETE FROM api_keyword_log WHERE created_at < datetime('now', '-30 days')"
 ```
 
 ### Q4: 用户无法注册

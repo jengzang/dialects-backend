@@ -114,7 +114,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
         # 如果 Redis 掛了，不要崩潰，繼續查數據庫
 
     # --- 數據庫部分 (保持同步阻塞) ---
-    # [!] 注意：這裡 db.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
+    # [!] 注意：這裡 sql.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
     user = db.query(models.User).filter(models.User.username == username).first()
 
     if not user:

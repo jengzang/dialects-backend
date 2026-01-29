@@ -57,3 +57,6 @@ scp api_usage_stats.txt root@47.115.57.138:/srv/myapp/logs
 scp villages.db root@47.115.57.138:/srv/myapp/data
 scp yc_spoken.db root@47.115.57.138:/srv/myapp/data
 scp logs.db root@47.115.57.138:/srv/myapp/data
+
+cloc app common --by-file --not-match-d='app/statics'
+ cloc src auth menu intro public --include-ext=vue,js,css,html --by-file

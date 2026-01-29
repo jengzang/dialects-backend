@@ -2,6 +2,7 @@
 """
 Merge工具的API路由：Excel表格合并工具
 """
+from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
@@ -11,6 +12,8 @@ from pathlib import Path
 import sys
 import os
 import threading
+
+from starlette.responses import StreamingResponse
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -293,7 +296,7 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
             progress=75.0,
             message=f"上传{len(filenames)}个待合并文件",
             data={
-                **task.data,
+                **task['data'],
                 "merge_files": file_paths,
                 "merge_filenames": filenames
             }
@@ -328,12 +331,12 @@ async def execute_merge(request: MergeRequest, background_tasks: BackgroundTasks
         raise HTTPException(status_code=404, detail="任务不存在")
 
     # 获取参考表路径
-    reference_path = Path(task.data.get("reference_path"))
+    reference_path = Path(task['data'].get("reference_path"))
     if not reference_path or not reference_path.exists():
         raise HTTPException(status_code=404, detail="参考表不存在")
 
     # 获取待合并文件路径
-    merge_file_paths = task.data.get("merge_files", [])
+    merge_file_paths = task['data'].get("merge_files", [])
     if not merge_file_paths:
         raise HTTPException(status_code=400, detail="没有待合并文件")
 
@@ -375,40 +378,45 @@ async def get_merge_progress(task_id: str):
 
     return MergeResponse(
         task_id=task_id,
-        status=task.status.value,
-        progress=task.progress,
-        message=task.message
+        status=task['status'],  # 👈 关键修改
+        progress=task['progress'],  # 👈 关键修改
+        message=task['message']  # 👈 关键修改
     )
 
 
 @router.get("/download/{task_id}")
 async def download_merge_result(task_id: str):
-    """
-    下载合并结果
-
-    Args:
-        task_id: 任务ID
-
-    Returns:
-        文件响应
-    """
+    """下载结果 (使用流式传输)"""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    if task.status != TaskStatus.COMPLETED:
+    # 1. 字典访问修复
+    if task['status'] != TaskStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="任务尚未完成")
 
-    output_path = task.data.get("output_path")
-    if not output_path:
-        raise HTTPException(status_code=404, detail="结果文件不存在")
+    # 2. 字典访问修复
+    output_path_str = task['data'].get("output_path")
+    if not output_path_str:
+        raise HTTPException(status_code=404, detail="结果文件记录不存在")
 
-    file_path = Path(output_path)
+    file_path = Path(output_path_str).resolve()
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="结果文件不存在")
+        raise HTTPException(status_code=404, detail="服务器上的结果文件已丢失")
 
-    return FileResponse(
-        path=file_path,
-        filename="merge.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # 3. 准备文件名
+    filename = "合并结果.xlsx"
+    encoded_filename = quote(filename)
+
+    # 4. 使用流式响应 (最稳健的方式)
+    def iterfile():
+        with open(file_path, mode="rb") as file_like:
+            yield from file_like
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"
+        }
     )

@@ -1,165 +1,141 @@
 # app/tools/file_manager.py
-"""
-文件管理系统：管理上传文件的存储、读取和清理
-"""
-
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional, BinaryIO
-import tempfile
-from datetime import datetime
 
 
 class FileManager:
-    """文件管理器"""
+    """
+    通用文件管理器
+    负责管理文件的存储、路径获取和清理
+    """
 
     def __init__(self, base_dir: Optional[str] = None):
         """
         初始化文件管理器
 
         Args:
-            base_dir: 文件存储基础目录，默认使用系统临时目录
+            base_dir: 文件存储基础目录。
+                      优先级: 传入参数 > 环境变量 FILE_STORAGE_PATH > 系统临时目录
         """
+        # 1. 优先使用传入的参数
         if base_dir:
             self.base_dir = Path(base_dir)
+        # 2. 其次使用环境变量 (Docker 部署常用)
+        elif os.getenv("FILE_STORAGE_PATH"):
+            self.base_dir = Path(os.getenv("FILE_STORAGE_PATH"))
+        # 3. 最后回退到系统临时目录
         else:
             self.base_dir = Path(tempfile.gettempdir()) / "fastapi_tools"
 
-        # 创建基础目录
+        # 确保基础目录存在
         self.base_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建各工具的子目录
-        self.check_dir = self.base_dir / "check"
-        self.jyut2ipa_dir = self.base_dir / "jyut2ipa"
-        self.merge_dir = self.base_dir / "merge"
-
-        for dir_path in [self.check_dir, self.jyut2ipa_dir, self.merge_dir]:
-            dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"[FileManager] Storage Path: {self.base_dir.resolve()}")
 
     def get_tool_dir(self, tool_name: str) -> Path:
-        """获取工具对应的存储目录"""
-        tool_dirs = {
-            "check": self.check_dir,
-            "jyut2ipa": self.jyut2ipa_dir,
-            "merge": self.merge_dir
-        }
-        return tool_dirs.get(tool_name, self.base_dir)
+        """
+        获取工具对应的存储目录 (动态生成)
+        例如 tool_name="check" -> /tmp/fastapi_tools/check
+        """
+        # 自动拼接路径，不再需要维护字典映射
+        tool_dir = self.base_dir / tool_name
+
+        # 确保该工具的目录存在
+        if not tool_dir.exists():
+            tool_dir.mkdir(parents=True, exist_ok=True)
+
+        return tool_dir
+
+    def get_task_dir(self, task_id: str, tool_name: str) -> Path:
+        """
+        获取任务专属目录
+        结构: base_dir / tool_name / task_id
+        """
+        task_dir = self.get_tool_dir(tool_name) / task_id
+        # 确保任务目录存在
+        task_dir.mkdir(parents=True, exist_ok=True)
+        return task_dir
 
     def save_upload_file(self, task_id: str, tool_name: str,
                          file: BinaryIO, filename: str) -> Path:
-        """
-        保存上传的文件
+        """保存上传的文件"""
+        task_dir = self.get_task_dir(task_id, tool_name)
 
-        Args:
-            task_id: 任务ID
-            tool_name: 工具名称
-            file: 文件对象
-            filename: 原始文件名
-
-        Returns:
-            保存后的文件路径
-        """
-        # 创建任务专属目录
-        task_dir = self.get_tool_dir(tool_name) / task_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-
-        # 保存文件
         file_path = task_dir / filename
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(file, f)
+        try:
+            # 指针归零，防止读取过的文件保存为空
+            file.seek(0)
+            with open(file_path, "wb") as f:
+                shutil.copyfileobj(file, f)
+        except Exception as e:
+            print(f"[FileManager] Save failed: {e}")
+            raise e
 
         return file_path
 
     def get_file_path(self, task_id: str, tool_name: str, filename: str) -> Optional[Path]:
-        """
-        获取文件路径
-
-        Args:
-            task_id: 任务ID
-            tool_name: 工具名称
-            filename: 文件名
-
-        Returns:
-            文件路径，如果不存在则返回None
-        """
-        file_path = self.get_tool_dir(tool_name) / task_id / filename
+        """获取文件路径"""
+        # 注意：这里不需要 mkdir，只是查找
+        tool_dir = self.base_dir / tool_name
+        file_path = tool_dir / task_id / filename
         return file_path if file_path.exists() else None
 
     def delete_task_files(self, task_id: str, tool_name: str):
-        """
-        删除任务相关的所有文件
-
-        Args:
-            task_id: 任务ID
-            tool_name: 工具名称
-        """
-        task_dir = self.get_tool_dir(tool_name) / task_id
+        """删除任务相关的所有文件"""
+        tool_dir = self.base_dir / tool_name
+        task_dir = tool_dir / task_id
         if task_dir.exists():
-            shutil.rmtree(task_dir)
+            try:
+                shutil.rmtree(task_dir)
+            except Exception as e:
+                print(f"[FileManager] Delete failed: {e}")
+
+    def list_task_files(self, task_id: str, tool_name: str) -> list[str]:
+        """列出任务目录下的所有文件"""
+        tool_dir = self.base_dir / tool_name
+        task_dir = tool_dir / task_id
+
+        if not task_dir.exists():
+            return []
+
+        return [f.name for f in task_dir.iterdir() if f.is_file()]
 
     def cleanup_old_files(self, max_age_hours: int = 24):
         """
-        清理旧文件（默认24小时）
-
-        Args:
-            max_age_hours: 文件最大保留时间（小时）
-
-        Returns:
-            删除的文件数量
+        清理旧文件
+        逻辑：遍历 base_dir 下的所有工具目录，再检查其中的任务目录是否过期
         """
         import time
         current_time = time.time()
         max_age_seconds = max_age_hours * 3600
         deleted_count = 0
 
-        for tool_dir in [self.check_dir, self.jyut2ipa_dir, self.merge_dir]:
-            if not tool_dir.exists():
+        if not self.base_dir.exists():
+            return 0
+
+        # 1. 遍历所有工具目录 (check, jyut2ipa, merge, ...)
+        for tool_dir in self.base_dir.iterdir():
+            if not tool_dir.is_dir():
                 continue
 
+            # 2. 遍历该工具下的所有任务目录
             for task_dir in tool_dir.iterdir():
                 if not task_dir.is_dir():
                     continue
 
-                # 检查目录的最后修改时间
-                dir_mtime = task_dir.stat().st_mtime
-                if current_time - dir_mtime > max_age_seconds:
-                    shutil.rmtree(task_dir)
-                    deleted_count += 1
+                try:
+                    # 检查最后修改时间
+                    dir_mtime = task_dir.stat().st_mtime
+                    if current_time - dir_mtime > max_age_seconds:
+                        shutil.rmtree(task_dir)
+                        deleted_count += 1
+                        print(f"[Cleanup] Deleted expired task: {task_dir}")
+                except Exception as e:
+                    print(f"[Cleanup] Error deleting {task_dir}: {e}")
 
         return deleted_count
-
-    def get_task_dir(self, task_id: str, tool_name: str) -> Path:
-        """
-        获取任务目录路径
-
-        Args:
-            task_id: 任务ID
-            tool_name: 工具名称
-
-        Returns:
-            任务目录路径
-        """
-        task_dir = self.get_tool_dir(tool_name) / task_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-        return task_dir
-
-    def list_task_files(self, task_id: str, tool_name: str) -> list[str]:
-        """
-        列出任务目录下的所有文件
-
-        Args:
-            task_id: 任务ID
-            tool_name: 工具名称
-
-        Returns:
-            文件名列表
-        """
-        task_dir = self.get_tool_dir(tool_name) / task_id
-        if not task_dir.exists():
-            return []
-
-        return [f.name for f in task_dir.iterdir() if f.is_file()]
 
 
 # 全局文件管理器实例

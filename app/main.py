@@ -15,11 +15,11 @@ from common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
 
 # [OK] 导入日志迁移模块
-from app.logs.migrate_from_txt import run_migration
+# from app.logs.migrate_from_txt import run_migration
 # [OK] 导入定时任务模块
 from app.logs.scheduler import start_scheduler, stop_scheduler
 # [OK] 导入数据库索引管理模块
-from app.db.index_manager import initialize_all_indexes
+from app.sql.index_manager import initialize_all_indexes
 
 if _RUN_TYPE == 'EXE':
     # === 周期打印 ===
@@ -114,8 +114,11 @@ def _periodic_cleanup():
         except Exception as e:
             print(f"[CLEANUP] 定期清理失败: {str(e)}")
 
-
-app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+if _RUN_TYPE in ['EXE', 'MINE']:
+    # print("111111111111111111111111111111")
+    app = FastAPI(lifespan=lifespan)
+else:
+    app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 # 允許跨域
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 # api統計、json壓縮

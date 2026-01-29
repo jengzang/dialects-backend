@@ -133,14 +133,21 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
     Prints:
         检查结果到stdout
     """
+
     def is_single_chinese(char):
-        return len(char) == 1 and '\u4e00' <= char <= '\u9fff'
+        # 定义所有允许的特殊符号
+        valid_symbols = "□■⬜⬛☐☑☒▯▢▣█"
+
+        return len(char) == 1 and (
+                '\u4e00' <= char <= '\u9fff' or  # 判断是否为常用汉字
+                char in valid_symbols  # 判断是否在允许的符号列表中
+        )
 
     def is_normal_ipa(s):
         allowed = set(
             "abcdefghijklmnopqrstuvwxyz"
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀ"
+            "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞǝθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀ"
             "ʦʧʨʂʐʑʒʮʰʲː˞ˠˤ~^̃"
             "ıſɩɷʅɥʯεɝɚᴇãẽĩỹõúαɤᵘᶷᶤᶶᵚʸᶦᵊⁱ◌∅ɯʦʒɿ̍ʷ̯̩"
             "0123456789"

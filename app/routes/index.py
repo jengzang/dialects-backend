@@ -11,7 +11,7 @@ from app.logs.api_logger import update_html_visit
 
 router = APIRouter()
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     # print(request.url.path)
@@ -21,7 +21,7 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
-@router.get("/detail", response_class=HTMLResponse)
+@router.get("/detail", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     index_path = get_resource_path("app/statics/detail/index.html")
@@ -30,7 +30,7 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
-@router.get("/admin", response_class=HTMLResponse)
+@router.get("/admin", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     index_path = get_resource_path("app/statics/admin/index.html")
@@ -39,7 +39,7 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
-@router.get("/intro", response_class=HTMLResponse)
+@router.get("/intro", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     index_path = get_resource_path("app/statics/intro/index.html")
@@ -48,7 +48,7 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
-@router.get("/menu", response_class=HTMLResponse)
+@router.get("/menu", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     index_path = get_resource_path("app/statics/menu/index.html")
@@ -57,7 +57,7 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
-@router.get("/auth", response_class=HTMLResponse)
+@router.get("/auth", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)
     index_path = get_resource_path("app/statics/auth/index.html")

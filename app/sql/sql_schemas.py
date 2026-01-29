@@ -47,3 +47,21 @@ class BatchMutationParams(BaseModel):
 
     # 批量删除：主键值列表
     delete_ids: List[Any] = []
+
+
+# ========== tree数据模型 ==========
+class FullTreeParams(BaseModel):
+    """完整树模式参数"""
+    db_key: str
+    table_name: str
+    level_columns: List[int]  # 列号从0开始，例如 [0, 1, 2, 3, 4]
+    filters: Optional[Dict[int, List[str]]] = None  # 键是列号，值是过滤值列表
+
+
+class LazyTreeParams(BaseModel):
+    """懒加载模式参数"""
+    db_key: str
+    table_name: str
+    level_columns: List[int]  # 列号从0开始
+    parent_path: Optional[List[str]] = None  # 父节点路径，None或[]表示第一层
+    filters: Optional[Dict[int, List[str]]] = None  # 键是列号

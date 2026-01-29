@@ -25,5 +25,5 @@ router.include_router(custom_router, prefix="/custom", tags=["admin custom"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(custom_edit_router, prefix="/custom", tags=["admin custom"],
                       dependencies=[Depends(get_current_admin_user)])
-router.include_router(get_ip, prefix="/ip", tags=["admin ip"],
+router.include_router(get_ip, prefix="/ip", tags=["admin api usage"],
                       dependencies=[Depends(get_current_admin_user)])

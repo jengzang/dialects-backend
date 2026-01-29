@@ -105,10 +105,10 @@ def ensure_character_indexes(db_path: str) -> None:
         conn.commit()
         conn.close()
 
-        print(f"  → 在 characters.db 中确保了 {created_count} 个索引")
+        print(f"  → 在 characters.sql 中确保了 {created_count} 个索引")
 
     except Exception as e:
-        print(f"  ✗ 创建索引失败 (characters.db): {e}")
+        print(f"  ✗ 创建索引失败 (characters.sql): {e}")
 
 
 def initialize_all_indexes() -> None:

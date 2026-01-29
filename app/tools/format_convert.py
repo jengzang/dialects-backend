@@ -276,8 +276,11 @@ def process_音典(file, level=1, output_path=None):
             return parts[idx].strip()
         return ""
 
-    def process_pair(word, phon, note, row_num):
-        clean_str, mapping = s2t_pro(word, level)
+    def process_pair(word, phon, note, row_num, level):
+        if level == 0:
+            clean_str, mapping = word, {}  # 伪代码：跳过转换
+        else:
+            clean_str, mapping = s2t_pro(word, level)
         mapping = dict(mapping)
         phon_units = phon.strip().split()
         word_len_match = len(word) == len(phon_units)
@@ -296,7 +299,7 @@ def process_音典(file, level=1, output_path=None):
                 simplified_rows.append([clean_str, phon, note, "簡"])
                 print(f"[fallback] 第 {row_num} 行：{word} → {clean_str}")
 
-    print(f"[處理] 開始掃描資料行，共 {len(lines) - 1} 筆")
+    # print(f"[處理] 開始掃描資料行，共 {len(lines) - 1} 筆")
 
     for row_num, parts in enumerate(lines[1:], start=2):
         word_raw = get_field(parts, '漢字')
@@ -317,26 +320,26 @@ def process_音典(file, level=1, output_path=None):
             # ✅ 無論等長與否，始終做笛卡爾積
             print(f"[笛卡爾積] 第 {row_num} 行：{word_list} × {phon_list}")
             for word, phon in product(word_list, phon_list):
-                process_pair(word, phon, note, row_num)
+                process_pair(word, phon, note, row_num, level)
 
         elif len(word_list) > 1 and len(phon_list) == 1:
             # ✅ 多對一
             print(f"[多對一] 第 {row_num} 行：{word_list} × {phon_list[0]}")
             for word in word_list:
-                process_pair(word, phon_list[0], note, row_num)
+                process_pair(word, phon_list[0], note, row_num, level)
 
         elif len(word_list) == 1 and len(phon_list) > 1:
             # ✅ 一對多
             print(f"[一對多] 第 {row_num} 行：{word_list[0]} × {phon_list}")
             for phon in phon_list:
-                process_pair(word_list[0], phon, note, row_num)
+                process_pair(word_list[0], phon, note, row_num, level)
 
         else:
             # fallback 合併處理
             word = ''.join(word_list)
             phon = ' '.join(phon_list)
             # print(f"[fallback] 第 {row_num} 行：{word} → {phon}")
-            process_pair(word, phon, note, row_num)
+            process_pair(word, phon, note, row_num, level)
 
     outpath = output_path or (os.path.splitext(file)[0] + ".tsv")
     print(f"[輸出] 寫入主檔案：{outpath}")
@@ -396,7 +399,11 @@ def process_跳跳老鼠(file, level=1, output_path=None):
             continue
         parsed = parse_row(row, i)
         for 字, 音, 註 in parsed:
-            clean_str, mapping = s2t_pro(字, level)
+            if level == 0:
+                clean_str, mapping = 字, {}  # 伪代码：跳过转换
+            else:
+                clean_str, mapping = s2t_pro(字, level)
+
             mapping = dict(mapping)
             candidates = mapping.get(字, [字])  # 支援多候選
 
@@ -519,7 +526,12 @@ def process_縣志_excel(file, level=1, output_path=None):
                         if debug:
                             print(f"⚠️ 空白字 行 {lineno} 義項：{義項}")
                         continue
-                    clean_str, mapping = s2t_pro(字, level)
+
+                    if level == 0:
+                        clean_str, mapping = 字, {}  # 伪代码：跳过转换
+                    else:
+                        clean_str, mapping = s2t_pro(字, level)
+
                     mapping = dict(mapping)
                     candidates = mapping.get(字, [字])  # 支援多候選繁體字
 
@@ -635,8 +647,12 @@ def process_縣志_word(file, level=1, output_path=None):
             return parts[idx].strip()
         return ""
 
-    def process_pair(word, phon, note, row_num):
-        clean_str, mapping = s2t_pro(word, level)
+    def process_pair(word, phon, note, row_num, level):
+        if level == 0:
+            clean_str, mapping = word, {}  # 伪代码：跳过转换
+        else:
+            clean_str, mapping = s2t_pro(word, level)
+
         mapping = dict(mapping)
         phon_units = phon.strip().split()
         word_len_match = len(word) == len(phon_units)
@@ -648,12 +664,12 @@ def process_縣志_word(file, level=1, output_path=None):
                     rows.append([cand, p, note])
                     if cand != ch:
                         simplified_rows.append([cand, p, note, "簡"])
-                        print(f"[簡體一對多] 第 {row_num} 行：{ch} → {cand}")
+                        # print(f"[簡體一對多] 第 {row_num} 行：{ch} → {cand}")
         else:
             rows.append([clean_str, phon, note])
             if clean_str != word:
                 simplified_rows.append([clean_str, phon, note, "簡"])
-                print(f"[fallback] 第 {row_num} 行：{word} → {clean_str}")
+                # print(f"[fallback] 第 {row_num} 行：{word} → {clean_str}")
 
     print(f"[處理] 開始掃描資料行，共 {len(lines) - 1} 筆")
 
@@ -673,25 +689,25 @@ def process_縣志_word(file, level=1, output_path=None):
             continue
 
         if len(word_list) > 1 and len(phon_list) > 1:
-            print(f"[笛卡爾積] 第 {row_num} 行：{word_list} × {phon_list}")
+            # print(f"[笛卡爾積] 第 {row_num} 行：{word_list} × {phon_list}")
             for word, phon in product(word_list, phon_list):
-                process_pair(word, phon, note, row_num)
+                process_pair(word, phon, note, row_num, level)
 
         elif len(word_list) > 1 and len(phon_list) == 1:
-            print(f"[多對一] 第 {row_num} 行：{word_list} × {phon_list[0]}")
+            # print(f"[多對一] 第 {row_num} 行：{word_list} × {phon_list[0]}")
             for word in word_list:
-                process_pair(word, phon_list[0], note, row_num)
+                process_pair(word, phon_list[0], note, row_num, level)
 
         elif len(word_list) == 1 and len(phon_list) > 1:
-            print(f"[一對多] 第 {row_num} 行：{word_list[0]} × {phon_list}")
+            # print(f"[一對多] 第 {row_num} 行：{word_list[0]} × {phon_list}")
             for phon in phon_list:
-                process_pair(word_list[0], phon, note, row_num)
+                process_pair(word_list[0], phon, note, row_num, level)
 
         else:
             word = ''.join(word_list)
             phon = ' '.join(phon_list)
             # print(f"[fallback] 第 {row_num} 行：{word} → {phon}")
-            process_pair(word, phon, note, row_num)
+            process_pair(word, phon, note, row_num, level)
 
     # Step 5: 輸出最終 TSV
     # final_outpath = output_path or (os.path.splitext(file)[0] + ".tsv")
@@ -830,11 +846,11 @@ def extract_all_from_files(file_path: str, preserve_empty_rows: bool = True) -> 
     df = df.fillna("")
 
     results = []
-
+    df = df.loc[:, ~df.columns.duplicated()]
     for _, row in df.iterrows():
-        hanzi = row.get("漢字", "").strip()
-        phonetic = row.get("音標", "").strip()
-        note = row.get("解釋", "").strip()
+        hanzi = str(row.get("漢字", "")).strip()
+        phonetic = str(row.get("音標", "")).strip()
+        note = str(row.get("解釋", "")).strip()
         if isinstance(phonetic, str):
             phonetic = phonetic.strip()
         if not hanzi or not phonetic or phonetic == "0" or hanzi == "0":
