@@ -20,6 +20,13 @@ from starlette.staticfiles import StaticFiles
 from app.logs.scheduler import start_scheduler, stop_scheduler
 # [OK] 导入数据库索引管理模块
 from app.sql.index_manager import initialize_all_indexes
+# [NEW] 导入数据库连接池管理模块
+from app.sql.db_pool import close_all_pools, get_db_pool
+from common.config import (
+    QUERY_DB_ADMIN, QUERY_DB_USER,
+    DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
+    CHARACTERS_DB_PATH
+)
 
 if _RUN_TYPE == 'EXE':
     # === 周期打印 ===
@@ -58,6 +65,22 @@ async def lifespan(app: FastAPI):
     # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
     if _RUN_TYPE in ['EXE', 'MINE']:
         initialize_all_indexes()
+    # initialize_all_indexes()
+
+    # [NEW] 初始化数据库连接池
+    print("=" * 60)
+    print("🔌 初始化数据库连接池...")
+    try:
+        # 为常用数据库预创建连接池
+        get_db_pool(QUERY_DB_ADMIN, pool_size=5)
+        get_db_pool(QUERY_DB_USER, pool_size=5)
+        get_db_pool(DIALECTS_DB_ADMIN, pool_size=10)
+        get_db_pool(DIALECTS_DB_USER, pool_size=10)
+        get_db_pool(CHARACTERS_DB_PATH, pool_size=5)
+        print("✅ 数据库连接池初始化完成")
+    except Exception as e:
+        print(f"⚠️ 连接池初始化失败: {str(e)}")
+    print("=" * 60)
 
     # [新增] 启动时清理旧的临时文件（12小时前的）
     from app.tools.file_manager import file_manager
@@ -99,6 +122,11 @@ async def lifespan(app: FastAPI):
 
         print("🛑 App shutting down...")
         await close_redis()  # [OK] 關閉 Redis 連接
+
+        # [NEW] 关闭所有数据库连接池
+        print("🔌 关闭数据库连接池...")
+        close_all_pools()
+        print("✅ 数据库连接池已关闭")
 
 
 def _periodic_cleanup():

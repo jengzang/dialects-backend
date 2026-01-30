@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 from typing import List
 
 from app.auth.dependencies import check_api_usage_limit
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_all
 from app.service.search_chars import search_characters
 from common.config import REQUIRE_LOGIN, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
 from common.search_tones import search_tones
@@ -38,11 +38,16 @@ async def search_chars(
     log_all_fields(request.url.path, {"chars": chars, "locations": locations, "regions": regions})
     # start = time.time()
     try:
-        locations_processed = []
-        for location in locations or []:
-            matched = match_locations_batch(location)
-            extracted = [res[0][0] for res in matched if res[0]]
-            locations_processed.extend(extracted)
+        # [NEW] 使用批量处理函数，一次性处理所有地点
+        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+        locations_processed = match_locations_batch_all(
+            locations or [],
+            filter_valid_abbrs_only=True,
+            exact_only=True,
+            query_db=query_db,
+            db=db,
+            user=user
+        )
 
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
 
@@ -92,11 +97,16 @@ async def search_tones_o(
     # start = time.time()
     try:
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
-        locations_processed = []
-        for location in locations or []:
-            matched = match_locations_batch(location, False, query_db=query_db)
-            extracted = [res[0][0] for res in matched if res[0]]
-            locations_processed.extend(extracted)
+
+        # [NEW] 使用批量处理函数，一次性处理所有地点
+        locations_processed = match_locations_batch_all(
+            locations or [],
+            filter_valid_abbrs_only=False,
+            exact_only=False,
+            query_db=query_db,
+            db=db,
+            user=user
+        )
 
         result = search_tones(
             locations=locations_processed,

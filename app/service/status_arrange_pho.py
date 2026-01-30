@@ -10,6 +10,7 @@ from common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES, COLUMN_VALUES
 from app.service.process_sp_input import auto_convert_batch
 from common.getloc_by_name_region import query_dialect_abbreviations
 from app.service.match_input_tip import match_locations_batch
+from app.sql.db_pool import get_db_pool
 
 """
 本腳本提供一組函數用於從語音描述詞查詢對應漢字，並根據不同地點與語音特徵進行統計分析。
@@ -67,27 +68,27 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
             print(f"[!] 欄位「{col}」不在允許的層級欄位中")
             return [], []
 
-    # 讀取資料
-    conn = sqlite3.connect(db_path)
-    # --- [RUN] 優化開始：動態組裝更高效的 SQL ---
-    conditions = []
-    params = []
+    # 使用連接池
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        # --- [RUN] 優化開始：動態組裝更高效的 SQL ---
+        conditions = []
+        params = []
 
-    for val, col in matches:
-        # 針對「等=三」的特殊處理：使用 SQL 的 IN 語法
-        if col == "等" and val == "三":
-            conditions.append(f"{col} IN (?, ?, ?, ?)")
-            params.extend(["三A", "三B", "三C", "三銳"])
-        else:
-            conditions.append(f"{col} = ?")
-            params.append(val)
+        for val, col in matches:
+            # 針對「等=三」的特殊處理：使用 SQL 的 IN 語法
+            if col == "等" and val == "三":
+                conditions.append(f"{col} IN (?, ?, ?, ?)")
+                params.extend(["三A", "三B", "三C", "三銳"])
+            else:
+                conditions.append(f"{col} = ?")
+                params.append(val)
 
-    where_clause = " AND ".join(conditions)
-    query = f"SELECT * FROM {table} WHERE {where_clause}"
+        where_clause = " AND ".join(conditions)
+        query = f"SELECT * FROM {table} WHERE {where_clause}"
 
-    # 只執行一次查詢
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+        # 只執行一次查詢
+        df = pd.read_sql_query(query, conn, params=params)
     # --- [RUN] 優化結束 ---
 
     # 【新增】應用過濾邏輯
@@ -150,42 +151,41 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     - 每筆統計結果以字典方式輸出，最終轉為 DataFrame
     """
     # print(f"[PKG] 連接資料庫：{db_path}")
-    conn = sqlite3.connect(db_path)
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        # 1. 只選擇需要的欄位並添加過濾條件，減少資料庫加載量
+        query = f"""
+        SELECT 簡稱, 漢字, {', '.join(features)}, 多音字, 音節
+        FROM {table}
+        WHERE 簡稱 IN ({','.join(f"'{loc}'" for loc in locations)})
+        AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
+        """
+        try:
+            df = pd.read_sql_query(query, conn)
+            print(f"[OK] 查詢結果：載入 {len(df)} 條資料")
+        except Exception as e:
+            print(f"[X] 查詢失敗：{e}")
 
-    # 1. 只選擇需要的欄位並添加過濾條件，減少資料庫加載量
-    query = f"""
-    SELECT 簡稱, 漢字, {', '.join(features)}, 多音字, 音節
-    FROM {table}
-    WHERE 簡稱 IN ({','.join(f"'{loc}'" for loc in locations)}) 
-    AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
-    """
-    try:
-        df = pd.read_sql_query(query, conn)
-        print(f"[OK] 查詢結果：載入 {len(df)} 條資料")
-    except Exception as e:
-        print(f"[X] 查詢失敗：{e}")
-    conn.close()
-
-    # 2. 為每個地點分別查詢多音字資料，並構建多音字字典
+    # 2. 为每个地点分别查询多音字资料，并构建多音字字典
     poly_dicts = {}  # 存儲每個地點的多音字字典
     for loc in locations:
         # 針對每個地點進行查詢
         # print(f"[SEARCH] 查詢地點：{loc}")
-        conn = sqlite3.connect(db_path)
-        try:
-            # 查詢該地點的多音字資料
-            query = f"""
-            SELECT 漢字, 音節 
-            FROM {table} 
-            WHERE 多音字 = '1' 
-            AND 簡稱 = '{loc}' 
-            AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
-            """
-            poly_data = pd.read_sql_query(query, conn)
-            # print(f"[OK] 地點 {loc} 的多音字資料載入完成，共 {len(poly_data)} 條")
-        except Exception as e:
-            print(f"[X] 查詢地點 {loc} 的多音字資料失敗：{e}")
-        conn.close()
+        pool_poly = get_db_pool(db_path)
+        with pool_poly.get_connection() as conn_poly:
+            try:
+                # 查詢該地點的多音字資料
+                query = f"""
+                SELECT 漢字, 音節
+                FROM {table}
+                WHERE 多音字 = '1'
+                AND 簡稱 = '{loc}'
+                AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
+                """
+                poly_data = pd.read_sql_query(query, conn_poly)
+                # print(f"[OK] 地點 {loc} 的多音字資料載入完成，共 {len(poly_data)} 條")
+            except Exception as e:
+                print(f"[X] 查詢地點 {loc} 的多音字資料失敗：{e}")
 
         # 構建該地點的多音字字典
         poly_dict = poly_data.groupby("漢字")["音節"].apply(lambda x: '|'.join(x)).to_dict()
@@ -465,9 +465,9 @@ def sta2pho(
 
     if not test_inputs:
         print("[i] inputs 為空，自動推導條件字串...")
-        conn = sqlite3.connect(db_path_char)
-        df_char = pd.read_sql_query("SELECT * FROM characters", conn)
-        conn.close()
+        pool = get_db_pool(db_path_char)
+        with pool.get_connection() as conn:
+            df_char = pd.read_sql_query("SELECT * FROM characters", conn)
 
         auto_inputs = []
         auto_features = []
@@ -560,9 +560,9 @@ def sta2pho(
 
 # 這函數沒啥用
 def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
-    conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
-    conn.close()
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
 
     unique_values = {}
 

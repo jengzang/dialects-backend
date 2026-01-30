@@ -246,62 +246,60 @@ async def get_full_tree(params: FullTreeParams):
       "levels": 5              # 层级数
     }
     """
-    conn = get_db_connection(params.db_key)
-    cursor = conn.cursor()
+    with get_db_connection(params.db_key) as conn:
+        cursor = conn.cursor()
 
-    try:
-        # 获取表结构
-        cursor.execute(f"PRAGMA table_info({params.table_name})")
-        columns_info = cursor.fetchall()
+        try:
+            # 获取表结构
+            cursor.execute(f"PRAGMA table_info({params.table_name})")
+            columns_info = cursor.fetchall()
 
-        if not columns_info:
-            raise HTTPException(status_code=400, detail=f"表不存在: {params.table_name}")
+            if not columns_info:
+                raise HTTPException(status_code=400, detail=f"表不存在: {params.table_name}")
 
-        all_column_names = [col[1] for col in columns_info]
+            all_column_names = [col[1] for col in columns_info]
 
-        # 1. 验证所有列
-        validate_columns(params.level_columns, params.data_columns, all_column_names)
+            # 1. 验证所有列
+            validate_columns(params.level_columns, params.data_columns, all_column_names)
 
-        # 2. 获取列名列表
-        level_col_names = [all_column_names[i] for i in params.level_columns]
-        data_col_names = [all_column_names[i] for i in params.data_columns]
+            # 2. 获取列名列表
+            level_col_names = [all_column_names[i] for i in params.level_columns]
+            data_col_names = [all_column_names[i] for i in params.data_columns]
 
-        # 合并查询列：层级列 + 数据列
-        # 注意：这里继续使用 DISTINCT。
-        # 如果 row1 和 row2 层级相同但数据不同，DISTINCT 会保留两者，
-        # build_tree_structure 会负责把它们聚合到同一个叶子节点下。
-        select_cols = level_col_names + data_col_names
-        # 去重选择，防止完全重复的行
-        sql = f"SELECT DISTINCT {', '.join(select_cols)} FROM {params.table_name}"
+            # 合并查询列：层级列 + 数据列
+            # 注意：这里继续使用 DISTINCT。
+            # 如果 row1 和 row2 层级相同但数据不同，DISTINCT 会保留两者，
+            # build_tree_structure 会负责把它们聚合到同一个叶子节点下。
+            select_cols = level_col_names + data_col_names
+            # 去重选择，防止完全重复的行
+            sql = f"SELECT DISTINCT {', '.join(select_cols)} FROM {params.table_name}"
 
-        # ... (过滤条件逻辑 build_filter_conditions 不变) ...
-        where_clauses, values = build_filter_conditions(params.filters, all_column_names)
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
+            # ... (过滤条件逻辑 build_filter_conditions 不变) ...
+            where_clauses, values = build_filter_conditions(params.filters, all_column_names)
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
 
-        # 排序：只按层级列排序即可，保证树构建顺序
-        order_by = ", ".join([f"{name} ASC" for name in level_col_names])
-        sql += f" ORDER BY {order_by}"
+            # 排序：只按层级列排序即可，保证树构建顺序
+            order_by = ", ".join([f"{name} ASC" for name in level_col_names])
+            sql += f" ORDER BY {order_by}"
 
-        # 执行查询
-        cursor.execute(sql, values)
-        rows = [dict(row) for row in cursor.fetchall()]
+            # 执行查询
+            cursor.execute(sql, values)
+            rows = [dict(row) for row in cursor.fetchall()]
 
-        # 3. 传入数据列名进行构建
-        tree = build_tree_structure(rows, level_col_names, data_col_names)
+            # 3. 传入数据列名进行构建
+            tree = build_tree_structure(rows, level_col_names, data_col_names)
 
-        return {
-            "tree": tree,
-            "total_nodes": len(rows),
-            "levels": len(params.level_columns)
-        }
+            return {
+                "tree": tree,
+                "total_nodes": len(rows),
+                "levels": len(params.level_columns)
+            }
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"构建树失败: {str(e)}")
-    finally:
-        conn.close()
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"构建树失败: {str(e)}")
 
 
 # ========== API 2: 懒加载模式 ==========
@@ -337,89 +335,87 @@ async def get_tree_children(params: LazyTreeParams):
       "total": 15
     }
     """
-    conn = get_db_connection(params.db_key)
-    cursor = conn.cursor()
+    with get_db_connection(params.db_key) as conn:
+        cursor = conn.cursor()
 
-    try:
-        # 获取表结构
-        cursor.execute(f"PRAGMA table_info({params.table_name})")
-        columns_info = cursor.fetchall()
+        try:
+            # 获取表结构
+            cursor.execute(f"PRAGMA table_info({params.table_name})")
+            columns_info = cursor.fetchall()
 
-        if not columns_info:
-            raise HTTPException(status_code=400, detail=f"表不存在: {params.table_name}")
+            if not columns_info:
+                raise HTTPException(status_code=400, detail=f"表不存在: {params.table_name}")
 
-        all_column_names = [col[1] for col in columns_info]
+            all_column_names = [col[1] for col in columns_info]
 
-        # 验证列号
-        validate_columns(params.level_columns, [], all_column_names)
+            # 验证列号
+            validate_columns(params.level_columns, [], all_column_names)
 
-        # 确定要查询的层级
-        parent_path = params.parent_path or []
-        target_level = len(parent_path)
+            # 确定要查询的层级
+            parent_path = params.parent_path or []
+            target_level = len(parent_path)
 
-        # 检查是否超出最大层级
-        if target_level >= len(params.level_columns):
+            # 检查是否超出最大层级
+            if target_level >= len(params.level_columns):
+                return {
+                    "level": target_level,
+                    "parent_path": parent_path,
+                    "children": [],
+                    "total": 0
+                }
+
+            # 确定目标列
+            target_col_index = params.level_columns[target_level]
+            target_col_name = all_column_names[target_col_index]
+
+            # 构建SQL：只查询目标列的唯一值
+            sql = f"SELECT DISTINCT {target_col_name} FROM {params.table_name}"
+
+            where_clauses = []
+            values = []
+
+            # 添加父路径的WHERE条件
+            for i, parent_value in enumerate(parent_path):
+                col_index = params.level_columns[i]
+                col_name = all_column_names[col_index]
+                where_clauses.append(f"{col_name} = ?")
+                values.append(parent_value)
+
+            # 添加全局过滤条件
+            filter_clauses, filter_values = build_filter_conditions(params.filters, all_column_names)
+            where_clauses.extend(filter_clauses)
+            values.extend(filter_values)
+
+            # 组合WHERE子句
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+
+            # 排序
+            sql += f" ORDER BY {target_col_name} ASC"
+
+            # 执行查询
+            cursor.execute(sql, values)
+
+            # 提取结果并过滤空值
+            children = []
+            seen = set()  # 去重
+            for row in cursor.fetchall():
+                value = (row[0] or '').strip()
+                if value and value not in seen:
+                    children.append(value)
+                    seen.add(value)
+
             return {
                 "level": target_level,
-                "parent_path": parent_path,
-                "children": [],
-                "total": 0
+                "parent_path": parent_path if parent_path else None,
+                "children": children,
+                "total": len(children)
             }
 
-        # 确定目标列
-        target_col_index = params.level_columns[target_level]
-        target_col_name = all_column_names[target_col_index]
-
-        # 构建SQL：只查询目标列的唯一值
-        sql = f"SELECT DISTINCT {target_col_name} FROM {params.table_name}"
-
-        where_clauses = []
-        values = []
-
-        # 添加父路径的WHERE条件
-        for i, parent_value in enumerate(parent_path):
-            col_index = params.level_columns[i]
-            col_name = all_column_names[col_index]
-            where_clauses.append(f"{col_name} = ?")
-            values.append(parent_value)
-
-        # 添加全局过滤条件
-        filter_clauses, filter_values = build_filter_conditions(params.filters, all_column_names)
-        where_clauses.extend(filter_clauses)
-        values.extend(filter_values)
-
-        # 组合WHERE子句
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
-
-        # 排序
-        sql += f" ORDER BY {target_col_name} ASC"
-
-        # 执行查询
-        cursor.execute(sql, values)
-
-        # 提取结果并过滤空值
-        children = []
-        seen = set()  # 去重
-        for row in cursor.fetchall():
-            value = (row[0] or '').strip()
-            if value and value not in seen:
-                children.append(value)
-                seen.add(value)
-
-        return {
-            "level": target_level,
-            "parent_path": parent_path if parent_path else None,
-            "children": children,
-            "total": len(children)
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取子节点失败: {str(e)}")
-    finally:
-        conn.close()
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"获取子节点失败: {str(e)}")
 
 # ========== 使用示例 ==========
 #

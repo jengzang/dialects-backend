@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 from common.getloc_by_name_region import query_dialect_abbreviations
 from common.config import QUERY_DB_ADMIN
+# [NEW] 导入连接池
+from app.sql.db_pool import get_db_pool
 
 
 def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QUERY_DB_ADMIN, region_mode='yindian'):
@@ -14,18 +16,17 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
     if not all_locations:
         raise HTTPException(status_code=400, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
 
-    # 打开数据库连接
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # if all_locations is not None and len(all_locations) > 0:
-    placeholders = ','.join(['?'] * len(all_locations))  # 動態生成 SQL IN 子句的佔位符
-    query = f"""
-    SELECT 簡稱, T1陰平, T2陽平, T3陰上, T4陽上, T5陰去, T6陽去, T7陰入, T8陽入, T9其他調, T10輕聲
-    FROM dialects
-    WHERE 簡稱 IN ({placeholders})
-    """
-    df = pd.read_sql(query, conn, params=all_locations)
+    # [NEW] 使用连接池
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        # if all_locations is not None and len(all_locations) > 0:
+        placeholders = ','.join(['?'] * len(all_locations))  # 動態生成 SQL IN 子句的佔位符
+        query = f"""
+        SELECT 簡稱, T1陰平, T2陽平, T3陰上, T4陽上, T5陰去, T6陽去, T7陰入, T8陽入, T9其他調, T10輕聲
+        FROM dialects
+        WHERE 簡稱 IN ({placeholders})
+        """
+        df = pd.read_sql(query, conn, params=all_locations)
 
     df.set_index('簡稱', inplace=True)
 

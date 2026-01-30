@@ -10,6 +10,7 @@ from app.service.process_sp_input import split_pho_input
 from common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column
 from common.getloc_by_name_region import query_dialect_abbreviations
 from app.service.match_input_tip import match_locations_batch
+from app.sql.db_pool import get_db_pool
 
 """
 整體流程總結：
@@ -49,17 +50,16 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
         }
     }
     """
-    # 連接資料庫
-    conn = sqlite3.connect(db_path)
-
-    # 優化：只選擇需要的欄位並添加過濾條件
-    query = f"""
-    SELECT 簡稱, 漢字, {', '.join(features)}, 音節, 多音字
-    FROM {table}
-    WHERE 簡稱 IN ({','.join(f"'{loc}'" for loc in locations)})
-    """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
+    # 使用連接池
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        # 優化：只選擇需要的欄位並添加過濾條件
+        query = f"""
+        SELECT 簡稱, 漢字, {', '.join(features)}, 音節, 多音字
+        FROM {table}
+        WHERE 簡稱 IN ({','.join(f"'{loc}'" for loc in locations)})
+        """
+        df = pd.read_sql_query(query, conn)
 
     result = {}
 
@@ -136,11 +136,11 @@ def analyze_characters_from_db(
         if not group_fields:
             raise ValueError(f"[X] 未定義的 feature_type：{feature_type}")
 
-    conn = sqlite3.connect(char_db_path)
-    placeholders = ','.join(['?'] * len(char_list))
-    query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
-    df = pd.read_sql_query(query, conn, params=char_list)
-    conn.close()
+    pool = get_db_pool(char_db_path)
+    with pool.get_connection() as conn:
+        placeholders = ','.join(['?'] * len(char_list))
+        query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
+        df = pd.read_sql_query(query, conn, params=char_list)
 
     if df.empty:
         return []
@@ -331,48 +331,47 @@ def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
     """
     result = defaultdict(lambda: defaultdict(dict))
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
 
-    # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
-    placeholders = ','.join(['?' for _ in locations])
+        # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
+        placeholders = ','.join(['?' for _ in locations])
 
-    query_combined = f"""
-        SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
-        FROM {table}
-        WHERE 簡稱 IN ({placeholders})
-        GROUP BY 簡稱, 聲母
+        query_combined = f"""
+            SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
+            FROM {table}
+            WHERE 簡稱 IN ({placeholders})
+            GROUP BY 簡稱, 聲母
 
-        UNION ALL
+            UNION ALL
 
-        SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
-        FROM {table}
-        WHERE 簡稱 IN ({placeholders})
-        GROUP BY 簡稱, 韻母
+            SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
+            FROM {table}
+            WHERE 簡稱 IN ({placeholders})
+            GROUP BY 簡稱, 韻母
 
-        UNION ALL
+            UNION ALL
 
-        SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
-        FROM {table}
-        WHERE 簡稱 IN ({placeholders})
-        GROUP BY 簡稱, 聲調
-    """
+            SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
+            FROM {table}
+            WHERE 簡稱 IN ({placeholders})
+            GROUP BY 簡稱, 聲調
+        """
 
-    # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
-    cursor.execute(query_combined, locations * 3)
+        # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
+        cursor.execute(query_combined, locations * 3)
 
-    # 处理所有结果，按特征类型分离
-    all_rows = cursor.fetchall()
-    for row in all_rows:
-        loc = row[0]
-        feature_type = row[1]
-        value = row[2]
-        count = row[3]
+        # 处理所有结果，按特征类型分离
+        all_rows = cursor.fetchall()
+        for row in all_rows:
+            loc = row[0]
+            feature_type = row[1]
+            value = row[2]
+            count = row[3]
 
-        # 根据特征类型填充结果字典
-        result[loc][feature_type][value] = count
-
-    conn.close()
+            # 根据特征类型填充结果字典
+            result[loc][feature_type][value] = count
 
     return result
 
