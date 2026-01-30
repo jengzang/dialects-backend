@@ -9,6 +9,21 @@ import re
 RU_FINALS = set("ptkʔˀᵖᵏᵗbdg")
 SUPER_TO_NORMAL = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 
+# 预编译正则表达式 - 性能优化
+TONE_PATTERN = re.compile(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$")
+TONE_REPLACE_PATTERN = re.compile(r"([rs])(\d{1,4})>(\d{1,4})")
+IPA_PATTERN = re.compile(r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?$")
+
+# 预构建允许的IPA字符集合 - 性能优化
+ALLOWED_IPA_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞǝθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀØ"
+    "ʦʧʨʂʐʑʒʮʰʲː˞ˠˤ~^̃"
+    "ıſɩɷʅɥʯεɝɚᴇãẽĩỹõúαɤᵘᶷᶤᶶᵚʸᶦᵊⁱ◌∅ɯʦʒɿ̍ʷ̯̩"
+    "0123456789"
+)
+
 
 def 處理自定義編輯指令(df, col_hanzi, col_ipa, command):
     """
@@ -33,7 +48,7 @@ def 處理自定義編輯指令(df, col_hanzi, col_ipa, command):
             continue
 
         # ✅ 處理「聲調替換」指令：r33>35（入聲） 或 s21>22（平聲）
-        tone_match = re.match(r"([rs])(\d{1,4})>(\d{1,4})", cmd)
+        tone_match = TONE_REPLACE_PATTERN.match(cmd)
         if tone_match:
             mode, from_tone, to_tone = tone_match.groups()
             mode_name = "入聲" if mode == "r" else "平聲"
@@ -45,7 +60,7 @@ def 處理自定義編輯指令(df, col_hanzi, col_ipa, command):
                     continue
 
                 # 提取調值
-                match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa)
+                match = TONE_PATTERN.search(ipa)
                 if not match:
                     continue
 
@@ -156,15 +171,8 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
         )
 
     def is_normal_ipa(s):
-        allowed = set(
-            "abcdefghijklmnopqrstuvwxyz"
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "ŋɑɐɒɓʙβɔɕçðɖɗɘəɚɛɜɞɟʄɡɢʛɣʰɥʜɦɪʝɭɬɫʟɮɰɱɲȵɳŋɳɴɵøœæɶɸɹɻʁʀɽɾʃʂʈʊʋʌʍχʎʑʐʒʔʕʡʢʘʞǝθʼˈˌːˑ⁰¹²³⁴⁵⁶⁷⁸⁹ⁿˡʲʳˀØ"
-            "ʦʧʨʂʐʑʒʮʰʲː˞ˠˤ~^̃"
-            "ıſɩɷʅɥʯεɝɚᴇãẽĩỹõúαɤᵘᶷᶤᶶᵚʸᶦᵊⁱ◌∅ɯʦʒɿ̍ʷ̯̩"
-            "0123456789"
-        )
-        return all(c in allowed for c in s)
+        # 使用预构建的字符集合，性能更优
+        return all(c in ALLOWED_IPA_CHARS for c in s)
 
     errors = {
         "非單字漢字": [],
@@ -184,8 +192,7 @@ def 檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=None):
 
 
         # 邏輯：數字(1-4位) + 可選的(ABCDabcd) + 結尾
-        pattern = r"[0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?$"
-        match = re.search(pattern, ipa.strip())
+        match = IPA_PATTERN.search(ipa.strip())
         if not match:
             # 既不符合純數字結尾，也不符合數字+字母結尾
             errors["缺聲調"].append((i, hanzi))
@@ -270,7 +277,7 @@ def 整理並顯示調值(df, col_hanzi, col_ipa):
             continue
 
         # 提取调值
-        match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[ABCDabcd]?)$", ipa)
+        match = TONE_PATTERN.search(ipa)
         if not match:
             continue
 

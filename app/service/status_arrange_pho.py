@@ -30,7 +30,7 @@ from app.service.match_input_tip import match_locations_batch
 """
 
 
-def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="characters"):
+def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="characters", exclude_columns=None):
     """
     📌 根據用戶輸入語法（如 "[知]{組}[三]{等}"）從 characters.db 中查出符合條件的漢字。
 
@@ -38,6 +38,11 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     - 解析語法中指定的「欄位 + 值」條件
     - 根據條件篩選出符合的漢字
     - 額外分析這些字是否為「多地位」字（即一字多個音系地位）
+    - 支持過濾多音多義字（通過 exclude_columns 參數）
+
+    Args:
+        exclude_columns: List[str] or None, 例如 ["多地位標記", "多等"]
+                        用於過濾掉這些列值為 1（字符串或整數）的行
 
     回傳：
     - 符合條件的漢字清單
@@ -84,6 +89,16 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     # --- [RUN] 優化結束 ---
+
+    # 【新增】應用過濾邏輯
+    if exclude_columns:
+        for col_name in exclude_columns:
+            if col_name in df.columns:
+                # 過濾掉該列值為 1（字符串或整數）的行
+                df = df[
+                    (df[col_name] != 1) &
+                    (df[col_name] != "1")
+                ]
 
     # [!] 原本這裡的 Python for 迴圈篩選是多餘的，因為 SQL 已經做完了，直接移除。
     # filtered_df 就是 df

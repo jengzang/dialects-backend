@@ -16,9 +16,12 @@ import redis.asyncio as redis
 from common.getloc_by_name_region import query_dialect_abbreviations
 
 
-def process_chars_status(path_strings, column, combine_query):
+def process_chars_status(path_strings, column, combine_query, exclude_columns=None):
     """
     处理 path_strings 和 column 的组合查询逻辑
+
+    Args:
+        exclude_columns: List[str] or None, 要排除的列名列表
     """
     result = []
 
@@ -45,13 +48,13 @@ def process_chars_status(path_strings, column, combine_query):
                             query_string += f"[{value}]{{{col}}}"
 
                         # 查询生成的组合
-                        characters, _ = query_characters_by_path(query_string)
+                        characters, _ = query_characters_by_path(query_string, exclude_columns=exclude_columns)
                         if characters:
                             display_name = convert_path_str(query_string)
                             result.append({'query': display_name, '字数': len(characters), '汉字': characters})
             else:
                 # 如果直接传入了 query_string，則直接查詢並將結果附加到 result 中
-                characters, _ = query_characters_by_path(path_string)
+                characters, _ = query_characters_by_path(path_string, exclude_columns=exclude_columns)
                 if characters:
                     display_name = convert_path_str(path_string)
                     result.append({'query': display_name, '字数': len(characters), '汉字': characters})
@@ -111,7 +114,7 @@ def _run_dialect_analysis_sync(
 
 
 # --- 1. 生成唯一的 Cache Key ---
-def generate_cache_key(path_strings: Any, column: Any, combine_query: bool) -> str:
+def generate_cache_key(path_strings: Any, column: Any, combine_query: bool, exclude_columns: Any = None) -> str:
     """
     生成标准化的缓存 Key
     核心逻辑：暴力清洗数据，将 None 视为 []，确保 Key 的唯一性
@@ -123,16 +126,22 @@ def generate_cache_key(path_strings: Any, column: Any, combine_query: bool) -> s
     # 逻辑：如果是 None (没传)，或者 False (空列表)，统一变成 []
     safe_path = path_strings if path_strings else []
     safe_col = column if column else []
+    safe_exclude = exclude_columns if exclude_columns else []
 
     # 可选：如果你希望 ["A", "B"] 和 ["B", "A"] 视为同一个缓存，可以排序
     # safe_path.sort()
     # safe_col.sort()
 
+    # 对 exclude_columns 排序以确保列表顺序不影响缓存键
+    if safe_exclude:
+        safe_exclude = sorted(safe_exclude)
+
     # 构建用于生成 Hash 的字典
     key_data = {
         "path": safe_path,
         "col": safe_col,
-        "combine": bool(combine_query)  # 强转 bool，防止 0/1 差异
+        "combine": bool(combine_query),  # 强转 bool，防止 0/1 差异
+        "exclude": safe_exclude
     }
 
     # 序列化为字符串

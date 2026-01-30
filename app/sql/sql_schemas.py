@@ -55,6 +55,7 @@ class FullTreeParams(BaseModel):
     db_key: str
     table_name: str
     level_columns: List[int]  # 列号从0开始，例如 [0, 1, 2, 3, 4]
+    data_columns: List[int] = []  # 新增参数，默认为空列表，兼容旧逻辑
     filters: Optional[Dict[int, List[str]]] = None  # 键是列号，值是过滤值列表
 
 

@@ -76,13 +76,25 @@ def parse_args():
         default='WEB',
         help='运行模式: WEB (默认), EXE, MINE'
     )
+
+    # === [新增] 是否打开浏览器参数 ===
+    # action='store_true' 表示：如果命令行里写了 --no-browser，这就变成了 True
+    # 默认没写，就是 False
+    parser.add_argument(
+        '-close', '--close-browser',
+        action='store_true',
+        help='禁止自動打開瀏覽器 (如果不加此參數，默認會打開)'
+    )
+
     return parser.parse_args()
 
 
 # 启动服务并自动打开浏览器
 if __name__ == "__main__":
+    # 4. 定义打开浏览器的函数
     def _open_browser(url: str):
-        time.sleep(1)
+        time.sleep(5)  # 稍微多等一点点，确保服务启动
+        print(f"[INFO] 正在打开浏览器: {url}")
         webbrowser.open(url)
 
 
@@ -90,7 +102,7 @@ if __name__ == "__main__":
     print(f"[INFO] 运行模式: {args.run}")
     # 设置环境变量，这样 config.py 就能读取到
     os.environ['_RUN_TYPE'] = args.run
-    # 重新导入 config 以获取更新后的值
+
     from common.config import _RUN_TYPE
     import time
     import threading
@@ -103,12 +115,19 @@ if __name__ == "__main__":
 
     print_banner_once(style="block")  # 可选: "block" / "boxed" / "minimal"
     # print(_RUN_TYPE)
+    # 逻辑：如果没有传入 --no-browser (args.no_browser 为 False)，则 should_open 为 True
+    should_open_browser = not args.close_browser
+
     if _RUN_TYPE == 'MINE':
-        # 跑在局域網ip地址上
-        # threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+        if should_open_browser:
+            # 跑在局域網ip地址上
+            threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
         uvicorn.run("run:app", host="0.0.0.0", port=5000, reload=True)
 
     elif _RUN_TYPE == 'EXE':
-        threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+        if should_open_browser:
+            threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+        else:
+            print("[INFO] 已通过参数跳过自动打开浏览器")
         uvicorn.run(app, host="127.0.0.1", port=5000, reload=False, workers=1)
         # uvicorn.run("run:app", host="localhost", port=5000, reload=True)

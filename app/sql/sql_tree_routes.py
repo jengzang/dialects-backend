@@ -24,14 +24,19 @@ from app.sql.sql_schemas import FullTreeParams, LazyTreeParams
 router = APIRouter()
 
 
+def validate_columns(level_columns: List[int], data_columns: List[int], all_column_names: List[str]):
+    """验证列号有效性（同时检查层级列和数据列）"""
+    # 合并检查所有涉及的列
+    all_indices = level_columns + data_columns
 
-def validate_columns(level_columns: List[int], all_column_names: List[str]):
-    """验证列号有效性"""
     if not level_columns:
         raise HTTPException(status_code=400, detail="level_columns 不能为空")
 
-    min_col = min(level_columns)
-    max_col = max(level_columns)
+    if not all_indices:
+        return
+
+    min_col = min(all_indices)
+    max_col = max(all_indices)
 
     if min_col < 0:
         raise HTTPException(status_code=400, detail="列号不能为负数（从0开始）")
@@ -41,7 +46,6 @@ def validate_columns(level_columns: List[int], all_column_names: List[str]):
             status_code=400,
             detail=f"列号 {max_col} 超出范围（共{len(all_column_names)}列，从0开始）"
         )
-
 
 def build_filter_conditions(
         filters: Optional[Dict[int, List[str]]],
@@ -88,7 +92,7 @@ def build_filter_conditions(
     return where_clauses, values
 
 
-def build_tree_structure(rows: List[Dict], column_names: List[str]) -> Dict[str, Any]:
+def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: List[str] = None) -> Dict[str, Any]:
     """
     构建树形结构（优化版本）
 
@@ -109,48 +113,64 @@ def build_tree_structure(rows: List[Dict], column_names: List[str]) -> Dict[str,
       }
     }
     """
-    if not rows or not column_names:
+    if not rows or not level_names:
         return {}
 
     tree = {}
-
+    has_data = bool(data_names)  # 标记是否需要提取数据
+    PLACEHOLDER = "(空)"
     # 遍历每一行，构建树结构
     for row in rows:
         current = tree
-        path_complete = True
+        # path_complete = True
 
-        # 前 n-1 层：构建字典结构
-        for i in range(len(column_names) - 1):
-            col_name = column_names[i]
-            value = (row.get(col_name) or '').strip()
+        # 1. 构建目录层级
+        for i in range(len(level_names) - 1):
+            col_name = level_names[i]
+            original_value = row.get(col_name)
 
-            # 如果某一层为空，跳过这条记录
-            if not value:
-                path_complete = False
-                break
+            # 处理空值逻辑
+            if original_value is None or str(original_value).strip() == "":
+                # 方案：使用占位符
+                value = PLACEHOLDER
+                # 进阶方案：甚至可以带上列名，比如 "未分类(区县级)"
+                # value = f"未分类({col_name})"
+            else:
+                value = str(original_value).strip()
 
-            # 创建或导航到下一层
             if value not in current:
                 current[value] = {}
-
             current = current[value]
 
-        # 如果路径不完整，跳过
-        if not path_complete:
+        # 2. 处理叶子节点 (最后一层)
+        last_col_name = level_names[-1]
+        last_original_value = row.get(last_col_name)
+
+        # 如果连叶子节点的名字都是空的，那确实该丢弃了
+        # 或者你也给它一个 "未命名节点" 的名字
+        if last_original_value is None or str(last_original_value).strip() == "":
             continue
 
-        # 最后一层：添加到数组
-        last_col_name = column_names[-1]
-        last_value = (row.get(last_col_name) or '').strip()
+        leaf_name = str(last_original_value).strip()
 
-        if last_value:
-            # 初始化叶子节点数组
+        # === 分支逻辑：有数据提取 vs 无数据提取 ===
+        if has_data:
+            # 初始化
+            if leaf_name not in current:
+                current[leaf_name] = {d_name: [] for d_name in data_names}
+
+            # 追加数据（保留重复，保留空值）
+            for d_name in data_names:
+                val = row.get(d_name)
+                # 直接 append，不做 None 判断，确保 index 对齐
+                current[leaf_name][d_name].append(val)
+
+        else:
+            # 旧模式（仅结构）
             if '_items' not in current:
                 current['_items'] = []
-
-            # 去重：只在不存在时添加
-            if last_value not in current['_items']:
-                current['_items'].append(last_value)
+            if leaf_name not in current['_items']:
+                current['_items'].append(leaf_name)
 
     # 清理树结构：将 '_items' 转换为直接的数组
     def clean_tree(node: Any) -> Any:
@@ -194,6 +214,10 @@ def build_tree_structure(rows: List[Dict], column_names: List[str]) -> Dict[str,
                     result[key] = cleaned
             return result
 
+    if has_data:
+        return tree
+
+        # 如果是旧模式，执行原来的压缩逻辑
     return clean_tree(tree)
 
 
@@ -212,6 +236,7 @@ async def get_full_tree(params: FullTreeParams):
     - db_key: 数据库代号
     - table_name: 表名
     - level_columns: 层级列号，从0开始，例如 [0, 1, 2, 3, 4]
+    - data_columns: 信息列號
     - filters: 可选过滤条件，{列号: [值列表]}
 
     返回：
@@ -234,28 +259,36 @@ async def get_full_tree(params: FullTreeParams):
 
         all_column_names = [col[1] for col in columns_info]
 
-        # 验证列号
-        validate_columns(params.level_columns, all_column_names)
+        # 1. 验证所有列
+        validate_columns(params.level_columns, params.data_columns, all_column_names)
 
-        # 构建查询：只查询需要的列，使用DISTINCT去重
-        selected_columns = [all_column_names[i] for i in params.level_columns]
-        sql = f"SELECT DISTINCT {', '.join(selected_columns)} FROM {params.table_name}"
+        # 2. 获取列名列表
+        level_col_names = [all_column_names[i] for i in params.level_columns]
+        data_col_names = [all_column_names[i] for i in params.data_columns]
 
-        # 添加过滤条件
+        # 合并查询列：层级列 + 数据列
+        # 注意：这里继续使用 DISTINCT。
+        # 如果 row1 和 row2 层级相同但数据不同，DISTINCT 会保留两者，
+        # build_tree_structure 会负责把它们聚合到同一个叶子节点下。
+        select_cols = level_col_names + data_col_names
+        # 去重选择，防止完全重复的行
+        sql = f"SELECT DISTINCT {', '.join(select_cols)} FROM {params.table_name}"
+
+        # ... (过滤条件逻辑 build_filter_conditions 不变) ...
         where_clauses, values = build_filter_conditions(params.filters, all_column_names)
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
 
-        # 排序：确保树构建顺序正确
-        order_by = ", ".join([f"{all_column_names[i]} ASC" for i in params.level_columns])
+        # 排序：只按层级列排序即可，保证树构建顺序
+        order_by = ", ".join([f"{name} ASC" for name in level_col_names])
         sql += f" ORDER BY {order_by}"
 
         # 执行查询
         cursor.execute(sql, values)
         rows = [dict(row) for row in cursor.fetchall()]
 
-        # 构建树
-        tree = build_tree_structure(rows, selected_columns)
+        # 3. 传入数据列名进行构建
+        tree = build_tree_structure(rows, level_col_names, data_col_names)
 
         return {
             "tree": tree,
@@ -318,7 +351,7 @@ async def get_tree_children(params: LazyTreeParams):
         all_column_names = [col[1] for col in columns_info]
 
         # 验证列号
-        validate_columns(params.level_columns, all_column_names)
+        validate_columns(params.level_columns, [], all_column_names)
 
         # 确定要查询的层级
         parent_path = params.parent_path or []

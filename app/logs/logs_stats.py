@@ -362,7 +362,7 @@ async def get_visit_history(
     path: Optional[str] = Query(None, description="筛选特定路径，如 '/', '/admin'"),
     start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
-    limit: int = Query(100, ge=1, le=1000, description="返回数量"),
+    limit: int = Query(100, ge=1, le=10000, description="返回数量"),
     offset: int = Query(0, ge=0, description="分页偏移"),
     db: Session = Depends(get_db)
 ):

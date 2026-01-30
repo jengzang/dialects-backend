@@ -8,6 +8,7 @@ import openpyxl
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from collections import defaultdict
+from common.constants import col_map
 
 
 def load_reference_file(reference_path):
@@ -79,7 +80,7 @@ def load_reference_file(reference_path):
 
 def merge_excel_files(reference_chars, files):
     """
-    合并Excel文件
+    合并Excel文件（优化版：减少重复计算，使用 constants.col_map）
     原函数：wordsheet_merge.py 第70-132行
 
     Args:
@@ -92,18 +93,18 @@ def merge_excel_files(reference_chars, files):
     merged_data = {char: [""] * len(files) for char in reference_chars}  # 存放每个表的 syllable
     comments_data = {char: [[] for _ in range(len(files))] for char in reference_chars}  # 存放每个表的批注
 
-    # 定义可接受的列名别名
+    # 使用 constants.col_map 并转换为集合以加速查找
     column_aliases = {
-        'phrase': ['phrase', '單字', '单字', '漢字', '汉字'],
-        'syllable': ['syllable', 'IPA', 'ipa',  '音標'],
-        'notes': ['notes', '注释', '注釋', '解釋']
+        'phrase': set(col_map['漢字']),
+        'syllable': set(col_map['音標']),
+        'notes': set(col_map['解釋'])
     }
 
     def find_column_index(header, targets):
-        """在 header 中找出第一个匹配的 targets 项，并返回其索引"""
-        for name in targets:
-            if name in header:
-                return header.index(name)
+        """在 header 中找出第一个匹配的 targets 项，并返回其索引（使用集合查找）"""
+        for i, name in enumerate(header):
+            if name in targets:
+                return i
         return None
 
     for file_index, file in enumerate(files):
@@ -141,7 +142,7 @@ def merge_excel_files(reference_chars, files):
                         if note and phrase_count[phrase] > 1:
                             comments_data[phrase][file_index].append(note)
 
-    # 清理重复内容
+    # 清理重复内容（优化：只在有分号时才拆分）
     for phrase in merged_data:
         for i in range(len(merged_data[phrase])):
             entry = merged_data[phrase][i]

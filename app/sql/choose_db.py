@@ -3,11 +3,12 @@ import sqlite3
 
 from fastapi import HTTPException
 
-from common.config import YC_SPOKEN_DB_PATH, GD_VILLAGE_DB_PATH
+from common.config import YC_SPOKEN_DB_PATH, GD_VILLAGE_DB_PATH, CHARACTERS_DB_PATH
 
 DB_MAPPING = {
     "spoken": YC_SPOKEN_DB_PATH,
-    "village": GD_VILLAGE_DB_PATH
+    "village": GD_VILLAGE_DB_PATH,
+    "chars": CHARACTERS_DB_PATH,
 }
 def get_db_connection(db_key: str):
     """根据代号获取对应的数据库连接"""

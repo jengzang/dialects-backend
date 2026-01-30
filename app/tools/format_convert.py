@@ -24,6 +24,22 @@ from common.config import WRITE_ERROR_LOG
 from common.constants import col_map, vowel_pattern
 from common.s2t import s2t_pro
 
+# 预编译正则表达式 - 性能优化
+RE_SYMBOLS = re.compile(r'[？?＊*]')
+RE_CHINESE = re.compile(r'[\u4e00-\u9fa5]')
+RE_VOWEL_FALLBACK = re.compile(r"([ʐɣmnŋɲȵƞʋvʒlḷfzr])")
+RE_DIGIT = re.compile(r'\d')
+RE_TONE_MATCH = re.compile(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[A-Da-d]?)$")
+RE_PROCESS_LINES_SUB1 = re.compile(r":\[")
+RE_PROCESS_LINES_SUB2 = re.compile(r"\[(\d+)\]")
+RE_PROCESS_LINES_SUB3 = re.compile(r"［([^\d]+.*?)］")
+RE_COUNTY_MATCHES = re.compile(r"[［\[](\d+[a-z]?)[］\]](.+?)(?=([［\[]\d|$))")
+RE_COUNTY_BRACE = re.compile(r"[{｛]([^{}｛｝]+)[}｝]")
+RE_VOWEL_RHYME = re.compile(rf".*?([ʐzflḷɣrmnŋɲȵƞʋvʒ].*?)(?=\d|\s|$)")
+RE_VOWEL_PATTERN_COMP = re.compile(vowel_pattern)
+RE_CHINESE_CHECK = re.compile(r'[一-鿿]')
+RE_DIGIT_START = re.compile(r'''^[\d\/?\'"、|；：，。:;,.]+$''')
+
 
 # def get_tsv_name(path):
 #     return os.path.splitext(path)[0] + ".tsv"
@@ -448,10 +464,10 @@ def process_縣志_excel(file, level=1, output_path=None):
             return None
         if 行.startswith("#"):
             return 行
-        行 = re.sub(r":\[", "\t[", 行)
+        行 = RE_PROCESS_LINES_SUB1.sub("\t[", 行)
         行 = 行.replace("(", "{").replace(")", "}")
-        行 = re.sub(r"\[(\d+)\]", r"［\1］", 行)
-        行 = re.sub(r"［([^\d]+.*?)］", r"[\1]", 行)
+        行 = RE_PROCESS_LINES_SUB2.sub(r"［\1］", 行)
+        行 = RE_PROCESS_LINES_SUB3.sub(r"[\1]", 行)
         return 行
 
     ext = os.path.splitext(file)[1].lower()
@@ -500,7 +516,7 @@ def process_縣志_excel(file, level=1, output_path=None):
 
         拼音 = parts[0].strip()
         for cell in parts[1:]:
-            matches = re.findall(r"[［\[](\d+[a-z]?)[］\]](.+?)(?=([［\[]\d|$))", cell)
+            matches = RE_COUNTY_MATCHES.findall(cell)
             if not matches:
                 if debug:
                     print(f"⚠️ 無音節匹配 行 {lineno}: {cell}")
@@ -516,7 +532,7 @@ def process_縣志_excel(file, level=1, output_path=None):
                     字 = 義項[i]
                     註 = ""
                     if i + 1 < len(義項) and 義項[i + 1] in "{｛":
-                        m = re.match(r"[{｛]([^{}｛｝]+)[}｝]", 義項[i + 1:])
+                        m = RE_COUNTY_BRACE.match(義項[i + 1:])
                         if m:
                             註 = m.group(1)
                             i += len(m.group(0))  # 跳過整個 {註釋}
@@ -748,29 +764,28 @@ def _core_extract_logic(phon: str, tone_map: dict = None) -> tuple[str, str, str
     if phon[0] in {"∅", "Ø", "0"}:
         consonant = "ʔ"
     else:
-        pre_digit_part = re.split(r"\d", phon)[0]
-        if not re.search(vowel_pattern, pre_digit_part):
-            vowel_fallback = r"([ʐɣmnŋɲȵƞʋvʒlḷfzr])"
-            if re.match(vowel_fallback, phon[0]):
+        pre_digit_part = RE_DIGIT.split(phon)[0]
+        if not RE_VOWEL_PATTERN_COMP.search(pre_digit_part):
+            if RE_VOWEL_FALLBACK.match(phon[0]):
                 consonant = "/"
-            elif not re.search(vowel_fallback, phon):
+            elif not RE_VOWEL_FALLBACK.search(phon):
                 consonant = ""
             else:
                 for char in phon:
-                    if re.match(vowel_fallback, char) or re.match(r'\d', char): break
+                    if RE_VOWEL_FALLBACK.match(char) or RE_DIGIT.match(char): break
                     consonant += char
         else:
-            if re.match(vowel_pattern, phon[0]):
+            if RE_VOWEL_PATTERN_COMP.match(phon[0]):
                 consonant = "/"
             elif 'j' in phon[1:] or 'ʲ' in phon[1:]:
                 for char in phon:
-                    if re.match(vowel_pattern, char) or char in ('j', 'ʲ'): break
+                    if RE_VOWEL_PATTERN_COMP.match(char) or char in ('j', 'ʲ'): break
                     consonant += char
             else:
                 for char in phon:
-                    if re.match(vowel_pattern, char): break
+                    if RE_VOWEL_PATTERN_COMP.match(char): break
                     consonant += char
-        consonant = re.sub(r"\d", "", consonant)
+        consonant = RE_DIGIT.sub("", consonant)
 
     # --- 韵母提取 ---
     all_rhymes = []
@@ -778,7 +793,7 @@ def _core_extract_logic(phon: str, tone_map: dict = None) -> tuple[str, str, str
     if 'j' not in tmp_phon[1:] and 'ʲ' not in tmp_phon[1:]:
         vowel_found = False
         for c in tmp_phon:
-            if re.match(vowel_pattern, c) and not vowel_found:
+            if RE_VOWEL_PATTERN_COMP.match(c) and not vowel_found:
                 vowel_found = True
                 all_rhymes.append(c)
             elif vowel_found and (c.isdigit() or c.isspace()):
@@ -786,13 +801,13 @@ def _core_extract_logic(phon: str, tone_map: dict = None) -> tuple[str, str, str
             elif vowel_found:
                 all_rhymes.append(c)
         if not vowel_found and any(c in tmp_phon for c in "ʐzflḷɣmnŋȵɲƞʋvʒr"):
-            match = re.search(r".*?([ʐzflḷɣrmnŋɲȵƞʋvʒ].*?)(?=\d|\s|$)", tmp_phon)
+            match = RE_VOWEL_RHYME.search(tmp_phon)
             if match: all_rhymes += list(match.group(1))
     else:
         match = re.search(rf"[{vowel_pattern.strip('[]')}jʲ][^\d\s]*", tmp_phon)
         if match: all_rhymes = list(match.group(0))
 
-    rhyme = ''.join(c for c in all_rhymes if not (c.isdigit() or re.match(r'[一-鿿]', c)))
+    rhyme = ''.join(c for c in all_rhymes if not (c.isdigit() or RE_CHINESE_CHECK.match(c)))
 
     # --- 标准化替换 ---
     for old, new in {'ε': 'ɛ', "α": "ɑ", "ʯ": "ʮ", "∅": "ø", "ο": "o", "ǝ": "ə", "о": "o", "у": "y", "е": "e", "ã": "ã",
@@ -808,7 +823,7 @@ def _core_extract_logic(phon: str, tone_map: dict = None) -> tuple[str, str, str
         tone = "輕聲"
     else:
         # 推薦的最小化改動：直接匹配末尾
-        tone_match = re.search(r"([0-9¹²³⁴⁵⁶⁷⁸⁹⁰]{1,4}[A-Da-d]?)$", phon.strip())
+        tone_match = RE_TONE_MATCH.search(phon.strip())
         if tone_match:
             tone_code = tone_match.group(1)
             # 如果有 tone_map 就查表，沒有就直接用提取到的 code
@@ -908,7 +923,7 @@ def extract_all_from_files(file_path: str, preserve_empty_rows: bool = True) -> 
             phon = phon.strip()  # 先清乾淨
             if not phon:  # 若為空，跳過（這一步是關鍵防炸）
                 continue
-            if re.match(r'^[\d\/?\'"’”、|；：，。:;,.]+$', phon):
+            if RE_DIGIT_START.match(phon):
                 continue
 
             # 调用核心逻辑

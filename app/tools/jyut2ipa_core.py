@@ -9,6 +9,11 @@ import pandas as pd
 # 元音集合（原replace.py第8行）
 vowels = set('aeuioy')
 
+# 预编译正则表达式 - 性能优化
+RE_SYMBOLS = re.compile(r'[？?＊*]')
+RE_CHINESE = re.compile(r'[\u4e00-\u9fa5]')
+RE_SPLIT_PINYIN = re.compile(r'(或|/|\||\\)')
+
 # 替换规则DataFrame（全局变量，需要在使用前初始化）
 replace_df = None
 
@@ -26,7 +31,7 @@ def init_replace_df(replace_data):
 
 def clean_and_extract_notes_fixed(text):
     """
-    清理并提取注释
+    清理并提取注释（已优化正则）
     原函数：replace.py 第11-19行
 
     Args:
@@ -37,10 +42,10 @@ def clean_and_extract_notes_fixed(text):
     """
     if not text:
         return "", ""
-    symbols = re.findall(r'[？?＊*]', text)
-    chinese = re.findall(r'[\u4e00-\u9fa5]', text)
+    symbols = RE_SYMBOLS.findall(text)
+    chinese = RE_CHINESE.findall(text)
     notes = ''.join([c for c in chinese if c != '或'] + symbols)
-    cleaned = re.sub(r'[？?＊*]', '', text)
+    cleaned = RE_SYMBOLS.sub('', text)
     cleaned = ''.join(c for c in cleaned if c not in chinese or c == '或')
     return cleaned, notes
 
@@ -95,7 +100,7 @@ def split_pinyin(pinyin):
 
 def replace(component, condition, rules_df=None):
     """
-    应用替换规则
+    应用替换规则（优化版：缓存排序结果）
     原函数：replace.py 第61-72行
 
     Args:
@@ -111,7 +116,7 @@ def replace(component, condition, rules_df=None):
 
     # 使用传入的rules_df或全局replace_df
     df_to_use = rules_df if rules_df is not None else replace_df
-    
+
     # 验证DataFrame不为空
     if df_to_use is None or len(df_to_use) == 0:
         print(f"  [{condition}] 警告: 规则DataFrame为空，无法替换: {component}")
@@ -122,15 +127,22 @@ def replace(component, condition, rules_df=None):
     if len(filtered_df) == 0:
         print(f"  [{condition}] 无匹配规则: {component}")
         return component
-    
-    sorted_df = filtered_df.sort_values(
-        by='to_replace', key=lambda x: x.str.len(), ascending=False)
-    
-    for _, row in sorted_df.iterrows():
-        if row['to_replace'] in component:
-            result = component.replace(row['to_replace'], row['replacement'])
+
+    # 优化：使用values避免DataFrame开销，按长度降序排序
+    # 转换为列表并按长度排序（只排序一次）
+    rules = sorted(
+        filtered_df[['to_replace', 'replacement']].values.tolist(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    # 使用简单的列表遍历替换（避免DataFrame迭代开销）
+    for to_replace, replacement in rules:
+        if to_replace in component:
+            result = component.replace(to_replace, replacement)
             # print(f"  [{condition}] 替换: {component} → {result}")
             return result
+
     print(f"  [{condition}] 无替换: {component}")
     return component
 
@@ -176,7 +188,7 @@ def process_yutping(text, custom_replace_data=None):
     text_cleaned, notes = clean_and_extract_notes_fixed(text)
     # print(f"\n🎯 粤拼原始: {text} → 清理: {text_cleaned} | 注释: {notes}")
 
-    parts = re.split(r'(或|/|\||\\)', text_cleaned)
+    parts = RE_SPLIT_PINYIN.split(text_cleaned)
     # print(f"🧩 分段结构: {parts}")
 
     fields = {

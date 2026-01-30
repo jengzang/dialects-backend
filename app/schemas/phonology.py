@@ -35,6 +35,10 @@ class CharListRequest(BaseModel):
     path_strings: Optional[List[str]] = None
     column: Optional[List[str]] = None
     combine_query: bool = False
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )
 
 
 class ZhongGuAnalysis(BaseModel):
@@ -52,6 +56,10 @@ class ZhongGuAnalysis(BaseModel):
     combine_query: bool = Field(
         default=False,
         description="是否開啟 path_strings 與 column 的交叉組合查詢"
+    )
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
     )
 
     # --- 第二部分：用於方言分析 (傳給 _run_dialect_analysis_sync) ---
@@ -81,3 +89,7 @@ class YinWeiAnalysis(BaseModel):
     group_inputs: Union[str, List[str], None] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )

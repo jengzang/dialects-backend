@@ -103,7 +103,8 @@ def analyze_characters_from_db(
         loc,
         sub_df,
         char_db_path=CHARACTERS_DB_PATH,
-        group_fields=None
+        group_fields=None,
+        exclude_columns=None
 ):
     """
     根據漢字名單，從 characters.db 中查出相關音系特徵資料，並根據指定的 group_fields 欄位分組統計。
@@ -118,6 +119,10 @@ def analyze_characters_from_db(
         聲母 ➜ 母
         韻母 ➜ 韻
         聲調 ➜ 清濁 + 調
+
+    Args:
+        exclude_columns: List[str] or None, 例如 ["多地位標記", "多等"]
+                        用於過濾掉這些列值為 1（字符串或整數）的行
     """
 
     default_grouping = {
@@ -136,6 +141,19 @@ def analyze_characters_from_db(
     query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
     df = pd.read_sql_query(query, conn, params=char_list)
     conn.close()
+
+    if df.empty:
+        return []
+
+    # 【新增】應用過濾邏輯
+    if exclude_columns:
+        for col_name in exclude_columns:
+            if col_name in df.columns:
+                # 過濾掉該列值為 1（字符串或整數）的行
+                df = df[
+                    (df[col_name] != 1) &
+                    (df[col_name] != "1")
+                ]
 
     for col in ["攝", "韻", "等", "呼", "入", "清濁", "系", "組", "母", "調", "部位", "方式", "多地位標記"]:
         if col not in df.columns:
@@ -209,7 +227,8 @@ def analyze_characters_from_db(
 def pho2sta(locations, regions, features, status_inputs,
             pho_values=None,
             dialect_db_path=DIALECTS_DB_USER,
-            character_db_path=CHARACTERS_DB_PATH, region_mode='yindian'):
+            character_db_path=CHARACTERS_DB_PATH, region_mode='yindian',
+            exclude_columns=None):
     def convert_simplified_to_traditional(simplified_text):
         return "".join([s2t_column.get(ch, ch) for ch in simplified_text])
 
@@ -297,6 +316,7 @@ def pho2sta(locations, regions, features, status_inputs,
                     sub_df=sub_df[sub_df["簡稱"] == loc],
                     char_db_path=character_db_path,
                     group_fields=group_fields,
+                    exclude_columns=exclude_columns
                 )
 
                 results.extend(result if isinstance(result, list) else [result])
