@@ -47,13 +47,13 @@ def register(user: schemas.UserCreate, request: Request, db: Session = Depends(g
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = utils.extract_client_ip(request)
 
-    # ✅ 檢查 IP 是否超過登入次數限制
+    # [OK] 檢查 IP 是否超過登入次數限制
     check_login_rate_limit(db, client_ip)
     agent = request.headers.get("user-agent", "")
     try:
         user = service.authenticate_user(db, form_data.username, form_data.password, login_ip=client_ip)
     except PermissionError:
-        # ❌ 驗證失敗也記 log
+        # [X] 驗證失敗也記 log
         db.add(ApiUsageLog(
             user_id=None,
             path="/login",
@@ -78,7 +78,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # ✅ 成功登入後也寫入一筆記錄
+    # [OK] 成功登入後也寫入一筆記錄
     db.add(ApiUsageLog(
         user_id=user.id,
         path="/login",
@@ -125,15 +125,15 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 # ========== Me（恢复 & 最小化改动）==========
 @router.get("/me", response_model=schemas.UserResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # 这里必须用“登录生成的 access token”，其 sub=username
     try:
-        payload = utils.decode_access_token(token)
+        payload = utils.decode_access_token(token)  # 解码 token
         username = payload.get("sub")
         if not username:
             raise HTTPException(status_code=401, detail="Invalid token (no subject)")
     except JWTError as e:
         print("JWTError:", e)  # 临时日志
-        raise HTTPException(status_code=401, detail="Invalid token")
+        # 如果 token 过期了，给出明确的错误信息
+        raise HTTPException(status_code=401, detail="Token 已過期，請重新登錄")
 
     user = db.query(models.User) \
         .options(joinedload(models.User.usage_summary)) \

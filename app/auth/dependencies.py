@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -8,61 +10,128 @@ from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
 from app.auth.models import User, ApiUsageLog
+from app.redis_client import redis_client
 from common.config import SECRET_KEY, ALGORITHM, MAX_USER_USAGE_PER_HOUR, \
-    MAX_IP_USAGE_PER_HOUR, MAX_LOGIN_PER_MINUTE  # 根據你的設定實際調整
+    MAX_IP_USAGE_PER_HOUR, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
 
 
-def get_current_user(
+
+def user_to_dict(user: models.User) -> dict:
+    user_dict = {column.name: getattr(user, column.name) for column in user.__table__.columns}
+
+    # 将 datetime 类型字段转换为字符串
+    for key, value in user_dict.items():
+        if isinstance(value, datetime):
+            user_dict[key] = value.isoformat()  # 转换为 ISO 8601 字符串格式
+    return user_dict
+async def get_current_user(
         request: Request,
         db: Session = Depends(get_db),
-        require_admin: bool = False  # ✅ 預設不要求管理員
+        require_admin: bool = False  # [OK] 預設不要求管理員
 ) -> models.User:
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         if not require_admin:
-            return None  # 匿名使用者
+            return None  # 匿名用户
         else:
-            raise HTTPException(status_code=403, detail="未登錄用戶沒有訪問此資源的權限")
+            raise HTTPException(status_code=401, detail="未登錄用戶沒有訪問此資源的權限")
     else:
         token = auth_header.split(" ")[1]
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username = payload.get("sub")
+            # username = payload.get("sub")
+            username = payload.get("sub")  # 从 JWT 中提取邮箱作为唯一标识
             if not username:
-                raise HTTPException(status_code=401, detail="Token 無效")
+                return None  # Token 無效
         except JWTError:
-            raise HTTPException(status_code=401, detail="Token 解碼失敗")
-        user = db.query(models.User).filter(models.User.username == username).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="用戶不存在")
+            return None  # Token 解碼失敗
 
-        if require_admin and user.role != "admin":
-            raise HTTPException(status_code=403, detail="你沒有訪問此資源的權限")
-
+    # 1. 首先检查缓存中是否存在该用户
+    cached_user = await redis_client.get(f"user:{username}")
+    if cached_user:
+        # 如果缓存中有数据，反序列化为 User 对象
+        cached_data = json.loads(cached_user)  # 获取缓存的 JSON 字符串
+        user = models.User(**cached_data)  # 使用 User 的字段初始化 User 对象
+        print(f"使用缓存:{username}")
         return user
 
-
-def get_current_user_sync(request: Request, db: Session) -> User:
-    # 处理用户认证（例如从请求头获取 JWT token）
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None  # 匿名用户
-
-    token = auth_header.split(" ")[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Token 无效")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token 解码失败")
-
+    # 2. 如果缓存中没有，查询数据库
+    # print("啥都没存,我还是查库")
     user = db.query(models.User).filter(models.User.username == username).first()
+    # print(user)
     if not user:
-        raise HTTPException(status_code=401, detail="用户不存在")
+        return None  # 用户不存在
+
+    # 将用户信息存入缓存，并设置过期时间
+    try:
+        # await 是關鍵！
+        await redis_client.setex(
+            f"user:{username}",
+            CACHE_EXPIRATION_TIME,
+            json.dumps(user_to_dict(user))
+        )
+        print(f"[SAVE] 緩存寫入成功: user:{username}")
+    except Exception as e:
+        print(f"[X] 寫入緩存時發生錯誤: {e}")
+
+    if require_admin and user.role != "admin":
+        raise HTTPException(status_code=403, detail="你沒有訪問此資源的權限")
 
     return user
 
+
+# [OK] 1. 改為 async def
+async def get_current_user_for_middleware(request: Request, db: Session):
+    # --- 前半部分邏輯不變 ---
+    auth_header = request.headers.get("Authorization")
+    # 打印调试信息，查看 token
+    # print(f"Authorization header: {auth_header}")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None  # 匿名用户，返回 None
+
+    token = auth_header.split(" ")[1]
+    try:
+        # 解码 JWT token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")  # 使用邮箱作为唯一标识
+        if not username:
+            return None  # Token 无效，返回 None
+    except JWTError as e:
+        print(f"JWT decode error: {e}")  # 打印错误信息，帮助调试
+        return None  # 如果解码失败，返回 None
+
+    # --- Redis 部分改為異步 ---
+    try:
+        # [OK] 2. 加上 await
+        cached_user = await redis_client.get(f"user:{username}")
+        if cached_user:
+            cached_data = json.loads(cached_user)
+            user = models.User(**cached_data)
+            return user
+    except Exception as e:
+        print(f"Redis error in middleware: {e}")
+        # 如果 Redis 掛了，不要崩潰，繼續查數據庫
+
+    # --- 數據庫部分 (保持同步阻塞) ---
+    # [!] 注意：這裡 sql.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
+    user = db.query(models.User).filter(models.User.username == username).first()
+
+    if not user:
+        return None
+
+    # --- 寫回 Redis 改為異步 ---
+    try:
+        # [OK] 3. 加上 await
+        await redis_client.setex(
+            f"user:{username}",
+            CACHE_EXPIRATION_TIME,
+            json.dumps(user_to_dict(user))
+        )
+    except Exception as e:
+        print(f"Redis set error: {e}")
+
+    return user
 
 def get_current_admin_user(current_user: models.User = Depends(get_current_user)) -> models.User:
     if current_user is None:
@@ -85,12 +154,12 @@ def check_api_usage_limit(
     - 未登录用户: 根据 IP 地址限制流量。
     """
     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-    print(user)
+    # print(user)
     # 1) 可选登录场景处理
     if user is None:
         if require_login:  # 匿名用户：无法按用户做配额，这里选择放行（如需限制可改为 raise 或基于 IP 做限流）
             # print("1111")
-            raise HTTPException(status_code=401, detail="💡 請先登錄")
+            raise HTTPException(status_code=401, detail="[TIP] 請先登錄")
         # 未登录用户，按 IP 进行限制
         if ip_address is None:
             raise HTTPException(status_code=400, detail="🚫 IP 地址缺失")
@@ -104,10 +173,9 @@ def check_api_usage_limit(
 
         if total_duration >= MAX_IP_USAGE_PER_HOUR:
             raise HTTPException(status_code=429,
-                                detail="❌ API使用已達每小時上限，請稍後再試\n ✨ 小提醒：登入帳號可繼續查詢！🚀")
+                                detail="[X] API使用已達每小時上限，請稍後再試\n [NEW] 小提醒：登入帳號可繼續查詢！[RUN]")
 
         return
-
     # 2)管理員不受限制
     if user.role == "admin":
         return
@@ -144,7 +212,7 @@ def check_api_usage_limit(
             wait_seconds = int((released_time - now).total_seconds())
             if wait_seconds > 0:
                 wait_time_str = str(timedelta(seconds=wait_seconds))  # hh:mm:ss
-                # ✅ 直接加 8 小時作為北京時間
+                # [OK] 直接加 8 小時作為北京時間
                 released_time_bj = released_time + timedelta(hours=8)
                 formatted_time_bj = released_time_bj.strftime("%Y-%m-%d %H:%M:%S 北京時間")
 

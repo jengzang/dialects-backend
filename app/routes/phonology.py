@@ -1,25 +1,25 @@
 # routes/phonology.py
 """
-📦 路由模塊：處理 /api/phonology 音韻分析請求。
+[PKG] 路由模塊：處理 /api/phonology 音韻分析請求。
 不改動原邏輯，將原來 app.py 中對應接口移出。
 """
 
 import asyncio
-import time
-from typing import Optional
+from typing import Optional, List
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, check_api_usage_limit
 from app.auth.models import User
 from app.schemas import AnalysisPayload
-from app.service.phonology2status import pho2sta
+
+from app.service.phonology2status import pho2sta, get_feature_counts
 from app.service.status_arrange_pho import sta2pho
-from app.service.api_logger import update_count
-from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER
+from app.logs.api_logger import log_all_fields
+from common.config import REQUIRE_LOGIN
 from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN
 
 router = APIRouter()
@@ -30,7 +30,7 @@ async def api_run_phonology_analysis(
         request: Request,
         payload: AnalysisPayload,
         db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -53,15 +53,16 @@ async def api_run_phonology_analysis(
     """
     ip_address = request.client.host  # 默认是请求的客户端 IP 地址
     check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
-    update_count(request.url.path)
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, payload.dict())
 
-    start = time.time()
+    # start = time.time()
     try:
         # 根據用戶身分決定資料庫
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
         result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path)
         if not result:
-            raise HTTPException(status_code=404, detail="❌ 輸入的中古地位不存在")
+            raise HTTPException(status_code=400, detail="[X] 輸入的中古地位不存在")
         status = 200
         if isinstance(result, pd.DataFrame):
             return {"success": True, "results": result.to_dict(orient="records")}
@@ -75,6 +76,20 @@ async def api_run_phonology_analysis(
     except Exception as e:
         status = 500
         return {"success": False, "error": str(e)}
+    finally:
+        print("api_run_phonology_analysis")
+        # duration = time.time() - start
+        # path = request.url.path
+        # ip = request.client.host
+        # agent = request.headers.get("user-agent", "")
+        # referer = request.headers.get("referer", "")
+        # user_id = user.id if user else None
+
+        # 原有寫入 JSON 日誌
+        # log_detailed_api(path, duration, status, ip, agent, referer)
+
+        # 新增寫入資料庫
+        # log_detailed_api_to_db(db, path, duration, status, ip, agent, referer, user_id, CLEAR_2HOUR)
 
 
 def run_phonology_analysis(
@@ -106,7 +121,8 @@ def run_phonology_analysis(
     if mode == 's2p':
         # if not status_inputs:
         #     raise ValueError("🔴 mode='s2p' 時，請提供 status_inputs。")
-        return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db, region_mode=region_mode)
+        return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db,
+                       region_mode=region_mode)
 
     elif mode == 'p2s':
         # if not group_inputs :
@@ -117,3 +133,25 @@ def run_phonology_analysis(
 
     else:
         raise ValueError("🔴 mode 必須為 's2p' 或 'p2s'")
+
+
+
+@router.get("/feature_counts")
+async def feature_counts(
+    locations: List[str] = Query(...),
+    user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
+):
+    try:
+        # 根據用戶身分決定資料庫
+        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        # print(db_path)
+        # print(locations)
+        result = get_feature_counts(locations, db_path)
+        # 如果结果为空，可以抛出 HTTP 404 错误
+        if not result:
+            raise HTTPException(status_code=404, detail="No data found for the given locations.")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+

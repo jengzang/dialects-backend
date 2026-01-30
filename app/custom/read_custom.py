@@ -31,6 +31,7 @@ def get_from_submission(locations, regions, need_features, user: User, db: Sessi
 
                 result.append({
                     "簡稱": record.簡稱,
+                    "聲韻調": record.聲韻調,
                     "特徵": record.特徵,
                     "值": record.值,
                     "maxValue": record.maxValue,

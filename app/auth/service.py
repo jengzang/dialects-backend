@@ -100,19 +100,28 @@ def logout_user(db: Session, user: models.User) -> int:
 def touch_activity(db: Session, user: models.User) -> None:
     now = utils.now_utc_naive()
 
-    # 若本次會話已開始，先把「上次觸達 → 本次觸達」這一段時間累加進總時長
+    # 若本次会话已开始，先把「上次触达 → 本次触达」这一段时间累加进总时长
     if user.current_session_started_at:
-        delta = now - user.current_session_started_at
-        seg_secs = int(delta.total_seconds())
-        if seg_secs > 0:
-            user.total_online_seconds = (user.total_online_seconds or 0) + seg_secs
+        delta = now - user.current_session_started_at  # 计算本次访问与上次访问的时间差
+        seg_secs = int(delta.total_seconds())  # 将时间差转为秒
 
-    # 重置為新的分段起點，避免重複累加
+        # 如果上次会话的时间差大于60分钟，则不累加时长
+        if seg_secs > 60 * 60:
+            user.current_session_started_at = now
+            user.last_seen = now  # 更新最近活动时间
+            db.commit()  # 提交数据库更新
+            return  # 结束当前函数，避免继续累加时长
+
+        if seg_secs > 0:
+            user.total_online_seconds = (user.total_online_seconds or 0) + seg_secs  # 累加在线时长
+
+    # 重置为新的分段起点，避免重复累加
     user.current_session_started_at = now
 
-    # 更新最近活動時間
+    # 更新最近活动时间
     user.last_seen = now
     db.commit()
+
 
 
 # --- 簽發 token ---

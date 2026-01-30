@@ -1,0 +1,334 @@
+2025-09-04 20:40:50 | /api/get_locs/ | locations: ['廣州', '梅縣', '汕頭']
+2025-09-04 20:40:50 | /api/get_locs/ | regions: ['']
+2025-09-04 20:40:50 | /api/phonology | mode: 's2p'
+2025-09-04 20:40:50 | /api/phonology | locations: ['廣州', '梅縣', '汕頭']
+2025-09-04 20:40:50 | /api/phonology | regions: ['']
+2025-09-04 20:40:50 | /api/phonology | features: ['韻母']
+2025-09-04 20:40:50 | /api/phonology | status_inputs: ['流攝']
+2025-09-04 20:40:50 | /api/phonology | region_mode: 'map'
+2025-09-04 20:40:51 | /api/get_coordinates | locations: '廣州,梅縣,汕頭'
+2025-09-04 20:40:51 | /api/get_coordinates | region_mode: 'map'
+2025-09-04 20:40:51 | /api/get_coordinates | flag: True
+2025-09-04 20:40:56 | /api/batch_match | input_string: '汕頭'
+2025-09-04 20:40:56 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:40:57 | /api/batch_match | input_string: '汕頭'
+2025-09-04 20:40:57 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:40:57 | /api/batch_match | input_string: '汕頭'
+2025-09-04 20:40:57 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:41:02 | /api/phonology | mode: 's2p'
+2025-09-04 20:41:02 | /api/phonology | locations: ['梅縣']
+2025-09-04 20:41:02 | /api/phonology | regions: ['']
+2025-09-04 20:41:02 | /api/phonology | features: ['韻母']
+2025-09-04 20:41:02 | /api/phonology | status_inputs: ['流']
+2025-09-04 20:41:02 | /api/phonology | pho_values: ['']
+2025-09-04 20:41:02 | /api/phonology | region_mode: 'map'
+2025-09-04 20:54:19 | /api/batch_match | input_string: '高州'
+2025-09-04 20:54:19 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:21 | /api/batch_match | input_string: '高州'
+2025-09-04 20:54:21 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:23 | /api/batch_match | input_string: '高州shig'
+2025-09-04 20:54:23 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:24 | /api/batch_match | input_string: '高州'
+2025-09-04 20:54:24 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:25 | /api/batch_match | input_string: '高州si'
+2025-09-04 20:54:25 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:26 | /api/batch_match | input_string: '高州俟'
+2025-09-04 20:54:26 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:27 | /api/batch_match | input_string: '高州'
+2025-09-04 20:54:27 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:28 | /api/batch_match | input_string: '高州泗水'
+2025-09-04 20:54:28 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:29 | /api/batch_match | input_string: '高州泗'
+2025-09-04 20:54:29 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 20:54:33 | /api/batch_match | input_string: '高州泗水'
+2025-09-04 20:54:33 | /api/batch_match | filter_valid_abbrs_only: True
+2025-09-04 22:21:19 | /api/get_locs/ | locations: ['廣州', '梅縣', '汕頭']
+2025-09-04 22:21:19 | /api/get_locs/ | regions: ['']
+2025-09-04 22:21:19 | /api/phonology | mode: 's2p'
+2025-09-04 22:21:19 | /api/phonology | locations: ['廣州', '梅縣', '汕頭']
+2025-09-04 22:21:19 | /api/phonology | regions: ['']
+2025-09-04 22:21:19 | /api/phonology | features: ['韻母']
+2025-09-04 22:21:19 | /api/phonology | status_inputs: ['流攝']
+2025-09-04 22:21:19 | /api/phonology | region_mode: 'map'
+2025-09-04 22:21:20 | /api/get_coordinates | locations: '廣州,梅縣,汕頭'
+2025-09-04 22:21:20 | /api/get_coordinates | region_mode: 'map'
+2025-09-04 22:21:20 | /api/get_coordinates | flag: True
+2025-09-04 22:21:21 | /api/get_custom | locations: ['廣州,梅縣,汕頭']
+2025-09-04 22:21:21 | /api/get_custom | regions: ['']
+2025-09-04 22:21:21 | /api/get_custom | need_features: ['流']
+2026-01-10 16:46:31 | /api/get_locs/ | regions: ['晉語']
+2026-01-10 17:27:56 | /api/get_locs/ | regions: ['晉語']
+2026-01-10 21:14:26 | /api/get_locs/ | regions: ['粵語', '閩語']
+2026-01-10 22:39:10 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 22:39:47 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 22:45:14 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 22:48:28 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 22:59:26 | /api/charlist | path_strings: ['[假]{攝}', '[咸]{攝}', '[宕]{攝}', '[山]{攝}', '[效]{攝}', '[曾]{攝}', '[果]{攝}', '[梗]{攝}', '[止]{攝}', '[江]{攝}', '[流]{攝}', '[深]{攝}', '[臻]{攝}', '[蟹]{攝}', '[通]{攝}', '[遇]{攝}']
+2026-01-10 22:59:26 | /api/charlist | combine_query: False
+2026-01-10 23:00:36 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 23:09:17 | /api/get_locs/ | regions: ['贛語']
+2026-01-10 23:09:24 | /api/get_locs/ | regions: ['粵語']
+2026-01-10 23:47:50 | /api/get_locs/ | locations: ['廣州']
+2026-01-10 23:47:50 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-10 23:47:50 | /api/charlist | combine_query: False
+2026-01-10 23:50:04 | /api/get_locs/ | locations: ['上海']
+2026-01-10 23:50:04 | /api/charlist | path_strings: ['[知]{組}']
+2026-01-10 23:50:04 | /api/charlist | combine_query: False
+2026-01-11 00:43:25 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:43:25 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:43:25 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 00:43:25 | /api/charlist | combine_query: False
+2026-01-11 00:43:28 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:43:28 | /api/get_locs/ | regions: ['吳化 銅容']
+2026-01-11 00:43:28 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 00:43:28 | /api/charlist | combine_query: False
+2026-01-11 00:43:52 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:43:52 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:43:53 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:43:53 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:43:54 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 00:43:54 | /api/charlist | combine_query: False
+2026-01-11 00:45:22 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:45:22 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:45:22 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 00:45:22 | /api/charlist | combine_query: False
+2026-01-11 00:45:26 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:45:26 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:45:27 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 00:45:27 | /api/charlist | combine_query: False
+2026-01-11 00:45:29 | /api/get_locs/ | locations: ['台山台城', '新會會城', '東莞橋頭']
+2026-01-11 00:45:29 | /api/get_locs/ | regions: ['東江']
+2026-01-11 00:45:30 | /api/charlist | path_strings: ['[次濁]{清濁}[平]{調}']
+2026-01-11 00:45:30 | /api/charlist | combine_query: False
+2026-01-11 00:45:42 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:45:42 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:45:43 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:45:43 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:45:43 | /api/get_locs/ | locations: ['台山台城', '新會會城', '東莞橋頭']
+2026-01-11 00:45:43 | /api/get_locs/ | regions: ['東江']
+2026-01-11 00:45:44 | /api/charlist | path_strings: ['[次濁]{清濁}[上]{調}']
+2026-01-11 00:45:44 | /api/charlist | combine_query: False
+2026-01-11 00:46:27 | /api/charlist | path_strings: ['[次濁]{清濁}[上]{調}']
+2026-01-11 00:46:27 | /api/charlist | combine_query: False
+2026-01-11 00:46:34 | /api/charlist | path_strings: ['[次濁]{清濁}']
+2026-01-11 00:46:34 | /api/charlist | combine_query: False
+2026-01-11 00:46:47 | /api/get_locs/ | locations: ['梅縣']
+2026-01-11 00:46:47 | /api/charlist | path_strings: ['[咸]{攝}[一]{等}', '[咸]{攝}[二]{等}']
+2026-01-11 00:46:47 | /api/charlist | combine_query: False
+2026-01-11 00:48:36 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:48:36 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:48:37 | /api/get_locs/ | locations: ['南雄']
+2026-01-11 00:48:37 | /api/get_locs/ | regions: ['韶州']
+2026-01-11 00:48:38 | /api/charlist | path_strings: ['[蟹]{攝}[一]{等}', '[蟹]{攝}[二]{等}', '[蟹]{攝}[三]{等}', '[蟹]{攝}[四]{等}']
+2026-01-11 00:48:38 | /api/charlist | combine_query: False
+2026-01-11 00:49:08 | /api/get_locs/ | locations: ['南雄']
+2026-01-11 00:49:27 | /api/get_locs/ | locations: ['南雄']
+2026-01-11 00:50:11 | /api/batch_match | input_string: 'boluo'
+2026-01-11 00:50:11 | /api/batch_match | filter_valid_abbrs_only: True
+2026-01-11 00:50:12 | /api/batch_match | input_string: '博羅'
+2026-01-11 00:50:12 | /api/batch_match | filter_valid_abbrs_only: True
+2026-01-11 00:50:12 | /api/get_locs/ | locations: ['博羅']
+2026-01-11 00:50:51 | /api/get_locs/ | locations: ['博羅']
+2026-01-11 00:50:51 | /api/get_locs/ | regions: ['四邑片']
+2026-01-11 00:50:52 | /api/charlist | path_strings: ['[山]{攝}']
+2026-01-11 00:50:52 | /api/charlist | combine_query: False
+2026-01-11 00:54:34 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:54:34 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:54:37 | /api/get_locs/ | locations: ['南京', '鹽城', '淮安', '廬江']
+2026-01-11 00:54:37 | /api/get_locs/ | regions: ['海泗']
+2026-01-11 00:54:38 | /api/get_locs/ | locations: ['銀川', '天津', '邢臺']
+2026-01-11 00:54:38 | /api/get_locs/ | regions: ['魯中']
+2026-01-11 00:54:38 | /api/get_locs/ | locations: ['髙安', '修水']
+2026-01-11 00:54:38 | /api/get_locs/ | regions: ['撫州']
+2026-01-11 00:54:39 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 00:54:39 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 00:54:39 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:54:39 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:54:40 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 00:54:40 | /api/charlist | combine_query: False
+2026-01-11 00:54:41 | /api/get_locs/ | locations: ['台山台城', '新會會城', '東莞橋頭']
+2026-01-11 00:54:41 | /api/get_locs/ | regions: ['東江']
+2026-01-11 00:54:43 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 00:54:43 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 00:54:45 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 00:54:45 | /api/charlist | combine_query: False
+2026-01-11 01:16:09 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:16:09 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:16:14 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:16:14 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:16:15 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:16:15 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:17:20 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:17:20 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:17:20 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:17:20 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:18:58 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:18:58 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:18:58 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:18:58 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:30:40 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:30:40 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:30:42 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:30:42 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:31:07 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:31:07 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:31:09 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:31:09 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:33:40 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:33:40 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:33:41 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:33:41 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:33:41 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:33:41 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:33:42 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:33:42 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:33:43 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:33:43 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:33:44 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:33:44 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:33:45 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:33:45 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:33:45 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:33:45 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:33:47 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:33:47 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:37:46 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:37:46 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:37:47 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 01:37:47 | /api/get_locs/ | regions: ['南海']
+2026-01-11 01:37:49 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 01:37:49 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:41:17 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 01:41:17 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:41:18 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 01:41:18 | /api/charlist | combine_query: False
+2026-01-11 01:53:23 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 01:53:23 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 01:53:24 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 01:53:24 | /api/charlist | combine_query: False
+2026-01-11 02:10:18 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:10:18 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:10:18 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 02:10:18 | /api/charlist | combine_query: False
+2026-01-11 02:10:24 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:10:24 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:10:24 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 02:10:24 | /api/charlist | combine_query: False
+2026-01-11 02:10:28 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 02:10:28 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 02:10:28 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 02:10:28 | /api/charlist | combine_query: False
+2026-01-11 02:15:56 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:15:56 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:15:57 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 02:15:57 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 02:15:58 | /api/get_locs/ | locations: ['台山台城', '新會會城', '東莞橋頭']
+2026-01-11 02:15:58 | /api/get_locs/ | regions: ['東江']
+2026-01-11 02:15:58 | /api/charlist | path_strings: ['[次濁]{清濁}[上]{調}']
+2026-01-11 02:15:58 | /api/charlist | combine_query: False
+2026-01-11 02:16:00 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:00 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:03 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:03 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:04 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:04 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:06 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:06 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:09 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:09 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:37 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:37 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:38 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:38 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:38 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:38 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:41 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:41 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:16:43 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:16:43 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:19:26 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:19:26 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:19:28 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:19:28 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:19:29 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:19:29 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:20:15 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:20:15 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:20:16 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 02:20:16 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 02:20:16 | /api/get_locs/ | locations: ['台山台城', '新會會城', '東莞橋頭']
+2026-01-11 02:20:16 | /api/get_locs/ | regions: ['東江']
+2026-01-11 02:20:17 | /api/get_locs/ | locations: ['南雄']
+2026-01-11 02:20:17 | /api/get_locs/ | regions: ['韶州']
+2026-01-11 02:20:17 | /api/get_locs/ | locations: ['博羅']
+2026-01-11 02:20:17 | /api/get_locs/ | regions: ['四邑片']
+2026-01-11 02:20:18 | /api/get_locs/ | locations: ['南京', '鹽城', '淮安', '廬江']
+2026-01-11 02:20:18 | /api/get_locs/ | regions: ['海泗']
+2026-01-11 02:20:19 | /api/charlist | path_strings: ['[見]{組}[二]{等}']
+2026-01-11 02:20:19 | /api/charlist | combine_query: False
+2026-01-11 02:20:50 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:20:50 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:20:52 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:20:52 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:20:53 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:20:53 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:21:20 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:21:20 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:21:45 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:21:45 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:21:47 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 02:21:47 | /api/get_locs/ | regions: ['南海']
+2026-01-11 02:21:50 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:21:50 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:21:53 | /api/get_locs/ | locations: ['台山斗山墟', '恩平恩城', '鶴山雅瑤', '從化獅象']
+2026-01-11 02:21:53 | /api/get_locs/ | regions: ['南海']
+2026-01-11 02:22:06 | /api/get_locs/ | locations: ['揭陽', '饒平', '永安', '福州']
+2026-01-11 02:22:06 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:22:34 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:22:34 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:22:35 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 02:22:35 | /api/charlist | combine_query: False
+2026-01-11 02:22:35 | /api/get_locs/ | locations: ['鬱林', '北流']
+2026-01-11 02:22:35 | /api/get_locs/ | regions: ['吳化', '銅容']
+2026-01-11 02:22:36 | /api/charlist | path_strings: ['[精]{母}']
+2026-01-11 02:22:36 | /api/charlist | combine_query: False
+2026-01-11 02:28:04 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-11 02:28:04 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-11 02:28:04 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-11 02:28:04 | /api/charlist | combine_query: False
+2026-01-11 23:46:07 | /api/charlist | path_strings: ['[假]{攝}']
+2026-01-11 23:46:07 | /api/charlist | combine_query: False
+2026-01-12 00:37:30 | /api/charlist | path_strings: ['[假]{攝}']
+2026-01-12 00:37:30 | /api/charlist | combine_query: False
+2026-01-21 14:14:31 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-21 14:14:31 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-21 14:14:32 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:14:32 | /api/charlist | combine_query: False
+2026-01-21 14:14:37 | /api/get_coordinates | regions: '瓊崖'
+2026-01-21 14:14:37 | /api/get_coordinates | locations: '广州 梅縣 汕头'
+2026-01-21 14:14:37 | /api/get_coordinates | region_mode: 'yindian'
+2026-01-21 14:14:37 | /api/get_coordinates | iscustom: True
+2026-01-21 14:14:37 | /api/get_coordinates | flag: False
+2026-01-21 14:25:16 | /api/get_locs/ | locations: ['广州', '梅縣', '汕头']
+2026-01-21 14:25:16 | /api/get_locs/ | regions: ['瓊崖']
+2026-01-21 14:25:16 | /api/charlist | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:16 | /api/charlist | combine_query: False
+2026-01-21 14:25:18 | /api/get_coordinates | regions: '瓊崖'
+2026-01-21 14:25:18 | /api/get_coordinates | locations: '广州 梅縣 汕头'
+2026-01-21 14:25:18 | /api/get_coordinates | region_mode: 'yindian'
+2026-01-21 14:25:18 | /api/get_coordinates | iscustom: True
+2026-01-21 14:25:18 | /api/get_coordinates | flag: False
+2026-01-21 14:25:18 | /api/ZhongGu | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:18 | /api/ZhongGu | combine_query: False
+2026-01-21 14:25:18 | /api/ZhongGu | locations: ['广州 梅縣 汕头']
+2026-01-21 14:25:18 | /api/ZhongGu | regions: ['瓊崖']
+2026-01-21 14:25:18 | /api/ZhongGu | features: ['韻母']
+2026-01-21 14:25:18 | /api/ZhongGu | region_mode: 'yindian'
+2026-01-21 14:25:18 | /api/ZhongGu | path_strings: ['[流]{攝}', '[深]{攝}']
+2026-01-21 14:25:18 | /api/ZhongGu | combine_query: False
+2026-01-21 14:25:34 | /api/batch_match | input_string: 'ts'
+2026-01-21 14:25:34 | /api/batch_match | filter_valid_abbrs_only: False
+2026-01-21 14:25:35 | /api/batch_match | input_string: 'test'
+2026-01-21 14:25:35 | /api/batch_match | filter_valid_abbrs_only: False
+2026-01-21 15:10:15 | /api/charlist | path_strings: ['[假]{攝}']
+2026-01-21 15:10:15 | /api/charlist | combine_query: False

@@ -1,0 +1,62 @@
+# 进入服务器
+ ssh root@47.115.57.138
+
+#重新 build 镜像
+cd C:\Users\joengzaang\myfiles\server\fastapi
+docker build -t myapp:latest .
+
+#保存成 tar 包
+docker save myapp:latest -o myapp.tar
+# 上传到服务器
+scp myapp.tar root@47.115.57.138:/srv/
+
+# 文件位于服务器的src目录
+ls -lah --full-time /srv/  # 人类可读大小 + 秒级时间（默认是 mtime）
+
+# 在服务器加载镜像
+docker load -i /srv/myapp.tar
+
+# 先删旧容器
+docker rm -f myapp
+
+# 运行容器（把宿主机 /srv/myapp/data 挂到容器 /app/data）
+docker run -d --name myapp -p 80:5000 \
+  -v /srv/myapp/data:/app/data \
+  -v /srv/myapp/logs:/app/logs \
+  myapp:latest
+# 用ngix
+docker run -d --name myapp \
+  -p 127.0.0.1:5000:5000 \
+  -e FORWARDED_ALLOW_IPS="*" \
+  -v /srv/myapp/data:/app/data \
+  -v /srv/myapp/logs:/app/logs \
+  myapp:latest
+#如果是本地先测试
+docker run -d --name myapp -p 8080:5000 `
+  -v "C:\Users\joengzaang\myfiles\server\fastapi\data:/app/data" `
+  myapp:latest
+
+# 查看状态/日志
+docker ps
+docker logs -f myapp
+
+# 传data
+scp C:\Users\joengzaang\myfiles\server\fastapi\data.tar.gz root@47.115.57.138:/srv/myapp/
+# 先解压到临时目录，再人工检查
+mkdir -p /srv/myapp/tmp
+tar -xvzf /srv/myapp/data.tar.gz -C /srv/myapp/tmp
+ls -lah /srv/myapp/tmp
+# 确认没问题后，再替换
+rm -rf /srv/myapp/data
+mv /srv/myapp/tmp/data /srv/myapp/data
+
+
+scp api_keywords_log.txt root@47.115.57.138:/srv/myapp/logs
+scp api_usage_stats.txt root@47.115.57.138:/srv/myapp/logs
+
+scp villages.db root@47.115.57.138:/srv/myapp/data
+scp yc_spoken.db root@47.115.57.138:/srv/myapp/data
+scp logs.db root@47.115.57.138:/srv/myapp/data
+
+cloc app common --by-file --not-match-d='app/statics'
+ cloc src auth menu intro public --include-ext=vue,js,css,html --by-file

@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Union, Optional
 
+
 class AnalysisPayload(BaseModel):
     """
     - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -28,3 +29,67 @@ class AnalysisPayload(BaseModel):
     group_inputs: Union[str, List[str], None] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
+
+
+class CharListRequest(BaseModel):
+    path_strings: Optional[List[str]] = None
+    column: Optional[List[str]] = None
+    combine_query: bool = False
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )
+
+
+class ZhongGuAnalysis(BaseModel):
+    # --- 第一部分：用於查詢漢字 (傳給 process_chars_status/缓存层) ---
+    path_strings: Optional[List[str]] = Field(
+        ...,
+        description="語音條件列表，例如 ['知組', '蟹攝'] 或 ['[知]{組}']",
+        example=["[知]{組}", "[莊]{組}"]
+    )
+    column: Optional[List[str]] = Field(
+        default=None,
+        description="需要進行排列組合的額外欄位，例如 ['等']",
+        example=[]
+    )
+    combine_query: bool = Field(
+        default=False,
+        description="是否開啟 path_strings 與 column 的交叉組合查詢"
+    )
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )
+
+    # --- 第二部分：用於方言分析 (傳給 _run_dialect_analysis_sync) ---
+    locations: List[str] = Field(
+        ...,
+        description="目標地點列表，例如 ['北京', '上海']",
+        example=["北京", "广州"]
+    )
+    regions: List[str] = Field(
+        default=[],
+        description="目標區域列表（用於輔助查找地點），可留空",
+        example=[]
+    )
+    features: List[str] = Field(
+        default=["韻母"],
+        description="需要分析的語音特徵",
+        example=["聲母", "韻母"]
+    )
+    # 可選：如果你想控制 region_mode
+    region_mode: str = Field(default="yindian", description="地區匹配模式")
+
+
+class YinWeiAnalysis(BaseModel):
+    locations: List[str] = Field(default_factory=list)
+    regions: List[str] = Field(default_factory=list)
+    features: List[str] = Field(default_factory=list)
+    group_inputs: Union[str, List[str], None] = None
+    pho_values: Union[str, List[str], None] = None
+    region_mode: str = "yindian"
+    exclude_columns: Optional[List[str]] = Field(
+        default=None,
+        description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )
