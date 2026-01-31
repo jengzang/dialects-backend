@@ -51,14 +51,28 @@ async def search_chars(
 
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
 
+        # 查询汉字读音数据
         result = search_characters(
             chars=chars,
             locations=locations_processed,
             regions=regions,
             db_path=db_path,
-            region_mode=region_mode  # [OK] 傳入參數
+            region_mode=region_mode,  # [OK] 傳入參數
+            query_db_path=query_db  # [NEW] 传入查询数据库路径
         )
-        return {"result": result}
+
+        # 同时查询声调系统数据（避免前端二次请求）
+        tones_result = search_tones(
+            locations=locations_processed,
+            regions=regions,
+            db_path=query_db,
+            region_mode=region_mode
+        )
+
+        return {
+            "result": result,
+            "tones_result": tones_result  # 新增：声调系统数据
+        }
     finally:
         print("search_chars")
         # duration = time.time() - start

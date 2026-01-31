@@ -5,7 +5,7 @@ from collections import defaultdict
 import pandas as pd
 from fastapi import HTTPException
 
-from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER
+from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER, QUERY_DB_USER
 from app.service.process_sp_input import split_pho_input
 from common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column
 from common.getloc_by_name_region import query_dialect_abbreviations
@@ -228,7 +228,8 @@ def pho2sta(locations, regions, features, status_inputs,
             pho_values=None,
             dialect_db_path=DIALECTS_DB_USER,
             character_db_path=CHARACTERS_DB_PATH, region_mode='yindian',
-            exclude_columns=None):
+            exclude_columns=None,
+            query_db_path=QUERY_DB_USER):  # 新增：用于查询地点的数据库
     def convert_simplified_to_traditional(simplified_text):
         return "".join([s2t_column.get(ch, ch) for ch in simplified_text])
 
@@ -251,7 +252,7 @@ def pho2sta(locations, regions, features, status_inputs,
             print(f"[X] 輸入「{user_input}」未匹配任何欄位，特徵【{feature}】將使用預設分組欄位")
             grouping_columns_map[feature] = None
 
-    locations_new = query_dialect_abbreviations(regions, locations,region_mode=region_mode)
+    locations_new = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
     match_results = match_locations_batch(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         # print("🛑 沒有任何地點完全匹配，終止分析。")

@@ -20,7 +20,7 @@ from app.service.phonology2status import pho2sta, get_feature_counts
 from app.service.status_arrange_pho import sta2pho
 from app.logs.api_logger import log_all_fields
 from common.config import REQUIRE_LOGIN
-from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN
+from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
 
 router = APIRouter()
 
@@ -60,7 +60,8 @@ async def api_run_phonology_analysis(
     try:
         # 根據用戶身分決定資料庫
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path)
+        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path, query_db=query_db)
         if not result:
             raise HTTPException(status_code=400, detail="[X] 輸入的中古地位不存在")
         status = 200
@@ -101,7 +102,8 @@ def run_phonology_analysis(
         group_inputs: list = None,
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
-        region_mode='yindian'
+        region_mode='yindian',
+        query_db=QUERY_DB_USER  # 新增：用于查询地点的数据库
 ):
     """
     統一介面函數：根據 mode ('s2p' 或 'p2s') 執行 sta2pho 或 pho2sta。
@@ -122,13 +124,13 @@ def run_phonology_analysis(
         # if not status_inputs:
         #     raise ValueError("🔴 mode='s2p' 時，請提供 status_inputs。")
         return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db,
-                       region_mode=region_mode)
+                       region_mode=region_mode, db_path_query=query_db)
 
     elif mode == 'p2s':
         # if not group_inputs :
         #     raise ValueError("🔴 mode='p2s' 時，請提供 group_inputs ")
         return pho2sta(locations, regions, features, group_inputs, pho_values,
-                       dialect_db_path=dialects_db, region_mode=region_mode)
+                       dialect_db_path=dialects_db, region_mode=region_mode, query_db_path=query_db)
 
 
     else:

@@ -3,7 +3,7 @@ import itertools
 from app.redis_client import redis_client
 from app.service.match_input_tip import match_locations_batch
 from app.service.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
-from common.config import DIALECTS_DB_USER
+from common.config import DIALECTS_DB_USER, QUERY_DB_USER
 from common.constants import COLUMN_VALUES
 
 import json
@@ -68,14 +68,19 @@ def _run_dialect_analysis_sync(
         regions: List[str],
         features: List[str],
         region_mode: str = 'yindian',
-        db_path_dialect: str = DIALECTS_DB_USER
+        db_path_dialect: str = DIALECTS_DB_USER,
+        db_path_query: str = QUERY_DB_USER  # 新增：用于查询地点的数据库
 ):
     """
     這是 sta2pho 的後半部分邏輯重寫版。
     它不查字，直接用 char_data_list 裡的字去查方言。
+
+    Args:
+        db_path_dialect: 方言数据库路径（用于查询实际读音数据）
+        db_path_query: 查询数据库路径（用于查询地点信息）
     """
     # 1. 處理地點簡稱 (複製原邏輯)
-    locations_new = query_dialect_abbreviations(regions, locations, region_mode=region_mode)
+    locations_new = query_dialect_abbreviations(regions, locations, db_path=db_path_query, region_mode=region_mode)
     match_results = match_locations_batch(" ".join(locations_new))
 
     # 檢查匹配結果
@@ -152,6 +157,7 @@ def generate_cache_key(path_strings: Any, column: Any, combine_query: bool, excl
     # 生成 MD5
     return "charlist:" + hashlib.md5(key_str.encode('utf-8')).hexdigest()
 
+
 # 緩存讀取 (Async)
 async def get_cache(key: str) -> Optional[List[Dict]]:
     try:
@@ -163,6 +169,7 @@ async def get_cache(key: str) -> Optional[List[Dict]]:
     except Exception as e:
         print(f"[X] Redis Read Error: {e}")
     return None
+
 
 # 緩存寫入 (Async)
 async def set_cache(key: str, data: List[Dict], expire_seconds: int = 600):

@@ -14,7 +14,7 @@ from app.logs.api_logger import log_all_fields
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
     _run_dialect_analysis_sync
 from app.service.phonology2status import pho2sta
-from common.config import REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN
+from common.config import REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
 
 router = APIRouter()
 
@@ -97,6 +97,7 @@ async def analyze_zhonggu(
     regions = payload.regions
     features = payload.features
     db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+    query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
     analysis_results = await run_in_threadpool(
         _run_dialect_analysis_sync,
         char_data_list=cached_char_result,
@@ -104,7 +105,8 @@ async def analyze_zhonggu(
         regions=regions,
         features=features,
         region_mode=payload.region_mode,  # 如果需要的話
-        db_path_dialect=db_path
+        db_path_dialect=db_path,
+        db_path_query=query_db  # 新增：传入查询数据库
     )
 
     return {
@@ -130,6 +132,7 @@ async def analyze_yinwei(
         regions = payload.regions
         features = payload.features
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         analysis_results = await run_in_threadpool(
             pho2sta,
             locations=locations,
@@ -139,7 +142,8 @@ async def analyze_yinwei(
             pho_values=payload.pho_values,
             region_mode=payload.region_mode,  # 如果需要的話
             dialect_db_path=db_path,
-            exclude_columns=payload.exclude_columns
+            exclude_columns=payload.exclude_columns,
+            query_db_path=query_db  # 新增：传入查询数据库
         )
         if isinstance(analysis_results, pd.DataFrame):
             return {"success": True, "results": analysis_results.to_dict(orient="records")}

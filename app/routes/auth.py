@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
@@ -43,7 +43,7 @@ def register(user: schemas.UserCreate, request: Request, db: Session = Depends(g
 
 
 # 登录：未验证时返回 403；其它无效凭证返回 401
-@router.post("/login", response_model=schemas.Token)
+@router.post("/login", response_model=schemas.TokenPair)
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = utils.extract_client_ip(request)
 
@@ -89,8 +89,54 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     ))
     db.commit()
 
-    token = utils.create_access_token(subject=user.username, expires_minutes=utils.ACCESS_TOKEN_EXPIRE_MINUTES)
-    return {"access_token": token, "token_type": "bearer"}
+    # Create token pair
+    token_pair = utils.create_token_pair(user.username)
+
+    # Store refresh token in database
+    device_info = request.headers.get("User-Agent") if request else None
+    service.store_refresh_token(
+        db,
+        user.id,
+        token_pair["refresh_token"],
+        device_info
+    )
+
+    return token_pair
+
+
+# Token refresh endpoint
+@router.post("/refresh", response_model=schemas.TokenPair)
+def refresh(
+    refresh_token: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Exchange refresh token for new access + refresh token pair.
+    Implements token rotation for security.
+    """
+    # Validate refresh token
+    token_obj = service.validate_refresh_token(db, refresh_token)
+    if not token_obj:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired refresh token"
+        )
+
+    # Get user
+    user = db.query(models.User).filter(
+        models.User.id == token_obj.user_id
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Create new token pair
+    new_token_pair = utils.create_token_pair(user.username)
+
+    # Rotate refresh token (revoke old, store new)
+    new_refresh_token_str, _ = service.rotate_refresh_token(db, token_obj)
+    new_token_pair["refresh_token"] = new_refresh_token_str
+
+    return new_token_pair
 
 
 # 邮箱验证：点击邮件中的链接来到这里
@@ -149,22 +195,39 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
 
 # ========== Logout ==========
 @router.post("/logout", response_model=schemas.LogoutResponse)
-def logout(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # 同样要求使用“登录 access token”（sub=username）
+def logout(
+    token: str = Depends(oauth2_scheme),
+    refresh_token: Optional[str] = Body(None),
+    logout_all: bool = Body(False),
+    db: Session = Depends(get_db)
+):
+    """Logout user and revoke tokens"""
     try:
         payload = utils.decode_access_token(token)
         username = payload.get("sub")
         if not username:
             raise HTTPException(status_code=401, detail="Invalid token (no subject)")
-    except Exception:
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user = db.query(models.User).filter(models.User.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    session_secs = service.logout_user(db, user)
-    return {"session_seconds": session_secs, "total_online_seconds": user.total_online_seconds}
+    # Accumulate online time
+    session_seconds, total_seconds = service.logout_user(db, user)
+
+    # Revoke tokens
+    if logout_all:
+        service.revoke_all_user_tokens(db, user.id)
+    elif refresh_token:
+        service.revoke_single_token(db, refresh_token)
+
+    return {
+        "message": "Logout successful",
+        "session_seconds": session_seconds,
+        "total_online_seconds": total_seconds
+    }
 
 @router.put("/updateProfile")
 async def update_profile(

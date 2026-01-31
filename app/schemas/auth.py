@@ -51,7 +51,15 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class TokenPair(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # Seconds until access token expires
+
+
 class LogoutResponse(BaseModel):
+    message: str
     session_seconds: int
     total_online_seconds: int
 

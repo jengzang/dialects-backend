@@ -5,7 +5,7 @@ import sqlite3
 import pandas as pd
 from fastapi import HTTPException
 
-from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER
+from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER, QUERY_DB_USER
 from common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES, COLUMN_VALUES
 from app.service.process_sp_input import auto_convert_batch
 from common.getloc_by_name_region import query_dialect_abbreviations
@@ -447,13 +447,18 @@ def sta2pho(
         test_inputs,
         db_path_char=CHARACTERS_DB_PATH,
         db_path_dialect=DIALECTS_DB_USER,
-        region_mode='yindian'
+        region_mode='yindian',
+        db_path_query=QUERY_DB_USER  # 新增：用于查询地点的数据库
 ):
     """
     📌 主控函數：對語音條件輸入進行特徵分析，支援多地點與特徵欄位。
     回傳：List of DataFrames（每個條件的統計結果）
+
+    Args:
+        db_path_dialect: 方言数据库路径（用于查询实际读音数据）
+        db_path_query: 查询数据库路径（用于查询地点信息）
     """
-    locations_new = query_dialect_abbreviations(regions, locations, region_mode=region_mode)
+    locations_new = query_dialect_abbreviations(regions, locations, db_path=db_path_query, region_mode=region_mode)
     match_results = match_locations_batch(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         raise HTTPException(status_code=400, detail="🛑 沒有任何地點完全匹配，終止分析。")

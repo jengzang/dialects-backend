@@ -91,6 +91,41 @@ async def query_table(params: QueryParams):
             raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/query/columns")
+async def get_column_info(db_key: str, table_name: str):
+    with get_db_connection(db_key) as conn:
+        # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
+        cursor = conn.cursor()
+
+        try:
+            # 获取表结构元数据
+            cursor.execute(f"PRAGMA table_info('{table_name}')")
+            columns = cursor.fetchall()
+
+            # 如果没查到数据，可能是表名不存在
+            if not columns:
+                return {"table": table_name, "columns": [], "error": "Table not found or no columns"}
+
+            # 直接构造列表返回
+            result = [
+                {
+                    "name": col["name"],
+                    "type": col["type"],
+                    "notnull": bool(col["notnull"]),
+                    "pk": bool(col["pk"]),
+                    "default_value": col["dflt_value"]
+                }
+                for col in columns
+            ]
+
+            return {
+                "table": table_name,
+                "columns": result
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
+
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(db_key: str, table_name: str, column: str):
     """用于前端表头筛选弹窗，获取该列所有不重复的值"""

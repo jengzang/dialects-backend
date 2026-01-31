@@ -6,7 +6,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.auth import utils, models
 from app.schemas import auth as schemas
-from common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP
+from common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
+    REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS
 
 
 def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> models.User:
@@ -80,9 +81,9 @@ def authenticate_user(db: Session, username: str, password: str, login_ip: str) 
 
 
 # --- 登出：累加本次會話在線時長 ---
-def logout_user(db: Session, user: models.User) -> int:
+def logout_user(db: Session, user: models.User) -> tuple[int, int]:
     """
-    返回本次會話時長（秒）
+    返回 (本次會話時長（秒）, 總在線時長（秒）)
     """
     now = utils.now_utc_naive()
     session_secs = 0
@@ -93,7 +94,7 @@ def logout_user(db: Session, user: models.User) -> int:
         user.current_session_started_at = None
     user.last_seen = now
     db.commit()
-    return session_secs
+    return session_secs, user.total_online_seconds
 
 
 # --- 心跳 / 訪問受保護接口時更新 last_seen（並分段累加在線時長）---
@@ -167,4 +168,93 @@ def update_user_profile(
     db.refresh(user)
 
     return user
+
+
+# ===== Refresh Token Management =====
+def store_refresh_token(
+    db: Session,
+    user_id: int,
+    token: str,
+    device_info: str = None
+) -> models.RefreshToken:
+    """Store refresh token in database"""
+    expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    # Limit active refresh tokens per user
+    active_tokens = db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == user_id,
+        models.RefreshToken.revoked == False,
+        models.RefreshToken.expires_at > datetime.utcnow()
+    ).count()
+
+    if active_tokens >= MAX_ACTIVE_REFRESH_TOKENS:
+        # Revoke oldest token
+        oldest = db.query(models.RefreshToken).filter(
+            models.RefreshToken.user_id == user_id,
+            models.RefreshToken.revoked == False
+        ).order_by(models.RefreshToken.created_at.asc()).first()
+        if oldest:
+            oldest.revoked = True
+
+    refresh_token = models.RefreshToken(
+        token=token,
+        user_id=user_id,
+        expires_at=expires_at,
+        device_info=device_info
+    )
+    db.add(refresh_token)
+    db.commit()
+    return refresh_token
+
+
+def validate_refresh_token(db: Session, token: str) -> models.RefreshToken | None:
+    """Validate refresh token and return if valid"""
+    refresh_token = db.query(models.RefreshToken).filter(
+        models.RefreshToken.token == token,
+        models.RefreshToken.revoked == False,
+        models.RefreshToken.expires_at > datetime.utcnow()
+    ).first()
+    return refresh_token
+
+
+def rotate_refresh_token(
+    db: Session,
+    old_token: models.RefreshToken
+) -> tuple[str, models.RefreshToken]:
+    """Rotate refresh token (revoke old, create new)"""
+    new_token_str = utils.create_refresh_token()
+
+    # Create new token
+    new_token = models.RefreshToken(
+        token=new_token_str,
+        user_id=old_token.user_id,
+        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        device_info=old_token.device_info
+    )
+
+    # Revoke old token
+    old_token.revoked = True
+    old_token.replaced_by = new_token_str
+
+    db.add(new_token)
+    db.commit()
+
+    return new_token_str, new_token
+
+
+def revoke_all_user_tokens(db: Session, user_id: int):
+    """Revoke all refresh tokens for user (logout all devices)"""
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == user_id,
+        models.RefreshToken.revoked == False
+    ).update({"revoked": True})
+    db.commit()
+
+
+def revoke_single_token(db: Session, token: str):
+    """Revoke specific refresh token"""
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.token == token
+    ).update({"revoked": True})
+    db.commit()
 
