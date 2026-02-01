@@ -143,7 +143,7 @@ def replace(component, condition, rules_df=None):
             # print(f"  [{condition}] 替换: {component} → {result}")
             return result
 
-    print(f"  [{condition}] 无替换: {component}")
+    # print(f"  [{condition}] 无替换: {component}")
     return component
 
 
