@@ -21,5 +21,5 @@ RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
 EXPOSE 5000
-CMD ["gunicorn","-w","4","-k","uvicorn.workers.UvicornWorker","-b","0.0.0.0:5000","--timeout","180","serve:app"]
+CMD ["gunicorn","-w","4","-k","uvicorn.workers.UvicornWorker","-b","0.0.0.0:5000","--timeout","180","--max-requests", "1000","--max-requests-jitter", "50","serve:app"]
 

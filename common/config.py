@@ -82,7 +82,7 @@ RECORD_API = [
     "api/tools",
 ]
 # 不記錄帶有以下字段的api
-IGNORE_API = ["download"]
+IGNORE_API = ["download", "progress"]
 
 # ========== 登錄系統 =============
 USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")

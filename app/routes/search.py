@@ -6,10 +6,10 @@ from fastapi import APIRouter, Query
 from typing import List
 
 from app.auth.dependencies import check_api_usage_limit
-from app.service.match_input_tip import match_locations_batch, match_locations_batch_all
+from app.service.match_input_tip import match_locations_batch_all
 from app.service.search_chars import search_characters
 from common.config import REQUIRE_LOGIN, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
-from common.search_tones import search_tones
+from app.service.search_tones import search_tones
 from app.logs.api_logger import *
 
 router = APIRouter()

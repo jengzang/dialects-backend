@@ -189,7 +189,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # 刷新活跃时间（统计在线时长时有用）
-    service.touch_activity(db, user)
+    # service.touch_activity(user)  # 队列版本不需要 db 参数
     return user
 
 
@@ -228,6 +228,53 @@ def logout(
         "session_seconds": session_seconds,
         "total_online_seconds": total_seconds
     }
+
+
+# ========== Report Online Time ==========
+@router.post("/report-online-time")
+def report_online_time(
+    seconds: int = Body(..., embed=True, ge=1, le=3600),  # 1秒到1小时
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    前端上报在线时长
+
+    前端应该：
+    1. 使用 Page Visibility API 监听页面可见性
+    2. 当页面可见时开始计时
+    3. 当页面不可见或定期（如每分钟）上报累计时长
+
+    参数：
+    - seconds: 本次上报的在线时长（秒），范围 1-3600
+
+    返回：
+    - success: 是否成功
+    - total_online_seconds: 用户总在线时长（秒）
+    """
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 调用队列版本的函数（异步处理）
+    service.accumulate_online_time(user, seconds)
+
+    # 返回当前的总在线时长（注意：由于队列异步处理，这个值可能有延迟）
+    return {
+        "success": True,
+        "reported_seconds": seconds,
+        "total_online_seconds": user.total_online_seconds or 0,
+        "message": "在线时长已记录（异步处理中）"
+    }
+
 
 @router.put("/updateProfile")
 async def update_profile(
