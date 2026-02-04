@@ -25,11 +25,13 @@
 
 - **[预处理字表](https://github.com/jengzang/dialects-build)**
   [![dialects-build](https://img.shields.io/badge/Repo-dialects--build-ff69b4?logo=github&logoColor=white&style=for-the-badge)](https://github.com/jengzang/dialects-build)
-  方言比较网站的数据预处理仓库，负责原始数据的清洗、转换和优化。
+
+方言比较网站的数据预处理仓库，负责原始数据的清洗、转换和优化。
 
 - **[前端代码](https://github.com/jengzang/dialects-js-frontend)**
-  [![dialects-js-frontend](https://img.shields.io/badge/Repo-dialects--js--frontend-0088ff?logo=github&logoColor=white&style=for-the-badge)](https://github.com/jengzang/dialects-js-frontend)
-  方言比较网站的前端代码，基于原生 JavaScript 和 Vue 框架，提供直观的用户界面。
+  [![dialects-vue-frontend](https://img.shields.io/badge/Repo-dialects--js--frontend-0088ff?logo=github&logoColor=white&style=for-the-badge)](https://github.com/jengzang/dialects-js-frontend)
+  
+方言比较网站的前端代码，基于Vue框架和原生JavaScript，提供直观的用户界面。
 
 ---
 
@@ -792,8 +794,8 @@ sudo systemctl start dialects-backend
 系统支持三种运行模式，通过 \ 环境变量或命令行参数控制。
 
 ### 1. WEB 模式（默认）
-- 启用 API 文档（/docs, /redoc）
-- 绑定到 127.0.0.1（仅本机访问）
+- 禁用 API 文档
+- 绑定到網站域名，用於正式部署
 
 ### 2. MINE 模式
 - 绑定到 0.0.0.0（局域网可访问）
@@ -801,7 +803,7 @@ sudo systemctl start dialects-backend
 
 ### 3. EXE 模式
 - 用于打包为可执行文件
-- 禁用 API 文档
+- 啟用 API 文档（/docs, /redoc）
 
 ---
 
