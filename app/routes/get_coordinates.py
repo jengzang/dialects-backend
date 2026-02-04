@@ -1,22 +1,19 @@
 # routes/get_coordinates.py
 """
-📦 路由模塊：處理 /api/get_coordinates 查詢地點座標資料。
+[PKG] 路由模塊：處理 /api/get_coordinates 查詢地點座標資料。
 """
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query, HTTPException, Depends
+from fastapi import APIRouter
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
 from app.auth.database import get_db as get_db_user
 from app.schemas import CoordinatesQuery
 from app.service.locs_regions import get_coordinates_from_db
 from common.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
 from app.service.match_input_tip import match_locations_batch
-from common.config import QUERY_DB_ADMIN, QUERY_DB_USER, CLEAR_WEEK
-import time
-from app.service.api_logger import *
+from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
+from app.logs.api_logger import *
 
 router = APIRouter()
 
@@ -42,9 +39,9 @@ async def get_coordinates(
         "zoom_level": 建議地圖縮放層級
     }
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, query.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         if not query.regions.strip() and not query.locations.strip():
@@ -89,10 +86,11 @@ async def get_coordinates(
         return result
 
     finally:
-        duration = time.time() - start
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        print("get_coordinates")
+        # duration = time.time() - start
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )

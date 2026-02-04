@@ -14,6 +14,7 @@ class Information(Base):
     簡稱 = Column(String, nullable=False, index=True)
     音典分區 = Column(String, nullable=False, index=True)
     經緯度 = Column(String, nullable=False)
+    聲韻調 = Column(String, nullable=True, index=True)
     特徵 = Column(String, nullable=False, index=True)
     值 = Column(Text, nullable=False)
     說明 = Column(Text)
@@ -27,4 +28,4 @@ class Information(Base):
 
     # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     # username = Column(String, nullable=False)
-    # user = relationship("User", back_populates="informations")  # ✅ 字串只寫 "User"
+    # user = relationship("User", back_populates="informations")  # [OK] 字串只寫 "User"

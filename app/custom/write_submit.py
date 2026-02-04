@@ -27,12 +27,13 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     location = form_data.get('location')
     region = form_data.get('region')
     coordinates = form_data.get('coordinates')
+    phonology = form_data.get('phonology')
     feature = form_data.get('feature')
     value = form_data.get('value')
     description = form_data.get('description', None)
 
-    if not location or not region or not coordinates or not feature or not value:
-        return {"success": False, "message": "⚠️ 所有字段（除說明）必須填寫！"}
+    if not location or not region or not coordinates or not phonology or not feature or not value:
+        return {"success": False, "message": "[!] 所有字段（除說明）必須填寫！"}
 
 
     max_value = get_max_value(value)
@@ -49,16 +50,17 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
             Information.user_id == user.id
         ).count()
 
-        if count_last_hour >= 100:
-            return {"success": False, "message": "💥 每小時最多提交 100 份資料"}
-        if total_count >= 1000:
-            return {"success": False, "message": "🚫 最多只能提交 1000 份資料"}
+        if count_last_hour >= 500:
+            return {"success": False, "message": "💥 每小時最多提交 500 份資料"}
+        if total_count >= 5000:
+            return {"success": False, "message": "🚫 最多只能提交 5000 份資料"}
 
     # 寫入資料
     info = Information(
         簡稱=location,
         音典分區=region,
         經緯度=coordinates,
+        聲韻調=phonology,
         特徵=feature,
         值=value,
         說明=description,
@@ -72,7 +74,7 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     db.add(info)
     db.commit()
 
-    # ✅ 再次查詢用戶目前的總提交數
+    # [OK] 再次查詢用戶目前的總提交數
     total_submitted = db.query(Information).filter(
         Information.user_id == user.id
     ).count()
@@ -84,8 +86,8 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
     return {
         "success": True,
         "message": (
-            f"🎉 這是你提交的第 {total_submitted} 份數據！\n"
-            f"💾 本小時已提交 {submitted_this_hour} 份數據。"
+            f"[DONE] 這是你提交的第 {total_submitted} 份數據！\n"
+            f"[SAVE] 本小時已提交 {submitted_this_hour} 份數據。"
         )
     }
 

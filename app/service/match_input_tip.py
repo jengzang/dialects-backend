@@ -13,6 +13,8 @@ from app.custom.models import Information
 from common.getloc_by_name_region import query_dialect_abbreviations_orm
 from common.config import QUERY_DB_ADMIN
 from common.s2t import s2t_pro
+# [NEW] 导入连接池
+from app.sql.db_pool import get_db_pool
 
 
 def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
@@ -27,7 +29,9 @@ def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
 
     hierarchy = defaultdict(lambda: defaultdict(list))
 
-    with sqlite3.connect(db_path) as conn:
+    # [NEW] 使用连接池
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT 音典分區 FROM dialects")
         rows = cursor.fetchall()
@@ -104,7 +108,7 @@ def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
         # 保留原來的結構，並加上 level
         result[region] = {"partitions": result[region],
                           "level": level,
-                          "hasChildren": bool(result[region])  # ✅ 判斷是否有子分區
+                          "hasChildren": bool(result[region])  # [OK] 判斷是否有子分區
         }
 
     return result
@@ -157,6 +161,7 @@ def match_custom_feature(locations, regions, keyword, user: User, db: Session):
             if any(c in 特徵 for c in candidate_set):
                 result.append({
                     "簡稱": record.簡稱,
+                    "聲韻調": record.聲韻調,
                     "特徵": 特徵
                 })
                 continue
@@ -167,6 +172,7 @@ def match_custom_feature(locations, regions, keyword, user: User, db: Session):
             if ratio > 0.7:
                 result.append({
                     "簡稱": record.簡稱,
+                    "聲韻調": record.聲韻調,
                     "特徵": 特徵
                 })
 
@@ -215,93 +221,105 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
     # - clean_str（第一候選組合）
     possible_inputs = set([user_input, converted_str]) | converted_candidates
 
-    conn = sqlite3.connect(query_db)
-    cursor = conn.cursor()
+    # [NEW] 使用连接池
+    pool = get_db_pool(query_db)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
 
-    # 根據 filter_valid_abbrs_only 決定是否過濾掉非存儲標記為1的數據
-
-    if filter_valid_abbrs_only:
-        # print("過濾！！")
-        cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
-    else:
-        # print("不過濾存儲標記")
-        cursor.execute("SELECT 簡稱 FROM dialects")
-    valid_abbrs_set = set(row[0] for row in cursor.fetchall())
-
-    matched_abbrs = set()
-    for term in possible_inputs:
-        # 完全匹配查詢部分需要根據 filter_valid_abbrs_only 來過濾
+        # 根據 filter_valid_abbrs_only 決定是否過濾掉非存儲標記為1的數據
         if filter_valid_abbrs_only:
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ? AND 存儲標記 = 1", (term,))
+            # print("過濾！！")
+            cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
         else:
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ?", (term,))
-        exact = cursor.fetchall()
-        matched_abbrs.update([row[0] for row in exact])
-        # print(f"[DEBUG] 完全匹配【{term}】：{exact}")
+            # print("不過濾存儲標記")
+            cursor.execute("SELECT 簡稱 FROM dialects")
+        valid_abbrs_set = set(row[0] for row in cursor.fetchall())
 
-    # 如果指定只做完全匹配，但找不到，提前返回空
-    if exact_only and not matched_abbrs:
-        return [], 0, [], [], [], [], [], []
+        matched_abbrs = set()
+        for term in possible_inputs:
+            # 完全匹配查詢部分需要根據 filter_valid_abbrs_only 來過濾
+            if filter_valid_abbrs_only:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ? AND 存儲標記 = 1", (term,))
+            else:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ?", (term,))
+            exact = cursor.fetchall()
+            matched_abbrs.update([row[0] for row in exact])
+            # print(f"[DEBUG] 完全匹配【{term}】：{exact}")
 
-    # 原來的邏輯保留：有完全匹配就返回
-    if matched_abbrs:
-        return list(matched_abbrs), 1, [], [], [], [], [], []
+        # 如果指定只做完全匹配，但找不到，提前返回空
+        if exact_only and not matched_abbrs:
+            return [], 0, [], [], [], [], [], []
 
-    fuzzy_abbrs = set()
-    for term in possible_inputs:
-        # 模糊匹配查詢部分需要根據 filter_valid_abbrs_only 來過濾
-        if filter_valid_abbrs_only:
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", (term + "%",))
-        else:
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", (term + "%",))
-        fuzzy = cursor.fetchall()
-        fuzzy_abbrs.update([row[0] for row in fuzzy])
-        # print(f"[DEBUG] 模糊簡稱匹配【{term}】：{fuzzy}")
+        # 原來的邏輯保留：有完全匹配就返回
+        if matched_abbrs:
+            return list(matched_abbrs), 1, [], [], [], [], [], []
 
-    geo_matches = set()
-    geo_abbr_map = {}
-    all_geo_names = []
-    all_abbr_names = []
+        fuzzy_abbrs = set()
+        contains_abbrs = set()  # 新增：包含匹配結果
 
-    for col in ["鎮", "行政村", "自然村"]:
-        if filter_valid_abbrs_only:
-            cursor.execute(f"SELECT {col}, 簡稱 FROM dialects WHERE 存儲標記 = 1")
-        else:
-            cursor.execute(f"SELECT {col}, 簡稱 FROM dialects")
-        rows = cursor.fetchall()
-        for name, abbr in rows:
-            all_geo_names.append(name)
-            all_abbr_names.append(abbr)
-            for term in possible_inputs:
-                if term in (name or ""):
-                    geo_matches.add(name)
-                    geo_abbr_map[name] = abbr
+        for term in possible_inputs:
+            # 前綴匹配（原有邏輯）
+            if filter_valid_abbrs_only:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", (term + "%",))
+            else:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", (term + "%",))
+            fuzzy = cursor.fetchall()
+            fuzzy_abbrs.update([row[0] for row in fuzzy])
+            # print(f"[DEBUG] 模糊簡稱匹配【{term}】：{fuzzy}")
 
-    # 加上所有簡稱（用於相似與拼音匹配）
-    all_names = all_geo_names + list(valid_abbrs_set)
-    all_abbrs = all_abbr_names + list(valid_abbrs_set)
+            # 包含匹配（新增）：匹配包含輸入的地點名稱
+            if filter_valid_abbrs_only:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", ("%" + term + "%",))
+            else:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", ("%" + term + "%",))
+            contains = cursor.fetchall()
+            contains_abbrs.update([row[0] for row in contains])
+            # print(f"[DEBUG] 包含匹配【{term}】：{contains}")
 
-    fuzzy_geo_matches = set()
-    fuzzy_geo_abbrs = set()
-    sound_like_matches = set()
-    sound_like_abbrs = set()
+        geo_matches = set()
+        geo_abbr_map = {}
+        all_geo_names = []
+        all_abbr_names = []
 
-    for name, abbr in zip(all_names, all_abbrs):
-        if not name or not abbr or abbr not in valid_abbrs_set:
-            continue
+        for col in ["鎮", "行政村", "自然村"]:
+            if filter_valid_abbrs_only:
+                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects WHERE 存儲標記 = 1")
+            else:
+                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects")
+            rows = cursor.fetchall()
+            for name, abbr in rows:
+                all_geo_names.append(name)
+                all_abbr_names.append(abbr)
+                for term in possible_inputs:
+                    if term in (name or ""):
+                        geo_matches.add(name)
+                        geo_abbr_map[name] = abbr
 
-        if is_similar(user_input, name):
-            # print(f"[DEBUG] 相似匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
-            fuzzy_geo_matches.add(name)
-            fuzzy_geo_abbrs.add(abbr)
+        # 加上所有簡稱（用於相似與拼音匹配）
+        all_names = all_geo_names + list(valid_abbrs_set)
+        all_abbrs = all_abbr_names + list(valid_abbrs_set)
 
-        if is_pinyin_similar(user_input, name):
-            # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
-            sound_like_matches.add(name)
-            sound_like_abbrs.add(abbr)
+        fuzzy_geo_matches = set()
+        fuzzy_geo_abbrs = set()
+        sound_like_matches = set()
+        sound_like_abbrs = set()
+
+        for name, abbr in zip(all_names, all_abbrs):
+            if not name or not abbr or abbr not in valid_abbrs_set:
+                continue
+
+            if is_similar(user_input, name):
+                # print(f"[DEBUG] 相似匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
+                fuzzy_geo_matches.add(name)
+                fuzzy_geo_abbrs.add(abbr)
+
+            if is_pinyin_similar(user_input, name):
+                # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
+                sound_like_matches.add(name)
+                sound_like_abbrs.add(abbr)
 
     return (
-        list(fuzzy_abbrs),
+        list(fuzzy_abbrs | contains_abbrs),  # 合併前綴匹配和包含匹配
         0,
         list(geo_matches),
         [geo_abbr_map[n] for n in geo_matches if geo_abbr_map[n] in valid_abbrs_set],
@@ -316,7 +334,7 @@ def match_locations_batch(input_string: str, filter_valid_abbrs_only=True, exact
                           , db: Session = None, user=None):
     input_string = input_string.strip()
     if not input_string:
-        # print("⚠️ 輸入為空，無法處理。")
+        # print("[!] 輸入為空，無法處理。")
         return []
 
     # 以多種分隔符切分
@@ -350,7 +368,87 @@ def match_locations_batch(input_string: str, filter_valid_abbrs_only=True, exact
                 else:
                     results.append(res)
             except Exception as e:
-                print(f"   ❌ 發生錯誤：{e}")
+                print(f"   [X] 發生錯誤：{e}")
                 results.append((False, 0, [], [], [], [], [], []))
 
     return results
+
+
+def match_locations_batch_all(locations_list, filter_valid_abbrs_only=True, exact_only=True, query_db=QUERY_DB_ADMIN, db: Session = None, user=None):
+    """
+    [NEW] 批量处理多个地点输入，一次性处理所有地点以提升性能
+
+    Args:
+        locations_list: 地点列表
+        filter_valid_abbrs_only: 是否只过滤有效的简称
+        exact_only: 是否只进行精确匹配
+        query_db: 查询数据库路径
+        db: 数据库会话（用于 ORM 查询）
+        user: 用户对象
+
+    Returns:
+        处理后的地点列表
+    """
+    if not locations_list:
+        return []
+
+    # 如果只有一个地点，直接调用原有函数
+    if len(locations_list) == 1:
+        matched = match_locations_batch(locations_list[0], filter_valid_abbrs_only, exact_only, query_db, db, user)
+        return [res[0][0] for res in matched if res[0]] if matched else []
+
+    # 批量处理多个地点
+    all_processed = []
+
+    # 解析所有输入并合并所有需要查询的部分
+    all_parts = []
+    for location in locations_list:
+        location = location.strip()
+        if location:
+            parts = re.split(r"[ ,;/，；、]+", location)
+            all_parts.extend([p.strip() for p in parts if p.strip()])
+
+    # 去重
+    unique_parts = list(dict.fromkeys(all_parts))
+
+    # 批量查询（使用连接池）
+    pool = get_db_pool(query_db)
+    results_map = {}
+
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # 批量获取所有有效简称
+        if filter_valid_abbrs_only:
+            cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
+        else:
+            cursor.execute("SELECT 簡稱 FROM dialects")
+        valid_abbrs_set = set(row[0] for row in cursor.fetchall())
+
+        # 批量精确匹配查询（使用 WHERE IN）
+        if unique_parts:
+            placeholders = ','.join('?' * len(unique_parts))
+            if filter_valid_abbrs_only:
+                exact_query = f"SELECT 簡稱 FROM dialects WHERE 簡稱 IN ({placeholders}) AND 存儲標記 = 1"
+            else:
+                exact_query = f"SELECT 簡稱 FROM dialects WHERE 簡稱 IN ({placeholders})"
+
+            cursor.execute(exact_query, unique_parts)
+            exact_matches = {row[0] for row in cursor.fetchall()}
+
+            # 将精确匹配的结果存储到结果映射中
+            for part in unique_parts:
+                if part in exact_matches:
+                    results_map[part] = [part]
+
+    # 提取所有匹配的简称
+    for location in locations_list:
+        location = location.strip()
+        if location:
+            parts = re.split(r"[ ,;/，；、]+", location)
+            for part in parts:
+                part = part.strip()
+                if part and part in results_map:
+                    all_processed.extend(results_map[part])
+
+    return all_processed

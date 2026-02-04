@@ -1,26 +1,29 @@
 # routes/phonology.py
 """
-📦 路由模塊：處理 /api/phonology 音韻分析請求。
+[PKG] 路由模塊：處理 /api/phonology 音韻分析請求。
 不改動原邏輯，將原來 app.py 中對應接口移出。
 """
 
 import asyncio
-import time
-from typing import Optional
+import json
+from typing import Optional, List
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, check_api_usage_limit
 from app.auth.models import User
-from app.schemas import AnalysisPayload
-from app.service.phonology2status import pho2sta
+from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest
+
+from app.service.phonology2status import pho2sta, get_feature_counts, get_all_phonology_matrices
 from app.service.status_arrange_pho import sta2pho
-from app.service.api_logger import update_count
-from common.config import CLEAR_WEEK, REQUIRE_LOGIN, DIALECTS_DB_USER
-from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN
+from app.service.phonology_classification_matrix import build_phonology_classification_matrix
+from app.logs.api_logger import log_all_fields
+from common.config import REQUIRE_LOGIN
+from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
+from app.redis_client import redis_client
 
 router = APIRouter()
 
@@ -30,7 +33,7 @@ async def api_run_phonology_analysis(
         request: Request,
         payload: AnalysisPayload,
         db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # ✅ user 可為 None
+        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -53,15 +56,17 @@ async def api_run_phonology_analysis(
     """
     ip_address = request.client.host  # 默认是请求的客户端 IP 地址
     check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
-    update_count(request.url.path)
+    # update_count(request.url.path)
+    log_all_fields(request.url.path, payload.dict())
 
-    start = time.time()
+    # start = time.time()
     try:
         # 根據用戶身分決定資料庫
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path)
+        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path, query_db=query_db)
         if not result:
-            raise HTTPException(status_code=404, detail="❌ 輸入的中古地位不存在")
+            raise HTTPException(status_code=400, detail="[X] 輸入的中古地位不存在")
         status = 200
         if isinstance(result, pd.DataFrame):
             return {"success": True, "results": result.to_dict(orient="records")}
@@ -75,6 +80,20 @@ async def api_run_phonology_analysis(
     except Exception as e:
         status = 500
         return {"success": False, "error": str(e)}
+    finally:
+        print("api_run_phonology_analysis")
+        # duration = time.time() - start
+        # path = request.url.path
+        # ip = request.client.host
+        # agent = request.headers.get("user-agent", "")
+        # referer = request.headers.get("referer", "")
+        # user_id = user.id if user else None
+
+        # 原有寫入 JSON 日誌
+        # log_detailed_api(path, duration, status, ip, agent, referer)
+
+        # 新增寫入資料庫
+        # log_detailed_api_to_db(db, path, duration, status, ip, agent, referer, user_id, CLEAR_2HOUR)
 
 
 def run_phonology_analysis(
@@ -86,7 +105,8 @@ def run_phonology_analysis(
         group_inputs: list = None,
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
-        region_mode='yindian'
+        region_mode='yindian',
+        query_db=QUERY_DB_USER  # 新增：用于查询地点的数据库
 ):
     """
     統一介面函數：根據 mode ('s2p' 或 'p2s') 執行 sta2pho 或 pho2sta。
@@ -106,14 +126,161 @@ def run_phonology_analysis(
     if mode == 's2p':
         # if not status_inputs:
         #     raise ValueError("🔴 mode='s2p' 時，請提供 status_inputs。")
-        return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db, region_mode=region_mode)
+        return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db,
+                       region_mode=region_mode, db_path_query=query_db)
 
     elif mode == 'p2s':
         # if not group_inputs :
         #     raise ValueError("🔴 mode='p2s' 時，請提供 group_inputs ")
         return pho2sta(locations, regions, features, group_inputs, pho_values,
-                       dialect_db_path=dialects_db, region_mode=region_mode)
+                       dialect_db_path=dialects_db, region_mode=region_mode, query_db_path=query_db)
 
 
     else:
         raise ValueError("🔴 mode 必須為 's2p' 或 'p2s'")
+
+
+
+@router.get("/feature_counts")
+async def feature_counts(
+    locations: List[str] = Query(...),
+    user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
+):
+    try:
+        # 根據用戶身分決定資料庫
+        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        # print(db_path)
+        # print(locations)
+        result = get_feature_counts(locations, db_path)
+        # 如果结果为空，可以抛出 HTTP 404 错误
+        if not result:
+            raise HTTPException(status_code=404, detail="No data found for the given locations.")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+@router.post("/phonology_matrix")
+async def phonology_matrix(
+    request: Request,
+    payload: PhonologyMatrixRequest,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """
+    获取指定地点的声母-韵母-汉字交叉表数据
+
+    Request Body:
+    {
+        "locations": ["東莞莞城", "雲浮富林"]  // 可選，不傳則獲取所有地點
+    }
+
+    返回格式适合前端生成表格：
+    - 横坐标：声母
+    - 纵坐标：韵母
+    - 表内显示：按声调分行的汉字
+    """
+    ip_address = request.client.host
+    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
+    log_all_fields(request.url.path, payload.dict())
+
+    try:
+        # 根据用户身份决定数据库
+        db_type = "admin" if user and user.role == "admin" else "user"
+        db_path = DIALECTS_DB_ADMIN if db_type == "admin" else DIALECTS_DB_USER
+
+        locations = payload.locations
+
+        # 構建緩存鍵（包含地點信息）
+        if locations and len(locations) > 0:
+            # 對地點列表排序以確保緩存鍵一致
+            sorted_locs = sorted(locations)
+            locs_key = ",".join(sorted_locs)
+            cache_key = f"phonology_matrix:{db_type}:{locs_key}"
+        else:
+            # 獲取所有地點
+            cache_key = f"phonology_matrix:{db_type}:all"
+
+        # 尝试从 Redis 获取缓存
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            print(f"[CACHE HIT] {cache_key}")
+            return json.loads(cached_data)
+
+        print(f"[CACHE MISS] {cache_key} - 查询数据库")
+
+        # 从数据库查询
+        result = await asyncio.to_thread(
+            get_all_phonology_matrices,
+            locations=locations,
+            db_path=db_path
+        )
+
+        if not result or not result.get("data"):
+            raise HTTPException(
+                status_code=404,
+                detail="No data found for the specified locations"
+            )
+
+        # 存入 Redis 缓存（1小时过期）
+        await redis_client.setex(
+            cache_key,
+            3600,  # 1小时
+            json.dumps(result, ensure_ascii=False)
+        )
+        print(f"[CACHE SET] {cache_key}")
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
+
+
+@router.post("/phonology_classification_matrix")
+async def api_phonology_classification_matrix(
+    request: Request,
+    payload: PhonologyClassificationMatrixRequest,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
+):
+    """
+    創建音韻特徵分類矩陣
+
+    根據用戶指定的分類維度，組織音韻特徵數據。
+    結合 dialects.db（現代方言讀音）和 characters.db（中古音系分類）。
+    """
+    ip_address = request.client.host
+    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
+    log_all_fields(request.url.path, payload.dict())
+
+    try:
+        # 根據用戶角色選擇數據庫
+        dialect_db = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+
+        # 在線程池中運行（避免阻塞）
+        result = await asyncio.to_thread(
+            build_phonology_classification_matrix,
+            locations=payload.locations,
+            feature=payload.feature,
+            horizontal_column=payload.horizontal_column,
+            vertical_column=payload.vertical_column,
+            cell_row_column=payload.cell_row_column,
+            dialect_db_path=dialect_db
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )

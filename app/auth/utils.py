@@ -1,5 +1,6 @@
 import smtplib
 import time
+import secrets
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from typing import Optional, Tuple
@@ -7,7 +8,7 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from fastapi import Request
 
-from common.config import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM, AUDIENCE, ISSUER
+from common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, SECRET_KEY, ALGORITHM, AUDIENCE, ISSUER
 
 # 可选：SMTP 配置（留空则退化为控制台打印）
 SMTP_HOST: Optional[str] = None      # 如 "smtp.gmail.com"
@@ -56,6 +57,22 @@ def create_access_token(subject: str, expires_minutes: int | None = None) -> str
 def decode_access_token(token: str) -> dict:
     # 给 2 分钟余量，解决轻微时钟漂移/容器启动时差
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+# ===== Refresh Token Functions =====
+def create_refresh_token() -> str:
+    """Generate cryptographically secure refresh token"""
+    return secrets.token_urlsafe(64)
+
+def create_token_pair(username: str) -> dict:
+    """Create access + refresh token pair"""
+    access_token = create_access_token(username, ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token = create_refresh_token()
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
 
 # ===== 获取客户端 IP（考虑反代）=====
 def extract_client_ip(request: Request) -> str:

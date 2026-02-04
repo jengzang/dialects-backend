@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.custom.models import Information
 from common.config import QUERY_DB_ADMIN
+from app.sql.db_pool import get_db_pool
 
 
 def fetch_dialect_region(input_data: Union[str, List[str]], query_db=QUERY_DB_ADMIN, user=None,
@@ -16,17 +17,13 @@ def fetch_dialect_region(input_data: Union[str, List[str]], query_db=QUERY_DB_AD
     else:
         query_str = input_data  # 如果是字符串，直接使用它
 
-    # 連接資料庫並查詢
-    conn = sqlite3.connect(query_db)
-    cursor = conn.cursor()
-
     def query_database(db_path: str, table_name: str) -> tuple:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        query = f"SELECT 音典分區 FROM {table_name} WHERE 簡稱 = ?"
-        cursor.execute(query, (query_str,))
-        result = cursor.fetchone()
-        conn.close()
+        pool = get_db_pool(db_path)
+        with pool.get_connection() as conn:
+            cursor = conn.cursor()
+            query = f"SELECT 音典分區 FROM {table_name} WHERE 簡稱 = ?"
+            cursor.execute(query, (query_str,))
+            result = cursor.fetchone()
         return result
 
     # 首先查詢主資料庫的表
@@ -80,39 +77,48 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
                                            abbr not in abbreviation_list]
     abbreviation_list = [abbreviation for abbreviation in abbreviation_list if abbreviation]
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
 
-    result = []
-    latitudes = []
-    longitudes = []
-    abbreviation_lat_lon_pairs = []
-    abbreviation_region_pairs = {}  # 新增：簡稱對應音典分區
-    partition_column = "地圖集二分區" if region_mode == "map" else "音典分區"
-    # 查主數據庫
-    for abbreviation in abbreviation_list:
-        cursor.execute(
-            f"SELECT 經緯度, {partition_column} FROM dialects WHERE 簡稱=?",
-            (abbreviation,)
-        )
-        row = cursor.fetchone()
-        if row:
-            lat_lon_str, region = row
-            try:
-                if lat_lon_str:
-                    latitude, longitude = map(float, re.split(r'[,，\s;]+', lat_lon_str))
-                else:
-                    print(f"錯誤：{abbreviation} 的經緯度為空！")
-                    latitude, longitude = None, None
-                result.append((latitude, longitude))
-                latitudes.append(latitude)
-                longitudes.append(longitude)
-                abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
-                abbreviation_region_pairs[abbreviation] = region  # 加入音典分區
-            except ValueError:
-                print(f"無法解析經緯度：{lat_lon_str}")
-        else:
-            print(f"未找到簡稱：{abbreviation}")
+        result = []
+        latitudes = []
+        longitudes = []
+        abbreviation_lat_lon_pairs = []
+        abbreviation_region_pairs = {}  # 新增：簡稱對應音典分區
+        partition_column = "地圖集二分區" if region_mode == "map" else "音典分區"
+        # 查主數據庫
+        for abbreviation in abbreviation_list:
+            # print(abbreviation)
+            cursor.execute(
+                f"SELECT 經緯度, {partition_column} FROM dialects WHERE 簡稱=?",
+                (abbreviation,)
+            )
+            row = cursor.fetchone()
+            if row:
+                lat_lon_str, region = row
+                try:
+                    if lat_lon_str:
+                        latitude, longitude = map(float, re.split(r'[,，\s;]+', lat_lon_str))
+                    else:
+                        print(f"錯誤：{abbreviation} 的經緯度為空！")
+                        latitude, longitude = None, None
+                    result.append((latitude, longitude))
+                    latitudes.append(latitude)
+                    longitudes.append(longitude)
+                    abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
+                    abbreviation_region_pairs[abbreviation] = region  # 加入音典分區
+                except ValueError:
+                    print(f"無法解析經緯度：{lat_lon_str}")
+            else:
+                # 调试：查看数据库中实际有什么
+                cursor.execute(f"SELECT 簡稱 FROM dialects")
+                all_abbrs = [r[0] for r in cursor.fetchall()]
+                print(f"未找到簡稱2：{abbreviation}")
+                print(f"  查询值的长度: {len(abbreviation)}")
+                print(f"  查询值的 repr: {repr(abbreviation)}")
+                print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
+                                              a or a in abbreviation]}")
 
     # 查補充數據庫（如需）
     # print(use_supplementary_db)
@@ -138,7 +144,14 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
                 except ValueError:
                     print(f"無法解析經緯度：{lat_lon_str}")
             else:
+                # 调试：查看数据库中实际有什么
+                cursor.execute(f"SELECT 簡稱 FROM dialects")
+                all_abbrs = [r[0] for r in cursor.fetchall()]
                 print(f"未找到簡稱：{abbreviation}")
+                print(f"  查询值的长度: {len(abbreviation)}")
+                print(f"  查询值的 repr: {repr(abbreviation)}")
+                print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
+                                              a or a in abbreviation]}")
 
     valid_latitudes = [lat for lat in latitudes if lat is not None]
     valid_longitudes = [lon for lon in longitudes if lon is not None]
@@ -167,8 +180,6 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
         center_coordinate = None
         max_lat_distance = max_lon_distance = 0
         zoom_level = None
-
-    conn.close()
 
     coordinates = {
         "coordinates_locations": abbreviation_lat_lon_pairs,

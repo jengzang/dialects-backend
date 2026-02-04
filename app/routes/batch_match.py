@@ -1,17 +1,14 @@
 # routes/batch_match.py
 """
-📦 路由模塊：處理 /api/batch_match 地點名稱匹配。
+[PKG] 路由模塊：處理 /api/batch_match 地點名稱匹配。
 """
-
-import time
+import re
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query, Depends
+from fastapi import APIRouter, Query
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
-from app.service.api_logger import *
+from app.logs.api_logger import *
 from app.service.match_input_tip import match_locations_batch
 from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
 
@@ -35,12 +32,12 @@ async def batch_match(
         "message": 提示信息
         "items": 所有匹配的地點序列
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, {
         "input_string": input_string,
         "filter_valid_abbrs_only": filter_valid_abbrs_only
     })
-    start = time.time()
+    # start = time.time()
     try:
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         input_string = input_string.strip()
@@ -77,9 +74,10 @@ async def batch_match(
                 })
         return responses
     finally:
-        duration = time.time() - start
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host, request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        print("batch_match")
+        # duration = time.time() - start
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host, request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )

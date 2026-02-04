@@ -1,21 +1,15 @@
 # routes/form_submit.py
 """
-📦 路由模塊：處理 /api/submit_form 提交用戶填寫的語音資料。
+[PKG] 路由模塊：處理 /api/submit_form 提交用戶填寫的語音資料。
 """
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter
 
-
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
 from app.custom.database import get_db as get_db_custom
-from app.auth.database import get_db as get_db_user
 from app.custom.delete import handle_form_deletion
 from app.schemas import FormData
 from app.custom.write_submit import handle_form_submission
-import time
-from app.service.api_logger import *
-from common.config import CLEAR_WEEK
+from app.logs.api_logger import *
 
 router = APIRouter()
 
@@ -42,9 +36,9 @@ async def submit_form(
     :param user: 後端校驗得到的用戶身份
     :return: - 無返回值
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, payload.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         result = handle_form_submission(payload.dict(), user, db)
@@ -52,23 +46,24 @@ async def submit_form(
             raise HTTPException(status_code=422, detail=result.get("message"))
         return result
     except HTTPException:
-        raise  # ✅ 让 HTTPException 保持原样传递
+        raise  # [OK] 让 HTTPException 保持原样传递
     except Exception as e:
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")
     finally:
-        duration = time.time() - start
+        print("submit_form")
+        # duration = time.time() - start
         # path = request.url.path
         # ip = request.client.host
         # agent = request.headers.get("user-agent", "")
         # referer = request.headers.get("referer", "")
         # user_id = user.id if user else None
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )
         # log_detailed_api_to_db(db_user, path,
         #                        duration, 200, ip,
         #                        agent, referer, user_id, CLEAR_2HOUR)
@@ -96,9 +91,9 @@ async def delete_form(
     :param user: 後端校驗得到的用戶身份
     :return: - 無返回值
     """
-    update_count(request.url.path)
+    # update_count(request.url.path)
     log_all_fields(request.url.path, payload.dict())
-    start = time.time()
+    # start = time.time()
 
     try:
         result = handle_form_deletion(payload.dict(), user, db)
@@ -106,23 +101,24 @@ async def delete_form(
             raise HTTPException(status_code=422, detail=result.get("message"))
         return result
     except HTTPException:
-        raise  # ✅ 让 HTTPException 保持原样传递
+        raise  # [OK] 让 HTTPException 保持原样传递
     except Exception as e:
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="伺服器錯誤")
     finally:
-        duration = time.time() - start
+        print("delete_form")
+        # duration = time.time() - start
         # path = request.url.path
         # ip = request.client.host
         # agent = request.headers.get("user-agent", "")
         # referer = request.headers.get("referer", "")
         # user_id = user.id if user else None
-        log_detailed_api(
-            request.url.path, duration, 200,
-            request.client.host,
-            request.headers.get("user-agent", ""),
-            request.headers.get("referer", "")
-        )
+        # log_detailed_api(
+        #     request.url.path, duration, 200,
+        #     request.client.host,
+        #     request.headers.get("user-agent", ""),
+        #     request.headers.get("referer", "")
+        # )
         # log_detailed_api_to_db(db_user, path,
         #                        duration, 200, ip,
         #                        agent, referer, user_id, CLEAR_2HOUR)
