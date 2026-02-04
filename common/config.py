@@ -31,10 +31,7 @@ SUPPLE_DB_URL = f"sqlite:///{SUPPLE_DB_PATH}"
 
 YC_SPOKEN_DB_PATH = os.path.join(BASE_DIR, "data", "yc_spoken.db")
 GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
-DB_MAPPING = {
-    "spoken": YC_SPOKEN_DB_PATH,
-    "village": GD_VILLAGE_DB_PATH
-}
+YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
 
 # 字表寫入SQL路徑依賴
 APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")
@@ -81,12 +78,11 @@ RECORD_API = [
     "ZhongGu",
     "YinWei",
     "charlist",
-    "sql/query",
-    "sql/tree",
-    "api/tools"
+    "sql",
+    "api/tools",
 ]
 # 不記錄帶有以下字段的api
-IGNORE_API = ["download"]
+IGNORE_API = ["download", "progress"]
 
 # ========== 登錄系統 =============
 USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
@@ -98,7 +94,9 @@ LOGS_DATABASE_URL = f"sqlite:///{LOGS_DATABASE_PATH}"
 
 SECRET_KEY = "super-secret-key"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 100000
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Changed from 100000 to 30 minutes for security
+REFRESH_TOKEN_EXPIRE_DAYS = 30    # New: 30 days for refresh tokens
+MAX_ACTIVE_REFRESH_TOKENS = 10     # New: Limit active devices per user
 ISSUER = "dialects_api"  # 可自定義
 AUDIENCE = "dialects_web"  # 可自定義
 

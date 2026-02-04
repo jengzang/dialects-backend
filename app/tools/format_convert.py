@@ -595,16 +595,21 @@ def process_縣志_word(file, level=1, output_path=None):
             if not line:
                 continue
 
-            if line.startswith("#"):
-                current_vowel = line[1:]
+            if line.startswith(("#", "＃")):
+                # 去掉第一个字符并取剩余部分作为当前元音
+                current_vowel = line[1:].strip()
                 continue
 
-            match = re.match(r"^([^\[]+)", line)
+            # 1. 匹配开头直到遇到半角 [ 或全角 ［
+            match = re.match(r"^([^\[［]+)", line)
             if not match or not current_vowel:
                 continue
 
             initial = match.group(1).strip()
-            segments = re.findall(r"\[(\d+)]([^\[]+)", line)
+
+            # 2. 匹配 [数字] 或 ［数字］ 之后的内容
+            # 使用 [\[［] 匹配两种左括号，[\]］] 匹配两种右括号
+            segments = re.findall(r"[\[［](\d+)[\]］]([^\[［]+)", line)
 
             for tone, content in segments:
                 syllable = f"{initial}{current_vowel}{tone}"
@@ -615,10 +620,10 @@ def process_縣志_word(file, level=1, output_path=None):
                 current_char = ""
 
                 for c in content:
-                    if c == "{":
+                    if c in ("{", "｛"):
                         in_brace = True
                         temp = ""
-                    elif c == "}":
+                    elif c in ("}", "｝"):
                         in_brace = False
                         explanations[current_char] = temp
                         temp = ""

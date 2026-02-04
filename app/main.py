@@ -5,11 +5,13 @@ import time
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
 from app.logs.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
+from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.statics.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
@@ -63,7 +65,7 @@ async def lifespan(app: FastAPI):
             t.start()
 
     # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
-    if _RUN_TYPE in ['EXE', 'MINE']:
+    if _RUN_TYPE in [ 'MINE']:
         initialize_all_indexes()
     # initialize_all_indexes()
 
@@ -100,8 +102,22 @@ async def lifespan(app: FastAPI):
     # print("=" * 60)
 
     # 获取数据库连接，并启动日志线程
+    # [FIX] 只在非 gunicorn 环境下启动后台线程
+    # 在 gunicorn 环境下，后台线程由主进程启动（见 gunicorn_config.py）
     db = next(get_db())
-    start_api_logger_workers(db)
+
+    # 检测是否在 gunicorn worker 进程中
+    is_gunicorn_worker = os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn')
+
+    if not is_gunicorn_worker:
+        # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
+        print("🔧 [单进程模式] 启动后台线程...")
+        start_api_logger_workers(db)
+        # [NEW] 启动用户活动更新后台线程
+        start_user_activity_writer()
+    else:
+        # gunicorn 环境，跳过（由主进程启动）
+        print("⏭️  [Worker进程] 跳过后台线程启动（已由主进程启动）")
 
     # [OK] 启动定时任务调度器
     start_scheduler()
@@ -116,6 +132,9 @@ async def lifespan(app: FastAPI):
     finally:
         # 停止日志写入线程
         stop_api_logger_workers()
+
+        # [NEW] 停止用户活动更新线程
+        stop_user_activity_writer()
 
         # [OK] 停止定时任务调度器
         stop_scheduler()
@@ -147,9 +166,15 @@ if _RUN_TYPE in ['EXE', 'MINE']:
     app = FastAPI(lifespan=lifespan)
 else:
     app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
+
 # 允許跨域
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-# api統計、json壓縮
+
+# ⭐ 自动 gzip 压缩（基于 Accept-Encoding 请求头）
+# minimum_size=1024 表示只压缩大于 1KB 的响应
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# api統計
 app.add_middleware(TrafficLoggingMiddleware)
 
 if _RUN_TYPE == 'EXE':

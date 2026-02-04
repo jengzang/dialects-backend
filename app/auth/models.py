@@ -40,8 +40,24 @@ class User(Base):
 
     profile_picture = Column(String(255), nullable=True)
     usage_summary = relationship("ApiUsageSummary", back_populates="user", lazy="joined")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
     # informations = relationship("Information", back_populates="user")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    revoked = Column(Boolean, default=False)
+    replaced_by = Column(String, nullable=True)  # For token rotation
+    device_info = Column(String, nullable=True)  # Optional: track device
+
+    user = relationship("User", back_populates="refresh_tokens")
 
 class ApiUsageLog(Base):
     __tablename__ = "api_usage_logs"

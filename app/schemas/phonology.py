@@ -41,6 +41,17 @@ class CharListRequest(BaseModel):
     )
 
 
+class PhonologyMatrixRequest(BaseModel):
+    """
+    聲母-韻母-聲調矩陣請求模型
+    """
+    locations: Optional[List[str]] = Field(
+        default=None,
+        description="地點簡稱列表，不傳則獲取所有地點",
+        example=["東莞莞城", "雲浮富林"]
+    )
+
+
 class ZhongGuAnalysis(BaseModel):
     # --- 第一部分：用於查詢漢字 (傳給 process_chars_status/缓存层) ---
     path_strings: Optional[List[str]] = Field(
@@ -92,4 +103,38 @@ class YinWeiAnalysis(BaseModel):
     exclude_columns: Optional[List[str]] = Field(
         default=None,
         description="要排除的列名列表，如 ['多地位標記', '多等']"
+    )
+
+
+class PhonologyClassificationMatrixRequest(BaseModel):
+    """
+    音韻特徵分類矩陣請求模型
+
+    根據用戶指定的分類維度，創建音韻特徵的分類矩陣。
+    結合 dialects.db（現代方言讀音）和 characters.db（中古音系分類）。
+    """
+    locations: List[str] = Field(
+        ...,
+        description="地點簡稱列表",
+        example=["東莞莞城", "雲浮富林"]
+    )
+    feature: str = Field(
+        ...,
+        description="音韻特徵：聲母、韻母、聲調",
+        example="聲母"
+    )
+    horizontal_column: str = Field(
+        ...,
+        description="橫向分類欄位（來自 characters.db）",
+        example="母"
+    )
+    vertical_column: str = Field(
+        ...,
+        description="縱向分類欄位（來自 characters.db）",
+        example="攝"
+    )
+    cell_row_column: str = Field(
+        ...,
+        description="單元格內分行欄位（來自 characters.db）",
+        example="部位"
     )

@@ -14,7 +14,7 @@ class Information(Base):
     簡稱 = Column(String, nullable=False, index=True)
     音典分區 = Column(String, nullable=False, index=True)
     經緯度 = Column(String, nullable=False)
-    聲韻調 = Column(String, nullable=False, index=True)
+    聲韻調 = Column(String, nullable=True, index=True)
     特徵 = Column(String, nullable=False, index=True)
     值 = Column(Text, nullable=False)
     說明 = Column(Text)

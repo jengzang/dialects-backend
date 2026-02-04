@@ -1,23 +1,23 @@
 import asyncio
-import gzip
-import io
-import json
-import os
+# import gzip
+# import io
+# import json
+# import os
 import threading
-import queue
-import re
+import multiprocessing  # [FIX] 改用跨进程队列
+# import re
 import time
 from datetime import datetime, timedelta
-from collections import defaultdict
-import ast
+# from collections import defaultdict
+# import ast
 from decimal import Decimal
-from typing import AsyncIterable, Optional
+# from typing import AsyncIterable, Optional
 
 from fastapi import HTTPException, Request, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+# from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
-
+from queue import Empty  # 只引入這個異常類，不引入 Queue 類
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
@@ -26,12 +26,14 @@ from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
     CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD, IGNORE_API
 
-# === 队列 ===
+# === 队列（跨进程） ===
+# [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
 # keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
-log_queue = queue.Queue()  # [OK] ApiUsageLog 队列（auth.db）
-keyword_log_queue = queue.Queue()  # [OK] ApiKeywordLog 队列（logs.db）
-statistics_queue = queue.Queue()  # [OK] ApiStatistics 队列（logs.db）
-html_visit_queue = queue.Queue()  # [OK] HTML 页面访问统计队列（logs.db）
+log_queue = multiprocessing.Queue(maxsize=2000)  # [OK] ApiUsageLog 队列（auth.db）- 限制 2000 条
+keyword_log_queue = multiprocessing.Queue(maxsize=5000)  # [OK] ApiKeywordLog 队列（logs.db）- 限制 5000 条
+statistics_queue = multiprocessing.Queue(maxsize=1000)  # [OK] ApiStatistics 队列（logs.db）- 限制 1000 条
+html_visit_queue = multiprocessing.Queue(maxsize=500)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 500 条
+summary_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 队列（auth.db）- 限制 1000 条
 
 
 # === 关键词日志（写入logs.db） ===
@@ -82,7 +84,7 @@ def keyword_log_writer():
                 finally:
                     db.close()
 
-        except queue.Empty:
+        except Empty:
             # 队列空时，写入剩余数据
             if batch:
                 db = LogsSessionLocal()
@@ -113,36 +115,56 @@ def keyword_log_writer():
 
 # === API统计更新线程（logs.db）===
 def statistics_writer():
-    """后台线程：更新 ApiStatistics"""
+    """后台线程：批量更新 ApiStatistics"""
+    batch = []
+    batch_size = 50
+    batch_timeout = 120.0
+
     while True:
         try:
-            item = statistics_queue.get(timeout=5)
+            item = statistics_queue.get(timeout=batch_timeout)
             if item is None:  # 停止信号
                 break
 
-            path, date_obj = item
-            db = LogsSessionLocal()
-            try:
-                today_str = date_obj.strftime("%Y-%m-%d") if date_obj else None
+            batch.append(item)
 
-                # 更新总计
-                update_statistic(db, "usage_total", None, "path", path)
+            # 批次满时写入
+            if len(batch) >= batch_size:
+                _process_statistics_batch(batch)
+                batch = []
 
-                # 更新每日统计
-                if today_str:
-                    update_statistic(db, "usage_daily", date_obj, "path", path)
-
-                db.commit()
-            except Exception as e:
-                print(f"[X] 更新统计失败: {e}")
-                db.rollback()
-            finally:
-                db.close()
-
-        except queue.Empty:
-            continue
+        except Empty:
+            # 超时时写入剩余项
+            if batch:
+                _process_statistics_batch(batch)
+                batch = []
         except Exception as e:
-            print(f"[X] 统计线程错误: {e}")
+            print(f"[X] statistics_writer 错误: {e}")
+
+    # 线程结束前写入剩余数据
+    if batch:
+        _process_statistics_batch(batch)
+
+
+def _process_statistics_batch(batch: list):
+    """批量处理统计更新"""
+    db = LogsSessionLocal()
+    try:
+        for path, date_obj in batch:
+            # 更新总计
+            update_statistic(db, "usage_total", None, "path", path)
+
+            # 更新每日统计
+            if date_obj:
+                update_statistic(db, "usage_daily", date_obj, "path", path)
+
+        db.commit()
+        print(f"[OK] 批量更新 {len(batch)} 条统计")
+    except Exception as e:
+        print(f"[X] 统计批次失败: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def update_statistic(db: Session, stat_type: str, date: datetime, category: str, item: str):
@@ -207,33 +229,55 @@ def update_html_visit(path: str):
 
 # === HTML 页面访问统计写入线程（logs.db）===
 def html_visit_writer():
-    """后台线程：更新 HTML 页面访问统计"""
+    """后台线程：批量更新 HTML 页面访问统计"""
+    batch = []
+    batch_size = 3
+    batch_timeout = 5.0
+
     while True:
         try:
-            item = html_visit_queue.get(timeout=5)
+            item = html_visit_queue.get(timeout=batch_timeout)
             if item is None:  # 停止信号
                 break
 
-            path, date_obj = item
-            db = LogsSessionLocal()
-            try:
-                # 更新总计
-                update_html_visit_stat(db, path, None)
+            batch.append(item)
 
-                # 更新每日统计
-                update_html_visit_stat(db, path, date_obj.date())
+            # 批次满时写入
+            if len(batch) >= batch_size:
+                _process_html_visit_batch(batch)
+                batch = []
 
-                db.commit()
-            except Exception as e:
-                print(f"[X] 更新 HTML 访问统计失败: {e}")
-                db.rollback()
-            finally:
-                db.close()
-
-        except queue.Empty:
-            continue
+        except Empty:
+            # 超时时写入剩余项
+            if batch:
+                _process_html_visit_batch(batch)
+                batch = []
         except Exception as e:
-            print(f"[X] HTML 访问统计线程错误: {e}")
+            print(f"[X] html_visit_writer 错误: {e}")
+
+    # 线程结束前写入剩余数据
+    if batch:
+        _process_html_visit_batch(batch)
+
+
+def _process_html_visit_batch(batch: list):
+    """批量处理 HTML 访问统计"""
+    db = LogsSessionLocal()
+    try:
+        for path, date_obj in batch:
+            # 更新总计
+            update_html_visit_stat(db, path, None)
+
+            # 更新每日统计
+            update_html_visit_stat(db, path, date_obj.date())
+
+        db.commit()
+        print(f"[OK] 批量更新 {len(batch)} 条 HTML 访问统计")
+    except Exception as e:
+        print(f"[X] HTML 访问统计批次失败: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def update_html_visit_stat(db: Session, path: str, date):
@@ -272,22 +316,48 @@ def update_html_visit_stat(db: Session, path: str, date):
 
 
 def log_writer_thread(db: Session):
-    while True:
-        # 获取一条日志并立即写入数据库
-        if not log_queue.empty():
-            log = log_queue.get()  # 获取日志
-            try:
-                # 写入数据库
-                with db.begin():  # 使用事务确保写入操作的原子性
-                    db.add(log)
-                db.commit()  # 提交事务
-                # print("已提交一条日志到数据库")
-            except Exception as e:
-                print(f"错误：写入数据库时出错：{e}")
-                db.rollback()  # 错误时回滚事务
+    """批量写入 ApiUsageLog 到 auth.db"""
+    batch = []
+    batch_size = 50
+    batch_timeout = 120.0
 
-        # 等待一段时间，避免过度消耗资源
-        time.sleep(1)
+    while True:
+        try:
+            # 使用超时等待，而非 sleep
+            item = log_queue.get(timeout=batch_timeout)
+
+            if item is None:  # 停止信号
+                break
+
+            batch.append(item)
+
+            # 批次满时写入
+            if len(batch) >= batch_size:
+                _write_log_batch(db, batch)
+                batch = []
+
+        except Empty:
+            # 超时时写入剩余项
+            if batch:
+                _write_log_batch(db, batch)
+                batch = []
+        except Exception as e:
+            print(f"[X] log_writer_thread 错误: {e}")
+
+    # 线程结束前写入剩余数据
+    if batch:
+        _write_log_batch(db, batch)
+
+
+def _write_log_batch(db: Session, batch: list):
+    """批量写入日志"""
+    try:
+        db.bulk_save_objects(batch)
+        db.commit()
+        print(f"[OK] 批量写入 {len(batch)} 条日志")
+    except Exception as e:
+        print(f"[X] 批量写入失败: {e}")
+        db.rollback()
 
 
 # 异步写入日志的函数
@@ -329,30 +399,101 @@ def log_detailed_api_to_db(
     # 将日志添加到队列
     log_queue.put(log)
 
-    # Step 3: Update summary table (long-term accumulated data)
+    # Step 3: 将 ApiUsageSummary 更新移至队列
     if user_id:
-        summary = db.query(ApiUsageSummary).filter_by(user_id=user_id, path=path).first()
-        if summary:
-            summary.count += 1
-            summary.total_duration += Decimal(round(log.duration, 2))
-            # 累加上行流量和下行流量（将字节转换为 KB 并保留两位小数）
-            summary.total_upload += Decimal(round(log.request_size / 1024, 2))  # 转换为 Decimal 类型
-            summary.total_download += Decimal(round(log.response_size / 1024, 2))  # 转换为 Decimal 类型
-            # 更新最后更新时间
-            summary.last_updated = datetime.utcnow()
-        else:
-            summary = ApiUsageSummary(
-                user_id=user_id,
-                path=path,
-                count=1,
-                last_updated=datetime.utcnow(),
-                # 初始化上行流量和下行流量，转换为 KB 并保留两位小数
-                total_upload=round(log.request_size / 1024, 2),
-                total_download=round(log.response_size / 1024, 2)
-            )
-            db.add(summary)
+        summary_queue.put({
+            'user_id': user_id,
+            'path': path,
+            'duration': duration,
+            'request_size': request_size,
+            'response_size': response_size
+        })
+
+
+def summary_writer():
+    """批量更新 ApiUsageSummary"""
+    batch = []
+    batch_size = 50
+    batch_timeout = 60.0
+
+    while True:
+        try:
+            item = summary_queue.get(timeout=batch_timeout)
+
+            if item is None:
+                break
+
+            batch.append(item)
+
+            if len(batch) >= batch_size:
+                _process_summary_batch(batch)
+                batch = []
+
+        except Empty:
+            if batch:
+                _process_summary_batch(batch)
+                batch = []
+        except Exception as e:
+            print(f"[X] summary_writer 错误: {e}")
+
+    if batch:
+        _process_summary_batch(batch)
+
+
+def _process_summary_batch(batch: list):
+    """批量处理 ApiUsageSummary 更新"""
+    from app.auth.database import SessionLocal as AuthSessionLocal
+    db = AuthSessionLocal()
+
+    try:
+        # 按 (user_id, path) 分组聚合
+        aggregated = {}
+        for item in batch:
+            key = (item['user_id'], item['path'])
+            if key not in aggregated:
+                aggregated[key] = {
+                    'count': 0,
+                    'total_duration': 0,
+                    'total_upload': 0,
+                    'total_download': 0
+                }
+
+            aggregated[key]['count'] += 1
+            aggregated[key]['total_duration'] += item['duration']
+            aggregated[key]['total_upload'] += item['request_size'] / 1024
+            aggregated[key]['total_download'] += item['response_size'] / 1024
+
+        # 批量更新
+        for (user_id, path), stats in aggregated.items():
+            summary = db.query(ApiUsageSummary).filter_by(
+                user_id=user_id, path=path
+            ).first()
+
+            if summary:
+                summary.count += stats['count']
+                summary.total_duration += Decimal(round(stats['total_duration'], 2))
+                summary.total_upload += Decimal(round(stats['total_upload'], 2))
+                summary.total_download += Decimal(round(stats['total_download'], 2))
+                summary.last_updated = datetime.utcnow()
+            else:
+                summary = ApiUsageSummary(
+                    user_id=user_id,
+                    path=path,
+                    count=stats['count'],
+                    total_duration=Decimal(round(stats['total_duration'], 2)),
+                    total_upload=Decimal(round(stats['total_upload'], 2)),
+                    total_download=Decimal(round(stats['total_download'], 2)),
+                    last_updated=datetime.utcnow()
+                )
+                db.add(summary)
 
         db.commit()
+        print(f"[OK] 批量更新 {len(aggregated)} 条 ApiUsageSummary")
+    except Exception as e:
+        print(f"[X] ApiUsageSummary 批次失败: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 async def log_detailed_api_to_db_async(
@@ -367,9 +508,9 @@ async def log_detailed_api_to_db_async(
         clear_old: bool = False,
         request_size: int = 0,
         response_size: int = 0,
-        start_time: float = None  # 添加 start_time 参数
+        start_time: float = None
 ):
-    # 使用 asyncio.to_thread 将同步的数据库操作异步化，并传递 start_time 参数
+    """异步包装器：将同步的数据库操作异步化"""
     await asyncio.to_thread(
         log_detailed_api_to_db,
         db,
@@ -383,9 +524,8 @@ async def log_detailed_api_to_db_async(
         clear_old,
         request_size,
         response_size,
-        start_time  # 将 start_time 参数传递给同步函数
+        start_time
     )
-
 
 
 # app/service/api_logger.py
@@ -411,6 +551,9 @@ def start_api_logger_workers(db: Session):
 
         # [OK] 启动 ApiUsageLog 写入线程（auth.db）
         threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()
+
+        # [NEW] 启动 ApiUsageSummary 更新线程（auth.db）
+        threading.Thread(target=summary_writer, daemon=True).start()
 
         _workers_started = True
         print("[OK] API 日志后台线程已启动")
@@ -438,7 +581,47 @@ def stop_api_logger_workers():
     except:
         pass
 
+    try:
+        summary_queue.put_nowait(None)  # [NEW] 停止 ApiUsageSummary 线程
+    except:
+        pass
+
     print("🛑 API 日志后台线程已停止")
+
+
+class StreamingResponseWrapper:
+    """流式响应包装器 - 边传输边统计，不缓冲整个响应"""
+
+    def __init__(self, iterator, content_type, user_role, max_size, response, on_complete_callback=None):
+        self.iterator = iterator
+        self.content_type = content_type
+        self.user_role = user_role
+        self.max_size = max_size
+        self.response = response
+        self.total_size = 0
+        self.on_complete_callback = on_complete_callback
+
+    async def __aiter__(self):
+        """异步迭代器 - 流式传输响应"""
+        try:
+            async for chunk in self.iterator:
+                chunk_size = len(chunk)
+                self.total_size += chunk_size
+
+                # 渐进式大小检查 - 超限立即中断
+                if self.total_size > self.max_size:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="🚫 由於服務器限制，您的返回數據超過限制，請減少請求範圍 🛑"
+                    )
+
+                # 直接转发数据，不做任何修改
+                yield chunk
+
+        finally:
+            # 流式传输完成后调用回调
+            if self.on_complete_callback:
+                await self.on_complete_callback(self)
 
 
 # 这里是中间件，负责记录请求和响应的流量大小
@@ -446,102 +629,90 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()  # 记录开始时间
 
-        if any(keyword in request.url.path for keyword in IGNORE_API):
+        # 1. 快速过滤
+        path = request.url.path
+        if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
             return await call_next(request)
 
-        if not any(keyword in request.url.path for keyword in RECORD_API):
-            return await call_next(request)  # 如果路径不包含任何允许的词，跳过日志记录
-
-        # 1. 獲取 DB Session
+        # 2. 獲取 DB Session
         # [!] 警告：直接用 next(get_db()) 會導致連接洩漏！必須手動關閉。
         db = next(get_db())
         user = None
-
         try:
-            # 2. [OK] 使用 await 調用異步函數
+            # 3. [OK] 使用 await 調用異步函數
             user = await get_current_user_for_middleware(request, db=db)
         except Exception as e:
             print(f"Middleware Auth Error: {e}")
             # 認證出錯不應影響請求繼續，視為匿名用戶
             user = None
         finally:
-            # 3. [OK] 必須關閉數據庫連接！這非常重要！
+            # 4. [OK] 必須關閉數據庫連接！這非常重要！
             db.close()
 
-        # 如果是 GET 请求，计算 URL 和查询参数的大小
-        if request.method == "GET":
-            url_size = len(request.url.path) + len(request.url.query)  # URL 路径 + 查询字符串的长度
-            request_size = url_size  # 只计算 URL 的大小
-        else:
-            # 获取请求体大小
-            request_body = await request.body()
-            request_size = len(request_body)
+        # 5. 计算请求大小
+        cl = request.headers.get("Content-Length")
 
-        # 调用下游应用（视图函数）
+        if cl is not None and cl.isdigit():
+            request_size = int(cl)
+        else:
+            # 如果是 GET 请求，计算 URL 和查询参数的大小
+            if request.method == "GET":
+                url_size = len(request.url.path) + len(request.url.query)
+                request_size = url_size
+            else:
+                # 获取请求体大小
+                request_body = await request.body()
+                request_size = len(request_body)
+
+        # 6. 调用下游应用（视图函数）
         response = await call_next(request)
 
-        # 记录响应体大小
-        response_body = bytearray()  # 使用 bytearray 来高效拼接
-        async for chunk in response.body_iterator:
-            response_body.extend(chunk)  # 使用 extend 更高效
-
-        # 压缩 JSON 响应体
-        if "application/json" in response.headers.get("Content-Type", ""):
-            if len(response_body) > 10 * 1024:  # 仅对大于 10KB 的响应体进行压缩
-                response_body = await compress_json(response_body)
-                response.headers["Content-Encoding"] = "gzip"  # 设置响应的编码类型
-                response.headers["Content-Length"] = str(len(response_body))
-
-        response_size = len(response_body)
-
-        # 判断用户和响应体大小是否符合限制
-        if user is None and response_size > MAX_ANONYMOUS_SIZE:
-            raise HTTPException(
-                status_code=413,  # Payload Too Large
-                detail="🚫 由於服務器限制，未登錄用戶暫不允許請求過多的數據 🙅‍♂️🙅‍♀️"
-            )
-        elif user and user.role != "admin" and response_size > MAX_USER_SIZE:
-            raise HTTPException(
-                status_code=413,  # Payload Too Large
-                detail="🚫 由於服務器限制，您的返回數據超過限制，請減少請求範圍 🛑[SAVE]"
-            )
-
-        # 计算处理时间
-        duration = time.time() - start_time
-
-        await log_detailed_api_to_db_async(
-            db=db,
-            path=request.url.path,
-            duration=duration,
-            status_code=response.status_code,
-            ip=request.client.host,
-            user_agent=request.headers.get("User-Agent"),
-            referer=request.headers.get("Referer"),
-            user_id=user.id if user else None,
-            request_size=request_size,
-            response_size=response_size,
-            clear_old=CLEAR_WEEK,
-            start_time=start_time  # 传递 start_time
+        # 7. 确定用户的响应大小限制
+        max_size = MAX_ANONYMOUS_SIZE if user is None else (
+            float('inf') if user.role == "admin" else MAX_USER_SIZE
         )
 
-        # 将响应体变为异步迭代器
-        response.body_iterator = iter_response_body(response_body)
+        # 8. 定义流式传输完成后的回调函数
+        async def on_streaming_complete(wrapper):
+            """流式传输完成后记录日志"""
+            # 计算处理时间
+            duration = time.time() - start_time
+
+            # 获取最终的响应大小
+            # 注意：始终记录压缩前的大小，以保证统计一致性
+            # 压缩是服务器优化手段，对用户应该是透明的
+            response_size = wrapper.total_size  # 压缩前的原始大小
+
+            # 异步记录日志
+            await log_detailed_api_to_db_async(
+                db=db,
+                path=request.url.path,
+                duration=duration,
+                status_code=response.status_code,
+                ip=request.client.host,
+                user_agent=request.headers.get("User-Agent"),
+                referer=request.headers.get("Referer"),
+                user_id=user.id if user else None,
+                request_size=request_size,
+                response_size=response_size,
+                clear_old=CLEAR_WEEK,
+                start_time=start_time
+            )
+
+        # 9. 使用流式包装器（不缓冲整个响应）
+        wrapper = StreamingResponseWrapper(
+            iterator=response.body_iterator,
+            content_type=response.headers.get("Content-Type", ""),
+            user_role=user.role if user else None,
+            max_size=max_size,
+            response=response,
+            on_complete_callback=on_streaming_complete
+        )
+
+        # 10. 替换响应迭代器
+        response.body_iterator = wrapper
+
         return response
-
-
-async def iter_response_body(response_body: bytes) -> AsyncIterable[bytes]:
-    yield response_body
-
-
-async def compress_json(response_body: bytes) -> bytes:
-    # 如果响应体小于10KB，直接返回原始响应体
-    if len(response_body) <= SIZE_THRESHOLD:
-        return response_body
-    # 否则，执行压缩
-    buf = io.BytesIO()
-    with gzip.GzipFile(fileobj=buf, mode='wb') as f:
-        f.write(response_body)
-    return buf.getvalue()
 
 # 以下代码已废弃
 # === 详细响应记录入队 ===

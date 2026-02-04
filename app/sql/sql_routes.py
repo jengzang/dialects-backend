@@ -4,7 +4,10 @@ import sqlite3
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.sql.choose_db import get_db_connection
-from app.sql.sql_schemas import MutationParams, QueryParams, DistinctQueryRequest, BatchMutationParams
+from app.sql.sql_schemas import (
+    MutationParams, QueryParams, DistinctQueryRequest,
+    BatchMutationParams, BatchReplacePreviewParams, BatchReplaceExecuteParams
+)
 from app.auth.dependencies import get_current_admin_user
 
 router = APIRouter()
@@ -90,6 +93,41 @@ async def query_table(params: QueryParams):
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+
+@router.get("/query/columns")
+async def get_column_info(db_key: str, table_name: str):
+    with get_db_connection(db_key) as conn:
+        # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
+        cursor = conn.cursor()
+
+        try:
+            # 获取表结构元数据
+            cursor.execute(f"PRAGMA table_info('{table_name}')")
+            columns = cursor.fetchall()
+
+            # 如果没查到数据，可能是表名不存在
+            if not columns:
+                return {"table": table_name, "columns": [], "error": "Table not found or no columns"}
+
+            # 直接构造列表返回
+            result = [
+                {
+                    "name": col["name"],
+                    "type": col["type"],
+                    "notnull": bool(col["notnull"]),
+                    "pk": bool(col["pk"]),
+                    "default_value": col["dflt_value"]
+                }
+                for col in columns
+            ]
+
+            return {
+                "table": table_name,
+                "columns": result
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(db_key: str, table_name: str, column: str):
@@ -393,4 +431,224 @@ async def batch_mutate_table(
         except Exception as e:
             conn.rollback()
             raise HTTPException(status_code=400, detail=f"批量操作失败: {str(e)}")
+
+
+@router.post("/batch-replace-preview")
+async def batch_replace_preview(
+    params: BatchReplacePreviewParams,
+    current_user=Depends(get_current_admin_user)
+):
+    """
+    批量替换预览统计 - 需要管理员权限
+
+    统计全表中匹配指定条件的记录数量，不执行实际替换操作。
+    用于给用户展示将要被替换的记录数量。
+
+    权限要求：管理员
+    """
+    with get_db_connection(params.db_key) as conn:
+        cursor = conn.cursor()
+
+        try:
+            # 构建WHERE条件
+            conditions = []
+            query_params = []
+
+            # 1. 添加筛选条件 (filters)
+            if params.filters:
+                for col, values in params.filters.items():
+                    if not values:
+                        continue
+
+                    # 分离普通值和空值
+                    has_empty = None in values
+                    normal_values = [v for v in values if v is not None]
+                    filter_conditions = []
+
+                    # 处理普通值: col IN (?, ?)
+                    if normal_values:
+                        placeholders = ",".join(["?"] * len(normal_values))
+                        filter_conditions.append(f"{col} IN ({placeholders})")
+                        query_params.extend(normal_values)
+
+                    # 处理空值: (col IS NULL OR col = '')
+                    if has_empty:
+                        filter_conditions.append(f"({col} IS NULL OR {col} = '')")
+
+                    # 组合单列条件
+                    if filter_conditions:
+                        conditions.append(f"({' OR '.join(filter_conditions)})")
+
+            # 2. 添加搜索条件 (search_text)
+            # 在所有列中搜索（从 filters 的 keys 获取所有列名）
+            if params.search_text and params.filters:
+                search_columns = list(params.filters.keys())
+                search_conditions = []
+                like_pattern = f"%{params.search_text}%"
+                for col in search_columns:
+                    search_conditions.append(f"{col} LIKE ?")
+                    query_params.append(like_pattern)
+
+                if search_conditions:
+                    conditions.append(f"({' OR '.join(search_conditions)})")
+
+            # 3. 添加匹配条件（核心查找逻辑）
+            match_conditions = []
+
+            if params.is_empty_search:
+                # 空值查找：col IS NULL OR col = ''
+                for col in params.columns:
+                    match_conditions.append(f"({col} IS NULL OR {col} = '')")
+            else:
+                if params.match_mode == 'exact':
+                    # 完全匹配
+                    for col in params.columns:
+                        match_conditions.append(f"{col} = ?")
+                        query_params.append(params.find_text)
+                else:
+                    # 包含匹配
+                    for col in params.columns:
+                        match_conditions.append(f"{col} LIKE ?")
+                        query_params.append(f"%{params.find_text}%")
+
+            if match_conditions:
+                conditions.append(f"({' OR '.join(match_conditions)})")
+
+            # 4. 构建完整SQL
+            where_clause = ' AND '.join(conditions) if conditions else '1=1'
+            sql = f"SELECT COUNT(*) FROM {params.table_name} WHERE {where_clause}"
+
+            # 5. 执行查询
+            cursor.execute(sql, query_params)
+            total_matches = cursor.fetchone()[0]
+
+            # 6. 返回结果
+            return {
+                "status": "success",
+                "total_matches": total_matches
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"预览统计失败: {str(e)}")
+
+
+@router.post("/batch-replace-execute")
+async def batch_replace_execute(
+    params: BatchReplaceExecuteParams,
+    current_user=Depends(get_current_admin_user)
+):
+    """
+    批量替换执行 - 需要管理员权限
+
+    执行全表批量替换操作，直接在数据库层面更新符合条件的记录。
+
+    权限要求：管理员
+    """
+    with get_db_connection(params.db_key) as conn:
+        cursor = conn.cursor()
+
+        try:
+            # 开启事务
+            cursor.execute("BEGIN TRANSACTION")
+
+            # 构建WHERE条件（与预览API相同）
+            conditions = []
+            where_params = []
+
+            # 1. 添加筛选条件
+            if params.filters:
+                for col, values in params.filters.items():
+                    if not values:
+                        continue
+
+                    # 分离普通值和空值
+                    has_empty = None in values
+                    normal_values = [v for v in values if v is not None]
+                    filter_conditions = []
+
+                    # 处理普通值
+                    if normal_values:
+                        placeholders = ",".join(["?"] * len(normal_values))
+                        filter_conditions.append(f"{col} IN ({placeholders})")
+                        where_params.extend(normal_values)
+
+                    # 处理空值
+                    if has_empty:
+                        filter_conditions.append(f"({col} IS NULL OR {col} = '')")
+
+                    if filter_conditions:
+                        conditions.append(f"({' OR '.join(filter_conditions)})")
+
+            # 2. 添加搜索条件
+            # 在所有列中搜索（从 filters 的 keys 获取所有列名）
+            if params.search_text and params.filters:
+                search_columns = list(params.filters.keys())
+                search_conditions = []
+                like_pattern = f"%{params.search_text}%"
+                for col in search_columns:
+                    search_conditions.append(f"{col} LIKE ?")
+                    where_params.append(like_pattern)
+
+                if search_conditions:
+                    conditions.append(f"({' OR '.join(search_conditions)})")
+
+            # 3. 添加匹配条件
+            match_conditions = []
+
+            if params.is_empty_search:
+                # 空值查找
+                for col in params.columns:
+                    match_conditions.append(f"({col} IS NULL OR {col} = '')")
+            else:
+                if params.match_mode == 'exact':
+                    # 完全匹配
+                    for col in params.columns:
+                        match_conditions.append(f"{col} = ?")
+                        where_params.append(params.find_text)
+                else:
+                    # 包含匹配
+                    for col in params.columns:
+                        match_conditions.append(f"{col} LIKE ?")
+                        where_params.append(f"%{params.find_text}%")
+
+            if match_conditions:
+                conditions.append(f"({' OR '.join(match_conditions)})")
+
+            where_clause = ' AND '.join(conditions) if conditions else '1=1'
+
+            # 4. 构建SET子句
+            update_params = []
+
+            if params.is_empty_search or params.match_mode == 'exact':
+                # 直接替换为新值
+                set_clause = ', '.join([f"{col} = ?" for col in params.columns])
+                update_params.extend([params.replace_text] * len(params.columns))
+            else:
+                # 使用REPLACE()函数
+                set_clause = ', '.join([f"{col} = REPLACE({col}, ?, ?)" for col in params.columns])
+                for _ in params.columns:
+                    update_params.extend([params.find_text, params.replace_text])
+
+            # 5. 构建完整UPDATE语句
+            sql = f"UPDATE {params.table_name} SET {set_clause} WHERE {where_clause}"
+            all_params = update_params + where_params
+
+            # 6. 执行更新
+            cursor.execute(sql, all_params)
+            affected_rows = cursor.rowcount
+
+            # 7. 提交事务
+            conn.commit()
+
+            # 8. 返回结果
+            return {
+                "status": "success",
+                "affected_rows": affected_rows
+            }
+
+        except Exception as e:
+            # 回滚事务
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=f"批量替换失败: {str(e)}")
+
 

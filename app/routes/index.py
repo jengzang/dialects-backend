@@ -57,6 +57,15 @@ async def index(request: Request):
     headers = {"Cache-Control": "no-cache, must-revalidate"}
     return HTMLResponse(content=content, headers=headers)
 
+@router.get("/explore", response_class=HTMLResponse, tags=["html"])
+async def index(request: Request):
+    update_html_visit(request.url.path)
+    index_path = get_resource_path("app/statics/explore/index.html")
+    with open(index_path, encoding="utf-8") as f:
+        content = f.read()
+    headers = {"Cache-Control": "no-cache, must-revalidate"}
+    return HTMLResponse(content=content, headers=headers)
+
 @router.get("/auth", response_class=HTMLResponse, tags=["html"])
 async def index(request: Request):
     update_html_visit(request.url.path)

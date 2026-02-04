@@ -3,13 +3,13 @@
 """
 
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 
 from app.auth.dependencies import check_api_usage_limit
-from app.service.match_input_tip import match_locations_batch, match_locations_batch_all
+from app.service.match_input_tip import match_locations_batch_all
 from app.service.search_chars import search_characters
 from common.config import REQUIRE_LOGIN, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
-from common.search_tones import search_tones
+from app.service.search_tones import search_tones
 from app.logs.api_logger import *
 
 router = APIRouter()
@@ -51,14 +51,28 @@ async def search_chars(
 
         db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
 
+        # 查询汉字读音数据
         result = search_characters(
             chars=chars,
             locations=locations_processed,
             regions=regions,
             db_path=db_path,
-            region_mode=region_mode  # [OK] 傳入參數
+            region_mode=region_mode,  # [OK] 傳入參數
+            query_db_path=query_db  # [NEW] 传入查询数据库路径
         )
-        return {"result": result}
+
+        # 同时查询声调系统数据（避免前端二次请求）
+        tones_result = search_tones(
+            locations=locations_processed,
+            regions=regions,
+            db_path=query_db,
+            region_mode=region_mode
+        )
+
+        return {
+            "result": result,
+            "tones_result": tones_result  # 新增：声调系统数据
+        }
     finally:
         print("search_chars")
         # duration = time.time() - start
@@ -102,12 +116,12 @@ async def search_tones_o(
         locations_processed = match_locations_batch_all(
             locations or [],
             filter_valid_abbrs_only=False,
-            exact_only=False,
+            exact_only=True,
             query_db=query_db,
             db=db,
             user=user
         )
-
+        print(locations_processed)
         result = search_tones(
             locations=locations_processed,
             regions=regions,

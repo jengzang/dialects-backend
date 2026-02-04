@@ -2,6 +2,7 @@
 """
 [PKG] 路由模塊：處理 /api/get_coordinates 查詢地點座標資料。
 """
+from typing import Optional
 
 from fastapi import APIRouter
 

@@ -1,0 +1,14 @@
+# 压力测试工具依赖
+# Stress Testing Dependencies
+
+# 压力测试框架
+locust>=2.15.0
+
+# 系统监控
+psutil>=5.9.0
+
+# HTTP 请求（用于创建测试用户）
+requests>=2.31.0
+
+# 可选：函数级性能分析
+# py-spy>=0.3.14  # 需要单独安装: pip install py-spy

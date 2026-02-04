@@ -66,3 +66,29 @@ class LazyTreeParams(BaseModel):
     level_columns: List[int]  # 列号从0开始
     parent_path: Optional[List[str]] = None  # 父节点路径，None或[]表示第一层
     filters: Optional[Dict[int, List[str]]] = None  # 键是列号
+
+
+class BatchReplacePreviewParams(BaseModel):
+    """批量替换预览参数"""
+    db_key: str
+    table_name: str
+    columns: List[str]  # 需要查找/替换的列名数组
+    find_text: str  # 查找文本（空字符串表示查找空值）
+    match_mode: str  # 匹配模式："exact"(完全匹配) 或 "contains"(包含匹配)
+    is_empty_search: bool  # 是否为空值查找
+    filters: Dict[str, List[Any]] = {}  # 当前应用的筛选条件（可选）
+    search_text: Optional[str] = ""  # 当前搜索关键词（可选）
+
+
+class BatchReplaceExecuteParams(BaseModel):
+    """批量替换执行参数"""
+    db_key: str
+    table_name: str
+    pk_column: str = "rowid"  # 主键列名
+    columns: List[str]  # 需要查找/替换的列名数组
+    find_text: str  # 查找文本
+    replace_text: str  # 替换后的文本
+    match_mode: str  # 匹配模式："exact" 或 "contains"
+    is_empty_search: bool  # 是否为空值查找
+    filters: Dict[str, List[Any]] = {}  # 筛选条件
+    search_text: Optional[str] = ""  # 搜索关键词

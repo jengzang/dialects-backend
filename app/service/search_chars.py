@@ -1,7 +1,7 @@
 import numpy as np
 from fastapi import HTTPException
 
-from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER
+from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER, QUERY_DB_USER
 
 import sqlite3
 
@@ -11,8 +11,13 @@ from common.getloc_by_name_region import query_dialect_abbreviations
 from app.sql.db_pool import get_db_pool
 
 
-def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian'):
-    all_locations = query_dialect_abbreviations(regions, locations, region_mode=region_mode)
+def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian', query_db_path=QUERY_DB_USER):
+    """
+    Args:
+        db_path: 方言数据库路径（用于查询实际读音数据）
+        query_db_path: 查询数据库路径（用于查询地点信息）
+    """
+    all_locations = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
     if not all_locations:
         raise HTTPException(status_code=400, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
 

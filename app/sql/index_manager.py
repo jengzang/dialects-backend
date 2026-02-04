@@ -32,12 +32,15 @@ def ensure_indexes(db_path: str) -> None:
         indexes = [
             # 优先级1: 字符+地点复合索引（针对search_chars.py的核心查询）
             "CREATE INDEX IF NOT EXISTS idx_dialects_char_abbr ON dialects(漢字, 簡稱)",
+            "CREATE INDEX IF NOT EXISTS idx_dialects_char_abbr2 ON dialects(簡稱, 漢字)",
 
             # 优先级2: 地点查询索引
             "CREATE INDEX IF NOT EXISTS idx_dialects_abbr ON dialects(簡稱)",
 
             # 优先级3: 特征列索引（用于phonology2status.py的GROUP BY查询）
-            "CREATE INDEX IF NOT EXISTS idx_dialects_features ON dialects(簡稱, 聲母, 韻母, 聲調)",
+            "CREATE INDEX IF NOT EXISTS idx_dialects_features1 ON dialects(簡稱, 聲母)",
+            "CREATE INDEX IF NOT EXISTS idx_dialects_features2 ON dialects(簡稱, 韻母)",
+            "CREATE INDEX IF NOT EXISTS idx_dialects_features3 ON dialects(簡稱, 聲調)",
 
             # 优先级4: 多音字查询索引（优化完整的多音字查询路径）
             "CREATE INDEX IF NOT EXISTS idx_dialects_polyphonic ON dialects(多音字, 漢字)",

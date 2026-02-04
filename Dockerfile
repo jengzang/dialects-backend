@@ -15,11 +15,12 @@ COPY app/ /app/app/
 COPY common/ /app/common/
 COPY data/dependency/ /app/data/dependency/
 COPY serve.py /app/serve.py
+COPY gunicorn_config.py /app/gunicorn_config.py
 
 # 非 root 运行
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
 EXPOSE 5000
-CMD ["gunicorn","-w","4","-k","uvicorn.workers.UvicornWorker","-b","0.0.0.0:5000","--timeout","180","serve:app"]
+CMD ["gunicorn", "-c", "gunicorn_config.py", "serve:app"]
 

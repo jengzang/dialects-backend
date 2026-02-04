@@ -3,6 +3,7 @@
 !.dockerignore
 !requirements.txt
 !serve.py
+!gunicorn_config.py
 !app/**
 !common/**
 !data/dependency/**

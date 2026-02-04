@@ -3,7 +3,8 @@ import sqlite3
 
 from fastapi import HTTPException
 
-from common.config import YC_SPOKEN_DB_PATH, GD_VILLAGE_DB_PATH, CHARACTERS_DB_PATH, QUERY_DB_USER, QUERY_DB_ADMIN
+from common.config import YC_SPOKEN_DB_PATH, GD_VILLAGE_DB_PATH, CHARACTERS_DB_PATH, QUERY_DB_USER, QUERY_DB_ADMIN, \
+    DIALECTS_DB_USER, DIALECTS_DB_ADMIN, YUBAO_DB_PATH, LOGS_DATABASE_PATH, SUPPLE_DB_PATH, USER_DATABASE_PATH
 from app.sql.db_pool import get_db_pool
 
 DB_MAPPING = {
@@ -12,6 +13,12 @@ DB_MAPPING = {
     "chars": CHARACTERS_DB_PATH,
     "query": QUERY_DB_USER,
     "query_admin": QUERY_DB_ADMIN,
+    "dialects": DIALECTS_DB_USER,
+    "dialects_admin": DIALECTS_DB_ADMIN,
+    "yubao": YUBAO_DB_PATH,
+    "logs": LOGS_DATABASE_PATH,
+    "supple": SUPPLE_DB_PATH,
+    "auth": USER_DATABASE_PATH
 }
 def get_db_connection(db_key: str):
     """根据代号获取对应的数据库连接（使用连接池）"""

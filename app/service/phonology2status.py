@@ -5,12 +5,65 @@ from collections import defaultdict
 import pandas as pd
 from fastapi import HTTPException
 
-from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER
+from common.config import CHARACTERS_DB_PATH, DIALECTS_DB_USER, QUERY_DB_USER
 from app.service.process_sp_input import split_pho_input
-from common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column
+from common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column, custom_order
 from common.getloc_by_name_region import query_dialect_abbreviations
 from app.service.match_input_tip import match_locations_batch
 from app.sql.db_pool import get_db_pool
+
+# IPA 符號合併映射表
+MERGE_MAP = {}
+MERGE_MAP.update({k: "kʷ" for k in ["kw", "kᵘ", "kᵛ", "kʋ", "kʷ", "kv"]})
+MERGE_MAP.update({k: "kʰw" for k in ["kʷʰ", "kʰʷ", "kʰᵘ", "kʰᵛ", "kʰʋ", "kʋʰ", "kʰw", "kvʰ"]})
+MERGE_MAP.update({k: "pʰʋ" for k in ["pʰw", "pʰᵘ", "pʰʋ"]})
+MERGE_MAP.update({k: "tʰw" for k in ["tʰᵘ", "tʰw", "tʰʋ"]})
+MERGE_MAP.update({k: "ʔ" for k in ["(ʔ)", "∅", "ʔ", "ˀ"]})
+MERGE_MAP.update({k: "ʋ" for k in ["v", "ʋ", "vʋ", "w"]})
+MERGE_MAP.update({k: "h" for k in ["h", "ɦ", "ɦʰ", "xʱ", "hɦ", "hʱ", "ʰ"]})
+MERGE_MAP.update({k: "hʷ" for k in ["hʷ", "hw", "hʋ", "ɦʋ"]})
+MERGE_MAP.update({k: "x" for k in ["x", "xʱ", "xɣ", "ɣ", "χ"]})
+MERGE_MAP.update({k: "xʷ" for k in ["xv", "xʋ", "xʷ", "xᵊ", "xᶷ"]})
+MERGE_MAP.update({k: "d" for k in ["d", "d̥", "ɗ", "ɗw"]})
+MERGE_MAP.update({k: "dz" for k in ["dz", "d̥z̥"]})
+MERGE_MAP.update({k: "dʑ" for k in ["dʑ", "d̥ʑ̥"]})
+MERGE_MAP.update({k: "fw" for k in ["fʋ", "fw", "fv", "fʰ", "fʱ", "f", "̊f"]})
+MERGE_MAP.update({k: "l" for k in ["l", "l̥", "l̩"]})
+MERGE_MAP.update({k: "m" for k in ["m", "m̥", "m̩", "m͡b"]})
+MERGE_MAP.update({k: "mʷ" for k in ["mʷ", "mw", "mʋ"]})
+MERGE_MAP.update({k: "mʰ" for k in ["mʰ", "mɦ", "mʱ"]})
+MERGE_MAP.update({k: "sʷ" for k in ["sw", "sʋ", "sʷ"]})
+MERGE_MAP.update({k: "tʰ" for k in ["tʰʰ", "tʱ", "tʰ"]})
+MERGE_MAP.update({k: "ŋʷ" for k in ["ŋʷ", "ŋw", "ŋʋ"]})
+MERGE_MAP.update({k: "ŋ" for k in ["ŋ", "ŋ̊", "ŋɡ", "ŋ͡ɡ", "ng", "nɡ"]})
+MERGE_MAP.update({k: "ɡ" for k in ["ɡ", "g", "ɡ̊", "ᵑɡ"]})
+MERGE_MAP.update({k: "b" for k in ["b̥", "ɓw", "ɓ", "ᵐb", "b", "bv"]})
+
+
+def custom_phonology_sort(items):
+    """
+    使用 custom_order 對音韻符號進行排序
+    支持多字符 IPA 符號（如 pʰ, tʰ）
+
+    Args:
+        items: 要排序的音韻符號列表
+
+    Returns:
+        排序後的列表
+    """
+    def sort_key(item):
+        # 先應用 MERGE_MAP 標準化
+        normalized = MERGE_MAP.get(item, item)
+
+        # 按照 custom_order 中的位置排序
+        # 對於多字符符號，逐字符匹配
+        return [
+            custom_order.index(normalized[i:i + 2]) if normalized[i:i + 2] in custom_order else
+            custom_order.index(normalized[i]) if normalized[i] in custom_order else float('inf')
+            for i in range(len(normalized))
+        ]
+
+    return sorted(items, key=sort_key)
 
 """
 整體流程總結：
@@ -228,7 +281,8 @@ def pho2sta(locations, regions, features, status_inputs,
             pho_values=None,
             dialect_db_path=DIALECTS_DB_USER,
             character_db_path=CHARACTERS_DB_PATH, region_mode='yindian',
-            exclude_columns=None):
+            exclude_columns=None,
+            query_db_path=QUERY_DB_USER):  # 新增：用于查询地点的数据库
     def convert_simplified_to_traditional(simplified_text):
         return "".join([s2t_column.get(ch, ch) for ch in simplified_text])
 
@@ -251,7 +305,7 @@ def pho2sta(locations, regions, features, status_inputs,
             print(f"[X] 輸入「{user_input}」未匹配任何欄位，特徵【{feature}】將使用預設分組欄位")
             grouping_columns_map[feature] = None
 
-    locations_new = query_dialect_abbreviations(regions, locations,region_mode=region_mode)
+    locations_new = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
     match_results = match_locations_batch(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         # print("🛑 沒有任何地點完全匹配，終止分析。")
@@ -372,6 +426,106 @@ def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
 
             # 根据特征类型填充结果字典
             result[loc][feature_type][value] = count
+
+    return result
+
+
+def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="dialects"):
+    """
+    获取指定地点的声母-韵母-汉字交叉表数据
+
+    Args:
+        locations: 地点列表，如果为 None 则获取所有地点
+        db_path: 数据库路径
+        table: 表名
+
+    Returns:
+        {
+            "locations": List[str],
+            "data": {
+                "地点1": {
+                    "initials": List[str],
+                    "finals": List[str],
+                    "tones": List[str],
+                    "matrix": Dict[str, Dict[str, Dict[str, List[str]]]]
+                },
+                ...
+            }
+        }
+    """
+    # 按地点分组的数据
+    locations_data = defaultdict(lambda: {
+        "matrix": defaultdict(lambda: defaultdict(lambda: defaultdict(list))),
+        "initials": set(),
+        "finals": set(),
+        "tones": set()
+    })
+
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # 构建查询语句
+        if locations and len(locations) > 0:
+            # 查询指定地点
+            placeholders = ','.join(f"'{loc}'" for loc in locations)
+            query = f"""
+                SELECT 簡稱, 聲母, 韻母, 聲調, 漢字
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                ORDER BY 簡稱, 聲母, 韻母, 聲調
+            """
+        else:
+            # 查询所有地点
+            query = f"""
+                SELECT 簡稱, 聲母, 韻母, 聲調, 漢字
+                FROM {table}
+                ORDER BY 簡稱, 聲母, 韻母, 聲調
+            """
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        # 处理查询结果
+        for row in rows:
+            location = row[0]  # 地点
+            initial = row[1]   # 声母
+            final = row[2]     # 韵母
+            tone = row[3]      # 声调
+            char = row[4]      # 汉字
+
+            # 跳过空值
+            if not location or not initial or not final or not tone or not char:
+                continue
+
+            # 添加到该地点的矩阵
+            loc_data = locations_data[location]
+            loc_data["matrix"][initial][final][tone].append(char)
+
+            # 收集该地点的唯一值
+            loc_data["initials"].add(initial)
+            loc_data["finals"].add(final)
+            loc_data["tones"].add(tone)
+
+    # 转换为最终格式
+    result = {
+        "locations": sorted(list(locations_data.keys())),
+        "data": {}
+    }
+
+    for location, loc_data in locations_data.items():
+        result["data"][location] = {
+            "initials": custom_phonology_sort(list(loc_data["initials"])),
+            "finals": custom_phonology_sort(list(loc_data["finals"])),
+            "tones": custom_phonology_sort(list(loc_data["tones"])),
+            "matrix": {
+                initial: {
+                    final: dict(tones_dict)
+                    for final, tones_dict in finals_dict.items()
+                }
+                for initial, finals_dict in loc_data["matrix"].items()
+            }
+        }
 
     return result
 
