@@ -50,10 +50,10 @@ def handle_form_submission(form_data: dict, user: User, db: Session):
             Information.user_id == user.id
         ).count()
 
-        if count_last_hour >= 100:
-            return {"success": False, "message": "💥 每小時最多提交 100 份資料"}
-        if total_count >= 1000:
-            return {"success": False, "message": "🚫 最多只能提交 1000 份資料"}
+        if count_last_hour >= 500:
+            return {"success": False, "message": "💥 每小時最多提交 500 份資料"}
+        if total_count >= 5000:
+            return {"success": False, "message": "🚫 最多只能提交 5000 份資料"}
 
     # 寫入資料
     info = Information(

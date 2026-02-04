@@ -255,8 +255,10 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
             return list(matched_abbrs), 1, [], [], [], [], [], []
 
         fuzzy_abbrs = set()
+        contains_abbrs = set()  # 新增：包含匹配結果
+
         for term in possible_inputs:
-            # 模糊匹配查詢部分需要根據 filter_valid_abbrs_only 來過濾
+            # 前綴匹配（原有邏輯）
             if filter_valid_abbrs_only:
                 cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", (term + "%",))
             else:
@@ -264,6 +266,15 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
             fuzzy = cursor.fetchall()
             fuzzy_abbrs.update([row[0] for row in fuzzy])
             # print(f"[DEBUG] 模糊簡稱匹配【{term}】：{fuzzy}")
+
+            # 包含匹配（新增）：匹配包含輸入的地點名稱
+            if filter_valid_abbrs_only:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", ("%" + term + "%",))
+            else:
+                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", ("%" + term + "%",))
+            contains = cursor.fetchall()
+            contains_abbrs.update([row[0] for row in contains])
+            # print(f"[DEBUG] 包含匹配【{term}】：{contains}")
 
         geo_matches = set()
         geo_abbr_map = {}
@@ -308,7 +319,7 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
                 sound_like_abbrs.add(abbr)
 
     return (
-        list(fuzzy_abbrs),
+        list(fuzzy_abbrs | contains_abbrs),  # 合併前綴匹配和包含匹配
         0,
         list(geo_matches),
         [geo_abbr_map[n] for n in geo_matches if geo_abbr_map[n] in valid_abbrs_set],

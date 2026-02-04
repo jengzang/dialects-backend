@@ -3,7 +3,7 @@
 """
 
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 
 from app.service.match_input_tip import match_locations_batch
 from common.config import QUERY_DB_ADMIN, QUERY_DB_USER

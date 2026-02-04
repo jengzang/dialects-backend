@@ -2,6 +2,8 @@
 """
 [PKG] 路由模塊：處理 /api/batch_match 地點名稱匹配。
 """
+import re
+from typing import Optional
 
 from fastapi import APIRouter, Query
 

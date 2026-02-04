@@ -6,16 +6,25 @@ from common.config import ZHENGZI_PATH, MULCODECHAR_PATH
 
 
 opencc_s2t = OpenCC('s2t.json')
-# ========== 繁體轉換函數 ==========
-def s2t_pro(字組, level=1):
+
+# 全局缓存（启动时加载一次）
+_variant_cache = None
+
+def _load_variant_data():
+    """加载并缓存正字表和 mulcode 数据（只执行一次）"""
+    global _variant_cache
+
+    # 如果已缓存，直接返回
+    if _variant_cache is not None:
+        return _variant_cache
+
     variant_file = os.path.join(os.path.dirname(__file__), ZHENGZI_PATH)
     mulcode_file = os.path.join(os.path.dirname(__file__), MULCODECHAR_PATH)
 
-    normVariants = {}
     stVariants = {}
     n2o_dict = {}
 
-    # 讀取正字表
+    # 读取正字表（只执行一次）
     for 行 in open(variant_file, encoding="utf-8"):
         if 行.startswith("#"):
             continue  # 行首為註解，跳過
@@ -27,17 +36,9 @@ def s2t_pro(字組, level=1):
 
         原字 = 列[0].strip()
         對應字串 = 列[1].split("#")[0].strip()  # 去除 # 後的註解
-        候選字列表 = 對應字串.split()
-
-        if level == 1:
-            if "#" in 行:
-                continue  # 含 # 的行不處理
-            if len(候選字列表) > 1:
-                continue  # 多候選字，不處理
-
         stVariants[原字] = 對應字串
 
-    # 讀取 mulcodechar.dt
+    # 读取 mulcodechar.dt（只执行一次）
     for 行 in open(mulcode_file, encoding="utf-8"):
         if not 行 or 行[0] == "#":
             continue
@@ -45,6 +46,25 @@ def s2t_pro(字組, level=1):
         if len(列) < 2:
             continue
         n2o_dict[列[0]] = 列[1]
+
+    # 缓存结果
+    _variant_cache = (stVariants, n2o_dict)
+    return _variant_cache
+
+# ========== 繁體轉換函數 ==========
+def s2t_pro(字組, level=1):
+    # 使用缓存的数据
+    stVariants_all, n2o_dict = _load_variant_data()
+
+    # 根据 level 过滤
+    if level == 1:
+        # 过滤掉包含多个候选字的条目和带 # 注释的条目
+        stVariants = {}
+        for 原字, 對應字串 in stVariants_all.items():
+            if " " not in 對應字串:
+                stVariants[原字] = 對應字串
+    else:
+        stVariants = stVariants_all
 
     def n2o(s):
         return ''.join(n2o_dict.get(i, i) for i in s)

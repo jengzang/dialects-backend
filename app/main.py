@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
             t.start()
 
     # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
-    if _RUN_TYPE in ['EXE', 'MINE']:
+    if _RUN_TYPE in [ 'MINE']:
         initialize_all_indexes()
     # initialize_all_indexes()
 
@@ -102,11 +102,22 @@ async def lifespan(app: FastAPI):
     # print("=" * 60)
 
     # 获取数据库连接，并启动日志线程
+    # [FIX] 只在非 gunicorn 环境下启动后台线程
+    # 在 gunicorn 环境下，后台线程由主进程启动（见 gunicorn_config.py）
     db = next(get_db())
-    start_api_logger_workers(db)
 
-    # [NEW] 启动用户活动更新后台线程
-    start_user_activity_writer()
+    # 检测是否在 gunicorn worker 进程中
+    is_gunicorn_worker = os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn')
+
+    if not is_gunicorn_worker:
+        # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
+        print("🔧 [单进程模式] 启动后台线程...")
+        start_api_logger_workers(db)
+        # [NEW] 启动用户活动更新后台线程
+        start_user_activity_writer()
+    else:
+        # gunicorn 环境，跳过（由主进程启动）
+        print("⏭️  [Worker进程] 跳过后台线程启动（已由主进程启动）")
 
     # [OK] 启动定时任务调度器
     start_scheduler()

@@ -1,23 +1,23 @@
 import asyncio
-import gzip
-import io
-import json
-import os
+# import gzip
+# import io
+# import json
+# import os
 import threading
-import queue
-import re
+import multiprocessing  # [FIX] 改用跨进程队列
+# import re
 import time
 from datetime import datetime, timedelta
-from collections import defaultdict
-import ast
+# from collections import defaultdict
+# import ast
 from decimal import Decimal
-from typing import AsyncIterable, Optional
+# from typing import AsyncIterable, Optional
 
 from fastapi import HTTPException, Request, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+# from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
-
+from queue import Empty  # 只引入這個異常類，不引入 Queue 類
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
@@ -26,13 +26,14 @@ from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
     CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD, IGNORE_API
 
-# === 队列 ===
+# === 队列（跨进程） ===
+# [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
 # keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
-log_queue = queue.Queue()  # [OK] ApiUsageLog 队列（auth.db）
-keyword_log_queue = queue.Queue()  # [OK] ApiKeywordLog 队列（logs.db）
-statistics_queue = queue.Queue()  # [OK] ApiStatistics 队列（logs.db）
-html_visit_queue = queue.Queue()  # [OK] HTML 页面访问统计队列（logs.db）
-summary_queue = queue.Queue()  # [NEW] ApiUsageSummary 队列（auth.db）
+log_queue = multiprocessing.Queue(maxsize=2000)  # [OK] ApiUsageLog 队列（auth.db）- 限制 2000 条
+keyword_log_queue = multiprocessing.Queue(maxsize=5000)  # [OK] ApiKeywordLog 队列（logs.db）- 限制 5000 条
+statistics_queue = multiprocessing.Queue(maxsize=1000)  # [OK] ApiStatistics 队列（logs.db）- 限制 1000 条
+html_visit_queue = multiprocessing.Queue(maxsize=500)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 500 条
+summary_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 队列（auth.db）- 限制 1000 条
 
 
 # === 关键词日志（写入logs.db） ===
@@ -83,7 +84,7 @@ def keyword_log_writer():
                 finally:
                     db.close()
 
-        except queue.Empty:
+        except Empty:
             # 队列空时，写入剩余数据
             if batch:
                 db = LogsSessionLocal()
@@ -132,7 +133,7 @@ def statistics_writer():
                 _process_statistics_batch(batch)
                 batch = []
 
-        except queue.Empty:
+        except Empty:
             # 超时时写入剩余项
             if batch:
                 _process_statistics_batch(batch)
@@ -246,7 +247,7 @@ def html_visit_writer():
                 _process_html_visit_batch(batch)
                 batch = []
 
-        except queue.Empty:
+        except Empty:
             # 超时时写入剩余项
             if batch:
                 _process_html_visit_batch(batch)
@@ -335,7 +336,7 @@ def log_writer_thread(db: Session):
                 _write_log_batch(db, batch)
                 batch = []
 
-        except queue.Empty:
+        except Empty:
             # 超时时写入剩余项
             if batch:
                 _write_log_batch(db, batch)
@@ -428,7 +429,7 @@ def summary_writer():
                 _process_summary_batch(batch)
                 batch = []
 
-        except queue.Empty:
+        except Empty:
             if batch:
                 _process_summary_batch(batch)
                 batch = []

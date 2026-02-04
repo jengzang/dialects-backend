@@ -3,7 +3,7 @@
 """
 
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 
 from app.auth.dependencies import check_api_usage_limit
 from app.service.match_input_tip import match_locations_batch_all
@@ -116,12 +116,12 @@ async def search_tones_o(
         locations_processed = match_locations_batch_all(
             locations or [],
             filter_valid_abbrs_only=False,
-            exact_only=False,
+            exact_only=True,
             query_db=query_db,
             db=db,
             user=user
         )
-
+        print(locations_processed)
         result = search_tones(
             locations=locations_processed,
             regions=regions,

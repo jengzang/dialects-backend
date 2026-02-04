@@ -30,6 +30,10 @@ docker run -d --name myapp \
   -e FORWARDED_ALLOW_IPS="*" \
   -v /srv/myapp/data:/app/data \
   -v /srv/myapp/logs:/app/logs \
+  --memory="1.5g" \
+  --memory-reservation="1g" \
+  --cpus="1.5" \
+  --oom-kill-disable=false \
   myapp:latest
 #如果是本地先测试
 docker run -d --name myapp -p 8080:5000 `
@@ -56,6 +60,9 @@ scp api_usage_stats.txt root@47.115.57.138:/srv/myapp/logs
 
 scp dialects_user.db root@47.115.57.138:/srv/myapp/data
 scp dialects_admin.db root@47.115.57.138:/srv/myapp/data
+scp query_user.db root@47.115.57.138:/srv/myapp/data
+scp query_admin.db root@47.115.57.138:/srv/myapp/data
+
 scp villages.db root@47.115.57.138:/srv/myapp/data
 scp yc_spoken.db root@47.115.57.138:/srv/myapp/data
 scp logs.db root@47.115.57.138:/srv/myapp/data

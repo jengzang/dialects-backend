@@ -1,6 +1,7 @@
 from datetime import timedelta, datetime
 from typing import Optional
-import queue
+import multiprocessing  # [FIX] 改用跨进程队列
+import queue  # [FIX] 用于 queue.Empty 异常
 import threading
 from collections import defaultdict
 
@@ -12,8 +13,9 @@ from app.schemas import auth as schemas
 from common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
     REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS
 
-# === 用户活动队列 ===
-user_activity_queue = queue.Queue()
+# === 用户活动队列（跨进程） ===
+# [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
+user_activity_queue = multiprocessing.Queue()
 
 
 # 用户活动更新数据结构

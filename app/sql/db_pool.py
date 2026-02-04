@@ -41,7 +41,7 @@ class SQLiteConnectionPool:
         # 优化 SQLite 性能
         conn.execute("PRAGMA journal_mode=WAL")  # 使用 WAL 模式提升并发性能
         conn.execute("PRAGMA synchronous=NORMAL")  # 平衡性能和安全
-        conn.execute("PRAGMA cache_size=-64000")  # 64MB 缓存
+        conn.execute("PRAGMA cache_size=-16000")  # 16MB 缓存（优化内存使用）
         conn.execute("PRAGMA temp_store=MEMORY")  # 临时表存储在内存
         return conn
 

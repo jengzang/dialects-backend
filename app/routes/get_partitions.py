@@ -2,6 +2,7 @@
 """
 [PKG] 路由模塊：處理 /api/partitions 調用分區階層。
 """
+from typing import Optional
 
 from fastapi import APIRouter, Query
 from app.service.match_input_tip import read_partition_hierarchy

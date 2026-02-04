@@ -4,7 +4,7 @@
 """
 
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 
 from app.custom.database import get_db as get_db_custom
 from app.schemas import QueryParams, FeatureQueryParams

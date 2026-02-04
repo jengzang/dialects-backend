@@ -36,7 +36,7 @@ def cleanup_old_logs():
     db = SessionLocal()
 
     try:
-        cutoff_date = datetime.now() - timedelta(days=30)
+        cutoff_date = datetime.now() - timedelta(days=365)
 
         # 删除关键词日志
         deleted_keywords = db.query(ApiKeywordLog).filter(
@@ -145,7 +145,7 @@ def start_scheduler():
         cleanup_old_logs,
         CronTrigger(day_of_week='sun', hour=3, minute=0),
         id='cleanup_old_logs',
-        name='清理30天前的旧日志',
+        name='清理365天前的旧日志',
         replace_existing=True
     )
 
