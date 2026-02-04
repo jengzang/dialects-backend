@@ -78,3 +78,6 @@ htmlcov/
 *.py~
 *.pyc~
 
+# Static files (frontend assets)
+app/statics/
+
