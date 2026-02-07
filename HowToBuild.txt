@@ -4,6 +4,7 @@
 #重新 build 镜像
 cd C:\Users\joengzaang\myfiles\server\fastapi
 docker build -t myapp:latest .
+docker build -t dialects:latest .
 
 #保存成 tar 包
 docker save myapp:latest -o myapp.tar
@@ -24,17 +25,19 @@ docker run -d --name myapp -p 80:5000 \
   -v /srv/myapp/data:/app/data \
   -v /srv/myapp/logs:/app/logs \
   myapp:latest
-# 用ngix
+# 用ngix（推荐：添加了 statics volume 挂载）
 docker run -d --name myapp \
-  -p 127.0.0.1:5000:5000 \
+  --network host \
   -e FORWARDED_ALLOW_IPS="*" \
   -v /srv/myapp/data:/app/data \
   -v /srv/myapp/logs:/app/logs \
+  -v /srv/myapp/statics:/app/app/statics \
   --memory="1.5g" \
   --memory-reservation="1g" \
   --cpus="1.5" \
   --oom-kill-disable=false \
   myapp:latest
+
 #如果是本地先测试
 docker run -d --name myapp -p 8080:5000 `
   -v "C:\Users\joengzaang\myfiles\server\fastapi\data:/app/data" `
@@ -69,3 +72,34 @@ scp logs.db root@47.115.57.138:/srv/myapp/data
 
 cloc app common --by-file --not-match-d='app/statics'
  cloc src auth menu intro public --include-ext=vue,js,css,html --by-file
+
+# ========================================
+# 静态文件部署（首次部署或大量更新时）
+# ========================================
+
+# 1. 本地打包静态文件
+cd C:\Users\joengzaang\myfiles\server\fastapi
+tar -czf statics.tar.gz -C app statics
+
+# 2. 上传到服务器
+scp statics.tar.gz root@47.115.57.138:/srv/myapp/
+
+# 3. 在服务器上解压
+ssh root@47.115.57.138
+cd /srv/myapp
+tar -xzf statics.tar.gz
+ls -la statics/  # 验证文件
+
+# ========================================
+# 静态文件更新（日常前端更新）
+# ========================================
+
+# 方式 A：上传单个文件
+scp app/statics/index.html root@47.115.57.138:/srv/myapp/statics/
+scp app/statics/assets/main.*.js root@47.115.57.138:/srv/myapp/statics/assets/
+
+# 方式 B：批量上传整个目录
+scp -r app/statics/* root@47.115.57.138:/srv/myapp/statics/
+
+# 注意：更新静态文件后无需重启容器，FastAPI 会实时读取新文件
+# Worker 自动重启时不会覆盖外部目录的文件（Docker volume 机制保证）

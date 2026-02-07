@@ -65,6 +65,7 @@ MISSING_DATA_LOG = os.path.join(BASE_DIR, "logs", "缺資料.txt")
 WRITE_INFO_LOG = os.path.join(BASE_DIR, "logs", "write.txt")
 WRITE_ERROR_LOG = os.path.join(BASE_DIR, "logs", "write_error.txt")
 
+
 # 是否刪除一星期前的api記錄
 CLEAR_WEEK = True
 # 只记录路径中包含以下词的 API
@@ -124,6 +125,24 @@ SIZE_THRESHOLD = 10 * 1024  # 10KB
 BATCH_SIZE = 20
 # 缓存过期时间（例如：1小时）
 CACHE_EXPIRATION_TIME = 3600  # 秒
+
+######數據庫系統##############
+# 管理员专属数据库
+ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs", "supple", "auth"}
+
+DB_MAPPING = {
+    "spoken": YC_SPOKEN_DB_PATH,
+    "village": GD_VILLAGE_DB_PATH,
+    "chars": CHARACTERS_DB_PATH,
+    "query": QUERY_DB_USER,
+    "query_admin": QUERY_DB_ADMIN,
+    "dialects": DIALECTS_DB_USER,
+    "dialects_admin": DIALECTS_DB_ADMIN,
+    "yubao": YUBAO_DB_PATH,
+    "logs": LOGS_DATABASE_PATH,
+    "supple": SUPPLE_DB_PATH,
+    "auth": USER_DATABASE_PATH
+}
 
 # =============== 配置 =======================
 # banner配置

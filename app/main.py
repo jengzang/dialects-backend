@@ -12,7 +12,7 @@ from app.redis_client import close_redis
 from app.routes import setup_routes
 from app.logs.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
 from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
-from app.statics.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
+from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
 
@@ -95,8 +95,23 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ 清理临时文件失败: {str(e)}")
     print("=" * 60)
 
+    # [新增] 预热方言数据缓存（避免第一个请求超时）
+    from app.service.match_input_tip import _load_dialect_cache
+    print("=" * 60)
+    print("🔥 预热方言数据缓存...")
+    try:
+        # 预加载管理员和用户数据库的缓存
+        _load_dialect_cache(QUERY_DB_ADMIN, filter_valid_abbrs_only=True)
+        _load_dialect_cache(QUERY_DB_USER, filter_valid_abbrs_only=True)
+        _load_dialect_cache(QUERY_DB_ADMIN, filter_valid_abbrs_only=False)
+        _load_dialect_cache(QUERY_DB_USER, filter_valid_abbrs_only=False)
+        print("✅ 方言数据缓存预热完成（4个缓存已加载）")
+    except Exception as e:
+        print(f"⚠️ 缓存预热失败: {str(e)}")
+    print("=" * 60)
+
     # [已注释] 执行日志数据迁移（从 txt 到 logs.db）
-    # print("=" * 60)
+    # print("=" * 60)1
     # print("🔄 检查日志数据迁移...")
     # run_migration(force=False)  # 只迁移一次，不强制重复
     # print("=" * 60)
@@ -115,29 +130,36 @@ async def lifespan(app: FastAPI):
         start_api_logger_workers(db)
         # [NEW] 启动用户活动更新后台线程
         start_user_activity_writer()
+
+        # [OK] 启动定时任务调度器（只在单进程模式下启动）
+        start_scheduler()
+
+        # [新增] 启动定期批量清理任务（每小时检查一次，清理12小时前的文件）
+        cleanup_thread = threading.Thread(target=_periodic_cleanup, daemon=True)
+        cleanup_thread.start()
+        print("🔄 已启动定期清理线程（每小时执行，清理12小时前文件）")
     else:
         # gunicorn 环境，跳过（由主进程启动）
         print("⏭️  [Worker进程] 跳过后台线程启动（已由主进程启动）")
 
-    # [OK] 启动定时任务调度器
-    start_scheduler()
-
-    # [新增] 启动定期批量清理任务（每小时检查一次，清理12小时前的文件）
-    cleanup_thread = threading.Thread(target=_periodic_cleanup, daemon=True)
-    cleanup_thread.start()
-    print("🔄 已启动定期清理线程（每小时执行，清理12小时前文件）")
-
     try:
         yield  # 应用运行中
     finally:
-        # 停止日志写入线程
-        stop_api_logger_workers()
+        # [FIX] 只在非 gunicorn worker 环境下停止后台线程
+        # 在 gunicorn 环境下，后台线程由主进程管理，worker 重启不应停止它们
+        if not is_gunicorn_worker:
+            # 停止日志写入线程
+            stop_api_logger_workers()
 
-        # [NEW] 停止用户活动更新线程
-        stop_user_activity_writer()
+            # [NEW] 停止用户活动更新线程
+            stop_user_activity_writer()
 
-        # [OK] 停止定时任务调度器
-        stop_scheduler()
+            # [OK] 停止定时任务调度器
+            stop_scheduler()
+
+            print("🛑 [单进程模式] 后台线程已停止")
+        else:
+            print("⏭️  [Worker进程] 跳过后台线程停止（由主进程管理）")
 
         print("🛑 App shutting down...")
         await close_redis()  # [OK] 關閉 Redis 連接

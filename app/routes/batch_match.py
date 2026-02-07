@@ -39,6 +39,11 @@ async def batch_match(
     })
     # start = time.time()
     try:
+        # 检查客户端是否已断开连接
+        if await request.is_disconnected():
+            print(f"[WARN] 客户端已断开连接，跳过处理: {input_string[:50]}")
+            return []
+
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         input_string = input_string.strip()
         if not input_string:
@@ -47,12 +52,17 @@ async def batch_match(
                                         query_db=query_db, db=db, user=user)
         responses = []
         for idx, res in enumerate(results):
+            # 定期检查客户端连接状态
+            if idx % 5 == 0 and await request.is_disconnected():
+                print(f"[WARN] 处理过程中客户端断开连接，已处理 {idx}/{len(results)} 项")
+                break
+
             part = re.split(r"[ ,;/，；、]+", input_string)[idx].strip()
             success = bool(res[1])
             if success:
                 responses.append({
                     "success": True,
-                    "message": f"“{part}”匹配成功",
+                    "message": f"{part}匹配成功",
                     "items": res[0]
                 })
             else:
@@ -69,10 +79,16 @@ async def batch_match(
                         seen.add(val)
                 responses.append({
                     "success": False,
-                    "message": f"第{idx + 1}個“{part}”未匹配",
+                    "message": f"第{idx + 1}個{part}未匹配",
                     "items": merged
                 })
         return responses
+    except Exception as e:
+        # 捕获并记录异常，避免未处理的错误
+        print(f"[ERROR] batch_match 处理异常: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return []
     finally:
         print("batch_match")
         # duration = time.time() - start
