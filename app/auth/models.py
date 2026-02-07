@@ -111,6 +111,7 @@ class UserDbPermission(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'db_key', name='uix_user_db'),
         Index('idx_user_db', 'user_id', 'db_key'),
+        {'extend_existing': True}  # 允许扩展已存在的表
     )
 
     # 关系
