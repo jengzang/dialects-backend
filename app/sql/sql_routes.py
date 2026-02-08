@@ -2,27 +2,34 @@ import os
 import sqlite3
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.logs.api_logger import log_all_fields
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import (
     MutationParams, QueryParams, DistinctQueryRequest,
     BatchMutationParams, BatchReplacePreviewParams, BatchReplaceExecuteParams
 )
-from app.auth.dependencies import get_current_admin_user, get_current_user
+from app.auth.dependencies import get_current_admin_user, get_current_user, check_api_usage_limit
 from app.auth.database import get_db as get_auth_db
 from app.auth.models import User
+from common.config import REQUIRE_LOGIN
 
 router = APIRouter()
 
 
 @router.post("/query")
 async def query_table(
+    request: Request,
     params: QueryParams,
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
+    ip_address = request.client.host
+    check_api_usage_limit(auth_db, user, REQUIRE_LOGIN, ip_address=ip_address)
+    log_all_fields(request.url.path, params.dict())
+
     # 从 params 中取出 db_key 传进去
     with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
@@ -104,11 +111,16 @@ async def query_table(
 
 @router.get("/query/columns")
 async def get_column_info(
+    request: Request,
     db_key: str,
     table_name: str,
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
+    ip_address = request.client.host
+    check_api_usage_limit(auth_db, user, REQUIRE_LOGIN, ip_address=ip_address)
+    log_all_fields(request.url.path, {"db_key": db_key, "table_name": table_name})
+
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
         cursor = conn.cursor()
