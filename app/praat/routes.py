@@ -299,8 +299,8 @@ async def create_job(
         upload_id=request.upload_id,
         mode=request.mode,
         modules=request.modules,
-        options=request.options.model_dump() if request.options else {},
-        output_options=request.output.model_dump() if request.output else {}
+        options=request.options.model_dump(exclude_none=True) if request.options else {},
+        output_options=request.output.model_dump(exclude_none=True) if request.output else {}
     )
 
     # Execute in background
