@@ -169,3 +169,150 @@ def get_local_ip():
 PORT = 5000
 LOCAL_IP = get_local_ip() if _RUN_TYPE == "MINE" else "127.0.0.1"
 APP_URL = f"http://{LOCAL_IP}:{PORT}"
+
+# ========== API 限流和日志配置 =============
+
+# 路由配置：定义哪些路由需要限流和日志
+API_ROUTE_CONFIG = {
+    # 音韵分析 API
+    "/api/phonology": {
+        "rate_limit": True,      # 启用限流
+        "require_login": False,  # 不强制登录
+        "log_params": True,      # 记录参数
+        "log_body": True,        # 记录请求体
+    },
+    "/api/phonology_matrix": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/phonology_classification_matrix": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/charlist": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/ZhongGu": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/YinWei": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+
+    # 搜索 API
+    "/api/search_chars": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,  # GET 请求无 body
+    },
+    "/api/search_tones": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+
+    # SQL API（通配符匹配）
+    "/api/sql/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+
+    # 其他 API
+    "/api/get_coordinates": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    # "/api/batch_match": {
+    #     "rate_limit": False,
+    #     "require_login": False,
+    #     "log_params": True,
+    #     "log_body": False,
+    # },
+    # "/api/submit_form": {
+    #     "rate_limit": True,
+    #     "require_login": True,  # 强制登录
+    #     "log_params": True,
+    #     "log_body": True,
+    # },
+    # "/api/delete_form": {
+    #     "rate_limit": True,
+    #     "require_login": True,  # 强制登录
+    #     "log_params": True,
+    #     "log_body": True,
+    # },
+    "/api/get_custom": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    "/api/get_custom_feature": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    "/api/get_locs/*": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    "/api/get_partitions": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    "/api/get_regions": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+}
+
+# 默认配置（未在上面列出的路由使用此配置）
+API_DEFAULT_CONFIG = {
+    "rate_limit": False,
+    "require_login": False,
+    "log_params": False,
+    "log_body": False,
+}
+
+# 白名单：这些路由完全跳过检查
+API_WHITELIST = [
+    "/auth/*",           # 认证相关
+    "/__ping",           # 健康检查
+    "/",                 # 首页
+    "/admin",            # 管理页面
+    "/detail",
+    "/intro",
+    "/menu",
+    "/explore",
+    "/statics/*",        # 静态文件
+]
+
+# 黑名单：这些路由强制启用所有检查
+API_BLACKLIST = [
+    "/admin/api/*",      # 管理员 API
+]

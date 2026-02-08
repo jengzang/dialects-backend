@@ -5,10 +5,12 @@
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request, Depends
+from sqlalchemy.orm import Session
 
 from app.custom.database import get_db as get_db_custom
-from app.logs.api_logger import *
+from app.logs.service.api_limiter import ApiLimiter
+from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch
 from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
 
@@ -21,7 +23,7 @@ async def batch_match(
         input_string: str = Query(..., description="用戶輸入的字符串，用於後端匹配正確的地點"),
         filter_valid_abbrs_only: bool = Query(True, description="是否過濾沒有字表的簡稱（若為真則過濾）"),
         db: Session = Depends(get_db_custom),
-        user: Optional[User] = Depends(get_current_user),
+        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
 ):
     """
     用于 /api/batch_match 路由，匹配用戶輸入的地點，並提示正確的地點。
@@ -32,12 +34,7 @@ async def batch_match(
         "message": 提示信息
         "items": 所有匹配的地點序列
     """
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, {
-        "input_string": input_string,
-        "filter_valid_abbrs_only": filter_valid_abbrs_only
-    })
-    # start = time.time()
+    # 限流和日志记录已由中间件和依赖注入自动处理
     try:
         # 检查客户端是否已断开连接
         if await request.is_disconnected():
@@ -91,9 +88,3 @@ async def batch_match(
         return []
     finally:
         print("batch_match")
-        # duration = time.time() - start
-        # log_detailed_api(
-        #     request.url.path, duration, 200,
-        #     request.client.host, request.headers.get("user-agent", ""),
-        #     request.headers.get("referer", "")
-        # )

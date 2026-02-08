@@ -77,6 +77,7 @@ def keyword_log_writer():
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
+                    # print(f"[KeywordLogWriter] ✅ 批量写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
                     print(f"[X] 写入关键词日志失败: {e}")
@@ -91,6 +92,7 @@ def keyword_log_writer():
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
+                    # print(f"[KeywordLogWriter] ✅ 超时写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
                     print(f"[X] 写入关键词日志失败: {e}")
@@ -159,7 +161,7 @@ def _process_statistics_batch(batch: list):
                 update_statistic(db, "usage_daily", date_obj, "path", path)
 
         db.commit()
-        print(f"[OK] 批量更新 {len(batch)} 条统计")
+        # print(f"[OK] 批量更新 {len(batch)} 条统计")
     except Exception as e:
         print(f"[X] 统计批次失败: {e}")
         db.rollback()

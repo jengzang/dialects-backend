@@ -22,7 +22,7 @@ def on_starting(server):
 
     # 导入必要的模块
     from app.auth.database import get_db
-    from app.logs.api_logger import start_api_logger_workers
+    from app.logs.service.api_logger import start_api_logger_workers
     from app.auth.service import start_user_activity_writer
     from app.logs.scheduler import start_scheduler
 
@@ -56,7 +56,7 @@ def on_exit(server):
     print("🛑 [Gunicorn Master] 停止后台线程...")
     print("=" * 60)
 
-    from app.logs.api_logger import stop_api_logger_workers
+    from app.logs.service.api_logger import stop_api_logger_workers
     from app.auth.service import stop_user_activity_writer
     from app.logs.scheduler import stop_scheduler
 

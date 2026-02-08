@@ -10,7 +10,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from app.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
-from app.logs.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
+from app.logs.service.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
+from app.logs.service.api_limit_keyword import ApiLoggingMiddleware
 from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from common.config import _RUN_TYPE
@@ -195,6 +196,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # ⭐ 自动 gzip 压缩（基于 Accept-Encoding 请求头）
 # minimum_size=1024 表示只压缩大于 1KB 的响应
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# API 日志记录中间件（在 TrafficLoggingMiddleware 之前）
+app.add_middleware(ApiLoggingMiddleware)
 
 # api統計
 app.add_middleware(TrafficLoggingMiddleware)
