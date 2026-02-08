@@ -36,11 +36,15 @@ class PitchModule(AnalysisModule):
             print(f"[PITCH DEBUG] Starting pitch extraction with f0_min={f0_min_init}, f0_max={f0_max_init}")
 
             # Phase 1: Wide range extraction
-            pitch_phase1 = sound.to_pitch(
-                time_step=time_step,
-                pitch_floor=f0_min_init,
-                pitch_ceiling=f0_max_init
-            )
+            # Note: time_step must be None or positive, not 0
+            pitch_kwargs = {
+                "pitch_floor": f0_min_init,
+                "pitch_ceiling": f0_max_init
+            }
+            if time_step and time_step > 0:
+                pitch_kwargs["time_step"] = time_step
+
+            pitch_phase1 = sound.to_pitch(**pitch_kwargs)
 
             print(f"[PITCH DEBUG] Phase 1 complete, frames={pitch_phase1.get_number_of_frames()}")
 
@@ -66,11 +70,14 @@ class PitchModule(AnalysisModule):
                 print(f"[PITCH DEBUG] Phase 2: Auto-tuned range {f0_min_tuned:.1f}-{f0_max_tuned:.1f} Hz")
 
                 # Re-extract with tuned range
-                pitch = sound.to_pitch(
-                    time_step=time_step,
-                    pitch_floor=f0_min_tuned,
-                    pitch_ceiling=f0_max_tuned
-                )
+                pitch_kwargs_tuned = {
+                    "pitch_floor": f0_min_tuned,
+                    "pitch_ceiling": f0_max_tuned
+                }
+                if time_step and time_step > 0:
+                    pitch_kwargs_tuned["time_step"] = time_step
+
+                pitch = sound.to_pitch(**pitch_kwargs_tuned)
             else:
                 # Not enough data, use phase 1 result
                 print(f"[PITCH DEBUG] Not enough valid F0 values, using phase 1 result")
