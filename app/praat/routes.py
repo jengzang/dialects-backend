@@ -1,26 +1,23 @@
 """
-Praat acoustic analysis API routes.
+Praat acoustic analysis API routes (no database version).
 """
 from fastapi import APIRouter, UploadFile, File, Form, Depends, BackgroundTasks, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy.orm import Session
 from pathlib import Path
 from typing import Optional, Literal
 import shutil
 import uuid
+import threading
 
-from .database import get_praat_db
-from .models import Upload, Job
-from .schemas.upload import UploadResponse, UploadMetadata, UploadInfo
+from .memory_store import task_store, upload_store
 from .schemas.job import JobCreateRequest, JobCreateResponse, JobStatusResponse
-from .schemas.result import AnalysisResult
 from .core.audio_processor import (
     detect_audio_format,
     normalize_audio,
     check_ffmpeg,
     validate_audio_file
 )
-from .core.job_executor import execute_job
+from .core.job_executor_memory import execute_task
 from .utils.validators import (
     validate_job_request,
     validate_upload_file,
@@ -38,7 +35,7 @@ from app.auth.models import User
 
 router = APIRouter(prefix="/api/praat", tags=["Praat Acoustic Analysis"])
 
-# Storage base directory (use system temp directory, same as tools)
+# Storage base directory
 STORAGE_BASE = STORAGE_BASE_DIR
 STORAGE_BASE.mkdir(parents=True, exist_ok=True)
 
@@ -70,227 +67,201 @@ async def get_capabilities():
             "max_duration_s": MAX_DURATION_S,
             "max_upload_mb": MAX_UPLOAD_MB
         },
-        "ffmpeg_available": check_ffmpeg()
+        "ffmpeg_available": check_ffmpeg(),
+        "storage": "memory"  # Indicate no database
     }
 
 
-@router.post("/uploads", response_model=UploadResponse)
+@router.post("/uploads")
 async def create_upload(
     file: UploadFile = File(...),
-    normalize: bool = Form(True),
     retain_original: bool = Form(False),
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """
     Upload and normalize audio file.
 
+    Note: Normalization is mandatory for Praat analysis.
+    All audio files are automatically normalized to 16kHz mono WAV.
+
     Args:
         file: Audio file (any format)
-        normalize: Whether to normalize to WAV (default: True)
         retain_original: Whether to keep original file (default: False)
-        db: Database session
+        user: Current user (from ApiLimiter)
 
     Returns:
         Upload metadata and ID
     """
-    # Check ffmpeg
-    if normalize and not check_ffmpeg():
+    # Check ffmpeg (required for normalization)
+    if not check_ffmpeg():
         raise_error(
             ErrorCode.FFMPEG_NOT_FOUND,
             "FFmpeg is required for audio normalization but not found"
         )
 
-    # Validate file size
-    file.file.seek(0, 2)  # Seek to end
-    file_size = file.file.tell()
-    file.file.seek(0)  # Reset
-    validate_upload_file(file_size)
-
-    # Create upload directory
+    # Create upload directory first
     upload_id = str(uuid.uuid4())
     upload_dir = STORAGE_BASE / upload_id
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     # Save original file
-    original_ext = Path(file.filename).suffix or ".bin"
+    original_filename = file.filename
+    original_ext = Path(original_filename).suffix.lower()
     original_path = upload_dir / f"original{original_ext}"
 
     with open(original_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    # Get file size and validate
+    original_size = original_path.stat().st_size
+    validate_upload_file(original_size)
+
     # Detect format
-    try:
-        original_meta_dict = detect_audio_format(str(original_path))
-    except HTTPException as e:
-        # Cleanup and re-raise
-        shutil.rmtree(upload_dir, ignore_errors=True)
-        raise e
+    detected_mime = detect_audio_format(original_path)
 
-    # Validate limits
+    # Normalize audio (mandatory)
+    normalized_path = upload_dir / "normalized.wav"
     try:
-        validate_audio_limits(
-            original_meta_dict.get("duration_s"),
-            original_meta_dict.get("size_bytes", file_size)
+        normalize_audio(
+            input_path=original_path,
+            output_path=normalized_path,
+            target_sr=16000,
+            channels=1
         )
-    except HTTPException as e:
-        shutil.rmtree(upload_dir, ignore_errors=True)
-        raise e
 
-    # Normalize if requested
-    normalized_meta_dict = None
-    normalized_path = None
-    warnings = []
+        # Validate normalized audio
+        audio_meta = detect_audio_format(normalized_path)
+        normalized_meta = {
+            "format": "wav",
+            "sample_rate": audio_meta["sample_rate"],
+            "channels": audio_meta["channels"],
+            "duration_s": audio_meta["duration_s"]
+        }
 
-    if normalize:
-        try:
-            normalized_path = upload_dir / "normalized.wav"
-            normalized_meta_dict = normalize_audio(
-                str(original_path),
-                str(normalized_path)
+        # Check duration limit
+        if audio_meta["duration_s"] > MAX_DURATION_S:
+            # Clean up
+            shutil.rmtree(upload_dir)
+            raise_error(
+                ErrorCode.AUDIO_TOO_LONG,
+                f"Audio duration ({audio_meta['duration_s']:.1f}s) exceeds maximum ({MAX_DURATION_S}s)"
             )
-        except Exception as e:
-            warnings.append(f"Normalization failed: {str(e)}")
-            normalized_path = None
 
-    # Delete original if not retained and normalization succeeded
-    if not retain_original and normalized_path:
+    except HTTPException:
+        # Re-raise our own errors
+        raise
+    except Exception as e:
+        # Normalization failed - clean up and error
+        shutil.rmtree(upload_dir)
+        raise_error(
+            ErrorCode.AUDIO_DECODE_FAILED,
+            f"Failed to normalize audio: {str(e)}"
+        )
+
+    # Delete original if not retained
+    if not retain_original:
         original_path.unlink()
         original_path = None
 
-    # Create database record
-    upload = Upload(
-        id=upload_id,
-        filename=file.filename,
-        mime_type=original_meta_dict.get("mime_type"),
-        size_bytes=original_meta_dict.get("size_bytes", file_size),
-        duration_s=original_meta_dict.get("duration_s"),
-        sample_rate=normalized_meta_dict.get("sample_rate") if normalized_meta_dict else original_meta_dict.get("sample_rate"),
-        channels=normalized_meta_dict.get("channels") if normalized_meta_dict else original_meta_dict.get("channels"),
-        normalized_path=str(normalized_path) if normalized_path else None,
-        original_path=str(original_path) if original_path else None,
-        warnings=warnings
-    )
-
-    db.add(upload)
-    db.commit()
-    db.refresh(upload)
-
-    # Build response
-    original_meta = UploadMetadata(
-        size_bytes=original_meta_dict.get("size_bytes", file_size),
-        duration_s=original_meta_dict.get("duration_s"),
-        sample_rate=original_meta_dict.get("sample_rate"),
-        channels=original_meta_dict.get("channels"),
-        format=original_meta_dict.get("mime_type")
-    )
-
-    normalized_meta = None
-    if normalized_meta_dict:
-        normalized_meta = UploadMetadata(
-            size_bytes=normalized_meta_dict.get("size_bytes"),
-            duration_s=normalized_meta_dict.get("duration_s"),
-            sample_rate=normalized_meta_dict.get("sample_rate"),
-            channels=normalized_meta_dict.get("channels"),
-            format=normalized_meta_dict.get("format")
-        )
-
-    return UploadResponse(
+    # Store upload info in memory
+    upload_store.create_upload(
         upload_id=upload_id,
-        source_filename=file.filename,
-        detected_mime=original_meta_dict.get("mime_type"),
-        original_meta=original_meta,
-        normalized_meta=normalized_meta,
-        warnings=warnings
+        filename=original_filename,
+        original_path=str(original_path) if original_path else None,
+        normalized_path=str(normalized_path),
+        metadata={
+            "detected_mime": detected_mime,
+            "original_size": original_size,
+            "duration_s": audio_meta["duration_s"],
+            "sample_rate": audio_meta["sample_rate"],
+            "channels": audio_meta["channels"]
+        }
     )
 
+    return {
+        "upload_id": upload_id,
+        "source_filename": original_filename,
+        "detected_mime": detected_mime,
+        "original_meta": {
+            "size_bytes": original_size
+        },
+        "normalized_meta": normalized_meta
+    }
 
-@router.get("/uploads/{upload_id}", response_model=UploadInfo)
+
+@router.get("/uploads/{upload_id}")
 async def get_upload(
     upload_id: str,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """Get upload information."""
-    upload = db.query(Upload).filter(Upload.id == upload_id).first()
+    upload = upload_store.get_upload(upload_id)
 
     if not upload:
         raise_error(
             ErrorCode.UPLOAD_NOT_FOUND,
-            f"Upload {upload_id} not found",
-            status_code=404
+            f"Upload {upload_id} not found"
         )
 
-    return UploadInfo(
-        upload_id=upload.id,
-        filename=upload.filename,
-        mime_type=upload.mime_type,
-        size_bytes=upload.size_bytes,
-        duration_s=upload.duration_s,
-        sample_rate=upload.sample_rate,
-        channels=upload.channels,
-        created_at=upload.created_at,
-        warnings=upload.warnings or []
-    )
+    return {
+        "upload_id": upload["id"],
+        "filename": upload["filename"],
+        "has_original": upload["original_path"] is not None,
+        "has_normalized": upload["normalized_path"] is not None,
+        "metadata": upload["metadata"],
+        "created_at": upload["created_at"]
+    }
 
 
 @router.get("/uploads/{upload_id}/audio")
 async def get_upload_audio(
     upload_id: str,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """Download normalized audio file."""
-    upload = db.query(Upload).filter(Upload.id == upload_id).first()
+    upload = upload_store.get_upload(upload_id)
 
     if not upload:
         raise_error(
             ErrorCode.UPLOAD_NOT_FOUND,
-            f"Upload {upload_id} not found",
-            status_code=404
+            f"Upload {upload_id} not found"
         )
 
-    # Prefer normalized, fallback to original
-    audio_path = upload.normalized_path or upload.original_path
-
+    audio_path = upload["normalized_path"] or upload["original_path"]
     if not audio_path or not Path(audio_path).exists():
         raise_error(
-            ErrorCode.UPLOAD_NOT_FOUND,
-            "Audio file not found on disk",
-            status_code=404
+            ErrorCode.AUDIO_NOT_FOUND,
+            f"Audio file not found for upload {upload_id}"
         )
 
     return FileResponse(
-        audio_path,
+        path=audio_path,
         media_type="audio/wav" if audio_path.endswith(".wav") else "audio/mpeg",
-        filename=f"{upload_id}.wav" if audio_path.endswith(".wav") else upload.filename
+        filename=f"{upload_id}.wav" if audio_path.endswith(".wav") else upload["filename"]
     )
 
 
 @router.delete("/uploads/{upload_id}")
 async def delete_upload(
     upload_id: str,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """Delete upload and associated files."""
-    upload = db.query(Upload).filter(Upload.id == upload_id).first()
+    upload = upload_store.get_upload(upload_id)
 
     if not upload:
         raise_error(
             ErrorCode.UPLOAD_NOT_FOUND,
-            f"Upload {upload_id} not found",
-            status_code=404
+            f"Upload {upload_id} not found"
         )
 
     # Delete files
     upload_dir = STORAGE_BASE / upload_id
     if upload_dir.exists():
-        shutil.rmtree(upload_dir, ignore_errors=True)
+        shutil.rmtree(upload_dir)
 
-    # Delete from database (cascade will delete jobs)
-    db.delete(upload)
-    db.commit()
+    # Remove from memory
+    upload_store.delete_upload(upload_id)
 
     return {"message": "Upload deleted successfully"}
 
@@ -299,7 +270,6 @@ async def delete_upload(
 async def create_job(
     request: JobCreateRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """
@@ -308,88 +278,70 @@ async def create_job(
     Args:
         request: Job creation request
         background_tasks: FastAPI background tasks
-        db: Database session
+        user: Current user
 
     Returns:
-        Job ID and initial status
+        Job ID and status
     """
     # Validate request
     validate_job_request(request)
 
     # Check upload exists
-    upload = db.query(Upload).filter(Upload.id == request.upload_id).first()
+    upload = upload_store.get_upload(request.upload_id)
     if not upload:
         raise_error(
             ErrorCode.UPLOAD_NOT_FOUND,
-            f"Upload {request.upload_id} not found",
-            status_code=404
+            f"Upload {request.upload_id} not found"
         )
 
-    # Create job
-    job = Job(
-        id=str(uuid.uuid4()),
+    # Create task
+    task_id = task_store.create_task(
         upload_id=request.upload_id,
         mode=request.mode,
         modules=request.modules,
-        options=request.options.dict() if request.options else {},
-        output_options=request.output.dict() if request.output else {},
-        status="queued",
-        progress=0.0
+        options=request.options.model_dump() if request.options else {},
+        output_options=request.output.model_dump() if request.output else {}
     )
 
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    # Execute in background
+    background_tasks.add_task(execute_task, task_id)
 
-    # Add background task
-    background_tasks.add_task(execute_job, job.id, db)
-
-    return JobCreateResponse(
-        job_id=job.id,
-        status=job.status
-    )
+    return {
+        "job_id": task_id,
+        "status": "queued"
+    }
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: str,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """Get job status."""
-    job = db.query(Job).filter(Job.id == job_id).first()
+    task = task_store.get_task(job_id)
 
-    if not job:
+    if not task:
         raise_error(
             ErrorCode.JOB_NOT_FOUND,
             f"Job {job_id} not found",
             status_code=404
         )
 
-    error_detail = None
-    if job.error:
-        error_detail = {
-            "code": job.error.get("code"),
-            "message": job.error.get("message"),
-            "detail": job.error.get("detail")
-        }
-
-    return JobStatusResponse(
-        job_id=job.id,
-        status=job.status,
-        progress=job.progress,
-        stage=job.stage,
-        error=error_detail,
-        created_at=job.created_at,
-        updated_at=job.updated_at
-    )
+    return {
+        "job_id": task["id"],
+        "status": task["status"],
+        "progress": task["progress"],
+        "stage": task["stage"],
+        "error": task["error"],
+        "created_at": task["created_at"],
+        "updated_at": task["updated_at"]
+    }
 
 
 @router.get("/jobs/{job_id}/result")
 async def get_job_result(
     job_id: str,
     view: Literal["full", "summary", "timeseries"] = Query("full"),
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """
@@ -398,39 +350,36 @@ async def get_job_result(
     Args:
         job_id: Job ID
         view: Result view (full, summary, timeseries)
-        db: Database session
+        user: Current user
 
     Returns:
         Analysis result JSON
     """
-    job = db.query(Job).filter(Job.id == job_id).first()
+    task = task_store.get_task(job_id)
 
-    if not job:
+    if not task:
         raise_error(
             ErrorCode.JOB_NOT_FOUND,
             f"Job {job_id} not found",
             status_code=404
         )
 
-    if job.status != "done":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job is not complete (status: {job.status})"
+    if task["status"] != "done":
+        raise_error(
+            ErrorCode.JOB_NOT_DONE,
+            f"Job {job_id} is not done yet (status: {task['status']})",
+            status_code=400
         )
 
-    if not job.result_path or not Path(job.result_path).exists():
+    result = task["result"]
+    if not result:
         raise_error(
-            ErrorCode.PRAAT_ANALYSIS_FAILED,
-            "Result file not found",
+            ErrorCode.RESULT_NOT_FOUND,
+            f"Result not found for job {job_id}",
             status_code=404
         )
 
-    # Load result
-    import json
-    with open(job.result_path, "r", encoding="utf-8") as f:
-        result = json.load(f)
-
-    # Filter by view
+    # Filter result based on view
     if view == "summary":
         result = {
             "schema": result.get("schema"),
@@ -450,7 +399,6 @@ async def get_job_result(
 @router.delete("/jobs/{job_id}")
 async def cancel_job(
     job_id: str,
-    db: Session = Depends(get_praat_db),
     user: Optional[User] = Depends(ApiLimiter)
 ):
     """
@@ -458,19 +406,20 @@ async def cancel_job(
 
     Note: Already running jobs may not be immediately canceled.
     """
-    job = db.query(Job).filter(Job.id == job_id).first()
+    task = task_store.get_task(job_id)
 
-    if not job:
+    if not task:
         raise_error(
             ErrorCode.JOB_NOT_FOUND,
             f"Job {job_id} not found",
             status_code=404
         )
 
-    if job.status in ["done", "error", "canceled"]:
-        return {"message": f"Job already in terminal state: {job.status}"}
+    # Update status to canceled
+    if task["status"] in ["queued", "running"]:
+        task_store.update_task(job_id, status="canceled")
 
-    job.status = "canceled"
-    db.commit()
+    # Delete task
+    task_store.delete_task(job_id)
 
-    return {"message": "Job canceled"}
+    return {"message": "Job canceled successfully"}

@@ -1,8 +1,7 @@
 """
-Praat service cleanup scheduler.
+Praat service cleanup scheduler (memory version - no database).
 
-Automatically cleans up old uploads and completed jobs to prevent disk space exhaustion.
-Runs every 30 minutes and deletes uploads older than 1 hour.
+Automatically cleans up old uploads and tasks from memory and disk.
 """
 import logging
 from datetime import datetime, timedelta
@@ -11,16 +10,13 @@ import shutil
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import and_
 
-from app.praat.database import SessionLocal
-from app.praat.models import Upload, Job
+from app.praat.memory_store import task_store, upload_store
 from app.praat.config import (
     CLEANUP_ENABLED,
-    CLEANUP_AGE_HOURS,
+    TASK_RETENTION_SECONDS,
+    UPLOAD_RETENTION_SECONDS,
     CLEANUP_SCHEDULE_MINUTES,
-    ORPHANED_CLEANUP_ENABLED,
-    ORPHANED_CLEANUP_HOURS,
     STORAGE_BASE_DIR
 )
 
@@ -35,80 +31,73 @@ scheduler = BackgroundScheduler()
 STORAGE_BASE = STORAGE_BASE_DIR
 
 
-def cleanup_old_uploads():
+def cleanup_memory_and_files():
     """
-    Clean up old uploads and completed jobs.
+    Clean up old tasks and uploads from memory and disk.
 
     Deletion policy:
-    - Uploads older than 1 hour (configurable)
-    - Completed/error/canceled jobs older than 1 hour
-    - Failed uploads (no associated jobs)
+    - Tasks older than TASK_RETENTION_SECONDS
+    - Uploads older than UPLOAD_RETENTION_SECONDS
+    - Associated files on disk
     """
-    logger.info("[PRAAT CLEANUP] Starting cleanup of old uploads...")
-    db = SessionLocal()
+    logger.info("[PRAAT CLEANUP] Starting cleanup...")
 
     try:
-        # Cutoff time: configurable hours ago
-        cutoff_time = datetime.utcnow() - timedelta(hours=CLEANUP_AGE_HOURS)
+        # Cleanup tasks
+        deleted_tasks = task_store.cleanup_old_tasks(TASK_RETENTION_SECONDS)
+        logger.info(f"[PRAAT CLEANUP] Deleted {deleted_tasks} old tasks from memory")
 
-        # Find old uploads
-        old_uploads = db.query(Upload).filter(
-            Upload.created_at < cutoff_time
-        ).all()
-
-        deleted_count = 0
+        # Cleanup uploads and files
+        deleted_uploads = 0
         freed_bytes = 0
 
-        for upload in old_uploads:
-            # Check if all associated jobs are in terminal state
-            active_jobs = db.query(Job).filter(
-                and_(
-                    Job.upload_id == upload.id,
-                    Job.status.in_(["queued", "running"])
-                )
-            ).count()
+        # Get all uploads before cleanup
+        all_uploads = []
+        for upload_id in list(upload_store._uploads.keys()):
+            upload = upload_store.get_upload(upload_id)
+            if upload:
+                all_uploads.append(upload)
 
-            if active_jobs > 0:
-                logger.info(f"[PRAAT CLEANUP] Skipping upload {upload.id} (has active jobs)")
-                continue
+        # Check each upload
+        cutoff_time = datetime.utcnow() - timedelta(seconds=UPLOAD_RETENTION_SECONDS)
 
-            # Delete files
-            upload_dir = STORAGE_BASE / upload.id
-            if upload_dir.exists():
-                try:
-                    # Calculate size before deletion
-                    size = sum(f.stat().st_size for f in upload_dir.rglob('*') if f.is_file())
-                    freed_bytes += size
+        for upload in all_uploads:
+            created = datetime.fromisoformat(upload["created_at"])
+            age = (datetime.utcnow() - created).total_seconds()
 
-                    shutil.rmtree(upload_dir, ignore_errors=True)
-                    logger.info(f"[PRAAT CLEANUP] Deleted files for upload {upload.id} ({size / 1024 / 1024:.2f} MB)")
-                except Exception as e:
-                    logger.error(f"[PRAAT CLEANUP] Failed to delete files for upload {upload.id}: {e}")
+            if age > UPLOAD_RETENTION_SECONDS:
+                # Delete files
+                upload_dir = STORAGE_BASE / upload["id"]
+                if upload_dir.exists():
+                    try:
+                        # Calculate size before deletion
+                        size = sum(f.stat().st_size for f in upload_dir.rglob('*') if f.is_file())
+                        freed_bytes += size
 
-            # Delete from database (cascade will delete jobs)
-            db.delete(upload)
-            deleted_count += 1
+                        shutil.rmtree(upload_dir, ignore_errors=True)
+                        logger.info(f"[PRAAT CLEANUP] Deleted files for upload {upload['id']} ({size / 1024 / 1024:.2f} MB)")
+                    except Exception as e:
+                        logger.error(f"[PRAAT CLEANUP] Failed to delete files for upload {upload['id']}: {e}")
 
-        db.commit()
+                # Delete from memory
+                upload_store.delete_upload(upload["id"])
+                deleted_uploads += 1
 
         logger.info(
             f"[PRAAT CLEANUP] Cleanup complete: "
-            f"deleted {deleted_count} uploads, "
+            f"deleted {deleted_uploads} uploads, "
             f"freed {freed_bytes / 1024 / 1024:.2f} MB"
         )
 
     except Exception as e:
         logger.error(f"[PRAAT CLEANUP] Cleanup failed: {e}")
-        db.rollback()
-    finally:
-        db.close()
 
 
 def cleanup_orphaned_files():
     """
-    Clean up orphaned files (files without database records).
+    Clean up orphaned files (files without memory records).
 
-    This handles cases where database records were deleted but files remain.
+    This handles cases where memory records were lost but files remain.
     """
     logger.info("[PRAAT CLEANUP] Starting cleanup of orphaned files...")
 
@@ -116,10 +105,9 @@ def cleanup_orphaned_files():
         logger.info("[PRAAT CLEANUP] Storage directory does not exist, skipping")
         return
 
-    db = SessionLocal()
     try:
-        # Get all upload IDs from database
-        valid_upload_ids = {upload.id for upload in db.query(Upload.id).all()}
+        # Get all upload IDs from memory
+        valid_upload_ids = set(upload_store._uploads.keys())
 
         # Check all directories in storage
         orphaned_count = 0
@@ -131,7 +119,7 @@ def cleanup_orphaned_files():
 
             upload_id = upload_dir.name
 
-            # If directory doesn't have a corresponding database record
+            # If directory doesn't have a corresponding memory record
             if upload_id not in valid_upload_ids:
                 try:
                     # Calculate size
@@ -152,8 +140,6 @@ def cleanup_orphaned_files():
 
     except Exception as e:
         logger.error(f"[PRAAT CLEANUP] Orphaned cleanup failed: {e}")
-    finally:
-        db.close()
 
 
 def start_scheduler():
@@ -162,34 +148,31 @@ def start_scheduler():
         logger.info("[PRAAT CLEANUP] Cleanup is disabled in config")
         return
 
-    # Run cleanup every N minutes (frequent cleanup for short retention)
+    # Run cleanup every N minutes
     scheduler.add_job(
-        cleanup_old_uploads,
+        cleanup_memory_and_files,
         IntervalTrigger(minutes=CLEANUP_SCHEDULE_MINUTES),
-        id="praat_cleanup_old_uploads",
-        name="Clean up old Praat uploads",
+        id="praat_cleanup_memory",
+        name="Clean up old Praat tasks and uploads",
         replace_existing=True
     )
     logger.info(
         f"[PRAAT CLEANUP] Scheduled cleanup every {CLEANUP_SCHEDULE_MINUTES} minutes "
-        f"(deletes uploads older than {CLEANUP_AGE_HOURS} hour(s))"
+        f"(deletes data older than {TASK_RETENTION_SECONDS}s)"
     )
 
-    # Run orphaned file cleanup every N hours
-    if ORPHANED_CLEANUP_ENABLED:
-        scheduler.add_job(
-            cleanup_orphaned_files,
-            IntervalTrigger(hours=ORPHANED_CLEANUP_HOURS),
-            id="praat_cleanup_orphaned_files",
-            name="Clean up orphaned Praat files",
-            replace_existing=True
-        )
-        logger.info(
-            f"[PRAAT CLEANUP] Scheduled orphaned cleanup every {ORPHANED_CLEANUP_HOURS} hour(s)"
-        )
+    # Run orphaned file cleanup every 2 hours
+    scheduler.add_job(
+        cleanup_orphaned_files,
+        IntervalTrigger(hours=2),
+        id="praat_cleanup_orphaned_files",
+        name="Clean up orphaned Praat files",
+        replace_existing=True
+    )
+    logger.info("[PRAAT CLEANUP] Scheduled orphaned cleanup every 2 hours")
 
     scheduler.start()
-    logger.info("[PRAAT CLEANUP] Scheduler started")
+    logger.info("[PRAAT CLEANUP] Scheduler started (memory mode)")
 
 
 def stop_scheduler():

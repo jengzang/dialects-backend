@@ -20,7 +20,11 @@ ORPHANED_CLEANUP_HOURS = 2  # Run every 2 hours (changed from weekly)
 
 # Upload limits
 MAX_UPLOAD_MB = 50  # Maximum upload size in MB
-MAX_DURATION_S = 60  # Maximum audio duration in seconds
+MAX_DURATION_S = 20  # Maximum audio duration in seconds (reduced from 60s)
+
+# Memory storage settings
+TASK_RETENTION_SECONDS = 3600  # Keep tasks in memory for 1 hour
+UPLOAD_RETENTION_SECONDS = 3600  # Keep uploads in memory for 1 hour
 
 # Analysis settings
 DEFAULT_SAMPLE_RATE = 16000  # Default sample rate for normalization

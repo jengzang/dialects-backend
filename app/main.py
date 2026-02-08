@@ -53,7 +53,7 @@ if _RUN_TYPE == 'EXE':
                 if active_requests == 0:
                     print(msg)
                     now = time.strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"[{now}] Backend alive [OK] — 開發者: 不羈")
+                    print(f"[{now}] Backend alive [OK]  開發者: 不羈")
 
 
 @asynccontextmanager
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
 
     # [NEW] 初始化数据库连接池
     print("=" * 60)
-    print("🔌 初始化数据库连接池...")
+    print("[DB] 初始化数据库连接池...")
     try:
         # 为常用数据库预创建连接池
         get_db_pool(QUERY_DB_ADMIN, pool_size=5)
@@ -80,40 +80,40 @@ async def lifespan(app: FastAPI):
         get_db_pool(DIALECTS_DB_ADMIN, pool_size=10)
         get_db_pool(DIALECTS_DB_USER, pool_size=10)
         get_db_pool(CHARACTERS_DB_PATH, pool_size=5)
-        print("✅ 数据库连接池初始化完成")
+        print("[OK] 数据库连接池初始化完成")
     except Exception as e:
-        print(f"⚠️ 连接池初始化失败: {str(e)}")
+        print(f" 连接池初始化失败: {str(e)}")
     print("=" * 60)
 
     # [新增] 启动时清理旧的临时文件（12小时前的）
     from app.tools.file_manager import file_manager
     print("=" * 60)
-    print("🧹 清理旧的临时文件（12小时前）...")
+    print("[CLEANUP] 清理旧的临时文件（12小时前）...")
     try:
         deleted_count = file_manager.cleanup_old_files(max_age_hours=12)
-        print(f"✅ 已清理 {deleted_count} 个过期任务目录")
+        print(f"[OK] 已清理 {deleted_count} 个过期任务目录")
     except Exception as e:
-        print(f"⚠️ 清理临时文件失败: {str(e)}")
+        print(f" 清理临时文件失败: {str(e)}")
     print("=" * 60)
 
     # [新增] 预热方言数据缓存（避免第一个请求超时）
     from app.service.match_input_tip import _load_dialect_cache
     print("=" * 60)
-    print("🔥 预热方言数据缓存...")
+    print(" 预热方言数据缓存...")
     try:
         # 预加载管理员和用户数据库的缓存
         _load_dialect_cache(QUERY_DB_ADMIN, filter_valid_abbrs_only=True)
         _load_dialect_cache(QUERY_DB_USER, filter_valid_abbrs_only=True)
         _load_dialect_cache(QUERY_DB_ADMIN, filter_valid_abbrs_only=False)
         _load_dialect_cache(QUERY_DB_USER, filter_valid_abbrs_only=False)
-        print("✅ 方言数据缓存预热完成（4个缓存已加载）")
+        print("[OK] 方言数据缓存预热完成（4个缓存已加载）")
     except Exception as e:
-        print(f"⚠️ 缓存预热失败: {str(e)}")
+        print(f" 缓存预热失败: {str(e)}")
     print("=" * 60)
 
     # [已注释] 执行日志数据迁移（从 txt 到 logs.db）
     # print("=" * 60)1
-    # print("🔄 检查日志数据迁移...")
+    # print("[TASK] 检查日志数据迁移...")
     # run_migration(force=False)  # 只迁移一次，不强制重复
     # print("=" * 60)
 
@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI):
 
     if not is_gunicorn_worker:
         # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
-        print("🔧 [单进程模式] 启动后台线程...")
+        print(" [单进程模式] 启动后台线程...")
         start_api_logger_workers(db)
         # [NEW] 启动用户活动更新后台线程
         start_user_activity_writer()
@@ -138,15 +138,15 @@ async def lifespan(app: FastAPI):
         # [NEW] 启动 Praat 清理调度器
         from app.praat.cleanup_scheduler import start_scheduler as start_praat_scheduler
         start_praat_scheduler()
-        print("🧹 已启动 Praat 清理调度器（每 30 分钟清理 1 小时前的文件）")
+        print("[CLEANUP] 已启动 Praat 清理调度器（每 30 分钟清理 1 小时前的文件）")
 
         # [新增] 启动定期批量清理任务（每小时检查一次，清理12小时前的文件）
         cleanup_thread = threading.Thread(target=_periodic_cleanup, daemon=True)
         cleanup_thread.start()
-        print("🔄 已启动定期清理线程（每小时执行，清理12小时前文件）")
+        print("[TASK] 已启动定期清理线程（每小时执行，清理12小时前文件）")
     else:
         # gunicorn 环境，跳过（由主进程启动）
-        print("⏭️  [Worker进程] 跳过后台线程启动（已由主进程启动）")
+        print("[SKIP]  [Worker进程] 跳过后台线程启动（已由主进程启动）")
 
     try:
         yield  # 应用运行中
@@ -167,17 +167,17 @@ async def lifespan(app: FastAPI):
             from app.praat.cleanup_scheduler import stop_scheduler as stop_praat_scheduler
             stop_praat_scheduler()
 
-            print("🛑 [单进程模式] 后台线程已停止")
+            print("[STOP] [单进程模式] 后台线程已停止")
         else:
-            print("⏭️  [Worker进程] 跳过后台线程停止（由主进程管理）")
+            print("[SKIP]  [Worker进程] 跳过后台线程停止（由主进程管理）")
 
-        print("🛑 App shutting down...")
+        print("[STOP] App shutting down...")
         await close_redis()  # [OK] 關閉 Redis 連接
 
         # [NEW] 关闭所有数据库连接池
-        print("🔌 关闭数据库连接池...")
+        print("[DB] 关闭数据库连接池...")
         close_all_pools()
-        print("✅ 数据库连接池已关闭")
+        print("[OK] 数据库连接池已关闭")
 
 
 def _periodic_cleanup():
@@ -202,7 +202,7 @@ else:
 # 允許跨域
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ⭐ 自动 gzip 压缩（基于 Accept-Encoding 请求头）
+#  自动 gzip 压缩（基于 Accept-Encoding 请求头）
 # minimum_size=1024 表示只压缩大于 1KB 的响应
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 

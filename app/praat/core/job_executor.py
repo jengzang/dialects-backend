@@ -149,9 +149,13 @@ def build_result_json(
     # Summary
     summary = {}
     for module_name, result in module_results.items():
+        # Skip modules that returned errors
+        if "error" in result:
+            continue
+        # Extract summary if available
         if "summary" in result:
             summary[module_name] = result["summary"]
-        elif "error" not in result:
+        else:
             summary[module_name] = result
 
     # Timeseries (if requested)
