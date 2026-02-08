@@ -227,7 +227,7 @@ API_ROUTE_CONFIG = {
     },
 
     # SQL API（通配符匹配）
-    "/api/sql/*": {
+    "/sql/*": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,
