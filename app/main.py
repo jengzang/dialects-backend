@@ -135,6 +135,11 @@ async def lifespan(app: FastAPI):
         # [OK] 启动定时任务调度器（只在单进程模式下启动）
         start_scheduler()
 
+        # [NEW] 启动 Praat 清理调度器
+        from app.praat.cleanup_scheduler import start_scheduler as start_praat_scheduler
+        start_praat_scheduler()
+        print("🧹 已启动 Praat 清理调度器（每 30 分钟清理 1 小时前的文件）")
+
         # [新增] 启动定期批量清理任务（每小时检查一次，清理12小时前的文件）
         cleanup_thread = threading.Thread(target=_periodic_cleanup, daemon=True)
         cleanup_thread.start()
@@ -157,6 +162,10 @@ async def lifespan(app: FastAPI):
 
             # [OK] 停止定时任务调度器
             stop_scheduler()
+
+            # [NEW] 停止 Praat 清理调度器
+            from app.praat.cleanup_scheduler import stop_scheduler as stop_praat_scheduler
+            stop_praat_scheduler()
 
             print("🛑 [单进程模式] 后台线程已停止")
         else:

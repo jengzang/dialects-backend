@@ -299,6 +299,38 @@ API_DEFAULT_CONFIG = {
     "log_body": False,
 }
 
+# Praat acoustic analysis API
+API_ROUTE_CONFIG["/api/praat/uploads"] = {
+    "rate_limit": True,
+    "require_login": True,  # Require authentication for uploads
+    "log_params": True,
+    "log_body": False,  # Don't log binary audio data
+}
+API_ROUTE_CONFIG["/api/praat/uploads/*"] = {
+    "rate_limit": False,
+    "require_login": True,  # Require authentication for upload operations
+    "log_params": False,
+    "log_body": False,
+}
+API_ROUTE_CONFIG["/api/praat/jobs"] = {
+    "rate_limit": True,
+    "require_login": True,  # Require authentication for job creation
+    "log_params": True,
+    "log_body": True,
+}
+API_ROUTE_CONFIG["/api/praat/jobs/*"] = {
+    "rate_limit": False,  # Allow frequent polling
+    "require_login": True,  # Require authentication for job operations
+    "log_params": False,
+    "log_body": False,
+}
+API_ROUTE_CONFIG["/api/praat/capabilities"] = {
+    "rate_limit": False,
+    "require_login": False,  # Keep public for metadata discovery
+    "log_params": False,
+    "log_body": False,
+}
+
 # 白名单：这些路由完全跳过检查
 API_WHITELIST = [
     "/auth/*",           # 认证相关
