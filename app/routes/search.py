@@ -11,7 +11,7 @@ from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
 from app.service.search_chars import search_characters
-from common.config import DIALECTS_DB_ADMIN, DIALECTS_DB_USER, QUERY_DB_ADMIN, QUERY_DB_USER
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 from app.service.search_tones import search_tones
 
 router = APIRouter()

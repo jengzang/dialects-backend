@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, event  # [NEW] 新增 event
 from sqlalchemy.orm import sessionmaker
 from app.auth.models import Base
-from common.config import USER_DATABASE_URL
+from common.path import USER_DATABASE_URL
 
 engine = create_engine(
     USER_DATABASE_URL,

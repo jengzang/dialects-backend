@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.logs.database import engine, SessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
-from common.config import KEYWORD_LOG_FILE, API_USAGE_FILE
+from common.path import KEYWORD_LOG_FILE, API_USAGE_FILE
 
 
 def migrate_keyword_log():

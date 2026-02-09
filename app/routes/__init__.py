@@ -21,7 +21,7 @@ from .user import router as user_router
 from ..logs import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
-from app.praat.routes import router as praat_router
+from app.tools.praat.routes import router as praat_router
 
 
 def setup_routes(app: FastAPI):

@@ -20,7 +20,7 @@ from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 from xlrd import open_workbook
 
-from common.config import WRITE_ERROR_LOG
+from common.path import WRITE_ERROR_LOG
 from common.constants import col_map, vowel_pattern
 from common.s2t import s2t_pro
 

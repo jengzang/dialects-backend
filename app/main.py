@@ -135,15 +135,10 @@ async def lifespan(app: FastAPI):
         # [OK] 启动定时任务调度器（只在单进程模式下启动）
         start_scheduler()
 
-        # [NEW] 启动 Praat 清理调度器
-        from app.praat.cleanup_scheduler import start_scheduler as start_praat_scheduler
-        start_praat_scheduler()
-        print("[CLEANUP] 已启动 Praat 清理调度器（每 30 分钟清理 1 小时前的文件）")
-
-        # [新增] 启动定期批量清理任务（每小时检查一次，清理12小时前的文件）
+        # [新增] 启动定期批量清理任务（每小时检查一次，清理3小时前的文件）
         cleanup_thread = threading.Thread(target=_periodic_cleanup, daemon=True)
         cleanup_thread.start()
-        print("[TASK] 已启动定期清理线程（每小时执行，清理12小时前文件）")
+        print("[TASK] 已启动定期清理线程（每小时执行，清理3小时前文件）")
     else:
         # gunicorn 环境，跳过（由主进程启动）
         print("[SKIP]  [Worker进程] 跳过后台线程启动（已由主进程启动）")
@@ -163,10 +158,6 @@ async def lifespan(app: FastAPI):
             # [OK] 停止定时任务调度器
             stop_scheduler()
 
-            # [NEW] 停止 Praat 清理调度器
-            from app.praat.cleanup_scheduler import stop_scheduler as stop_praat_scheduler
-            stop_praat_scheduler()
-
             print("[STOP] [单进程模式] 后台线程已停止")
         else:
             print("[SKIP]  [Worker进程] 跳过后台线程停止（由主进程管理）")
@@ -181,15 +172,15 @@ async def lifespan(app: FastAPI):
 
 
 def _periodic_cleanup():
-    """定期批量清理旧文件（每小时执行一次，清理12小时前的文件）"""
+    """定期批量清理旧文件（每小时执行一次，清理3小时前的文件）"""
     from app.tools.file_manager import file_manager
     while True:
         time.sleep(3600)  # 每小时执行一次
         try:
-            deleted_count = file_manager.cleanup_old_files(max_age_hours=12)
+            deleted_count = file_manager.cleanup_old_files(max_age_hours=3)
             if deleted_count > 0:
                 now = time.strftime("%Y-%m-%d %H:%M:%S")
-                print(f"[{now}] [CLEANUP] 定期清理：已删除 {deleted_count} 个过期任务目录（超过12小时）")
+                print(f"[{now}] [CLEANUP] 定期清理：已删除 {deleted_count} 个过期任务目录（超过3小时）")
         except Exception as e:
             print(f"[CLEANUP] 定期清理失败: {str(e)}")
 

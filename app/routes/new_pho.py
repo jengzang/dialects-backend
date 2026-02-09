@@ -11,7 +11,7 @@ from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalys
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
     _run_dialect_analysis_sync
 from app.service.phonology2status import pho2sta
-from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 
 router = APIRouter()
 

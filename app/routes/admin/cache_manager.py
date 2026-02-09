@@ -5,7 +5,8 @@ import sys
 from fastapi import APIRouter
 from app.service.match_input_tip import clear_dialect_cache, _dialect_cache
 from app.redis_client import redis_client
-from common.config import QUERY_DB_ADMIN, QUERY_DB_USER, _RUN_TYPE
+from common.config import _RUN_TYPE
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 
 router = APIRouter()
 

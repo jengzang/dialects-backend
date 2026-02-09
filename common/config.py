@@ -1,98 +1,13 @@
 import os
 import socket
 
+from common.api_config import API_ROUTE_CONFIG
+
 # --------運行方式------------
 # _RUN_TYPE = 'WEB'  # MINE/EXE/WEB
 _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
 
-# ============ 路徑 =================
-# 計算專案根目錄路徑
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-# HTML_PATH = os.path.join(BASE_DIR, "index.html")
-# JS_PATH = os.path.join(BASE_DIR, "app", "js")
-# CSS_PATH = os.path.join(BASE_DIR, "app", "css")
-
-# database路徑依賴
-QUERY_DB_PATH = os.path.join(BASE_DIR, "data", "query_dialects.db")
-QUERY_DB_ADMIN = os.path.join(BASE_DIR, "data", "query_admin.db")
-QUERY_DB_USER = os.path.join(BASE_DIR, "data", "query_user.db")
-
-DIALECTS_DB_PATH = os.path.join(BASE_DIR, "data", "dialects_all.db")
-DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_admin.db")
-DIALECTS_DB_USER = os.path.join(BASE_DIR, "data", "dialects_user.db")
-
-CHARACTERS_DB_PATH = os.path.join(BASE_DIR, "data", "characters.db")
-SUPPLE_DB_PATH = os.path.join(BASE_DIR, "data", "supplements.db")
-SUPPLE_DB_URL = f"sqlite:///{SUPPLE_DB_PATH}"
-# QUERY_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dialects_query.db"
-# DIALECTS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dialects_all.db"
-# CHARACTERS_DB_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/characters.db"
-
-YC_SPOKEN_DB_PATH = os.path.join(BASE_DIR, "data", "yc_spoken.db")
-GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
-YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
-
-# 字表寫入SQL路徑依賴
-APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")
-HAN_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "漢字音典字表檔案（長期更新）.xlsx")
-HAN_CSV_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "漢字音典字表檔案（長期更新）-檔案.csv")  # 暫未使用
-PHO_TABLE_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "聲韻.xlsx")
-RAW_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "raw")
-PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "processed")
-YINDIAN_DATA_DIR = os.path.join(BASE_DIR, "make", "data", "yindian")
-# APPEND_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/Append_files.xlsx"
-# HAN_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/漢字音典字表檔案（長期更新）.xlsx"
-# PHO_TABLE_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/聲韻.xlsx"
-
-# 通用路徑依賴
-ZHENGZI_PATH = os.path.join(BASE_DIR, "data", "dependency", "正字.tsv")
-MULCODECHAR_PATH = os.path.join(BASE_DIR, "data", "dependency", "mulcodechar.dt")
-# ZHENGZI_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/正字.tsv"
-# MULCODECHAR_PATH = "C:/Users/joengzaang/PycharmProjects/process_phonology/data/dependency/mulcodechar.dt"
-
-# api_logs路徑依賴
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)  # [OK] 主动创建 logs 目录
-KEYWORD_LOG_FILE = os.path.join(log_dir, "api_keywords_log.txt")
-SUMMARY_FILE = os.path.join(log_dir, "api_keywords_summary.txt")
-API_USAGE_FILE = os.path.join(log_dir, "api_usage_stats.txt")
-API_DETAILED_FILE = os.path.join(log_dir, "api_detailed_stats.txt")
-API_DETAILED_JSON = os.path.join(log_dir, "api_detailed_stats.json")
-
-# 字表處理路徑依賴
-MISSING_DATA_LOG = os.path.join(BASE_DIR, "logs", "缺資料.txt")
-WRITE_INFO_LOG = os.path.join(BASE_DIR, "logs", "write.txt")
-WRITE_ERROR_LOG = os.path.join(BASE_DIR, "logs", "write_error.txt")
-
-
-# 是否刪除一星期前的api記錄
-CLEAR_WEEK = True
-# 只记录路径中包含以下词的 API
-RECORD_API = [
-    "phonology",  # 可以匹配 "/api/phonology"
-    "get_coordinates",  # 可以匹配 "/api/get_coordinates"
-    "search_tones",  # 可以匹配 "/api/search_tones/"
-    "search_chars",  # 可以匹配 "/api/search_chars/"
-    "submit_form",
-    "delete_form",
-    "ZhongGu",
-    "YinWei",
-    "charlist",
-    "sql",
-    "api/tools",
-]
-# 不記錄帶有以下字段的api
-IGNORE_API = ["download", "progress"]
-
-# ========== 登錄系統 =============
-USER_DATABASE_PATH = os.path.join(BASE_DIR, "data", "auth.db")
-USER_DATABASE_URL = f"sqlite:///{USER_DATABASE_PATH}"
-
-# ========== 日志系統 =============
-LOGS_DATABASE_PATH = os.path.join(BASE_DIR, "data", "logs.db")
-LOGS_DATABASE_URL = f"sqlite:///{LOGS_DATABASE_PATH}"
-
+# =========JWT==============
 SECRET_KEY = "super-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Changed from 100000 to 30 minutes for security
@@ -101,6 +16,7 @@ MAX_ACTIVE_REFRESH_TOKENS = 10     # New: Limit active devices per user
 ISSUER = "dialects_api"  # 可自定義
 AUDIENCE = "dialects_web"  # 可自定義
 
+# =============register=========
 # 是否要求郵件驗證
 REQUIRE_EMAIL_VERIFICATION = False  # 改成 False 就不需要驗證
 # 限制註冊頻率
@@ -126,23 +42,6 @@ BATCH_SIZE = 20
 # 缓存过期时间（例如：1小时）
 CACHE_EXPIRATION_TIME = 3600  # 秒
 
-######數據庫系統##############
-# 管理员专属数据库
-ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs", "supple", "auth"}
-
-DB_MAPPING = {
-    "spoken": YC_SPOKEN_DB_PATH,
-    "village": GD_VILLAGE_DB_PATH,
-    "chars": CHARACTERS_DB_PATH,
-    "query": QUERY_DB_USER,
-    "query_admin": QUERY_DB_ADMIN,
-    "dialects": DIALECTS_DB_USER,
-    "dialects_admin": DIALECTS_DB_ADMIN,
-    "yubao": YUBAO_DB_PATH,
-    "logs": LOGS_DATABASE_PATH,
-    "supple": SUPPLE_DB_PATH,
-    "auth": USER_DATABASE_PATH
-}
 
 # =============== 配置 =======================
 # banner配置
@@ -170,181 +69,3 @@ PORT = 5000
 LOCAL_IP = get_local_ip() if _RUN_TYPE == "MINE" else "127.0.0.1"
 APP_URL = f"http://{LOCAL_IP}:{PORT}"
 
-# ========== API 限流和日志配置 =============
-
-# 路由配置：定义哪些路由需要限流和日志
-API_ROUTE_CONFIG = {
-    # 音韵分析 API
-    "/api/phonology": {
-        "rate_limit": True,      # 启用限流
-        "require_login": False,  # 不强制登录
-        "log_params": True,      # 记录参数
-        "log_body": True,        # 记录请求体
-    },
-    "/api/phonology_matrix": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-    "/api/phonology_classification_matrix": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-    "/api/charlist": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-    "/api/ZhongGu": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-    "/api/YinWei": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-
-    # 搜索 API
-    "/api/search_chars": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,  # GET 请求无 body
-    },
-    "/api/search_tones": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-
-    # SQL API（通配符匹配）
-    "/sql/*": {
-        "rate_limit": True,
-        "require_login": False,
-        "log_params": True,
-        "log_body": True,
-    },
-
-    # 其他 API
-    "/api/get_coordinates": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-    # "/api/batch_match": {
-    #     "rate_limit": False,
-    #     "require_login": False,
-    #     "log_params": True,
-    #     "log_body": False,
-    # },
-    # "/api/submit_form": {
-    #     "rate_limit": True,
-    #     "require_login": True,  # 强制登录
-    #     "log_params": True,
-    #     "log_body": True,
-    # },
-    # "/api/delete_form": {
-    #     "rate_limit": True,
-    #     "require_login": True,  # 强制登录
-    #     "log_params": True,
-    #     "log_body": True,
-    # },
-    "/api/get_custom": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-    "/api/get_custom_feature": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-    "/api/get_locs/*": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-    "/api/get_partitions": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-    "/api/get_regions": {
-        "rate_limit": False,
-        "require_login": False,
-        "log_params": True,
-        "log_body": False,
-    },
-}
-
-# 默认配置（未在上面列出的路由使用此配置）
-API_DEFAULT_CONFIG = {
-    "rate_limit": False,
-    "require_login": False,
-    "log_params": False,
-    "log_body": False,
-}
-
-# Praat acoustic analysis API
-API_ROUTE_CONFIG["/api/praat/uploads"] = {
-    "rate_limit": True,
-    "require_login": True,  # Require authentication for uploads
-    "log_params": True,
-    "log_body": False,  # Don't log binary audio data
-}
-API_ROUTE_CONFIG["/api/praat/uploads/*"] = {
-    "rate_limit": False,
-    "require_login": True,  # Require authentication for upload operations
-    "log_params": False,
-    "log_body": False,
-}
-API_ROUTE_CONFIG["/api/praat/jobs"] = {
-    "rate_limit": True,
-    "require_login": True,  # Require authentication for job creation
-    "log_params": True,
-    "log_body": True,
-}
-API_ROUTE_CONFIG["/api/praat/jobs/*"] = {
-    "rate_limit": False,  # Allow frequent polling
-    "require_login": True,  # Require authentication for job operations
-    "log_params": False,
-    "log_body": False,
-}
-API_ROUTE_CONFIG["/api/praat/capabilities"] = {
-    "rate_limit": False,
-    "require_login": False,  # Keep public for metadata discovery
-    "log_params": False,
-    "log_body": False,
-}
-
-# 白名单：这些路由完全跳过检查
-API_WHITELIST = [
-    "/auth/*",           # 认证相关
-    "/__ping",           # 健康检查
-    "/",                 # 首页
-    "/admin",            # 管理页面
-    "/detail",
-    "/intro",
-    "/menu",
-    "/explore",
-    "/statics/*",        # 静态文件
-]
-
-# 黑名单：这些路由强制启用所有检查
-API_BLACKLIST = [
-    "/admin/api/*",      # 管理员 API
-]

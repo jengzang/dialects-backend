@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from app.auth.models import Base
-from common.config import SUPPLE_DB_URL
+from common.path import SUPPLE_DB_URL
 
 engine = create_engine(
     SUPPLE_DB_URL,

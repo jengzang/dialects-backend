@@ -1,134 +1,167 @@
 """
-Job execution engine for Praat analysis.
+Job execution engine for Praat analysis (task_manager version).
 """
 import json
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
-from sqlalchemy.orm import Session
 
-from ..models import Job, Upload
-from ..utils.validators import ErrorCode, raise_error
+from app.tools.task_manager import task_manager
+from app.tools.file_manager import file_manager
+from ..utils.validators import ErrorCode
 from ..utils.tone_features import extract_tone_features, sanitize_json
+from ..utils.job_utils import update_job_status, find_job_by_id
 from .modules import MODULES
 
 # Import all modules to register them
 from .modules import basic, pitch, intensity, formant, voice_quality, segments
 
 
-def execute_job(job_id: str, db: Session) -> None:
+async def execute_job_async(task_id: str, job_id: str):
     """
-    Execute analysis job in background.
+    Execute analysis job in background (async).
 
     Args:
-        job_id: Job ID
-        db: Database session
+        task_id: Task ID (e.g., "praat_abc123")
+        job_id: Job ID (e.g., "praat_abc123_job_1")
     """
-    job = None
     try:
-        # Load job
-        job = db.query(Job).filter(Job.id == job_id).first()
+        # 1. Update job status to processing
+        update_job_status(
+            task_manager, task_id, job_id,
+            status="processing",
+            progress=0.0,
+            stage="loading"
+        )
+
+        # 2. Load task and job info
+        task = task_manager.get_task(task_id)
+        job = find_job_by_id(task, job_id)
+
         if not job:
-            return
+            raise Exception(f"Job {job_id} not found")
 
-        # Update status to running
-        job.status = "running"
-        job.progress = 0.0
-        job.stage = "loading"
-        db.commit()
+        # 3. Load audio (all jobs share the same file)
+        task_dir = file_manager.get_task_dir(task_id, "praat")
+        audio_path = task_dir / "normalized.wav"
 
-        # Load upload
-        upload = db.query(Upload).filter(Upload.id == job.upload_id).first()
-        if not upload:
-            raise Exception("Upload not found")
-
-        # Load audio with parselmouth
-        import parselmouth
-
-        audio_path = upload.normalized_path or upload.original_path
-        if not audio_path or not Path(audio_path).exists():
+        if not audio_path.exists():
             raise Exception(f"Audio file not found: {audio_path}")
 
-        sound = parselmouth.Sound(audio_path)
+        import parselmouth
+        sound = parselmouth.Sound(str(audio_path))
 
-        # Execute modules
+        # 4. Execute analysis modules
         module_results = {}
-        total_modules = len(job.modules)
+        modules = job['modules']
+        total_modules = len(modules)
 
-        for idx, module_name in enumerate(job.modules):
-            job.stage = module_name
-            db.commit()
+        for idx, module_name in enumerate(modules):
+            # Update current stage
+            update_job_status(task_manager, task_id, job_id, stage=module_name)
 
             if module_name not in MODULES:
                 raise Exception(f"Unknown module: {module_name}")
 
             # Get module options
-            module_options = job.options.get(module_name, {}) if job.options else {}
+            module_options = job.get('options', {}).get(module_name, {})
 
-            # Execute module
+            # Run module
             module_class = MODULES[module_name]
             module_instance = module_class()
-            result = module_instance.analyze(sound, module_options, job.mode)
+            result = module_instance.analyze(sound, module_options, job['mode'])
 
             module_results[module_name] = result
 
-            # Update progress
-            job.progress = (idx + 1) / total_modules
-            db.commit()
+            # Update progress (0-90%)
+            progress = (idx + 1) / total_modules * 90.0
+            update_job_status(task_manager, task_id, job_id, progress=progress)
 
-        # Build final result
-        job.stage = "finalize"
-        db.commit()
+        # 5. Build result JSON
+        update_job_status(task_manager, task_id, job_id, stage="finalize", progress=95.0)
+
+        upload_data = task.get('data', {}).get('upload', {})
+        audio_metadata = upload_data.get('audio_metadata', {})
 
         result_json = build_result_json(
-            job=job,
-            upload=upload,
+            job_id=job_id,
+            task_id=task_id,
+            job_data=job,
             module_results=module_results,
+            audio_metadata=audio_metadata,
             sound=sound
         )
 
-        # Save result to file
-        result_dir = Path(audio_path).parent
-        result_path = result_dir / f"result_{job_id}.json"
+        # 6. Save result (overwrite result.json)
+        result_path = task_dir / "result.json"
 
         with open(result_path, "w", encoding="utf-8") as f:
             json.dump(result_json, f, indent=2, ensure_ascii=False)
 
-        # Update job
-        job.result_path = str(result_path)
-        job.status = "done"
-        job.progress = 1.0
-        job.stage = "completed"
-        db.commit()
+        # 7. Mark job as completed
+        update_job_status(
+            task_manager, task_id, job_id,
+            status="completed",
+            progress=100.0,
+            completed_at=datetime.now().isoformat()
+        )
+
+        # 8. Update last_result and clear current_job_id
+        task = task_manager.get_task(task_id)
+        task_data = task.get('data', {})
+        task_data['last_result'] = {
+            "job_id": job_id,
+            "completed_at": datetime.now().isoformat()
+        }
+        task_data['current_job_id'] = None  # Clear current job
+        task_manager.update_task(task_id, data=task_data)
 
     except Exception as e:
-        # Handle error
-        if job:
-            job.status = "error"
-            job.error = {
-                "code": ErrorCode.PRAAT_ANALYSIS_FAILED,
-                "message": str(e),
-                "detail": {
-                    "traceback": traceback.format_exc()
+        # Error handling
+        error_msg = str(e)
+        error_trace = traceback.format_exc()
+
+        try:
+            update_job_status(
+                task_manager, task_id, job_id,
+                status="failed",
+                error={
+                    "code": ErrorCode.PRAAT_ANALYSIS_FAILED,
+                    "message": error_msg,
+                    "detail": {"traceback": error_trace}
                 }
-            }
-            db.commit()
+            )
+
+            # Clear current_job_id on error
+            task = task_manager.get_task(task_id)
+            if task:
+                task_data = task.get('data', {})
+                if task_data.get('current_job_id') == job_id:
+                    task_data['current_job_id'] = None
+                    task_manager.update_task(task_id, data=task_data)
+        except:
+            # If we can't even update the error status, log it
+            print(f"[Praat] Failed to update error status for job {job_id}: {e}")
 
 
 def build_result_json(
-    job: Job,
-    upload: Upload,
+    job_id: str,
+    task_id: str,
+    job_data: Dict[str, Any],
     module_results: Dict[str, Any],
+    audio_metadata: Dict[str, Any],
     sound
 ) -> Dict[str, Any]:
     """
     Build final result JSON.
 
     Args:
-        job: Job model
-        upload: Upload model
+        job_id: Job ID
+        task_id: Task ID
+        job_data: Job data dict
         module_results: Results from all modules
+        audio_metadata: Audio metadata from upload
         sound: Parselmouth Sound object
 
     Returns:
@@ -136,14 +169,14 @@ def build_result_json(
     """
     # Meta
     meta = {
-        "job_id": job.id,
-        "upload_id": upload.id,
-        "mode": job.mode,
-        "modules": job.modules,
-        "created_at": job.created_at.isoformat(),
-        "duration_s": upload.duration_s,
-        "sample_rate": upload.sample_rate,
-        "channels": upload.channels
+        "job_id": job_id,
+        "task_id": task_id,
+        "mode": job_data.get('mode'),
+        "modules": job_data.get('modules'),
+        "created_at": job_data.get('created_at'),
+        "duration_s": audio_metadata.get('duration_s'),
+        "sample_rate": audio_metadata.get('sample_rate'),
+        "channels": audio_metadata.get('channels')
     }
 
     # Summary
@@ -159,7 +192,7 @@ def build_result_json(
             summary[module_name] = result
 
     # Timeseries (if requested)
-    output_opts = job.output_options or {}
+    output_opts = job_data.get('output_options', {})
     include_timeseries = output_opts.get("include_timeseries", True)
 
     timeseries = None
@@ -221,7 +254,7 @@ def build_result_json(
                 segment["tone_features"] = tone_features
 
     # Build units
-    units = build_units(segments_list, job.mode)
+    units = build_units(segments_list, job_data.get('mode'))
 
     # Debug info (if requested)
     debug = None

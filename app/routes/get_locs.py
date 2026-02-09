@@ -6,8 +6,8 @@ from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 
 from app.service.match_input_tip import match_locations_batch
-from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
-from common.getloc_by_name_region import query_dialect_abbreviations
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER
+from app.service.getloc_by_name_region import query_dialect_abbreviations
 from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
 

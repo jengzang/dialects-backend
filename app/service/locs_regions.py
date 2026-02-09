@@ -6,7 +6,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.custom.models import Information
-from common.config import QUERY_DB_ADMIN
+from common.path import QUERY_DB_ADMIN
 from app.sql.db_pool import get_db_pool
 
 

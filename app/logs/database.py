@@ -4,7 +4,7 @@
 """
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker
-from common.config import LOGS_DATABASE_URL
+from common.path import LOGS_DATABASE_URL
 
 engine = create_engine(
     LOGS_DATABASE_URL,
