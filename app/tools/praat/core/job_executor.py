@@ -27,10 +27,10 @@ async def execute_job_async(task_id: str, job_id: str):
         job_id: Job ID (e.g., "praat_abc123_job_1")
     """
     try:
-        # 1. Update job status to processing
+        # 1. Update job status to running
         update_job_status(
             task_manager, task_id, job_id,
-            status="processing",
+            status="running",
             progress=0.0,
             stage="loading"
         )
@@ -79,7 +79,7 @@ async def execute_job_async(task_id: str, job_id: str):
             update_job_status(task_manager, task_id, job_id, progress=progress)
 
         # 5. Build result JSON
-        update_job_status(task_manager, task_id, job_id, stage="finalize", progress=95.0)
+        update_job_status(task_manager, task_id, job_id, stage="finalize", progress=0.95)
 
         upload_data = task.get('data', {}).get('upload', {})
         audio_metadata = upload_data.get('audio_metadata', {})
@@ -99,11 +99,11 @@ async def execute_job_async(task_id: str, job_id: str):
         with open(result_path, "w", encoding="utf-8") as f:
             json.dump(result_json, f, indent=2, ensure_ascii=False)
 
-        # 7. Mark job as completed
+        # 7. Mark job as done
         update_job_status(
             task_manager, task_id, job_id,
-            status="completed",
-            progress=100.0,
+            status="done",
+            progress=1.0,
             completed_at=datetime.now().isoformat()
         )
 
@@ -125,7 +125,7 @@ async def execute_job_async(task_id: str, job_id: str):
         try:
             update_job_status(
                 task_manager, task_id, job_id,
-                status="failed",
+                status="error",
                 error={
                     "code": ErrorCode.PRAAT_ANALYSIS_FAILED,
                     "message": error_msg,

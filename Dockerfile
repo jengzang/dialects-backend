@@ -1,37 +1,67 @@
+# ============================================================
+# Stage 1: Get static FFmpeg binaries
+# ============================================================
+FROM mwader/static-ffmpeg:7.1 AS ffmpeg
+
+# ============================================================
+# Stage 2: Builder - Install Python dependencies
+# ============================================================
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# ============================================================
+# Stage 3: Runtime - Minimal image
+# ============================================================
 FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=5000 _RUN_TYPE=WEB MPLCONFIGDIR=/tmp \
-    FORWARDED_ALLOW_IPS=127.0.0.1,172.17.0.1
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=5000 \
+    _RUN_TYPE=WEB \
+    MPLCONFIGDIR=/tmp \
+    FORWARDED_ALLOW_IPS=127.0.0.1,172.17.0.1 \
+    PYTHONPATH=/app
+
 WORKDIR /app
 
-# ==================== 👇 核心修改在这里 👇 ====================
-# 安装 FFmpeg 系统依赖
-# update: 更新源
-# install: 安装 ffmpeg
-# --no-install-recommends: 不安装推荐的额外包，保持镜像体积小
-# rm -rf: 安装完清理缓存，减小镜像体积
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
-# ============================================================
+# Copy static FFmpeg binaries from stage 1
+COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
 
-# 如需 graphviz/字体再放开（可选）
-# RUN apt-get update && apt-get install -y --no-install-recommends graphviz fonts-dejavu-core \
-#     && rm -rf /var/lib/apt/lists/*
+# Make binaries executable
+RUN chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Python packages from builder
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
 
-# 拷贝源码
+# Copy application code
 COPY app/ /app/app/
 COPY common/ /app/common/
 COPY data/dependency/ /app/data/dependency/
 COPY serve.py /app/serve.py
 COPY gunicorn_config.py /app/gunicorn_config.py
 
-# 非 root 运行
-RUN useradd -m appuser && chown -R appuser /app
+# Create non-root user and setup directories
+RUN useradd -m appuser && \
+    chown -R appuser /app && \
+    mkdir -p /tmp/fastapi_tools && \
+    chown -R appuser /tmp/fastapi_tools
+
 USER appuser
 
 EXPOSE 5000
-CMD ["gunicorn", "-c", "gunicorn_config.py", "serve:app"]
 
+CMD ["gunicorn", "-c", "gunicorn_config.py", "serve:app"]

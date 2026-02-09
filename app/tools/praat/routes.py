@@ -309,7 +309,7 @@ async def create_job(
     current_job_id = task.get('data', {}).get('current_job_id')
     if current_job_id:
         current_job = find_job_by_id(task, current_job_id)
-        if current_job and current_job.get('status') == 'processing':
+        if current_job and current_job.get('status') == 'running':
             raise_error(
                 ErrorCode.JOB_RUNNING,
                 "Another job is currently running for this task",
@@ -427,10 +427,10 @@ async def get_job_result(
             status_code=404
         )
 
-    if job.get('status') != 'completed':
+    if job.get('status') != 'done':
         raise_error(
             ErrorCode.JOB_NOT_DONE,
-            f"Job {job_id} is not completed yet (status: {job.get('status')})",
+            f"Job {job_id} is not done yet (status: {job.get('status')})",
             status_code=400
         )
 
@@ -498,7 +498,7 @@ async def cancel_job(
         )
 
     # Update status to canceled
-    if job.get('status') in ["queued", "processing"]:
+    if job.get('status') in ["queued", "running"]:
         update_job_status(task_manager, task_id, job_id, status="canceled")
 
         # Clear current_job_id if this is the current job
