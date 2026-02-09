@@ -1,6 +1,6 @@
 import os
 import re
-import sqlite3
+import threading
 from collections import defaultdict
 from difflib import SequenceMatcher
 
@@ -10,11 +10,101 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.custom.models import Information
-from common.getloc_by_name_region import query_dialect_abbreviations_orm
-from common.config import QUERY_DB_ADMIN
+from app.service.getloc_by_name_region import query_dialect_abbreviations_orm
+from common.path import QUERY_DB_ADMIN
 from common.s2t import s2t_pro
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool
+
+# ===== [NEW] 内存缓存机制 =====
+# 缓存锁，用于线程安全
+_cache_lock = threading.Lock()
+
+# 缓存数据结构
+_dialect_cache = {
+    'valid_abbrs': {},      # {db_path: {filter_flag: set()}}
+    'geo_data': {},         # {db_path: {filter_flag: [(name, abbr), ...]}}
+    'last_update': {}       # {db_path: timestamp}
+}
+
+
+def _load_dialect_cache(query_db, filter_valid_abbrs_only):
+    """
+    加载方言数据到内存缓存
+
+    Args:
+        query_db: 数据库路径
+        filter_valid_abbrs_only: 是否只加载存储标记为1的数据
+
+    Returns:
+        (valid_abbrs_set, geo_data_list)
+    """
+    cache_key = (query_db, filter_valid_abbrs_only)
+
+    # 检查缓存是否存在
+    with _cache_lock:
+        if query_db in _dialect_cache['valid_abbrs']:
+            if filter_valid_abbrs_only in _dialect_cache['valid_abbrs'][query_db]:
+                # 缓存命中
+                valid_abbrs = _dialect_cache['valid_abbrs'][query_db][filter_valid_abbrs_only]
+                geo_data = _dialect_cache['geo_data'][query_db][filter_valid_abbrs_only]
+                return valid_abbrs, geo_data
+
+    # 缓存未命中，从数据库加载
+    pool = get_db_pool(query_db)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # 加载有效简称
+        if filter_valid_abbrs_only:
+            cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
+        else:
+            cursor.execute("SELECT 簡稱 FROM dialects")
+        valid_abbrs_set = set(row[0] for row in cursor.fetchall())
+
+        # 加载所有地理名称数据
+        geo_data_list = []
+        for col in ["市", "縣", "鎮", "行政村", "自然村"]:
+            if filter_valid_abbrs_only:
+                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects WHERE 存儲標記 = 1")
+            else:
+                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects")
+            rows = cursor.fetchall()
+            geo_data_list.extend(rows)
+
+    # 存入缓存
+    with _cache_lock:
+        if query_db not in _dialect_cache['valid_abbrs']:
+            _dialect_cache['valid_abbrs'][query_db] = {}
+            _dialect_cache['geo_data'][query_db] = {}
+
+        _dialect_cache['valid_abbrs'][query_db][filter_valid_abbrs_only] = valid_abbrs_set
+        _dialect_cache['geo_data'][query_db][filter_valid_abbrs_only] = geo_data_list
+        _dialect_cache['last_update'][query_db] = __import__('time').time()
+
+    print(f"[CACHE] 已加载方言数据到缓存: {len(valid_abbrs_set)} 个简称, {len(geo_data_list)} 条地理数据")
+
+    return valid_abbrs_set, geo_data_list
+
+
+def clear_dialect_cache(query_db=None):
+    """
+    清除方言数据缓存
+
+    Args:
+        query_db: 指定数据库路径，如果为None则清除所有缓存
+    """
+    with _cache_lock:
+        if query_db:
+            _dialect_cache['valid_abbrs'].pop(query_db, None)
+            _dialect_cache['geo_data'].pop(query_db, None)
+            _dialect_cache['last_update'].pop(query_db, None)
+            print(f"[CACHE] 已清除缓存: {query_db}")
+        else:
+            _dialect_cache['valid_abbrs'].clear()
+            _dialect_cache['geo_data'].clear()
+            _dialect_cache['last_update'].clear()
+            print("[CACHE] 已清除所有缓存")
 
 
 def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
@@ -221,102 +311,73 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
     # - clean_str（第一候選組合）
     possible_inputs = set([user_input, converted_str]) | converted_candidates
 
-    # [NEW] 使用连接池
-    pool = get_db_pool(query_db)
-    with pool.get_connection() as conn:
-        cursor = conn.cursor()
+    # [OPTIMIZED] 使用缓存数据而不是每次查询数据库
+    valid_abbrs_set, geo_data_list = _load_dialect_cache(query_db, filter_valid_abbrs_only)
 
-        # 根據 filter_valid_abbrs_only 決定是否過濾掉非存儲標記為1的數據
-        if filter_valid_abbrs_only:
-            # print("過濾！！")
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
-        else:
-            # print("不過濾存儲標記")
-            cursor.execute("SELECT 簡稱 FROM dialects")
-        valid_abbrs_set = set(row[0] for row in cursor.fetchall())
+    # [OPTIMIZED] 使用内存匹配，完全避免数据库查询
+    matched_abbrs = set()
+    for term in possible_inputs:
+        # 精确匹配：直接在缓存集合中查找
+        if term in valid_abbrs_set:
+            matched_abbrs.add(term)
 
-        matched_abbrs = set()
+    # 如果指定只做完全匹配，但找不到，提前返回空
+    if exact_only and not matched_abbrs:
+        return [], 0, [], [], [], [], [], []
+
+    # 原來的邏輯保留：有完全匹配就返回
+    if matched_abbrs:
+        return list(matched_abbrs), 1, [], [], [], [], [], []
+
+    # [OPTIMIZED] 前缀匹配和包含匹配：在内存中遍历
+    fuzzy_abbrs = set()
+    contains_abbrs = set()
+
+    for term in possible_inputs:
+        for abbr in valid_abbrs_set:
+            # 前缀匹配
+            if abbr.startswith(term):
+                fuzzy_abbrs.add(abbr)
+            # 包含匹配
+            elif term in abbr:
+                contains_abbrs.add(abbr)
+
+    # [OPTIMIZED] 使用缓存的地理数据进行匹配
+    geo_matches = set()
+    geo_abbr_map = {}
+    all_geo_names = []
+    all_abbr_names = []
+
+    for name, abbr in geo_data_list:
+        all_geo_names.append(name)
+        all_abbr_names.append(abbr)
         for term in possible_inputs:
-            # 完全匹配查詢部分需要根據 filter_valid_abbrs_only 來過濾
-            if filter_valid_abbrs_only:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ? AND 存儲標記 = 1", (term,))
-            else:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 = ?", (term,))
-            exact = cursor.fetchall()
-            matched_abbrs.update([row[0] for row in exact])
-            # print(f"[DEBUG] 完全匹配【{term}】：{exact}")
+            if term in (name or ""):
+                geo_matches.add(name)
+                geo_abbr_map[name] = abbr
 
-        # 如果指定只做完全匹配，但找不到，提前返回空
-        if exact_only and not matched_abbrs:
-            return [], 0, [], [], [], [], [], []
+    # 加上所有簡稱（用於相似與拼音匹配）
+    all_names = all_geo_names + list(valid_abbrs_set)
+    all_abbrs = all_abbr_names + list(valid_abbrs_set)
 
-        # 原來的邏輯保留：有完全匹配就返回
-        if matched_abbrs:
-            return list(matched_abbrs), 1, [], [], [], [], [], []
+    fuzzy_geo_matches = set()
+    fuzzy_geo_abbrs = set()
+    sound_like_matches = set()
+    sound_like_abbrs = set()
 
-        fuzzy_abbrs = set()
-        contains_abbrs = set()  # 新增：包含匹配結果
+    for name, abbr in zip(all_names, all_abbrs):
+        if not name or not abbr or abbr not in valid_abbrs_set:
+            continue
 
-        for term in possible_inputs:
-            # 前綴匹配（原有邏輯）
-            if filter_valid_abbrs_only:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", (term + "%",))
-            else:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", (term + "%",))
-            fuzzy = cursor.fetchall()
-            fuzzy_abbrs.update([row[0] for row in fuzzy])
-            # print(f"[DEBUG] 模糊簡稱匹配【{term}】：{fuzzy}")
+        if is_similar(user_input, name):
+            # print(f"[DEBUG] 相似匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
+            fuzzy_geo_matches.add(name)
+            fuzzy_geo_abbrs.add(abbr)
 
-            # 包含匹配（新增）：匹配包含輸入的地點名稱
-            if filter_valid_abbrs_only:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ? AND 存儲標記 = 1", ("%" + term + "%",))
-            else:
-                cursor.execute("SELECT 簡稱 FROM dialects WHERE 簡稱 LIKE ?", ("%" + term + "%",))
-            contains = cursor.fetchall()
-            contains_abbrs.update([row[0] for row in contains])
-            # print(f"[DEBUG] 包含匹配【{term}】：{contains}")
-
-        geo_matches = set()
-        geo_abbr_map = {}
-        all_geo_names = []
-        all_abbr_names = []
-
-        for col in ["鎮", "行政村", "自然村"]:
-            if filter_valid_abbrs_only:
-                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects WHERE 存儲標記 = 1")
-            else:
-                cursor.execute(f"SELECT {col}, 簡稱 FROM dialects")
-            rows = cursor.fetchall()
-            for name, abbr in rows:
-                all_geo_names.append(name)
-                all_abbr_names.append(abbr)
-                for term in possible_inputs:
-                    if term in (name or ""):
-                        geo_matches.add(name)
-                        geo_abbr_map[name] = abbr
-
-        # 加上所有簡稱（用於相似與拼音匹配）
-        all_names = all_geo_names + list(valid_abbrs_set)
-        all_abbrs = all_abbr_names + list(valid_abbrs_set)
-
-        fuzzy_geo_matches = set()
-        fuzzy_geo_abbrs = set()
-        sound_like_matches = set()
-        sound_like_abbrs = set()
-
-        for name, abbr in zip(all_names, all_abbrs):
-            if not name or not abbr or abbr not in valid_abbrs_set:
-                continue
-
-            if is_similar(user_input, name):
-                # print(f"[DEBUG] 相似匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
-                fuzzy_geo_matches.add(name)
-                fuzzy_geo_abbrs.add(abbr)
-
-            if is_pinyin_similar(user_input, name):
-                # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
-                sound_like_matches.add(name)
-                sound_like_abbrs.add(abbr)
+        if is_pinyin_similar(user_input, name):
+            # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
+            sound_like_matches.add(name)
+            sound_like_abbrs.add(abbr)
 
     return (
         list(fuzzy_abbrs | contains_abbrs),  # 合併前綴匹配和包含匹配

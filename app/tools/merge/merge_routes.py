@@ -18,8 +18,8 @@ from starlette.responses import StreamingResponse
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from .task_manager import task_manager, TaskStatus
-from .file_manager import file_manager
+from app.tools.task_manager import task_manager, TaskStatus
+from app.tools.file_manager import file_manager
 from .merge_core import (
     load_reference_file,
     merge_excel_files,

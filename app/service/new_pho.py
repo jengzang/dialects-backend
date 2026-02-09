@@ -3,17 +3,14 @@ import itertools
 from app.redis_client import redis_client
 from app.service.match_input_tip import match_locations_batch
 from app.service.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
-from common.config import DIALECTS_DB_USER, QUERY_DB_USER
+from common.path import QUERY_DB_USER, DIALECTS_DB_USER
 from common.constants import COLUMN_VALUES
 
 import json
 import hashlib
-import time
-import asyncio
 from typing import List, Dict, Optional, Any
-import redis.asyncio as redis
 
-from common.getloc_by_name_region import query_dialect_abbreviations
+from app.service.getloc_by_name_region import query_dialect_abbreviations
 
 
 def process_chars_status(path_strings, column, combine_query, exclude_columns=None):

@@ -8,6 +8,7 @@ from .login_logs import router as login_logs_router
 from .custom import router as custom_router
 from .custom_edit import router as custom_edit_router
 from .sessions import router as sessions_router
+from .cache_manager import router as cache_manager_router
 from ...auth.dependencies import get_current_admin_user
 from ..admin.get_ip import router as get_ip
 
@@ -29,4 +30,6 @@ router.include_router(custom_edit_router, prefix="/custom", tags=["admin custom"
 router.include_router(sessions_router, prefix="/sessions", tags=["admin sessions"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(get_ip, prefix="/ip", tags=["admin api usage"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(cache_manager_router, prefix="/cache", tags=["admin cache"],
                       dependencies=[Depends(get_current_admin_user)])

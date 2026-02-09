@@ -1,11 +1,10 @@
 import re
-import sqlite3
 
 import pandas as pd
 from fastapi import HTTPException
 
-from common.getloc_by_name_region import query_dialect_abbreviations
-from common.config import QUERY_DB_ADMIN
+from app.service.getloc_by_name_region import query_dialect_abbreviations
+from common.path import QUERY_DB_ADMIN
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool
 
@@ -36,24 +35,30 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
 
     # 处理每一列的单元格
     def process_cell(value, num):
-        # 如果值是 None 或 NaN，返回空字符串
         if value is None or pd.isnull(value):
             return ""
-        if isinstance(value, str):  # 确保是字符串
-            # 如果没有 []，在开头添加[num]
-            if ('[' not in value) or (']' not in value):
-                return f"[{num}]{value}"
-            else:
-                # 如果有 []，按逗号拆分并处理
-                elements = re.split(r'[，,|;]', value)
-                processed_elements = []
-                for element in elements:
-                    # 只有当元素没有 [num] 或 [] 时才加上[num]
-                    if '[' not in element and ']' not in element:
-                        processed_elements.append(f"[{num}]{element}")
-                    else:
-                        processed_elements.append(element)
-                return ','.join(processed_elements)
+        if isinstance(value, str):
+            # 1. 先拆分
+            raw_elements = re.split(r'[，,|;]', value)
+
+            # 2. 預先清洗：去除空字符串，這樣 len() 才是準確的有效元素個數
+            elements = [e.strip() for e in raw_elements if e.strip()]
+
+            processed_elements = []
+            # 3. 判斷是否需要字母：只有當元素大於 1 個時才啟用
+            need_letter = len(elements) > 1
+
+            for i, element in enumerate(elements):
+                # 4. 如果需要字母則生成 'a', 'b'...，否則為空字符串
+                letter = chr(97 + i) if need_letter else ""
+
+                # 只有當元素沒有 [ 和 ] 時才加上 [num + letter]
+                if '[' not in element and ']' not in element:
+                    processed_elements.append(f"[{num}{letter}]{element}")
+                else:
+                    processed_elements.append(element)
+
+            return ','.join(processed_elements)
         return value
 
     match_table = {

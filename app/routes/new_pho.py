@@ -1,39 +1,31 @@
 from typing import Optional, List, Dict
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
-from app.auth.database import get_db
-from app.auth.dependencies import get_current_user, check_api_usage_limit
+from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
 from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
-from app.logs.api_logger import log_all_fields
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
     _run_dialect_analysis_sync
 from app.service.phonology2status import pho2sta
-from common.config import REQUIRE_LOGIN, DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 
 router = APIRouter()
 
 
 @router.post("/charlist")
 async def generate_combinations_and_query(
-        request: Request,
         payload: CharListRequest,
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),
+        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
 ) -> List[Dict]:
     path_strings = payload.path_strings
     column = payload.column
     combine_query = payload.combine_query
 
-    ip_address = request.client.host
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     # 2. 生成緩存 Key
     cache_key = generate_cache_key(path_strings, column, combine_query, exclude_columns=payload.exclude_columns)
@@ -59,20 +51,15 @@ async def generate_combinations_and_query(
 
 @router.post("/ZhongGu")
 async def analyze_zhonggu(
-        request: Request,
         payload: ZhongGuAnalysis,
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
+        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
 ):
     """
     全新的接口：
     1. Await 緩存接口獲取漢字
     2. 調用同步函數分析方言
     """
-    ip_address = request.client.host  # 默认是请求的客户端 IP 地址
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     # 1. 獲取漢字 (Step 1)
     char_request_payload = CharListRequest(
@@ -82,9 +69,7 @@ async def analyze_zhonggu(
         exclude_columns=payload.exclude_columns
     )
     cached_char_result = await generate_combinations_and_query(
-        request=request,
         payload=char_request_payload,
-        db=db,
         user=user,
     )
 
@@ -117,15 +102,10 @@ async def analyze_zhonggu(
 
 @router.post("/YinWei")
 async def analyze_yinwei(
-        request: Request,
         payload: YinWeiAnalysis,
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
+        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
 ):
-    ip_address = request.client.host  # 默认是请求的客户端 IP 地址
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
         locations = payload.locations

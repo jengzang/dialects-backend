@@ -23,8 +23,9 @@ from app.auth.dependencies import get_current_user, get_current_user_for_middlew
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logs.database import SessionLocal as LogsSessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
-from common.config import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_JSON, API_DETAILED_FILE, \
-    CLEAR_WEEK, RECORD_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD, IGNORE_API
+from common.config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
+from common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API
+from common.path import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_FILE, API_DETAILED_JSON
 
 # === 队列（跨进程） ===
 # [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
@@ -77,6 +78,7 @@ def keyword_log_writer():
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
+                    # print(f"[KeywordLogWriter] ✅ 批量写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
                     print(f"[X] 写入关键词日志失败: {e}")
@@ -91,6 +93,7 @@ def keyword_log_writer():
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
+                    # print(f"[KeywordLogWriter] ✅ 超时写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
                     print(f"[X] 写入关键词日志失败: {e}")
@@ -159,7 +162,7 @@ def _process_statistics_batch(batch: list):
                 update_statistic(db, "usage_daily", date_obj, "path", path)
 
         db.commit()
-        print(f"[OK] 批量更新 {len(batch)} 条统计")
+        # print(f"[OK] 批量更新 {len(batch)} 条统计")
     except Exception as e:
         print(f"[X] 统计批次失败: {e}")
         db.rollback()

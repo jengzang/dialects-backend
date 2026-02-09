@@ -4,8 +4,7 @@
 """
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker
-from app.logs.models import Base
-from common.config import LOGS_DATABASE_URL
+from common.path import LOGS_DATABASE_URL
 
 engine = create_engine(
     LOGS_DATABASE_URL,
@@ -66,10 +65,4 @@ def migrate_api_visit_log_table():
 # print("[OK] logs.db 数据库表已创建")
 
 
-# FastAPI 依赖
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+

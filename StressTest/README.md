@@ -216,7 +216,7 @@ pip install py-spy
 py-spy top --pid <进程ID>
 
 # 生成火焰图（运行 60 秒）
-py-spy record -o flamegraph.svg --pid <进程ID> --duration 60
+py-spy service -o flamegraph.svg --pid <进程ID> --duration 60
 
 # 在浏览器中打开 flamegraph.svg 查看
 ```

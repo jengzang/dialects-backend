@@ -21,6 +21,7 @@ from .user import router as user_router
 from ..logs import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
+from app.tools.praat.routes import router as praat_router
 
 
 def setup_routes(app: FastAPI):
@@ -38,6 +39,9 @@ def setup_routes(app: FastAPI):
     app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"])
+
+    # Praat acoustic analysis
+    app.include_router(praat_router)
 
     setup_tools_routes(app)
     setup_sql_routes(app)

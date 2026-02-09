@@ -4,27 +4,26 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from app.service.match_input_tip import read_partition_hierarchy
-from app.logs.api_logger import *
+from app.logs.service.api_limiter import ApiLimiter
+from app.auth.models import User
 
 router = APIRouter()
 
 @router.get("/partitions")
-async def api_get_partitions(request: Request, parent: Optional[str] = Query(None)):
+async def api_get_partitions(
+        parent: Optional[str] = Query(None),
+        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+):
     """
     - 獲取下一級的音典分區。
     - 傳入parent-當前分區名（某一級，例如嶺南）；
     - 返回下一級所有的音典分區（partitions子數組），以及層級（level）
     """
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, {"parent": parent})
-    # start = time.time()
+    # 限流和日志记录已由中间件和依赖注入自动处理
     try:
         result = read_partition_hierarchy(parent)
         return result
     finally:
         print("api_get_partitions")
-        # duration = time.time() - start
-        # log_detailed_api(request.url.path, duration, 200, request.client.host, request.headers.get("user-agent", ""),
-        #                  request.headers.get("referer", ""))

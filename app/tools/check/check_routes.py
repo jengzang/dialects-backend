@@ -21,8 +21,8 @@ from common.constants import col_map
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from .task_manager import task_manager, TaskStatus
-from .file_manager import file_manager
+from app.tools.task_manager import task_manager, TaskStatus
+from app.tools.file_manager import file_manager
 from .check_core import 處理自定義編輯指令, 檢查資料格式, 整理並顯示調值
 from .format_convert import (
     process_音典,
@@ -599,8 +599,6 @@ async def download_file(task_id: str):
     task = task_manager.get_task(task_id)
     if not task:
         # 尝试从文件路径恢复任务信息（如果文件还存在）
-        # 检查可能的文件路径
-        from .file_manager import file_manager
         task_dir = file_manager.get_task_dir(task_id, "check")
         possible_files = []
         if task_dir.exists():

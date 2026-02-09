@@ -1,11 +1,10 @@
 import re
-import sqlite3
 
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.custom.models import Information
-from common.getloc_by_name_region import query_dialect_abbreviations_orm
+from app.service.getloc_by_name_region import query_dialect_abbreviations_orm
 
 
 def get_from_submission(locations, regions, need_features, user: User, db: Session):

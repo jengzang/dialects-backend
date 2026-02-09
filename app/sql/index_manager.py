@@ -5,12 +5,6 @@ Database Index Manager
 
 import sqlite3
 from typing import List, Set
-from common.config import (
-    DIALECTS_DB_USER,
-    DIALECTS_DB_ADMIN,
-    CHARACTERS_DB_PATH,
-    QUERY_DB_USER
-)
 
 
 def ensure_indexes(db_path: str) -> None:
@@ -187,7 +181,8 @@ def initialize_all_indexes() -> None:
 
     # 查询数据库索引
     print("\n[SEARCH] 查询数据库 (query):")
-    from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
+    from common.config import QUERY_DB_USER
+    from common.path import QUERY_DB_ADMIN
     if QUERY_DB_USER:
         ensure_query_indexes(QUERY_DB_USER)
     if QUERY_DB_ADMIN:
@@ -250,7 +245,8 @@ def drop_all_indexes(db_path: str) -> None:
 if __name__ == "__main__":
     # 命令行工具：可以手动运行此脚本来创建索引
     import sys
-    from common.config import QUERY_DB_ADMIN, QUERY_DB_USER
+    from common.config import QUERY_DB_USER
+    from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 
     if len(sys.argv) > 1 and sys.argv[1] == "drop":
         print("[DEL] 删除所有索引...")
