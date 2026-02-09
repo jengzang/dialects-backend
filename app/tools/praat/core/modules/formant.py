@@ -31,13 +31,15 @@ class FormantModule(AnalysisModule):
             max_freq_hz = options.get("max_freq_hz", 5500.0)
             window_length = options.get("window_length", 0.025)
             time_step = options.get("time_step", 0.002)  # 2ms for better resolution
+            pre_emphasis_from = options.get("pre_emphasis_from", 50.0)  # Standard pre-emphasis frequency
 
             # Extract formants
             formant = sound.to_formant_burg(
                 time_step=time_step,
                 max_number_of_formants=max_formants,
                 maximum_formant=max_freq_hz,
-                window_length=window_length
+                window_length=window_length,
+                pre_emphasis_from=pre_emphasis_from
             )
 
             # Extract contours for F1-F5
@@ -95,7 +97,8 @@ class FormantModule(AnalysisModule):
                     "max_formants": max_formants,
                     "max_freq_hz": max_freq_hz,
                     "window_length": window_length,
-                    "time_step": time_step
+                    "time_step": time_step,
+                    "pre_emphasis_from": pre_emphasis_from
                 }
             }
 

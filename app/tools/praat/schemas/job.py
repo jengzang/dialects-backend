@@ -20,11 +20,27 @@ class PitchOptions(BaseModel):
 
 
 class FormantOptions(BaseModel):
-    """Formant extraction options."""
+    """Formant extraction options.
+
+    Recommended max_freq_hz values by speaker type:
+    - Adult males: 5000 Hz
+    - Adult females: 5500 Hz (default)
+    - Children: 8000 Hz
+
+    Using incorrect max_freq_hz can cause tracking errors and
+    systematically biased formant values.
+    """
     max_formants: int = 5
-    max_freq_hz: float = 5500.0
+    max_freq_hz: float = Field(
+        default=5500.0,
+        description="Maximum formant frequency in Hz. Use 5000 for males, 5500 for females, 8000 for children."
+    )
     window_length: float = 0.025
     time_step: float = 0.002  # 2ms for better resolution
+    pre_emphasis_from: float = Field(
+        default=50.0,
+        description="Pre-emphasis frequency in Hz. Standard value is 50 Hz for high-pass filtering."
+    )
 
 
 class SpectrogramOptions(BaseModel):
