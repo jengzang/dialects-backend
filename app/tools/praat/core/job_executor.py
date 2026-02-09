@@ -74,8 +74,8 @@ async def execute_job_async(task_id: str, job_id: str):
 
             module_results[module_name] = result
 
-            # Update progress (0-90%)
-            progress = (idx + 1) / total_modules * 90.0
+            # Update progress (0-0.9)
+            progress = (idx + 1) / total_modules * 0.9
             update_job_status(task_manager, task_id, job_id, progress=progress)
 
         # 5. Build result JSON

@@ -179,28 +179,30 @@ API_ROUTE_CONFIG = {
         "log_body": False,
     },
 
-# ===== Praat 声学分析 API =====
-# 注意：路径中包含 /progress/ 是为了标识包含任务 ID 的操作
-# 这些路由不记录详细参数，避免日志中出现敏感的 task_id/job_id
+    # ===== Praat 声学分析 API =====
+    # 路径设计规则：
+    # - 创建操作（POST /uploads, POST /jobs）：不含 /progress/，返回新的 ID
+    # - 查询/操作已有资源（包含 {task_id}/{job_id} 的路由）：包含 /progress/
+    # - IGNORE_API 中的 "progress" 会过滤掉所有 /progress/* 路由的流量统计
     "/api/tools/praat/uploads": {
         "rate_limit": True,
-        "require_login": True,     # 要求登录
-        "log_params": False,  # 不记录参数（避免记录 task_id）
-        "log_body": False,  # 不记录音频二进制数据
+        "require_login": True,  # 要求登录
+        "log_params": False,  # 不记录参数
+        "log_body": False,  # 不记录音频二进制数据（太大）
     }, "/api/tools/praat/uploads/progress/*": {
         "rate_limit": False,  # 不限流（查询、下载操作）
-        "require_login": True,     # 要求登录
-        "log_params": False,
+        "require_login": True,  # 要求登录
+        "log_params": False,  # 不记录参数（避免泄露 task_id）
         "log_body": False,
     }, "/api/tools/praat/jobs": {
         "rate_limit": True,
-        "require_login": True,     # 要求登录
-        "log_params": False,  # 不记录参数（避免记录 job_id）
-        "log_body": False,
+        "require_login": True,  # 要求登录
+        "log_params": False,  # 不记录参数
+        "log_body": True,  # 记录分析参数（用于分析用户使用习惯）
     }, "/api/tools/praat/jobs/progress/*": {
         "rate_limit": False,  # 允许频繁轮询
-        "require_login": True,     # 要求登录
-        "log_params": False,
+        "require_login": True,  # 要求登录
+        "log_params": False,  # 不记录参数（避免泄露 job_id）
         "log_body": False,
     }, "/api/tools/praat/capabilities": {
         "rate_limit": False,
@@ -208,8 +210,6 @@ API_ROUTE_CONFIG = {
         "log_params": False,
         "log_body": False,
     }}
-
-
 
 # ===== 默认配置 =====
 # 未在 API_ROUTE_CONFIG 中列出的路由使用此默认配置

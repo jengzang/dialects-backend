@@ -25,7 +25,7 @@ from app.logs.scheduler import start_scheduler, stop_scheduler
 from app.sql.index_manager import initialize_all_indexes
 # [NEW] 导入数据库连接池管理模块
 from app.sql.db_pool import close_all_pools, get_db_pool
-from common.config import (
+from common.path import (
     QUERY_DB_ADMIN, QUERY_DB_USER,
     DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
     CHARACTERS_DB_PATH
