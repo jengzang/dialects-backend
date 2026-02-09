@@ -29,8 +29,12 @@ class VoiceQualityModule(AnalysisModule):
         try:
             import parselmouth
 
-            # Get pitch for voiced regions
-            pitch = sound.to_pitch()
+            # Get pitch options (consistent with pitch module)
+            f0_min = options.get("f0_min", 75.0)
+            f0_max = options.get("f0_max", 600.0)
+
+            # Create pitch object with specified range
+            pitch = sound.to_pitch(pitch_floor=f0_min, pitch_ceiling=f0_max)
 
             # Extract HNR (Harmonics-to-Noise Ratio)
             harmonicity = sound.to_harmonicity()
@@ -59,12 +63,19 @@ class VoiceQualityModule(AnalysisModule):
                 if voiced_frames < 10:
                     raise ValueError(f"Insufficient voiced frames ({voiced_frames}), need at least 10")
 
+                # CRITICAL FIX: Correct parameter order (floor first, ceiling second)
                 point_process = parselmouth.praat.call(
                     sound,
                     "To PointProcess (periodic, cc)",
-                    pitch.ceiling,
-                    pitch.floor
+                    f0_min,    # Minimum pitch (correct order)
+                    f0_max     # Maximum pitch (correct order)
                 )
+
+                # Validate PointProcess has enough periods
+                num_periods = parselmouth.praat.call(point_process, "Get number of points")
+                if num_periods < 3:
+                    print(f"[VOICE_QUALITY] Warning: Only {num_periods} periods detected, need at least 3 for reliable jitter/shimmer")
+                    # Continue anyway, but values may be unreliable
 
                 # Jitter (local)
                 jitter_local = parselmouth.praat.call(
@@ -113,9 +124,11 @@ class VoiceQualityModule(AnalysisModule):
                 )
 
             except Exception as e:
-                # Log the reason for failure (optional)
-                # print(f"Jitter/Shimmer calculation failed: {e}")
-                pass
+                # Enable error logging for debugging
+                print(f"[VOICE_QUALITY] Jitter/Shimmer calculation failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Still return None values but with visibility
 
             # Calculate statistics
             result = {

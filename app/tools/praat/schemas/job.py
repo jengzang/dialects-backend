@@ -35,12 +35,20 @@ class SpectrogramOptions(BaseModel):
     max_frequency: float = 8000.0  # 8000 Hz
 
 
+class VoiceQualityOptions(BaseModel):
+    """Voice quality analysis options."""
+    f0_min: float = 75.0
+    f0_max: float = 600.0
+    min_voiced_frames: int = 10
+
+
 class JobOptions(BaseModel):
     """Analysis options."""
     normalize: Optional[NormalizeOptions] = None
     pitch: Optional[PitchOptions] = None
     formant: Optional[FormantOptions] = None
     spectrogram: Optional[SpectrogramOptions] = None
+    voice_quality: Optional[VoiceQualityOptions] = None
 
 
 class OutputOptions(BaseModel):

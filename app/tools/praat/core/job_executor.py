@@ -67,6 +67,16 @@ async def execute_job_async(task_id: str, job_id: str):
             # Get module options
             module_options = job.get('options', {}).get(module_name, {})
 
+            # For voice_quality, also include pitch options if not specified
+            if module_name == 'voice_quality' and not module_options.get('f0_min'):
+                pitch_options = job.get('options', {}).get('pitch', {})
+                if pitch_options:
+                    module_options = {
+                        'f0_min': pitch_options.get('f0_min', 75.0),
+                        'f0_max': pitch_options.get('f0_max', 600.0),
+                        **module_options
+                    }
+
             # Run module
             module_class = MODULES[module_name]
             module_instance = module_class()
