@@ -30,10 +30,11 @@ class FormantModule(AnalysisModule):
             max_formants = options.get("max_formants", 5)
             max_freq_hz = options.get("max_freq_hz", 5500.0)
             window_length = options.get("window_length", 0.025)
+            time_step = options.get("time_step", 0.002)  # 2ms for better resolution
 
             # Extract formants
             formant = sound.to_formant_burg(
-                time_step=0.01,
+                time_step=time_step,
                 max_number_of_formants=max_formants,
                 maximum_formant=max_freq_hz,
                 window_length=window_length
@@ -93,7 +94,8 @@ class FormantModule(AnalysisModule):
                 "extraction_params": {
                     "max_formants": max_formants,
                     "max_freq_hz": max_freq_hz,
-                    "window_length": window_length
+                    "window_length": window_length,
+                    "time_step": time_step
                 }
             }
 
@@ -105,7 +107,11 @@ class FormantModule(AnalysisModule):
             }
 
     def _smooth_formant(self, values: List[float], kernel_size: int = 5) -> List[float]:
-        """Apply median filtering to formant contour."""
+        """
+        Apply median filtering to formant contour.
+
+        Only filters continuous valid segments, preserving None values.
+        """
         if len(values) < kernel_size:
             return values
 
@@ -117,16 +123,35 @@ class FormantModule(AnalysisModule):
         if not np.any(valid_mask):
             return values
 
-        # Apply median filter only to valid segments
+        # Apply median filter only to continuous valid segments
         try:
-            # Simple approach: filter and restore None values
-            filtered = medfilt(np.nan_to_num(array, nan=0.0), kernel_size=kernel_size)
             result = []
-            for i, (val, is_valid) in enumerate(zip(filtered, valid_mask)):
-                if is_valid:
-                    result.append(float(val))
+            i = 0
+            while i < len(array):
+                if valid_mask[i]:
+                    # Find end of valid segment
+                    j = i
+                    while j < len(array) and valid_mask[j]:
+                        j += 1
+
+                    # Extract valid segment
+                    segment = array[i:j]
+
+                    # Apply median filter only if segment is long enough
+                    if len(segment) >= kernel_size:
+                        filtered_segment = medfilt(segment, kernel_size=kernel_size)
+                        result.extend(filtered_segment.tolist())
+                    else:
+                        # Keep original values for short segments
+                        result.extend(segment.tolist())
+
+                    i = j
                 else:
+                    # Keep None for invalid values
                     result.append(None)
+                    i += 1
+
             return result
-        except:
+        except Exception as e:
+            # If filtering fails, return original values
             return values

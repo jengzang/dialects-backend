@@ -54,7 +54,13 @@ async def get_capabilities():
                 "max_formants": [3, 6]
             },
             "voice_quality": ["hnr", "jitter", "shimmer"],
-            "segments": {}
+            "segments": {},
+            "spectrogram": {
+                "window_length": [0.001, 0.01],
+                "time_step": [0.001, 0.01],
+                "frequency_step": [10, 100],
+                "max_frequency": [4000, 16000]
+            }
         },
         "limits": {
             "max_duration_s": MAX_DURATION_S,

@@ -182,12 +182,6 @@ Required for audio normalization. Install via:
 ### Database
 SQLite database is automatically created at `data/praat.db` on first run.
 
-## Testing
-
-Run the test suite:
-```bash
-python test_praat_setup.py
-```
 
 Tests verify:
 - Module imports

@@ -10,6 +10,10 @@ from . import AnalysisModule, register_module
 class IntensityModule(AnalysisModule):
     """Extract intensity contour."""
 
+    # Minimum valid intensity threshold (dB)
+    # Values below this are considered silence/invalid
+    MIN_INTENSITY_DB = -50.0
+
     def analyze(self, sound, options: Dict[str, Any], mode: str) -> Dict[str, Any]:
         """
         Extract intensity contour.
@@ -75,6 +79,13 @@ class IntensityModule(AnalysisModule):
             value = intensity.values[0][i]
 
             time_values.append(float(t))
-            intensity_values.append(float(value) if not np.isnan(value) else None)
+
+            # Filter out invalid values:
+            # - NaN values
+            # - Extreme negative values (< MIN_INTENSITY_DB)
+            if np.isnan(value) or value < self.MIN_INTENSITY_DB:
+                intensity_values.append(None)
+            else:
+                intensity_values.append(float(value))
 
         return time_values, intensity_values

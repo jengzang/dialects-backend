@@ -28,7 +28,7 @@ MAX_UPLOAD_MB = 50
 MAX_DURATION_S = 60
 
 # Supported modules
-SUPPORTED_MODULES = {"basic", "pitch", "intensity", "formant", "voice_quality", "segments"}
+SUPPORTED_MODULES = {"basic", "pitch", "intensity", "formant", "voice_quality", "segments", "spectrogram"}
 
 # Supported modes
 SUPPORTED_MODES = {"single", "continuous"}

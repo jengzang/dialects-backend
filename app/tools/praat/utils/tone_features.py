@@ -68,15 +68,24 @@ def extract_tone_features(
         slope, _, _, _, _ = stats.linregress(segment_times, segment_f0)
         features["f0_slope"] = float(slope)
 
-    # 5-point contour (normalized)
+    # 5-point contour (normalized to 1-5 scale for tone notation)
     if len(segment_f0) >= 5:
         indices = np.linspace(0, len(segment_f0) - 1, 5).astype(int)
         contour_5pt = segment_f0[indices].tolist()
 
-        # Normalize if speaker reference provided
-        if speaker_ref and "p50" in speaker_ref and speaker_ref["p50"]:
-            ref_f0 = speaker_ref["p50"]
-            contour_5pt = [(f0 / ref_f0) for f0 in contour_5pt]
+        # Normalize to 1-5 scale if speaker reference provided
+        if speaker_ref and "p5" in speaker_ref and "p95" in speaker_ref:
+            p5 = speaker_ref["p5"]
+            p95 = speaker_ref["p95"]
+
+            if p95 > p5:  # Avoid division by zero
+                # Map to 1-5 scale: p5 -> 1, p95 -> 5
+                contour_5pt = [
+                    1 + 4 * (f0 - p5) / (p95 - p5)
+                    for f0 in contour_5pt
+                ]
+                # Clamp to 1-5 range
+                contour_5pt = [max(1.0, min(5.0, x)) for x in contour_5pt]
 
         features["contour_5pt"] = [float(x) for x in contour_5pt]
 

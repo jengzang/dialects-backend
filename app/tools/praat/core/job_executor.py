@@ -15,7 +15,7 @@ from ..utils.job_utils import update_job_status, find_job_by_id
 from .modules import MODULES
 
 # Import all modules to register them
-from .modules import basic, pitch, intensity, formant, voice_quality, segments
+from .modules import basic, pitch, intensity, formant, voice_quality, segments, spectrogram
 
 
 async def execute_job_async(task_id: str, job_id: str):
@@ -263,12 +263,22 @@ def build_result_json(
             "module_results": module_results
         }
 
+    # Spectrogram (if requested)
+    spectrogram_data = None
+    if "spectrogram" in module_results and "error" not in module_results["spectrogram"]:
+        spectrogram_data = {
+            "time": module_results["spectrogram"]["time"],
+            "frequency": module_results["spectrogram"]["frequency"],
+            "energy_db": module_results["spectrogram"]["energy_db"]
+        }
+
     # Assemble result
     result = {
         "schema": "praat-analysis",
         "meta": meta,
         "summary": summary,
         "timeseries": timeseries,
+        "spectrogram": spectrogram_data,
         "segments": segments_list,
         "units": units,
         "debug": debug

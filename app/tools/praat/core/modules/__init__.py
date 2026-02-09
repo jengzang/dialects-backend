@@ -37,4 +37,4 @@ def register_module(name: str):
 
 
 # Import all modules to register them
-from . import basic, pitch, intensity, formant, voice_quality, segments
+from . import basic, pitch, intensity, formant, voice_quality, segments, spectrogram

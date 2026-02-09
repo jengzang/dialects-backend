@@ -10,6 +10,10 @@ from . import AnalysisModule, register_module
 class VoiceQualityModule(AnalysisModule):
     """Extract voice quality measures: HNR, jitter, shimmer."""
 
+    # Minimum valid HNR threshold (dB)
+    # Values below this are considered invalid
+    MIN_HNR_DB = -50.0
+
     def analyze(self, sound, options: Dict[str, Any], mode: str) -> Dict[str, Any]:
         """
         Extract voice quality measures.
@@ -33,11 +37,28 @@ class VoiceQualityModule(AnalysisModule):
             hnr_values = []
             for i in range(harmonicity.nx):
                 value = harmonicity.values[0][i]
-                if not np.isnan(value) and not np.isinf(value):
+                # Filter out invalid values:
+                # - NaN and inf values
+                # - Extreme negative values (< MIN_HNR_DB)
+                if not np.isnan(value) and not np.isinf(value) and value >= self.MIN_HNR_DB:
                     hnr_values.append(float(value))
 
             # Calculate point process for jitter/shimmer
+            jitter_local = None
+            jitter_abs = None
+            shimmer_local = None
+            shimmer_db = None
+
             try:
+                # Check if audio has enough voiced content
+                # Get voiced frames count
+                voiced_frames = sum(1 for i in range(pitch.get_number_of_frames())
+                                   if pitch.get_value_in_frame(i + 1) > 0)
+
+                # Need at least 10 voiced frames for reliable jitter/shimmer
+                if voiced_frames < 10:
+                    raise ValueError(f"Insufficient voiced frames ({voiced_frames}), need at least 10")
+
                 point_process = parselmouth.praat.call(
                     sound,
                     "To PointProcess (periodic, cc)",
@@ -92,10 +113,9 @@ class VoiceQualityModule(AnalysisModule):
                 )
 
             except Exception as e:
-                jitter_local = None
-                jitter_abs = None
-                shimmer_local = None
-                shimmer_db = None
+                # Log the reason for failure (optional)
+                # print(f"Jitter/Shimmer calculation failed: {e}")
+                pass
 
             # Calculate statistics
             result = {
