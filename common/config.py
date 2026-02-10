@@ -1,8 +1,6 @@
 import os
 import socket
 
-from common.api_config import API_ROUTE_CONFIG
-
 # --------運行方式------------
 # _RUN_TYPE = 'WEB'  # MINE/EXE/WEB
 _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
@@ -37,8 +35,7 @@ MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
 MAX_USER_SIZE = 6 * 1024 * 1024  # 6MB for authenticated users
 # 压缩阈值
 SIZE_THRESHOLD = 10 * 1024  # 10KB
-# 每20条日志写入一次
-BATCH_SIZE = 20
+
 # 缓存过期时间（例如：1小时）
 CACHE_EXPIRATION_TIME = 3600  # 秒
 
