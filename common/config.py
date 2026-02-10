@@ -8,7 +8,7 @@ from common.api_config import API_ROUTE_CONFIG
 _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
 
 # =========JWT==============
-SECRET_KEY = "super-secret-key"
+SECRET_KEY = "your-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Changed from 100000 to 30 minutes for security
 REFRESH_TOKEN_EXPIRE_DAYS = 30    # New: 30 days for refresh tokens

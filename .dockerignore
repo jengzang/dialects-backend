@@ -1,0 +1,57 @@
+# 全局忽略
+**
+!.dockerignore
+!requirements.txt
+!serve.py
+!gunicorn_config.py
+!app/**
+!common/**
+!data/dependency/**
+
+# 常见无关/大文件
+.git/
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+*.so
+*.log
+*.tmp
+*.sqlite
+*.db
+*.db-wal
+*.db-shm
+data/**        # 避免误收大库
+!data/dependency/**  # 反选保留小依赖
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+test*/
+*.test.py
+
+# Temporary files
+.DS_Store
+Thumbs.db
+
+# Deployment scripts
+deploy*.ps1
+deploy*.sh
+*.tar
+*.tar.gz
+
+# Claude files
+.claude/
+CLAUDE.md
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
