@@ -1,22 +1,32 @@
-import os
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import (
     MutationParams, QueryParams, DistinctQueryRequest,
     BatchMutationParams, BatchReplacePreviewParams, BatchReplaceExecuteParams
 )
-from app.auth.dependencies import get_current_admin_user
+from app.auth.dependencies import get_current_admin_user, get_current_user
+from app.logs.service.api_limiter import ApiLimiter
+from app.auth.database import get_db as get_auth_db
+from app.auth.models import User
 
 router = APIRouter()
 
 
 @router.post("/query")
-async def query_table(params: QueryParams):
+async def query_table(
+    params: QueryParams,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    auth_db: Session = Depends(get_auth_db)
+):
+    # 限流和日志记录已由中间件和依赖注入自动处理
+
     # 从 params 中取出 db_key 传进去
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         # 1. 基础 SQL
@@ -95,8 +105,15 @@ async def query_table(params: QueryParams):
 
 
 @router.get("/query/columns")
-async def get_column_info(db_key: str, table_name: str):
-    with get_db_connection(db_key) as conn:
+async def get_column_info(
+    db_key: str,
+    table_name: str,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    auth_db: Session = Depends(get_auth_db)
+):
+    # 限流和日志记录已由中间件和依赖注入自动处理
+
+    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
         cursor = conn.cursor()
 
@@ -130,9 +147,15 @@ async def get_column_info(db_key: str, table_name: str):
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
 @router.get("/distinct/{db_key}/{table_name}/{column}")
-async def get_distinct_values(db_key: str, table_name: str, column: str):
+async def get_distinct_values(
+    db_key: str,
+    table_name: str,
+    column: str,
+    user: Optional[User] = Depends(get_current_user),
+    auth_db: Session = Depends(get_auth_db)
+):
     """用于前端表头筛选弹窗，获取该列所有不重复的值"""
-    with get_db_connection(db_key) as conn:
+    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         # 注意安全校验 column 是否合法
         cursor = conn.execute(f"SELECT DISTINCT {column} FROM {table_name} ORDER BY {column}")
         values = [row[0] for row in cursor.fetchall() if row[0] is not None]
@@ -140,8 +163,12 @@ async def get_distinct_values(db_key: str, table_name: str, column: str):
 
 
 @router.post("/distinct-query")
-async def get_distinct_values(req: DistinctQueryRequest):
-    with get_db_connection(req.db_key) as conn:
+async def get_distinct_values(
+    req: DistinctQueryRequest,
+    user: Optional[User] = Depends(get_current_user),
+    auth_db: Session = Depends(get_auth_db)
+):
+    with get_db_connection(req.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:
@@ -234,7 +261,8 @@ async def get_distinct_values(req: DistinctQueryRequest):
 @router.post("/mutate")
 async def mutate_table(
     params: MutationParams,
-    current_user=Depends(get_current_admin_user)
+    current_user: User = Depends(get_current_admin_user),
+    auth_db: Session = Depends(get_auth_db)
 ):
     """
     单个记录操作（创建/更新/删除）- 需要管理员权限
@@ -247,7 +275,7 @@ async def mutate_table(
     权限要求：管理员
     """
     # 从 params 中取出 db_key 传进去
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
         try:
             if params.action == "create":
@@ -277,7 +305,8 @@ async def mutate_table(
 @router.post("/batch-mutate")
 async def batch_mutate_table(
     params: BatchMutationParams,
-    current_user=Depends(get_current_admin_user)
+    current_user: User = Depends(get_current_admin_user),
+    auth_db: Session = Depends(get_auth_db)
 ):
     """
     批量操作（批量创建/更新/删除）- 需要管理员权限
@@ -323,7 +352,7 @@ async def batch_mutate_table(
         "delete_ids": [1, 2, 3, 4, 5]
     }
     """
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         success_count = 0
@@ -436,7 +465,8 @@ async def batch_mutate_table(
 @router.post("/batch-replace-preview")
 async def batch_replace_preview(
     params: BatchReplacePreviewParams,
-    current_user=Depends(get_current_admin_user)
+    current_user: User = Depends(get_current_admin_user),
+    auth_db: Session = Depends(get_auth_db)
 ):
     """
     批量替换预览统计 - 需要管理员权限
@@ -446,7 +476,7 @@ async def batch_replace_preview(
 
     权限要求：管理员
     """
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=current_user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:
@@ -535,7 +565,8 @@ async def batch_replace_preview(
 @router.post("/batch-replace-execute")
 async def batch_replace_execute(
     params: BatchReplaceExecuteParams,
-    current_user=Depends(get_current_admin_user)
+    current_user: User = Depends(get_current_admin_user),
+    auth_db: Session = Depends(get_auth_db)
 ):
     """
     批量替换执行 - 需要管理员权限
@@ -544,7 +575,7 @@ async def batch_replace_execute(
 
     权限要求：管理员
     """
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:

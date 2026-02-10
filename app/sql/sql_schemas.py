@@ -1,18 +1,27 @@
 from typing import Optional, Dict, List, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class QueryParams(BaseModel):
     db_key: str
     table_name: str
     page: int = 1
-    page_size: int = 20
+    page_size: int = Field(default=20, le=9999, description="每页数量，最大9999")
     sort_by: Optional[str] = None
     sort_desc: bool = False
     filters: Dict[str, List[Any]] = {} # 格式: {"city": ["Beijing", "Shanghai"], "status": [1]}
     search_text: Optional[str] = None  # 全局搜索文本
     search_columns: List[str] = []     # 参与搜索的列名列表（前端传过来）
+
+    @field_validator('page_size')
+    @classmethod
+    def validate_page_size(cls, v):
+        if v < 1:
+            raise ValueError('page_size must be at least 1')
+        if v > 9999:
+            raise ValueError('page_size cannot exceed 9999')
+        return v
 
 class MutationParams(BaseModel):
     db_key: str

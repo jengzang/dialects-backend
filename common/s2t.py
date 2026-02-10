@@ -2,8 +2,7 @@ import os
 
 from opencc import OpenCC
 
-from common.config import ZHENGZI_PATH, MULCODECHAR_PATH
-
+from common.path import ZHENGZI_PATH, MULCODECHAR_PATH
 
 opencc_s2t = OpenCC('s2t.json')
 

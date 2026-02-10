@@ -11,12 +11,20 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_admin_user
 from app.auth.models import User
-from app.logs.database import get_db
+from app.logs.database import SessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 router = APIRouter()
 
 
 # ============ 查询 API ============
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 @router.get("/keyword/top")
 async def get_top_keywords(
@@ -592,7 +600,7 @@ async def get_database_size(
     获取数据库大小和统计信息（管理员）
     """
     import os
-    from common.config import LOGS_DATABASE_PATH
+    from common.path import LOGS_DATABASE_PATH
 
     # 文件大小
     db_size = os.path.getsize(LOGS_DATABASE_PATH) if os.path.exists(LOGS_DATABASE_PATH) else 0

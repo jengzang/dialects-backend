@@ -9,20 +9,17 @@ import json
 from typing import Optional, List
 
 import pandas as pd
-from fastapi import APIRouter, Request, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.database import get_db
-from app.auth.dependencies import get_current_user, check_api_usage_limit
+from app.auth.dependencies import get_current_user
+from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
 from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest
 
 from app.service.phonology2status import pho2sta, get_feature_counts, get_all_phonology_matrices
 from app.service.status_arrange_pho import sta2pho
 from app.service.phonology_classification_matrix import build_phonology_classification_matrix
-from app.logs.api_logger import log_all_fields
-from common.config import REQUIRE_LOGIN
-from common.config import DIALECTS_DB_USER, DIALECTS_DB_ADMIN, QUERY_DB_USER, QUERY_DB_ADMIN
+from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 from app.redis_client import redis_client
 
 router = APIRouter()
@@ -30,14 +27,11 @@ router = APIRouter()
 
 @router.post("/phonology")
 async def api_run_phonology_analysis(
-        request: Request,
         payload: AnalysisPayload,
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(get_current_user),  # [OK] user 可為 None
+        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
-    :param request: 傳token
     :param payload: - mode: p2s-查詢音位查詢的中古來源 s2p-按中古地位查詢音值
     - locations: 輸入地點（可多個）
     - regions: 輸入分區（某一級分區，例如嶺南，可多個）
@@ -49,15 +43,11 @@ async def api_run_phonology_analysis(
                   可輸入簡體，支持簡體轉繁體
                    p2s模式需要的輸入，若不填，則韻母按攝分類，聲母按聲分類，聲調按清濁+調分類。
     - pho_values: 要查詢的具體音值，p2s模式下的輸入，若留空，則查所有音值
-    :param db: 後端連orm
     :param user: 後端校驗得到的用戶身份
     :return: - 若為s2p,返回一個帶有地點、特徵（聲韻調）、分類值（中古地位）、值（具體音值）、對應字（所有查到的字）、
             字數、佔比（在所有查得的值中佔比）、多音字 的數組。p2s也是類似
     """
-    ip_address = request.client.host  # 默认是请求的客户端 IP 地址
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)  # 限制訪問
-    # update_count(request.url.path)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     # start = time.time()
     try:
@@ -162,10 +152,8 @@ async def feature_counts(
 
 @router.post("/phonology_matrix")
 async def phonology_matrix(
-    request: Request,
     payload: PhonologyMatrixRequest,
-    db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user)
+    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
 ):
     """
     获取指定地点的声母-韵母-汉字交叉表数据
@@ -180,9 +168,7 @@ async def phonology_matrix(
     - 纵坐标：韵母
     - 表内显示：按声调分行的汉字
     """
-    ip_address = request.client.host
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
         # 根据用户身份决定数据库
@@ -244,10 +230,8 @@ async def phonology_matrix(
 
 @router.post("/phonology_classification_matrix")
 async def api_phonology_classification_matrix(
-    request: Request,
     payload: PhonologyClassificationMatrixRequest,
-    db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user)
+    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
 ):
     """
     創建音韻特徵分類矩陣
@@ -255,9 +239,7 @@ async def api_phonology_classification_matrix(
     根據用戶指定的分類維度，組織音韻特徵數據。
     結合 dialects.db（現代方言讀音）和 characters.db（中古音系分類）。
     """
-    ip_address = request.client.host
-    check_api_usage_limit(db, user, REQUIRE_LOGIN, ip_address=ip_address)
-    log_all_fields(request.url.path, payload.dict())
+    # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
         # 根據用戶角色選擇數據庫

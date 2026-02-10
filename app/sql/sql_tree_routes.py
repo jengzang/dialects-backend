@@ -15,11 +15,15 @@ CREATE INDEX idx_level_2 ON 广东省自然村(乡镇级);
 CREATE INDEX idx_level_3 ON 广东省自然村(行政村);
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional, Dict, Any
+from sqlalchemy.orm import Session
 
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import FullTreeParams, LazyTreeParams
+from app.auth.dependencies import get_current_user
+from app.auth.database import get_db as get_auth_db
+from app.auth.models import User
 
 router = APIRouter()
 
@@ -223,7 +227,11 @@ def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: L
 
 # ========== API 1: 完整树模式 ==========
 @router.post("/tree/full")
-async def get_full_tree(params: FullTreeParams):
+async def get_full_tree(
+    params: FullTreeParams,
+    user: Optional[User] = Depends(get_current_user),
+    auth_db: Session = Depends(get_auth_db)
+):
     """
     获取完整树形结构
 
@@ -246,7 +254,7 @@ async def get_full_tree(params: FullTreeParams):
       "levels": 5              # 层级数
     }
     """
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:
@@ -304,7 +312,11 @@ async def get_full_tree(params: FullTreeParams):
 
 # ========== API 2: 懒加载模式 ==========
 @router.post("/tree/lazy")
-async def get_tree_children(params: LazyTreeParams):
+async def get_tree_children(
+    params: LazyTreeParams,
+    user: Optional[User] = Depends(get_current_user),
+    auth_db: Session = Depends(get_auth_db)
+):
     """
     懒加载模式：获取指定路径下的子节点
 
@@ -335,7 +347,7 @@ async def get_tree_children(params: LazyTreeParams):
       "total": 15
     }
     """
-    with get_db_connection(params.db_key) as conn:
+    with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:

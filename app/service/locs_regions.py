@@ -6,7 +6,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.custom.models import Information
-from common.config import QUERY_DB_ADMIN
+from common.path import QUERY_DB_ADMIN
 from app.sql.db_pool import get_db_pool
 
 
@@ -112,13 +112,13 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
                     print(f"無法解析經緯度：{lat_lon_str}")
             else:
                 # 调试：查看数据库中实际有什么
-                cursor.execute(f"SELECT 簡稱 FROM dialects")
-                all_abbrs = [r[0] for r in cursor.fetchall()]
+                # cursor.execute(f"SELECT 簡稱 FROM dialects")
+                # all_abbrs = [r[0] for r in cursor.fetchall()]
                 print(f"未找到簡稱2：{abbreviation}")
-                print(f"  查询值的长度: {len(abbreviation)}")
-                print(f"  查询值的 repr: {repr(abbreviation)}")
-                print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
-                                              a or a in abbreviation]}")
+                # print(f"  查询值的长度: {len(abbreviation)}")
+                # print(f"  查询值的 repr: {repr(abbreviation)}")
+                # print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
+                #                               a or a in abbreviation]}")
 
     # 查補充數據庫（如需）
     # print(use_supplementary_db)
@@ -145,13 +145,13 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
                     print(f"無法解析經緯度：{lat_lon_str}")
             else:
                 # 调试：查看数据库中实际有什么
-                cursor.execute(f"SELECT 簡稱 FROM dialects")
-                all_abbrs = [r[0] for r in cursor.fetchall()]
+                # cursor.execute(f"SELECT 簡稱 FROM dialects")
+                # all_abbrs = [r[0] for r in cursor.fetchall()]
                 print(f"未找到簡稱：{abbreviation}")
-                print(f"  查询值的长度: {len(abbreviation)}")
-                print(f"  查询值的 repr: {repr(abbreviation)}")
-                print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
-                                              a or a in abbreviation]}")
+                # print(f"  查询值的长度: {len(abbreviation)}")
+                # print(f"  查询值的 repr: {repr(abbreviation)}")
+                # print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
+                                              # a or a in abbreviation]}")
 
     valid_latitudes = [lat for lat in latitudes if lat is not None]
     valid_longitudes = [lon for lon in longitudes if lon is not None]

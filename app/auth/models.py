@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, func, ForeignKey, Float, Text, DECIMAL
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, func, ForeignKey, Float, Text, DECIMAL, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 
 from sqlalchemy.orm import declarative_base
@@ -41,6 +41,7 @@ class User(Base):
     profile_picture = Column(String(255), nullable=True)
     usage_summary = relationship("ApiUsageSummary", back_populates="user", lazy="joined")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    db_permissions = relationship("UserDbPermission", back_populates="user", cascade="all, delete-orphan")
 
     # informations = relationship("Information", back_populates="user")
 
@@ -93,3 +94,25 @@ class ApiUsageSummary(Base):
 
     user = relationship("User", back_populates="usage_summary")
 
+
+class UserDbPermission(Base):
+    """用户数据库权限表"""
+    __tablename__ = "user_db_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    username = Column(String(50), nullable=False, index=True)  # 冗余字段，方便查询
+    db_key = Column(String(50), nullable=False, index=True)    # 数据库代号
+    can_write = Column(Boolean, default=False, nullable=False) # 是否可写
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # 唯一约束：每个用户对每个数据库只能有一条权限记录
+    __table_args__ = (
+        UniqueConstraint('user_id', 'db_key', name='uix_user_db'),
+        Index('idx_user_db', 'user_id', 'db_key'),
+        {'extend_existing': True}  # 允许扩展已存在的表
+    )
+
+    # 关系
+    user = relationship("User", back_populates="db_permissions")
