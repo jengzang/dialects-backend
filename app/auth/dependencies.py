@@ -100,7 +100,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
     token = auth_header.split(" ")[1]
     try:
         # 解码 JWT token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
         username = payload.get("sub")  # 使用邮箱作为唯一标识
         if not username:
             return None  # Token 无效，返回 None
@@ -166,7 +166,7 @@ async def get_current_admin_user(
 
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
         username = payload.get("sub")
         role_in_jwt = payload.get("role")  # JWT中的role（不能作为唯一依据）
     except JWTError:

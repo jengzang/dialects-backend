@@ -211,7 +211,16 @@ API_ROUTE_CONFIG = {
         "require_login": False,  # 公开的能力查询接口
         "log_params": False,
         "log_body": False,
-    }}
+    },
+
+    # ===== Admin 会话管理 API =====
+    "/admin/user-sessions/*": {
+        "rate_limit": True,  # 启用限流（防止管理员滥用）
+        "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
+        "log_params": True,  # 记录参数（用于审计）
+        "log_body": True,  # 记录请求体（用于审计）
+    },
+}
 
 # ===== 默认配置 =====
 # 未在 API_ROUTE_CONFIG 中列出的路由使用此默认配置

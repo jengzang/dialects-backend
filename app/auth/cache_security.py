@@ -56,7 +56,7 @@ def verify_user_data(signed_json: str) -> Optional[dict]:
         # 重新计算签名
         canonical = json.dumps(user_dict, sort_keys=True)
         expected_sig = hmac.new(
-            SECRET_KEY.encode(),
+            get_secret_key().encode(),
             canonical.encode(),
             hashlib.sha256
         ).hexdigest()
