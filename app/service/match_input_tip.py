@@ -3,6 +3,7 @@ import re
 import threading
 from collections import defaultdict
 from difflib import SequenceMatcher
+from typing import Optional
 
 from opencc import OpenCC
 from pypinyin import lazy_pinyin
@@ -204,7 +205,7 @@ def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):
     return result
 
 
-def match_custom_feature(locations, regions, keyword, user: User, db: Session):
+def match_custom_feature(locations, regions, keyword, user: Optional[User], db: Session):
     opencc_t2s = OpenCC('t2s')
     # 候選集初始化
     candidate_set = set()
@@ -236,6 +237,11 @@ def match_custom_feature(locations, regions, keyword, user: User, db: Session):
 
     # 创建结果列表
     result = []
+
+    # ✅ 处理匿名用户情况
+    if user is None:
+        # 匿名用户：返回空结果
+        return result
 
     # 使用 ORM 查询
     for location in all_locations:

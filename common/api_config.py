@@ -39,6 +39,7 @@ RECORD_API = [
     "charlist",
     "sql",
     "api/tools",
+    "feature_counts"
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）

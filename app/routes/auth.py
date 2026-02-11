@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth.dependencies import check_login_rate_limit
 from app.auth.models import ApiUsageLog
 from app.auth.service import update_user_profile
+from app.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
 from app.schemas import auth as schemas
 from app.auth import service, utils, models
 from app.auth.database import get_db
@@ -89,24 +90,29 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     ))
     db.commit()
 
-    # Create token pair
-    token_pair = utils.create_token_pair(user.username)
+    # ✅ 创建session而非直接创建token
+    device_info = request.headers.get("User-Agent", "Unknown")
+    ip_address = client_ip
 
-    # Store refresh token in database
-    device_info = request.headers.get("User-Agent") if request else None
-    service.store_refresh_token(
-        db,
-        user.id,
-        token_pair["refresh_token"],
-        device_info
+    session_obj, access_token, refresh_token = create_session(
+        db=db,
+        user=user,
+        device_info=device_info,
+        ip_address=ip_address
     )
 
-    return token_pair
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60  # 30 minutes in seconds
+    }
 
 
 # Token refresh endpoint
 @router.post("/refresh", response_model=schemas.TokenPair)
 def refresh(
+    request: Request,
     refresh_token: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ):
@@ -122,21 +128,23 @@ def refresh(
             detail="Invalid or expired refresh token"
         )
 
-    # Get user
-    user = db.query(models.User).filter(
-        models.User.id == token_obj.user_id
-    ).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # ✅ 使用session_service刷新
+    ip_address = utils.extract_client_ip(request)
+    device_info = request.headers.get("User-Agent", "Unknown")
 
-    # Create new token pair
-    new_token_pair = utils.create_token_pair(user.username)
+    new_access_token, new_refresh_token = refresh_session(
+        db=db,
+        old_refresh_token=token_obj,
+        ip_address=ip_address,
+        device_info=device_info
+    )
 
-    # Rotate refresh token (revoke old, store new)
-    new_refresh_token_str, _ = service.rotate_refresh_token(db, token_obj)
-    new_token_pair["refresh_token"] = new_refresh_token_str
-
-    return new_token_pair
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60  # 30 minutes in seconds
+    }
 
 
 # 邮箱验证：点击邮件中的链接来到这里
@@ -189,7 +197,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 队列版本不需要 db 参数
+    # service.touch_activity(user)  # 已废弃，使用 /auth/report-activity 代替
     return user
 
 
@@ -238,7 +246,7 @@ def report_online_time(
     db: Session = Depends(get_db)
 ):
     """
-    前端上报在线时长
+    前端上报在线时长（改为双写user和session表）
 
     前端应该：
     1. 使用 Page Visibility API 监听页面可见性
@@ -255,6 +263,8 @@ def report_online_time(
     try:
         payload = utils.decode_access_token(token)
         username = payload.get("sub")
+        session_id = payload.get("session_id")  # ✅ 从JWT获取session_id
+
         if not username:
             raise HTTPException(status_code=401, detail="Invalid token")
     except JWTError:
@@ -264,15 +274,35 @@ def report_online_time(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 调用队列版本的函数（异步处理）
-    service.accumulate_online_time(user, seconds)
+    # ✅ 双写user和session表
+    if session_id:
+        # 找到对应的session
+        session = db.query(models.Session).filter(
+            models.Session.session_id == session_id
+        ).first()
 
-    # 返回当前的总在线时长（注意：由于队列异步处理，这个值可能有延迟）
+        if session:
+            # 双写
+            session.total_online_seconds += seconds
+            session.last_seen = datetime.utcnow()
+            user.total_online_seconds += seconds
+            user.last_seen = datetime.utcnow()
+            db.commit()
+        else:
+            # Fallback: session不存在时只写user表（旧token兼容）
+            user.total_online_seconds += seconds
+            user.last_seen = datetime.utcnow()
+            db.commit()
+    else:
+        # Fallback: 旧token没有session_id，只写user表
+        user.total_online_seconds += seconds
+        user.last_seen = datetime.utcnow()
+        db.commit()
+
     return {
         "success": True,
         "reported_seconds": seconds,
-        "total_online_seconds": user.total_online_seconds or 0,
-        "message": "在线时长已记录（异步处理中）"
+        "total_online_seconds": user.total_online_seconds or 0
     }
 
 

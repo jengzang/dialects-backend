@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=5000 _RUN_TYPE=WEB MPLCONFIGDIR=/tmp \
-    FORWARDED_ALLOW_IPS=127.0.0.1,172.17.0.1
+    FORWARDED_ALLOW_IPS=127.0.0.1,172.17.0.1 \
+    AUTO_MIGRATE=true \
+    MIGRATION_TIMEOUT=300
 WORKDIR /app
 
 # ==================== 👇 核心修改在这里 👇 ====================
