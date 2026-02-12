@@ -21,6 +21,16 @@ API 配置文件
       跳过记录
 用途：性能监控、用量统计、用户行为分析
 """
+# 一小時內用戶使用api時長
+MAX_USER_USAGE_PER_HOUR = 2000  # 1000秒
+MAX_IP_USAGE_PER_HOUR = 300
+
+# 用戶能接收的最大json包
+MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
+MAX_USER_SIZE = 6 * 1024 * 1024  # 6MB for authenticated users
+# 压缩阈值
+SIZE_THRESHOLD = 10 * 1024  # 10KB
+
 # 每20条日志写入一次
 BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
@@ -39,7 +49,8 @@ RECORD_API = [
     "charlist",
     "sql",
     "api/tools",
-    "feature_counts"
+    "feature_counts",
+    "user/custom"
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）

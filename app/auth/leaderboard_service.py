@@ -15,7 +15,7 @@ from app.auth import models
 
 # Category definitions - exact path matching
 CATEGORY_PATHS = {
-    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology"],
+    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology", "/api/charlist"],
     "category_字調查詢": ["/api/search_chars/", "/api/search_tones/"],
     "category_音系分析": [
         "/api/phonology_matrix",
@@ -27,7 +27,12 @@ CATEGORY_PATHS = {
         "/api/tools/jyut2ipa/process",
         "/api/tools/merge/execute",
         "/api/tools/praat/jobs"
-    ]
+    ],
+    "category_其他查询": [
+        "/sql/query",
+        "/sql/tree/full",
+        "/api/get_coordinates",
+    ],
 }
 
 # Individual endpoint rankings - exact path matching
@@ -35,6 +40,7 @@ ENDPOINT_PATHS = [
     "/api/ZhongGu",
     "/api/YinWei",
     "/api/phonology",
+    "/api/charlist",
     "/api/search_chars/",
     "/api/search_tones/",
     "/api/phonology_matrix",
@@ -43,7 +49,10 @@ ENDPOINT_PATHS = [
     "/api/tools/check/analyze",
     "/api/tools/jyut2ipa/upload",
     "/api/tools/merge/execute",
-    "/api/tools/praat/jobs"
+    "/api/tools/praat/jobs",
+    "/sql/query",
+    "/sql/tree/full",
+    "/api/get_coordinates",
 ]
 
 
