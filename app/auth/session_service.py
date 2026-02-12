@@ -17,6 +17,62 @@ from app.auth.config import (
 )
 
 
+def _get_best_ip_address(
+    db: DBSession,
+    user: User,
+    current_ip: str
+) -> str:
+    """
+    Get best IP address using intelligent fallbacks.
+
+    Args:
+        db: Database session
+        user: User object
+        current_ip: IP from current request
+
+    Returns:
+        Best available IP address with fallbacks applied
+    """
+    # Clean current value
+    clean_ip = (current_ip or "").strip()
+
+    # If current IP is valid, use it
+    if clean_ip and clean_ip not in ("0.0.0.0", "", "None"):
+        return clean_ip
+
+    # Fallback 1: Query user's most recent session with valid IP
+    last_session = db.query(Session).filter(
+        Session.user_id == user.id,
+        Session.current_ip.notin_(["0.0.0.0", "", None])
+    ).order_by(Session.last_activity_at.desc()).first()
+
+    if last_session and last_session.current_ip:
+        return last_session.current_ip
+
+    # Fallback 2: Use user table data
+    if user.last_login_ip and user.last_login_ip not in ("0.0.0.0", "", None):
+        return user.last_login_ip
+    if user.register_ip and user.register_ip not in ("0.0.0.0", "", None):
+        return user.register_ip
+
+    # Final fallback
+    return "0.0.0.0"
+
+
+def should_update_session(session: Session) -> bool:
+    """
+    Determine if session should be updated.
+    Only update if enough time has passed since last update (5 minutes).
+
+    This throttles session writes to reduce database load during frequent token refreshes.
+    """
+    if not session.last_activity_at:
+        return True
+
+    time_since_update = datetime.utcnow() - session.last_activity_at
+    return time_since_update.total_seconds() > 300  # 5 minutes
+
+
 def create_session(
     db: DBSession,
     user: User,
@@ -30,6 +86,17 @@ def create_session(
     """
     session_id = str(uuid.uuid4())
 
+    # Apply intelligent IP fallback (only when needed)
+    best_ip = _get_best_ip_address(db, user, ip_address)
+
+    # Build IP history with first valid IP
+    ip_history_data = []
+    if best_ip and best_ip != "0.0.0.0":
+        ip_history_data.append({
+            "ip": best_ip,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
     # 创建session记录
     session = Session(
         session_id=session_id,
@@ -37,12 +104,14 @@ def create_session(
         username=user.username,
         created_at=datetime.utcnow(),
         expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
-        first_ip=ip_address,
-        current_ip=ip_address,
+        first_ip=best_ip,
+        current_ip=best_ip,
         device_info=device_info,
         first_device_info=device_info,  # ✅ 记录首次设备
         device_fingerprint=device_fingerprint,
-        ip_history=json.dumps([{"ip": ip_address, "timestamp": datetime.utcnow().isoformat()}])
+        ip_history=json.dumps(ip_history_data),
+        current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
+        last_seen=datetime.utcnow()  # ✅ Initialize last_seen
     )
     db.add(session)
     db.flush()  # 获取session.id
@@ -69,7 +138,7 @@ def create_session(
         session_id=session.id,
         user_id=user.id,
         expires_at=session.expires_at,
-        ip_address=ip_address,
+        ip_address=best_ip,
         device_info=device_info
     )
     db.add(refresh_token)
@@ -95,6 +164,9 @@ def refresh_session(
 
     # ✅ 处理旧token（没有session）的情况
     if session is None:
+        # Apply intelligent fallbacks for migrated sessions without session_id
+        best_ip = _get_best_ip_address(db, user, ip_address)
+
         # 为旧token创建新session
         session = Session(
             session_id=f"migrated-{user.id}-{uuid.uuid4().hex[:8]}",
@@ -102,12 +174,14 @@ def refresh_session(
             username=user.username,
             created_at=datetime.utcnow(),
             expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
-            first_ip=ip_address,
-            current_ip=ip_address,
+            first_ip=best_ip,
+            current_ip=best_ip,
             device_info=device_info,
             first_device_info=device_info,
             ip_history=json.dumps([]),
-            refresh_count=0
+            refresh_count=0,
+            current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
+            last_seen=datetime.utcnow()  # ✅ Initialize last_seen
         )
         db.add(session)
         db.flush()  # 获取session.id
@@ -116,41 +190,80 @@ def refresh_session(
         old_refresh_token.session_id = session.id
         db.commit()
 
-    # ✅ 检查IP变化
-    if ip_address != session.current_ip:
-        session.ip_change_count += 1
-        session.current_ip = ip_address
+    # ✅ BACKFILL: Use session's own current_ip to fix first_ip
+    # This is simpler than querying other sessions!
+    if session.first_ip in ("0.0.0.0", "", None):
+        if session.current_ip and session.current_ip not in ("0.0.0.0", "", None):
+            # Session already has a valid current_ip, use it to backfill first_ip
+            session.first_ip = session.current_ip
+            print(f"[BACKFILL] Updated first_ip for session {session.id}: {session.current_ip}")
 
-        # 更新IP历史
-        ip_history = json.loads(session.ip_history or "[]")
-        ip_history.append({"ip": ip_address, "timestamp": datetime.utcnow().isoformat()})
-        session.ip_history = json.dumps(ip_history[-IP_HISTORY_LIMIT:])  # 保留最近N条
+            # Initialize IP history if empty
+            if not session.ip_history or session.ip_history == "[]":
+                session.ip_history = json.dumps([{
+                    "ip": session.current_ip,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event": "backfilled"
+                }])
 
-        # 检测可疑活动
-        if session.ip_change_count > SUSPICIOUS_IP_CHANGES:
-            session.is_suspicious = True
-            session.suspicious_reason = f"Excessive IP changes: {session.ip_change_count}"
+    # ✅ BACKFILL: Initialize timestamp fields for migrated sessions
+    if not session.current_session_started_at:
+        session.current_session_started_at = datetime.utcnow()
+        print(f"[BACKFILL] Initialized current_session_started_at for session {session.id}")
 
-    # ✅ 检查设备变化（对比User-Agent）
-    if device_info != session.device_info:
-        session.device_change_count += 1
-        session.device_info = device_info  # 更新为最新设备
-        session.device_changed = True  # 标记设备已变化
+    if not session.last_seen:
+        session.last_seen = datetime.utcnow()
+        print(f"[BACKFILL] Initialized last_seen for session {session.id}")
 
-        # 检测可疑活动
-        if session.device_change_count > SUSPICIOUS_DEVICE_CHANGES:
-            session.is_suspicious = True
-            session.suspicious_reason = f"Excessive device changes: {session.device_change_count}"
+    # Apply fallback for new current_ip (if extraction failed)
+    new_current_ip = _get_best_ip_address(db, user, ip_address)
 
-    # 增加刷新计数
-    session.refresh_count += 1
-    session.last_activity_at = datetime.utcnow()
-    session.last_seen = datetime.utcnow()  # ✅ 更新最后活跃时间
-    session.current_session_started_at = datetime.utcnow()  # ✅ 重置会话开始时间
+    # ✅ Check if IP or device changed
+    ip_changed = (new_current_ip != session.current_ip)
+    device_changed = (device_info != session.device_info)
 
-    # ✅ 同时更新User表
-    user.last_seen = datetime.utcnow()
-    user.current_session_started_at = datetime.utcnow()
+    # ✅ Determine if session needs update (throttle to reduce writes)
+    needs_update = (
+        ip_changed or
+        device_changed or
+        should_update_session(session)
+    )
+
+    if needs_update:
+        # Update session only when necessary
+        if ip_changed:
+            session.ip_change_count += 1
+            session.current_ip = new_current_ip
+
+            # 更新IP历史
+            ip_history = json.loads(session.ip_history or "[]")
+            ip_history.append({"ip": new_current_ip, "timestamp": datetime.utcnow().isoformat()})
+            session.ip_history = json.dumps(ip_history[-IP_HISTORY_LIMIT:])  # 保留最近N条
+
+            # 检测可疑活动
+            if session.ip_change_count > SUSPICIOUS_IP_CHANGES:
+                session.is_suspicious = True
+                session.suspicious_reason = f"Excessive IP changes: {session.ip_change_count}"
+
+        if device_changed:
+            session.device_change_count += 1
+            session.device_info = device_info  # 更新为最新设备
+            session.device_changed = True  # 标记设备已变化
+
+            # 检测可疑活动
+            if session.device_change_count > SUSPICIOUS_DEVICE_CHANGES:
+                session.is_suspicious = True
+                session.suspicious_reason = f"Excessive device changes: {session.device_change_count}"
+
+        # Update timestamps and counters
+        session.refresh_count += 1
+        session.last_activity_at = datetime.utcnow()
+        session.last_seen = datetime.utcnow()
+        session.current_session_started_at = datetime.utcnow()
+
+        # ✅ Update User table (kept as per user requirement)
+        user.last_seen = datetime.utcnow()
+        user.current_session_started_at = datetime.utcnow()
 
     # 创建新token对
     token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
@@ -167,7 +280,7 @@ def refresh_session(
         session_id=session.id,
         user_id=user.id,
         expires_at=session.expires_at,
-        ip_address=ip_address,
+        ip_address=new_current_ip,
         device_info=device_info
     )
     db.add(new_token)

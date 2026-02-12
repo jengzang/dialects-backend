@@ -246,7 +246,7 @@ def report_online_time(
     db: Session = Depends(get_db)
 ):
     """
-    前端上报在线时长（改为双写user和session表）
+    前端上报在线时长（使用队列实现非阻塞写入）
 
     前端应该：
     1. 使用 Page Visibility API 监听页面可见性
@@ -258,7 +258,8 @@ def report_online_time(
 
     返回：
     - success: 是否成功
-    - total_online_seconds: 用户总在线时长（秒）
+    - reported_seconds: 本次上报的秒数
+    - total_online_seconds: 用户总在线时长（秒，可能略有延迟）
     """
     try:
         payload = utils.decode_access_token(token)
@@ -274,35 +275,20 @@ def report_online_time(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # ✅ 双写user和session表
-    if session_id:
-        # 找到对应的session
-        session = db.query(models.Session).filter(
-            models.Session.session_id == session_id
-        ).first()
+    # ✅ Put in queue instead of direct write (non-blocking)
+    from app.logs.service.api_logger import online_time_queue
+    online_time_queue.put({
+        'user_id': user.id,
+        'session_id': session_id,
+        'seconds': seconds,
+        'timestamp': datetime.utcnow()
+    })
 
-        if session:
-            # 双写
-            session.total_online_seconds += seconds
-            session.last_seen = datetime.utcnow()
-            user.total_online_seconds += seconds
-            user.last_seen = datetime.utcnow()
-            db.commit()
-        else:
-            # Fallback: session不存在时只写user表（旧token兼容）
-            user.total_online_seconds += seconds
-            user.last_seen = datetime.utcnow()
-            db.commit()
-    else:
-        # Fallback: 旧token没有session_id，只写user表
-        user.total_online_seconds += seconds
-        user.last_seen = datetime.utcnow()
-        db.commit()
-
+    # Return immediately (non-blocking)
     return {
         "success": True,
         "reported_seconds": seconds,
-        "total_online_seconds": user.total_online_seconds or 0
+        "total_online_seconds": user.total_online_seconds or 0  # May be slightly stale
     }
 
 

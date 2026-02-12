@@ -28,8 +28,13 @@ event.listen(engine, "connect", _sqlite_pragmas)  # [NEW] 新增
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 建表（保持原样）
-Base.metadata.create_all(bind=engine)
+# 建表（处理多worker竞争）
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    # 多worker环境下可能出现"table already exists"竞争
+    if "already exists" not in str(e).lower():
+        raise  # 其他错误需要抛出
 
 
 # FastAPI 依賴（保持原样）
