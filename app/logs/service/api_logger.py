@@ -23,8 +23,8 @@ from app.auth.dependencies import get_current_user, get_current_user_for_middlew
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logs.database import SessionLocal as LogsSessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
-from common.config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, BATCH_SIZE, SIZE_THRESHOLD
-from common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API
+from common.config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, SIZE_THRESHOLD
+from common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, BATCH_SIZE
 from common.path import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_FILE, API_DETAILED_JSON
 
 # === 队列（跨进程） ===
@@ -35,6 +35,7 @@ keyword_log_queue = multiprocessing.Queue(maxsize=5000)  # [OK] ApiKeywordLog �
 statistics_queue = multiprocessing.Queue(maxsize=1000)  # [OK] ApiStatistics 队列（logs.db）- 限制 1000 条
 html_visit_queue = multiprocessing.Queue(maxsize=500)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 500 条
 summary_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 队列（auth.db）- 限制 1000 条
+online_time_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] Online time reports 队列（auth.db）- 限制 1000 条
 
 
 # === 关键词日志（写入logs.db） ===
@@ -499,6 +500,89 @@ def _process_summary_batch(batch: list):
         db.close()
 
 
+def online_time_writer():
+    """
+    Background thread: batch write online time updates
+    Aggregates multiple reports for same user/session before writing
+    """
+    batch = {}  # {(user_id, session_id): total_seconds}
+    last_write_time = time.time()
+    batch_timeout = 30  # Write every 30 seconds
+
+    while True:
+        try:
+            # Get item from queue with timeout
+            item = online_time_queue.get(timeout=5)
+            if item is None:  # Stop signal
+                break
+
+            # Aggregate by (user_id, session_id)
+            key = (item['user_id'], item.get('session_id'))
+            if key in batch:
+                batch[key]['seconds'] += item['seconds']
+            else:
+                batch[key] = item
+
+            # Write if batch is large or timeout reached
+            current_time = time.time()
+            should_write = (
+                len(batch) >= 50 or  # Batch size limit
+                (current_time - last_write_time) >= batch_timeout  # Time limit
+            )
+
+            if should_write:
+                _write_online_time_batch(batch)
+                batch = {}
+                last_write_time = current_time
+
+        except Empty:
+            # Timeout - write remaining batch if any
+            if batch:
+                _write_online_time_batch(batch)
+                batch = {}
+                last_write_time = time.time()
+        except Exception as e:
+            print(f"[X] Online time writer error: {e}")
+
+    # Write remaining batch on shutdown
+    if batch:
+        _write_online_time_batch(batch)
+
+
+def _write_online_time_batch(batch: dict):
+    """Write aggregated online time updates to database"""
+    from app.auth.database import SessionLocal as AuthSessionLocal
+    from app.auth.models import User, Session
+
+    db = AuthSessionLocal()
+    try:
+        for (user_id, session_id), item in batch.items():
+            seconds = item['seconds']
+
+            # Update user
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.total_online_seconds = (user.total_online_seconds or 0) + seconds
+                user.last_seen = datetime.utcnow()
+
+            # Update session if exists
+            if session_id:
+                session = db.query(Session).filter(
+                    Session.session_id == session_id
+                ).first()
+                if session:
+                    session.total_online_seconds = (session.total_online_seconds or 0) + seconds
+                    session.last_seen = datetime.utcnow()
+
+        db.commit()
+        print(f"[OnlineTimeWriter] ✅ Batch wrote {len(batch)} online time updates")
+    except Exception as e:
+        print(f"[X] Failed to write online time batch: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def log_detailed_api_to_db_async(
         db: Session,
         path: str,
@@ -558,6 +642,9 @@ def start_api_logger_workers(db: Session):
         # [NEW] 启动 ApiUsageSummary 更新线程（auth.db）
         threading.Thread(target=summary_writer, daemon=True).start()
 
+        # [NEW] 启动 Online Time 更新线程（auth.db）
+        threading.Thread(target=online_time_writer, daemon=True).start()
+
         _workers_started = True
         print("[OK] API 日志后台线程已启动")
 
@@ -586,6 +673,11 @@ def stop_api_logger_workers():
 
     try:
         summary_queue.put_nowait(None)  # [NEW] 停止 ApiUsageSummary 线程
+    except:
+        pass
+
+    try:
+        online_time_queue.put_nowait(None)  # [NEW] 停止 Online Time 线程
     except:
         pass
 

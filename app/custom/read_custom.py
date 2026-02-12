@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -7,7 +8,7 @@ from app.custom.models import Information
 from app.service.getloc_by_name_region import query_dialect_abbreviations_orm
 
 
-def get_from_submission(locations, regions, need_features, user: User, db: Session):
+def get_from_submission(locations, regions, need_features, user: Optional[User], db: Session):
     # 获取 all_locations
     all_locations = query_dialect_abbreviations_orm(db, user, regions, locations)
 
@@ -16,6 +17,11 @@ def get_from_submission(locations, regions, need_features, user: User, db: Sessi
 
     for location in all_locations:
         for feature in need_features:
+            # ✅ 处理匿名用户情况
+            if user is None:
+                # 匿名用户：不查询任何数据（因为 Information 表需要 user_id）
+                continue
+
             # 使用 ORM 查询，按 user_id、location 和 feature 进行过滤
             records = db.query(Information).filter(
                 Information.user_id == user.id,

@@ -5,6 +5,8 @@
 功能：
 1. 每周清理 30 天前的旧日志
 2. 每小时聚合关键词统计
+3. Session和Token自动清理
+4. SECRET_KEY自动清理
 """
 import logging
 from datetime import datetime, timedelta
@@ -14,6 +16,13 @@ from sqlalchemy import and_, text
 
 from app.logs.database import SessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
+from app.auth.session_cleanup import (  # ✅ 导入session清理函数
+    cleanup_revoked_tokens,
+    cleanup_expired_sessions,
+    cleanup_suspicious_sessions,
+    cleanup_excess_tokens_per_session
+)
+from app.auth.key_manager import cleanup_expired_keys  # ✅ 导入key清理函数
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +149,7 @@ def aggregate_keyword_statistics():
 
 def start_scheduler():
     """启动定时任务调度器"""
+    # ========== 日志清理任务 ==========
     # 每周日凌晨 3 点清理旧日志
     scheduler.add_job(
         cleanup_old_logs,
@@ -158,10 +168,62 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # ========== Session和Token清理任务 ==========
+    # ✅ 每周日凌晨3点清理已撤销的token（保留7天历史）
+    scheduler.add_job(
+        cleanup_revoked_tokens,
+        CronTrigger(day_of_week='sun', hour=3, minute=0),
+        id='cleanup_revoked_tokens',
+        name='清理已撤销的Token（每周）',
+        replace_existing=True
+    )
+
+    # ✅ 每天凌晨2点标记过期session（不删除，只revoke）
+    scheduler.add_job(
+        cleanup_expired_sessions,
+        CronTrigger(hour=2, minute=0),
+        id='revoke_expired_sessions',
+        name='撤销过期Session（每天）',
+        replace_existing=True
+    )
+
+    # ✅ 每小时检测可疑会话
+    scheduler.add_job(
+        cleanup_suspicious_sessions,
+        CronTrigger(minute=15),
+        id='check_suspicious_sessions',
+        name='检测可疑会话（每小时）',
+        replace_existing=True
+    )
+
+    # ✅ 每天凌晨4点清理超量token
+    scheduler.add_job(
+        cleanup_excess_tokens_per_session,
+        CronTrigger(hour=4, minute=0),
+        id='cleanup_excess_tokens',
+        name='清理超量Token（每天）',
+        replace_existing=True
+    )
+
+    # ========== SECRET_KEY清理任务 ==========
+    # ✅ 每天凌晨1点清理过期密钥
+    scheduler.add_job(
+        cleanup_expired_keys,
+        CronTrigger(hour=1, minute=0),
+        id='cleanup_expired_keys',
+        name='清理过期SECRET_KEY',
+        replace_existing=True
+    )
+
     scheduler.start()
     logger.info("[OK] 定时任务调度器已启动")
     logger.info("   - 清理旧日志: 每周日 03:00")
     logger.info("   - 聚合统计: 每小时第 5 分钟")
+    logger.info("   - 清理已撤销Token: 每周日 03:00")
+    logger.info("   - 撤销过期Session: 每天 02:00")
+    logger.info("   - 检测可疑会话: 每小时第 15 分钟")
+    logger.info("   - 清理超量Token: 每天 04:00")
+    logger.info("   - 清理过期密钥: 每天 01:00")
 
 
 def stop_scheduler():

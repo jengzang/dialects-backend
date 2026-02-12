@@ -6,16 +6,16 @@
 from fastapi import FastAPI
 from .phonology import router as phonology_router
 from .new_pho import router as new_pho_router
-from .get_regions import router as region_router
-from .get_partitions import router as partitions_router
-from .batch_match import router as batch_match_router
-from .get_coordinates import router as coordinates_router
-from .form_submit import router as form_router
-from .custom_query import router as custom_query_router
+from app.routes.geo.get_regions import router as region_router
+from app.routes.geo.get_partitions import router as partitions_router
+from app.routes.geo.batch_match import router as batch_match_router
+from app.routes.geo.get_coordinates import router as coordinates_router
+from app.routes.user.form_submit import router as form_router
+from app.routes.user.custom_query import router as custom_query_router
 from .search import router as search_router
 from .index import router as index_router
 from .auth import router as auth_router
-from .get_locs import router as locs_router
+from app.routes.geo.get_locs import router as locs_router
 from .admin import router as admin_router
 from .user import router as user_router
 from ..logs import setup_logs_routes

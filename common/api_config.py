@@ -21,7 +21,8 @@ API 配置文件
       跳过记录
 用途：性能监控、用量统计、用户行为分析
 """
-
+# 每20条日志写入一次
+BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
 CLEAR_WEEK = True
 
@@ -38,6 +39,7 @@ RECORD_API = [
     "charlist",
     "sql",
     "api/tools",
+    "feature_counts"
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）
@@ -209,7 +211,24 @@ API_ROUTE_CONFIG = {
         "require_login": False,  # 公开的能力查询接口
         "log_params": False,
         "log_body": False,
-    }}
+    },
+
+    # ===== Admin 会话管理 API =====
+    "/admin/user-sessions/*": {
+        "rate_limit": True,  # 启用限流（防止管理员滥用）
+        "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
+        "log_params": True,  # 记录参数（用于审计）
+        "log_body": True,  # 记录请求体（用于审计）
+    },
+
+    # ===== 用户排行榜 API =====
+    "/auth/leaderboard": {
+        "rate_limit": True,  # 启用限流（防止频繁查询）
+        "require_login": True,  # 要求登录（只有登录用户才能查看排行）
+        "log_params": False,  # 不记录参数（GET 请求无参数）
+        "log_body": False,  # 不记录请求体（GET 请求无 body）
+    },
+}
 
 # ===== 默认配置 =====
 # 未在 API_ROUTE_CONFIG 中列出的路由使用此默认配置
@@ -307,3 +326,4 @@ API_BLACKLIST = [
 - 个人数据查询：启用（需要权限）
 - 公开查询 API：不启用（方便访问）
 """
+

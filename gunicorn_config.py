@@ -70,7 +70,7 @@ def on_exit(server):
 
 # Gunicorn 配置参数
 bind = "0.0.0.0:5000"
-workers = 3
+workers = 3  # 迁移完成，恢复为3
 worker_class = "uvicorn.workers.UvicornWorker"
 timeout = 180
 max_requests = 1000
