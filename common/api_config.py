@@ -220,6 +220,14 @@ API_ROUTE_CONFIG = {
         "log_params": True,  # 记录参数（用于审计）
         "log_body": True,  # 记录请求体（用于审计）
     },
+
+    # ===== 用户排行榜 API =====
+    "/auth/leaderboard": {
+        "rate_limit": True,  # 启用限流（防止频繁查询）
+        "require_login": True,  # 要求登录（只有登录用户才能查看排行）
+        "log_params": False,  # 不记录参数（GET 请求无参数）
+        "log_body": False,  # 不记录请求体（GET 请求无 body）
+    },
 }
 
 # ===== 默认配置 =====

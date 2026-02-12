@@ -177,7 +177,7 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 
 
 # ========== Me（恢复 & 最小化改动）==========
-@router.get("/me", response_model=schemas.UserResponse)
+@router.get("/me", response_model=schemas.UserMeResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = utils.decode_access_token(token)  # 解码 token
@@ -309,6 +309,47 @@ async def update_profile(
             password=password,
             new_password=new_password
         )
-        return {"message": "用戶資料更新成功！", "user": {"username": updated_user.username, "email": updated_user.email}}
+        return {" message": "用戶資料更新成功!", "user": {"username": updated_user.username, "email": updated_user.email}}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/leaderboard", response_model=schemas.LeaderboardResponse)
+def get_leaderboard(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive leaderboard rankings for current user.
+
+    Returns all 18 ranking metrics in a single response:
+    - online_time: Total online time ranking
+    - total_queries: Total API queries ranking
+    - category_音韻查詢: Phonology queries category
+    - category_字調查詢: Character/tone queries category
+    - category_音系分析: System analysis category
+    - category_工具使用: Tools usage category
+    - endpoint_*: Individual endpoint rankings (13 endpoints)
+
+    Each ranking includes:
+    - rank: User's rank (null if no activity)
+    - value: User's value for this metric
+    - gap_to_prev: Gap to previous rank (null for rank 1)
+    - first_place_value: First place user's value
+    """
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Calculate all rankings
+    from app.auth.leaderboard_service import get_user_leaderboard
+    return get_user_leaderboard(db, user.id)
