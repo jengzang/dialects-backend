@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 from app.service.getloc_by_name_region import query_dialect_abbreviations
 from app.logs.service.api_limiter import ApiLimiter
@@ -32,7 +32,7 @@ async def get_all_locs(
         locations_processed = []
         query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         for location in locations or []:
-            matched = match_locations_batch(location, query_db=query_db)
+            matched = match_locations_batch_exact(location, query_db=query_db)
             extracted = [res[0][0] for res in matched if res[0]]
             locations_processed.extend(extracted)
 

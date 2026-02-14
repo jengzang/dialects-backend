@@ -289,6 +289,100 @@ def match_custom_feature(locations, regions, keyword, user: Optional[User], db: 
     return result
 
 
+def match_locations_exact(user_input, filter_valid_abbrs_only=True, query_db=QUERY_DB_ADMIN):
+    """
+    精确匹配地点简称（快速路径，用于ZhongGu/YinWei）
+
+    只做精确匹配，不做模糊匹配、拼音匹配、相似度计算等。
+
+    Args:
+        user_input: 用户输入的地点名称
+        filter_valid_abbrs_only: 是否只匹配有存储标记的简称
+        query_db: 查询数据库路径
+
+    Returns:
+        (matched_abbrs, success_flag)
+        - matched_abbrs: list[str] - 匹配到的简称列表
+        - success_flag: int - 1表示找到精确匹配，0表示未找到
+    """
+    user_input = user_input.strip()
+    if not user_input:
+        return [], 0
+
+    # 1. 简繁转换（复用现有逻辑）
+    converted_str, mapping = s2t_pro(user_input, level=2)
+    input_len = len(user_input)
+
+    # 生成严格候选集（不交叉混用）
+    def generate_strict_candidates(mapping, input_len):
+        combinations = [[]]
+        for _, candidates in mapping:
+            new_combos = []
+            for combo in combinations:
+                for c in candidates:
+                    new_combos.append(combo + [c])
+            combinations = new_combos
+        return {''.join(chars) for chars in combinations if len(chars) == input_len}
+
+    converted_candidates = generate_strict_candidates(mapping, input_len)
+
+    # possible_inputs 包含：原输入 + 转换字词 + 候选组合
+    possible_inputs = {user_input, converted_str} | converted_candidates
+
+    # 2. 加载缓存（复用现有缓存机制）
+    valid_abbrs_set, _, _ = _load_dialect_cache(query_db, filter_valid_abbrs_only)
+
+    # 3. 精确匹配
+    matched_abbrs = set()
+    for term in possible_inputs:
+        if term in valid_abbrs_set:
+            matched_abbrs.add(term)
+
+    # 4. 返回结果
+    if matched_abbrs:
+        return list(matched_abbrs), 1
+    else:
+        return [], 0
+
+
+def match_locations_batch_exact(input_string: str, filter_valid_abbrs_only=True, query_db=QUERY_DB_ADMIN):
+    """
+    批量精确匹配地点简称（快速路径）
+
+    Args:
+        input_string: 用空格/逗号等分隔的地点字符串
+        filter_valid_abbrs_only: 是否只匹配有存储标记的简称
+        query_db: 查询数据库路径
+
+    Returns:
+        list of (matched_abbrs, success_flag, [], [], [], [], [], []) tuples
+        返回格式与 match_locations_batch 兼容，但后6个元素为空列表
+    """
+    input_string = input_string.strip()
+    if not input_string:
+        return []
+
+    # 以多种分隔符切分
+    parts = re.split(r"[ ,;/，；、]+", input_string)
+    results = []
+
+    for part in parts:
+        part = part.strip()
+        if part:
+            try:
+                matched_abbrs, success_flag = match_locations_exact(
+                    part, filter_valid_abbrs_only, query_db
+                )
+                # 转换为与原match_locations_batch相同的返回格式
+                # (abbrs, success, geo_matches, geo_abbrs, fuzzy_geo, fuzzy_abbrs, sound_like, sound_abbrs)
+                results.append((matched_abbrs, success_flag, [], [], [], [], [], []))
+            except Exception as e:
+                print(f"[X] 精确匹配发生错误：{e}")
+                results.append(([], 0, [], [], [], [], [], []))
+
+    return results
+
+
 def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, query_db=QUERY_DB_ADMIN):
     def is_pinyin_similar_cached(a, b, threshold, geo_pinyin_map):
         """使用预计算的拼音缓存进行拼音相似度匹配"""
@@ -546,7 +640,10 @@ def match_locations_batch_all(locations_list, filter_valid_abbrs_only=True, exac
 
     # 如果只有一个地点，直接调用原有函数
     if len(locations_list) == 1:
-        matched = match_locations_batch(locations_list[0], filter_valid_abbrs_only, exact_only, query_db, db, user)
+        if exact_only:
+            matched = match_locations_batch_exact(locations_list[0], filter_valid_abbrs_only, query_db)
+        else:
+            matched = match_locations_batch(locations_list[0], filter_valid_abbrs_only, exact_only, query_db, db, user)
         return [res[0][0] for res in matched if res[0]] if matched else []
 
     # 批量处理多个地点

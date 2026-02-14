@@ -7,7 +7,7 @@ from common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 from common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES
 from app.service.process_sp_input import auto_convert_batch
 from app.service.getloc_by_name_region import query_dialect_abbreviations
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
 """
@@ -457,7 +457,7 @@ def sta2pho(
         db_path_query: 查询数据库路径（用于查询地点信息）
     """
     locations_new = query_dialect_abbreviations(regions, locations, db_path=db_path_query, region_mode=region_mode)
-    match_results = match_locations_batch(" ".join(locations_new))
+    match_results = match_locations_batch_exact(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         raise HTTPException(status_code=400, detail="🛑 沒有任何地點完全匹配，終止分析。")
         # print("🛑 沒有任何地點完全匹配，終止分析。")

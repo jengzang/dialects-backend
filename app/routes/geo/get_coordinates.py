@@ -12,7 +12,7 @@ from app.auth.database import get_db as get_db_user
 from app.schemas import CoordinatesQuery
 from app.service.locs_regions import get_coordinates_from_db
 from app.service.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
@@ -53,7 +53,7 @@ async def get_coordinates(
         locations_processed = []
 
         for location in locations_list:
-            matched = match_locations_batch(location, query_db=query_db)
+            matched = match_locations_batch_exact(location, query_db=query_db)
             extracted = [res[0][0] for res in matched if res[0]]
             locations_processed.extend(extracted)
 
