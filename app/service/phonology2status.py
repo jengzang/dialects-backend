@@ -381,6 +381,18 @@ def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
     """
     优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
     显著提升查询性能（3次扫描 → 1次扫描）
+
+    [DEPRECATED - 2026-02-14]
+    此函数已迁移到 app.service.feature_stats 模块。
+    为保持向后兼容性，此函数暂时保留，但建议更新导入：
+
+    旧的导入（已弃用）:
+        from app.service.phonology2status import get_feature_counts
+
+    新的导入（推荐）:
+        from app.service.feature_stats import get_feature_counts
+
+    此函数计划在 1-2 周后移除。
     """
     result = defaultdict(lambda: defaultdict(dict))
 

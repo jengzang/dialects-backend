@@ -50,6 +50,7 @@ RECORD_API = [
     "sql",
     "api/tools",
     "feature_counts",
+    "feature_stats",  # 新增：特征统计接口
     "user/custom"
 ]
 
@@ -190,6 +191,12 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": False,
+    },
+    "/api/feature_stats": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
     },
 
     # ===== Praat 声学分析 API =====

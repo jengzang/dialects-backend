@@ -1,7 +1,7 @@
 # schemas/phonology.py
 
-from pydantic import BaseModel, Field
-from typing import List, Union, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Union, Optional, Dict
 
 
 class AnalysisPayload(BaseModel):
@@ -138,3 +138,57 @@ class PhonologyClassificationMatrixRequest(BaseModel):
         description="單元格內分行欄位（來自 characters.db）",
         example="部位"
     )
+
+
+class FeatureStatsRequest(BaseModel):
+    """
+    特徵統計請求模型
+
+    用於 /api/feature_stats 接口，提供音韻特徵的詳細統計分析。
+    支持漢字篩選、特徵篩選，並返回索引優化格式的數據。
+    """
+    locations: List[str] = Field(
+        ...,
+        description="地點簡稱列表（必需）",
+        example=["廣州", "東莞"],
+        min_length=1
+    )
+    chars: Optional[List[str]] = Field(
+        default=None,
+        description="要查詢的漢字列表（可選，為空則查該地點所有漢字）",
+        example=["東", "西", "南", "北"]
+    )
+    features: List[str] = Field(
+        default=["聲母", "韻母", "聲調"],
+        description="要統計的特徵列表",
+        example=["聲母", "韻母"]
+    )
+    filters: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="篩選條件（可選），用於篩選特定的特徵值",
+        example={"聲母": ["p", "b"], "韻母": ["a", "ɐ"]}
+    )
+
+    @field_validator('features')
+    @classmethod
+    def validate_features(cls, v):
+        """驗證 features 必須是有效的特徵類型"""
+        valid_features = {"聲母", "韻母", "聲調"}
+        invalid = set(v) - valid_features
+        if invalid:
+            raise ValueError(f"無效的特徵類型: {invalid}，必須是 {valid_features}")
+        if not v:
+            raise ValueError("features 不能為空")
+        return v
+
+    @field_validator('filters')
+    @classmethod
+    def validate_filters(cls, v):
+        """驗證 filters 的鍵必須是有效的特徵類型"""
+        if v is None:
+            return v
+        valid_features = {"聲母", "韻母", "聲調"}
+        invalid = set(v.keys()) - valid_features
+        if invalid:
+            raise ValueError(f"filters 中的無效鍵: {invalid}，必須是 {valid_features}")
+        return v
