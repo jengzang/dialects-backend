@@ -2,11 +2,11 @@ import os
 import re
 import threading
 from collections import defaultdict
-from difflib import SequenceMatcher
 from typing import Optional
 
 from opencc import OpenCC
 from pypinyin import lazy_pinyin
+from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -25,6 +25,7 @@ _cache_lock = threading.Lock()
 _dialect_cache = {
     'valid_abbrs': {},      # {db_path: {filter_flag: set()}}
     'geo_data': {},         # {db_path: {filter_flag: [(name, abbr), ...]}}
+    'geo_pinyin': {},       # {db_path: {filter_flag: {name: pinyin_str}}}
     'last_update': {}       # {db_path: timestamp}
 }
 
@@ -38,7 +39,7 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
         filter_valid_abbrs_only: 是否只加载存储标记为1的数据
 
     Returns:
-        (valid_abbrs_set, geo_data_list)
+        (valid_abbrs_set, geo_data_list, geo_pinyin_map)
     """
     cache_key = (query_db, filter_valid_abbrs_only)
 
@@ -49,7 +50,8 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
                 # 缓存命中
                 valid_abbrs = _dialect_cache['valid_abbrs'][query_db][filter_valid_abbrs_only]
                 geo_data = _dialect_cache['geo_data'][query_db][filter_valid_abbrs_only]
-                return valid_abbrs, geo_data
+                geo_pinyin = _dialect_cache['geo_pinyin'][query_db][filter_valid_abbrs_only]
+                return valid_abbrs, geo_data, geo_pinyin
 
     # 缓存未命中，从数据库加载
     pool = get_db_pool(query_db)
@@ -73,19 +75,29 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
             rows = cursor.fetchall()
             geo_data_list.extend(rows)
 
+    # 预计算拼音
+    geo_pinyin_map = {}
+    geo_names_seen = set()
+    for name, abbr in geo_data_list:
+        if name and name not in geo_names_seen:
+            geo_names_seen.add(name)
+            geo_pinyin_map[name] = ''.join(lazy_pinyin(name)).lower()
+
     # 存入缓存
     with _cache_lock:
         if query_db not in _dialect_cache['valid_abbrs']:
             _dialect_cache['valid_abbrs'][query_db] = {}
             _dialect_cache['geo_data'][query_db] = {}
+            _dialect_cache['geo_pinyin'][query_db] = {}
 
         _dialect_cache['valid_abbrs'][query_db][filter_valid_abbrs_only] = valid_abbrs_set
         _dialect_cache['geo_data'][query_db][filter_valid_abbrs_only] = geo_data_list
+        _dialect_cache['geo_pinyin'][query_db][filter_valid_abbrs_only] = geo_pinyin_map
         _dialect_cache['last_update'][query_db] = __import__('time').time()
 
-    print(f"[CACHE] 已加载方言数据到缓存: {len(valid_abbrs_set)} 个简称, {len(geo_data_list)} 条地理数据")
+    print(f"[CACHE] 已加载方言数据到缓存: {len(valid_abbrs_set)} 个简称, {len(geo_data_list)} 条地理数据, {len(geo_pinyin_map)} 个拼音")
 
-    return valid_abbrs_set, geo_data_list
+    return valid_abbrs_set, geo_data_list, geo_pinyin_map
 
 
 def clear_dialect_cache(query_db=None):
@@ -99,11 +111,13 @@ def clear_dialect_cache(query_db=None):
         if query_db:
             _dialect_cache['valid_abbrs'].pop(query_db, None)
             _dialect_cache['geo_data'].pop(query_db, None)
+            _dialect_cache['geo_pinyin'].pop(query_db, None)
             _dialect_cache['last_update'].pop(query_db, None)
             print(f"[CACHE] 已清除缓存: {query_db}")
         else:
             _dialect_cache['valid_abbrs'].clear()
             _dialect_cache['geo_data'].clear()
+            _dialect_cache['geo_pinyin'].clear()
             _dialect_cache['last_update'].clear()
             print("[CACHE] 已清除所有缓存")
 
@@ -264,7 +278,7 @@ def match_custom_feature(locations, regions, keyword, user: Optional[User], db: 
 
             # 拼音模糊比對
             特徵_pinyin = ''.join(lazy_pinyin(特徵))
-            ratio = SequenceMatcher(None, word_pinyin, 特徵_pinyin).ratio()
+            ratio = fuzz.ratio(word_pinyin, 特徵_pinyin) / 100.0
             if ratio > 0.7:
                 result.append({
                     "簡稱": record.簡稱,
@@ -276,18 +290,27 @@ def match_custom_feature(locations, regions, keyword, user: Optional[User], db: 
 
 
 def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, query_db=QUERY_DB_ADMIN):
-    def is_pinyin_similar(a, b, threshold=0.9):
+    def is_pinyin_similar_cached(a, b, threshold, geo_pinyin_map):
+        """使用预计算的拼音缓存进行拼音相似度匹配"""
         if not a or not b:
             return False
+
+        # a 是用户输入，需要计算拼音
         a_pinyin = ''.join(lazy_pinyin(a)).lower()
-        b_pinyin = ''.join(lazy_pinyin(b)).lower()
-        ratio = SequenceMatcher(None, a_pinyin, b_pinyin).ratio()
+
+        # b 是地名，使用预计算的拼音
+        b_pinyin = geo_pinyin_map.get(b)
+        if not b_pinyin:
+            b_pinyin = ''.join(lazy_pinyin(b)).lower()
+
+        ratio = fuzz.ratio(a_pinyin, b_pinyin) / 100.0
         return ratio >= threshold
 
     def is_similar(a, b, threshold=0.7):
+        """使用 rapidfuzz 进行字符串相似度匹配"""
         if not a or not b:
             return False
-        similarity = SequenceMatcher(None, a, b).ratio()
+        similarity = fuzz.ratio(a, b) / 100.0
         return similarity >= threshold
 
     # print(f"[DEBUG] 使用者輸入：{user_input}")
@@ -318,7 +341,7 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
     possible_inputs = set([user_input, converted_str]) | converted_candidates
 
     # [OPTIMIZED] 使用缓存数据而不是每次查询数据库
-    valid_abbrs_set, geo_data_list = _load_dialect_cache(query_db, filter_valid_abbrs_only)
+    valid_abbrs_set, geo_data_list, geo_pinyin_map = _load_dialect_cache(query_db, filter_valid_abbrs_only)
 
     # [OPTIMIZED] 使用内存匹配，完全避免数据库查询
     matched_abbrs = set()
@@ -331,9 +354,9 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
     if exact_only and not matched_abbrs:
         return [], 0, [], [], [], [], [], []
 
-    # 原來的邏輯保留：有完全匹配就返回
-    if matched_abbrs:
-        return list(matched_abbrs), 1, [], [], [], [], [], []
+    # 记录是否找到精确匹配（用于返回值的 success 标志）
+    exact_match_found = bool(matched_abbrs)
+    # 继续执行后续的模糊匹配逻辑...
 
     # [OPTIMIZED] 前缀匹配和包含匹配：在内存中遍历
     fuzzy_abbrs = set()
@@ -351,20 +374,73 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
     # [OPTIMIZED] 使用缓存的地理数据进行匹配
     geo_matches = set()
     geo_abbr_map = {}
-    all_geo_names = []
-    all_abbr_names = []
+    geo_names_set = set()  # 使用 set 去重
 
+    # 去重 + 长度过滤 + 子串匹配
     for name, abbr in geo_data_list:
-        all_geo_names.append(name)
-        all_abbr_names.append(abbr)
+        if not name or not abbr:
+            continue
+
+        # 长度过滤：跳过单字（"市"、"县"、"镇"、"村"等无意义单字）
+        if len(name) <= 1:
+            continue
+
+        # 去重
+        if name not in geo_names_set:
+            geo_names_set.add(name)
+            geo_abbr_map[name] = abbr
+
+        # 子串匹配
         for term in possible_inputs:
-            if term in (name or ""):
+            if term in name:
                 geo_matches.add(name)
-                geo_abbr_map[name] = abbr
+
+    all_geo_names = list(geo_names_set)
+
+    # 早期终止检查：如果已有足够结果，跳过昂贵的相似度匹配
+    EARLY_TERMINATION_THRESHOLD = 30
+    combined_count = len(matched_abbrs) + len(fuzzy_abbrs) + len(contains_abbrs) + len(geo_matches)
+
+    if combined_count >= EARLY_TERMINATION_THRESHOLD:
+        # 跳过相似度匹配，构建按优先级排序的结果列表
+        result_list = []
+        result_list.extend(list(matched_abbrs))
+        result_list.extend([a for a in fuzzy_abbrs if a not in matched_abbrs])
+        result_list.extend([a for a in contains_abbrs if a not in matched_abbrs and a not in fuzzy_abbrs])
+
+        return (
+            result_list,
+            1 if exact_match_found else 0,
+            list(geo_matches),
+            [geo_abbr_map[n] for n in geo_matches if n in geo_abbr_map and geo_abbr_map[n] in valid_abbrs_set],
+            [],  # 跳过 fuzzy_geo_matches
+            [],  # 跳过 fuzzy_geo_abbrs
+            [],  # 跳过 sound_like_matches
+            [],  # 跳过 sound_like_abbrs
+        )
+
+    # 预筛选相似度候选：按长度和首字符过滤
+    user_len = len(user_input)
+    user_first = user_input[0] if user_input else ""
+
+    similarity_candidates = []
+    for name in all_geo_names:
+        # 预筛选规则：长度相近或首字符相同
+        if abs(len(name) - user_len) <= 3:  # 长度差距不超过3
+            similarity_candidates.append(name)
+        elif name.startswith(user_first):  # 或首字符相同
+            similarity_candidates.append(name)
+
+    # 限制候选数量
+    MAX_SIMILARITY_CANDIDATES = 1000
+    if len(similarity_candidates) > MAX_SIMILARITY_CANDIDATES:
+        # 优先保留长度最接近的候选
+        similarity_candidates.sort(key=lambda x: abs(len(x) - user_len))
+        similarity_candidates = similarity_candidates[:MAX_SIMILARITY_CANDIDATES]
 
     # 加上所有簡稱（用於相似與拼音匹配）
-    all_names = all_geo_names + list(valid_abbrs_set)
-    all_abbrs = all_abbr_names + list(valid_abbrs_set)
+    all_names = similarity_candidates + list(valid_abbrs_set)
+    all_abbrs = [geo_abbr_map.get(n, n) for n in similarity_candidates] + list(valid_abbrs_set)
 
     fuzzy_geo_matches = set()
     fuzzy_geo_abbrs = set()
@@ -380,16 +456,25 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
             fuzzy_geo_matches.add(name)
             fuzzy_geo_abbrs.add(abbr)
 
-        if is_pinyin_similar(user_input, name):
+        if is_pinyin_similar_cached(user_input, name, 0.9, geo_pinyin_map):
             # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
             sound_like_matches.add(name)
             sound_like_abbrs.add(abbr)
 
+    # 构建按优先级排序的结果列表
+    result_list = []
+    # 优先级 1：精确匹配
+    result_list.extend(list(matched_abbrs))
+    # 优先级 2：前缀匹配（去重）
+    result_list.extend([a for a in fuzzy_abbrs if a not in matched_abbrs])
+    # 优先级 3：包含匹配（去重）
+    result_list.extend([a for a in contains_abbrs if a not in matched_abbrs and a not in fuzzy_abbrs])
+
     return (
-        list(fuzzy_abbrs | contains_abbrs),  # 合併前綴匹配和包含匹配
-        0,
+        result_list,  # 按优先级排序的合并结果
+        1 if exact_match_found else 0,  # 根据是否有精确匹配设置成功标志
         list(geo_matches),
-        [geo_abbr_map[n] for n in geo_matches if geo_abbr_map[n] in valid_abbrs_set],
+        [geo_abbr_map[n] for n in geo_matches if n in geo_abbr_map and geo_abbr_map[n] in valid_abbrs_set],
         list(fuzzy_geo_matches),
         list(fuzzy_geo_abbrs),
         list(sound_like_matches),

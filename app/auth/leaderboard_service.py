@@ -15,7 +15,7 @@ from app.auth import models
 
 # Category definitions - exact path matching
 CATEGORY_PATHS = {
-    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology", "/api/charlist"],
+    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology", "/api/charlist", "/api/feature_stats"],
     "category_字調查詢": ["/api/search_chars/", "/api/search_tones/"],
     "category_音系分析": [
         "/api/phonology_matrix",
@@ -46,6 +46,7 @@ ENDPOINT_PATHS = [
     "/api/phonology_matrix",
     "/api/phonology_classification_matrix",
     "/api/feature_counts",
+    "/api/feature_stats",
     "/api/tools/check/analyze",
     "/api/tools/jyut2ipa/upload",
     "/api/tools/merge/execute",
