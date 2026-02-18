@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth.dependencies import get_current_user
 from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
-from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest
+from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest, FeatureStatsRequest
 
-from app.service.phonology2status import pho2sta, get_feature_counts, get_all_phonology_matrices
+from app.service.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key
+from app.service.phonology2status import pho2sta, get_all_phonology_matrices
 from app.service.status_arrange_pho import sta2pho
 from app.service.phonology_classification_matrix import build_phonology_classification_matrix
 from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
@@ -266,3 +267,120 @@ async def api_phonology_classification_matrix(
             status_code=500,
             detail=f"Internal Server Error: {str(e)}"
         )
+
+
+@router.post("/feature_stats")
+async def feature_stats(
+    payload: FeatureStatsRequest,
+    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+):
+    """
+    獲取指定地點的音韻特徵統計數據（索引優化格式）
+
+    支持功能：
+    1. 漢字篩選（chars 參數）
+    2. 特徵值篩選（filters 參數）
+    3. 計算每個特徵值的數量和占比
+    4. 返回索引優化格式（減少數據重複）
+    5. Redis 緩存（1小時 TTL）
+
+    Request Body:
+    {
+        "locations": ["廣州", "東莞"],           // 必需
+        "chars": ["東", "西"],                   // 可選
+        "features": ["聲母", "韻母", "聲調"],    // 可選，默認全部
+        "filters": {                             // 可選
+            "聲母": ["p", "b"],
+            "韻母": ["a", "ɐ"]
+        }
+    }
+
+    Response:
+    {
+        "chars_map": ["八", "把", "白", ...],   // 全局字符字典
+        "data": {
+            "廣州": {
+                "total_chars": 3000,
+                "聲母": {
+                    "p": {
+                        "count": 150,
+                        "ratio": 0.05,
+                        "char_indices": [0, 1, 2, ...]
+                    },
+                    ...
+                }
+            }
+        },
+        "meta": {
+            "query_chars_count": 2,
+            "locations_count": 2,
+            "has_filters": false
+        }
+    }
+    """
+    # 限流和日志记录已由中间件和依赖注入自动处理
+
+    try:
+        # 根据用户身份决定数据库
+        db_type = "admin" if user and user.role == "admin" else "user"
+        db_path = DIALECTS_DB_ADMIN if db_type == "admin" else DIALECTS_DB_USER
+
+        # 生成緩存鍵
+        cache_key = generate_cache_key(
+            db_type=db_type,
+            locations=payload.locations,
+            chars=payload.chars,
+            features=payload.features,
+            filters=payload.filters
+        )
+
+        # 嘗試從 Redis 獲取緩存
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            print(f"[CACHE HIT] {cache_key}")
+            return json.loads(cached_data)
+
+        print(f"[CACHE MISS] {cache_key} - 查詢數據庫")
+
+        # 從數據庫查詢
+        result = await asyncio.to_thread(
+            get_feature_statistics,
+            locations=payload.locations,
+            chars=payload.chars,
+            features=payload.features,
+            filters=payload.filters,
+            db_path=db_path
+        )
+
+        if not result or not result.get("data"):
+            raise HTTPException(
+                status_code=404,
+                detail="No data found for the specified locations"
+            )
+
+        # 存入 Redis 緩存（1小時過期）
+        await redis_client.setex(
+            cache_key,
+            3600,  # 1小時
+            json.dumps(result, ensure_ascii=False)
+        )
+        print(f"[CACHE SET] {cache_key}")
+
+        return result
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # 捕获验证错误（来自 get_feature_statistics）
+        print(f"[VALIDATION ERROR] {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        print(f"[ERROR] {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
+

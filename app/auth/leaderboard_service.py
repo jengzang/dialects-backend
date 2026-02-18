@@ -15,7 +15,7 @@ from app.auth import models
 
 # Category definitions - exact path matching
 CATEGORY_PATHS = {
-    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology"],
+    "category_音韻查詢": ["/api/ZhongGu", "/api/YinWei", "/api/phonology", "/api/charlist", "/api/feature_stats"],
     "category_字調查詢": ["/api/search_chars/", "/api/search_tones/"],
     "category_音系分析": [
         "/api/phonology_matrix",
@@ -27,7 +27,12 @@ CATEGORY_PATHS = {
         "/api/tools/jyut2ipa/process",
         "/api/tools/merge/execute",
         "/api/tools/praat/jobs"
-    ]
+    ],
+    "category_其他查询": [
+        "/sql/query",
+        "/sql/tree/full",
+        "/api/get_coordinates",
+    ],
 }
 
 # Individual endpoint rankings - exact path matching
@@ -35,15 +40,20 @@ ENDPOINT_PATHS = [
     "/api/ZhongGu",
     "/api/YinWei",
     "/api/phonology",
+    "/api/charlist",
     "/api/search_chars/",
     "/api/search_tones/",
     "/api/phonology_matrix",
     "/api/phonology_classification_matrix",
     "/api/feature_counts",
+    "/api/feature_stats",
     "/api/tools/check/analyze",
-    "/api/tools/jyut2ipa/process",
+    "/api/tools/jyut2ipa/upload",
     "/api/tools/merge/execute",
-    "/api/tools/praat/jobs"
+    "/api/tools/praat/jobs",
+    "/sql/query",
+    "/sql/tree/full",
+    "/api/get_coordinates",
 ]
 
 
@@ -69,21 +79,32 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
     """
     # Get user's online time
     user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user or user.total_online_seconds == 0:
-        # User has no activity, get first place value
-        first_place = db.query(func.max(models.User.total_online_seconds)).scalar() or 0
-        return RankingDetail(rank=None, value=0, gap_to_prev=None, first_place_value=first_place)
-
-    user_value = user.total_online_seconds
-
-    # Calculate rank using window function approach
-    # Count users with higher values
-    rank = db.query(func.count(func.distinct(models.User.total_online_seconds))).filter(
-        models.User.total_online_seconds > user_value
-    ).scalar() + 1
+    user_value = user.total_online_seconds if user else 0
 
     # Get first place value
     first_place_value = db.query(func.max(models.User.total_online_seconds)).scalar() or 0
+
+    if user_value == 0:
+        # User has no activity, but should still have a rank
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(models.User.id)).filter(
+            models.User.total_online_seconds > 0
+        ).scalar() + 1
+
+        # gap_to_prev = smallest positive value - 0
+        prev_value = db.query(models.User.total_online_seconds).filter(
+            models.User.total_online_seconds > 0
+        ).order_by(models.User.total_online_seconds.asc()).first()
+
+        gap_to_prev = prev_value[0] if prev_value else None
+
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+
+    # Calculate rank using standard competition ranking
+    # Count users with higher values
+    rank = db.query(func.count(models.User.id)).filter(
+        models.User.total_online_seconds > user_value
+    ).scalar() + 1
 
     # Get previous rank value (for gap calculation)
     prev_value = db.query(models.User.total_online_seconds).filter(
@@ -111,14 +132,6 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
         models.ApiUsageSummary.user_id == user_id
     ).scalar() or 0
 
-    if user_total == 0:
-        # User has no activity, get first place value
-        first_place = db.query(func.sum(models.ApiUsageSummary.count)).group_by(
-            models.ApiUsageSummary.user_id
-        ).order_by(func.sum(models.ApiUsageSummary.count).desc()).first()
-        first_place_value = first_place[0] if first_place else 0
-        return RankingDetail(rank=None, value=0, gap_to_prev=None, first_place_value=first_place_value)
-
     # Calculate rank by counting users with higher totals
     # Use subquery to get per-user totals
     from sqlalchemy import select
@@ -127,12 +140,28 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
         func.sum(models.ApiUsageSummary.count).label('total')
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
-        user_totals.c.total > user_total
-    ).scalar() + 1
-
     # Get first place value
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
+
+    if user_total == 0:
+        # User has no activity, but should still have a rank
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(user_totals.c.total)).filter(
+            user_totals.c.total > 0
+        ).scalar() + 1
+
+        # gap_to_prev = smallest positive value - 0
+        prev_value = db.query(user_totals.c.total).filter(
+            user_totals.c.total > 0
+        ).order_by(user_totals.c.total.asc()).first()
+
+        gap_to_prev = prev_value[0] if prev_value else None
+
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+
+    rank = db.query(func.count(user_totals.c.total)).filter(
+        user_totals.c.total > user_total
+    ).scalar() + 1
 
     # Get previous rank value
     prev_value = db.query(user_totals.c.total).filter(
@@ -165,16 +194,6 @@ def _calculate_category_rank(db: Session, user_id: int, category_name: str, path
         )
     ).scalar() or 0
 
-    if user_total == 0:
-        # User has no activity, get first place value
-        first_place = db.query(func.sum(models.ApiUsageSummary.count)).filter(
-            models.ApiUsageSummary.path.in_(paths)
-        ).group_by(models.ApiUsageSummary.user_id).order_by(
-            func.sum(models.ApiUsageSummary.count).desc()
-        ).first()
-        first_place_value = first_place[0] if first_place else 0
-        return RankingDetail(rank=None, value=0, gap_to_prev=None, first_place_value=first_place_value)
-
     # Calculate rank
     user_totals = db.query(
         models.ApiUsageSummary.user_id,
@@ -183,12 +202,28 @@ def _calculate_category_rank(db: Session, user_id: int, category_name: str, path
         models.ApiUsageSummary.path.in_(paths)
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
-        user_totals.c.total > user_total
-    ).scalar() + 1
-
     # Get first place value
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
+
+    if user_total == 0:
+        # User has no activity, but should still have a rank
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(user_totals.c.total)).filter(
+            user_totals.c.total > 0
+        ).scalar() + 1
+
+        # gap_to_prev = smallest positive value - 0
+        prev_value = db.query(user_totals.c.total).filter(
+            user_totals.c.total > 0
+        ).order_by(user_totals.c.total.asc()).first()
+
+        gap_to_prev = prev_value[0] if prev_value else None
+
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+
+    rank = db.query(func.count(user_totals.c.total)).filter(
+        user_totals.c.total > user_total
+    ).scalar() + 1
 
     # Get previous rank value
     prev_value = db.query(user_totals.c.total).filter(
@@ -221,25 +256,40 @@ def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str) -> R
 
     user_value = user_record.count if user_record else 0
 
+    # Get first place value
+    first_place_value = db.query(func.max(models.ApiUsageSummary.count)).filter(
+        models.ApiUsageSummary.path == endpoint_path
+    ).scalar() or 0
+
     if user_value == 0:
-        # User has no activity, get first place value
-        first_place = db.query(func.max(models.ApiUsageSummary.count)).filter(
-            models.ApiUsageSummary.path == endpoint_path
-        ).scalar() or 0
-        return RankingDetail(rank=None, value=0, gap_to_prev=None, first_place_value=first_place)
+        # User has no activity, but should still have a rank
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(models.ApiUsageSummary.user_id)).filter(
+            and_(
+                models.ApiUsageSummary.path == endpoint_path,
+                models.ApiUsageSummary.count > 0
+            )
+        ).scalar() + 1
+
+        # gap_to_prev = smallest positive value - 0
+        prev_value = db.query(models.ApiUsageSummary.count).filter(
+            and_(
+                models.ApiUsageSummary.path == endpoint_path,
+                models.ApiUsageSummary.count > 0
+            )
+        ).order_by(models.ApiUsageSummary.count.asc()).first()
+
+        gap_to_prev = prev_value[0] if prev_value else None
+
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
 
     # Calculate rank
-    rank = db.query(func.count(func.distinct(models.ApiUsageSummary.count))).filter(
+    rank = db.query(func.count(models.ApiUsageSummary.user_id)).filter(
         and_(
             models.ApiUsageSummary.path == endpoint_path,
             models.ApiUsageSummary.count > user_value
         )
     ).scalar() + 1
-
-    # Get first place value
-    first_place_value = db.query(func.max(models.ApiUsageSummary.count)).filter(
-        models.ApiUsageSummary.path == endpoint_path
-    ).scalar() or 0
 
     # Get previous rank value
     prev_value = db.query(models.ApiUsageSummary.count).filter(

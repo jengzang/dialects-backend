@@ -12,9 +12,8 @@ from app.auth.database import get_db
 from app.auth.models import User, ApiUsageLog
 from app.auth.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
 from app.redis_client import redis_client
-from common.config import get_secret_key, ALGORITHM, MAX_USER_USAGE_PER_HOUR, \
-    MAX_IP_USAGE_PER_HOUR, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
-
+from common.config import get_secret_key, ALGORITHM, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
+from common.api_config import MAX_USER_USAGE_PER_HOUR, MAX_IP_USAGE_PER_HOUR
 
 
 def user_to_dict(user: models.User) -> dict:

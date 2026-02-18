@@ -8,7 +8,7 @@ from common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 from app.service.process_sp_input import split_pho_input
 from common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column, custom_order
 from app.service.getloc_by_name_region import query_dialect_abbreviations
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
 # IPA 符號合併映射表
@@ -305,7 +305,7 @@ def pho2sta(locations, regions, features, status_inputs,
             grouping_columns_map[feature] = None
 
     locations_new = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
-    match_results = match_locations_batch(" ".join(locations_new))
+    match_results = match_locations_batch_exact(" ".join(locations_new))
     if not any(res[1] == 1 for res in match_results):
         # print("🛑 沒有任何地點完全匹配，終止分析。")
         raise HTTPException(status_code=400, detail="🛑 沒有任何地點完全匹配，終止分析。")
@@ -381,6 +381,18 @@ def get_feature_counts(locations, db_path=DIALECTS_DB_USER, table="dialects"):
     """
     优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
     显著提升查询性能（3次扫描 → 1次扫描）
+
+    [DEPRECATED - 2026-02-14]
+    此函数已迁移到 app.service.feature_stats 模块。
+    为保持向后兼容性，此函数暂时保留，但建议更新导入：
+
+    旧的导入（已弃用）:
+        from app.service.phonology2status import get_feature_counts
+
+    新的导入（推荐）:
+        from app.service.feature_stats import get_feature_counts
+
+    此函数计划在 1-2 周后移除。
     """
     result = defaultdict(lambda: defaultdict(dict))
 

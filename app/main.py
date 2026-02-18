@@ -124,6 +124,17 @@ async def lifespan(app: FastAPI):
         print(f" 连接池初始化失败: {str(e)}")
     print("=" * 60)
 
+    # [新增] 迁移 supplements.db - 创建 user_regions 表
+    from app.custom.database import migrate_user_regions_table
+    print("=" * 60)
+    print("[DB] 检查 supplements.db 表结构...")
+    try:
+        migrate_user_regions_table()
+        print("[OK] supplements.db 表结构检查完成")
+    except Exception as e:
+        print(f"⚠️  supplements.db 迁移失败: {str(e)}")
+    print("=" * 60)
+
     # [新增] 启动时清理旧的临时文件（12小时前的）
     from app.tools.file_manager import file_manager
     print("=" * 60)

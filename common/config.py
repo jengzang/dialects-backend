@@ -65,16 +65,6 @@ MAX_LOGIN_PER_MINUTE = 10
 # 登錄才能用
 REQUIRE_LOGIN = False
 
-# 一小時內用戶使用api時長
-MAX_USER_USAGE_PER_HOUR = 2000  # 1000秒
-MAX_IP_USAGE_PER_HOUR = 300
-
-# 用戶能接收的最大json包
-MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
-MAX_USER_SIZE = 6 * 1024 * 1024  # 6MB for authenticated users
-# 压缩阈值
-SIZE_THRESHOLD = 10 * 1024  # 10KB
-
 # 缓存过期时间（例如：1小时）
 CACHE_EXPIRATION_TIME = 3600  # 秒
 

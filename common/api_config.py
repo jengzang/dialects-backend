@@ -21,6 +21,16 @@ API 配置文件
       跳过记录
 用途：性能监控、用量统计、用户行为分析
 """
+# 一小時內用戶使用api時長
+MAX_USER_USAGE_PER_HOUR = 2000  # 1000秒
+MAX_IP_USAGE_PER_HOUR = 300
+
+# 用戶能接收的最大json包
+MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users
+MAX_USER_SIZE = 6 * 1024 * 1024  # 6MB for authenticated users
+# 压缩阈值
+SIZE_THRESHOLD = 10 * 1024  # 10KB
+
 # 每20条日志写入一次
 BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
@@ -39,7 +49,10 @@ RECORD_API = [
     "charlist",
     "sql",
     "api/tools",
-    "feature_counts"
+    "feature_counts",
+    "feature_stats",  # 新增：特征统计接口
+    "user/custom",
+    "custom_regions",  # 新增：用户自定义区域接口
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）
@@ -180,6 +193,12 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": False,
     },
+    "/api/feature_stats": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
 
     # ===== Praat 声学分析 API =====
     # 路径设计规则：
@@ -227,6 +246,14 @@ API_ROUTE_CONFIG = {
         "require_login": True,  # 要求登录（只有登录用户才能查看排行）
         "log_params": False,  # 不记录参数（GET 请求无参数）
         "log_body": False,  # 不记录请求体（GET 请求无 body）
+    },
+
+    # ===== 用户自定义区域 API =====
+    "/api/custom_regions": {
+        "rate_limit": True,  # 启用限流（防止滥用）
+        "require_login": True,  # 要求登录（需要用户身份）
+        "log_params": True,  # 记录参数（用于分析用户使用习惯）
+        "log_body": True,  # 记录请求体（用于分析用户创建的区域）
     },
 }
 
