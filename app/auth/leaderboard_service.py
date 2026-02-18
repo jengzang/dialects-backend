@@ -86,8 +86,8 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
 
     if user_value == 0:
         # User has no activity, but should still have a rank
-        # Rank = (number of distinct positive values) + 1
-        rank = db.query(func.count(func.distinct(models.User.total_online_seconds))).filter(
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(models.User.id)).filter(
             models.User.total_online_seconds > 0
         ).scalar() + 1
 
@@ -100,9 +100,9 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
 
         return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
 
-    # Calculate rank using window function approach
+    # Calculate rank using standard competition ranking
     # Count users with higher values
-    rank = db.query(func.count(func.distinct(models.User.total_online_seconds))).filter(
+    rank = db.query(func.count(models.User.id)).filter(
         models.User.total_online_seconds > user_value
     ).scalar() + 1
 
@@ -145,8 +145,8 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
 
     if user_total == 0:
         # User has no activity, but should still have a rank
-        # Rank = (number of distinct positive values) + 1
-        rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(user_totals.c.total)).filter(
             user_totals.c.total > 0
         ).scalar() + 1
 
@@ -159,7 +159,7 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
 
         return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
 
-    rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
+    rank = db.query(func.count(user_totals.c.total)).filter(
         user_totals.c.total > user_total
     ).scalar() + 1
 
@@ -207,8 +207,8 @@ def _calculate_category_rank(db: Session, user_id: int, category_name: str, path
 
     if user_total == 0:
         # User has no activity, but should still have a rank
-        # Rank = (number of distinct positive values) + 1
-        rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(user_totals.c.total)).filter(
             user_totals.c.total > 0
         ).scalar() + 1
 
@@ -221,7 +221,7 @@ def _calculate_category_rank(db: Session, user_id: int, category_name: str, path
 
         return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
 
-    rank = db.query(func.count(func.distinct(user_totals.c.total))).filter(
+    rank = db.query(func.count(user_totals.c.total)).filter(
         user_totals.c.total > user_total
     ).scalar() + 1
 
@@ -263,8 +263,8 @@ def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str) -> R
 
     if user_value == 0:
         # User has no activity, but should still have a rank
-        # Rank = (number of distinct positive values) + 1
-        rank = db.query(func.count(func.distinct(models.ApiUsageSummary.count))).filter(
+        # Rank = (number of users with positive values) + 1
+        rank = db.query(func.count(models.ApiUsageSummary.user_id)).filter(
             and_(
                 models.ApiUsageSummary.path == endpoint_path,
                 models.ApiUsageSummary.count > 0
@@ -284,7 +284,7 @@ def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str) -> R
         return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
 
     # Calculate rank
-    rank = db.query(func.count(func.distinct(models.ApiUsageSummary.count))).filter(
+    rank = db.query(func.count(models.ApiUsageSummary.user_id)).filter(
         and_(
             models.ApiUsageSummary.path == endpoint_path,
             models.ApiUsageSummary.count > user_value
