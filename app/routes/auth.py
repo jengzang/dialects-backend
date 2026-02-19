@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth.dependencies import check_login_rate_limit
 from app.auth.models import ApiUsageLog
 from app.auth.service import update_user_profile
+from app.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
 from app.schemas import auth as schemas
 from app.auth import service, utils, models
 from app.auth.database import get_db
@@ -89,24 +90,29 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     ))
     db.commit()
 
-    # Create token pair
-    token_pair = utils.create_token_pair(user.username)
+    # ✅ 创建session而非直接创建token
+    device_info = request.headers.get("User-Agent", "Unknown")
+    ip_address = client_ip
 
-    # Store refresh token in database
-    device_info = request.headers.get("User-Agent") if request else None
-    service.store_refresh_token(
-        db,
-        user.id,
-        token_pair["refresh_token"],
-        device_info
+    session_obj, access_token, refresh_token = create_session(
+        db=db,
+        user=user,
+        device_info=device_info,
+        ip_address=ip_address
     )
 
-    return token_pair
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60  # 30 minutes in seconds
+    }
 
 
 # Token refresh endpoint
 @router.post("/refresh", response_model=schemas.TokenPair)
 def refresh(
+    request: Request,
     refresh_token: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ):
@@ -122,21 +128,23 @@ def refresh(
             detail="Invalid or expired refresh token"
         )
 
-    # Get user
-    user = db.query(models.User).filter(
-        models.User.id == token_obj.user_id
-    ).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # ✅ 使用session_service刷新
+    ip_address = utils.extract_client_ip(request)
+    device_info = request.headers.get("User-Agent", "Unknown")
 
-    # Create new token pair
-    new_token_pair = utils.create_token_pair(user.username)
+    new_access_token, new_refresh_token = refresh_session(
+        db=db,
+        old_refresh_token=token_obj,
+        ip_address=ip_address,
+        device_info=device_info
+    )
 
-    # Rotate refresh token (revoke old, store new)
-    new_refresh_token_str, _ = service.rotate_refresh_token(db, token_obj)
-    new_token_pair["refresh_token"] = new_refresh_token_str
-
-    return new_token_pair
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60  # 30 minutes in seconds
+    }
 
 
 # 邮箱验证：点击邮件中的链接来到这里
@@ -169,7 +177,7 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 
 
 # ========== Me（恢复 & 最小化改动）==========
-@router.get("/me", response_model=schemas.UserResponse)
+@router.get("/me", response_model=schemas.UserMeResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = utils.decode_access_token(token)  # 解码 token
@@ -189,7 +197,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 队列版本不需要 db 参数
+    # service.touch_activity(user)  # 已废弃，使用 /auth/report-activity 代替
     return user
 
 
@@ -238,7 +246,7 @@ def report_online_time(
     db: Session = Depends(get_db)
 ):
     """
-    前端上报在线时长
+    前端上报在线时长（使用队列实现非阻塞写入）
 
     前端应该：
     1. 使用 Page Visibility API 监听页面可见性
@@ -250,11 +258,14 @@ def report_online_time(
 
     返回：
     - success: 是否成功
-    - total_online_seconds: 用户总在线时长（秒）
+    - reported_seconds: 本次上报的秒数
+    - total_online_seconds: 用户总在线时长（秒，可能略有延迟）
     """
     try:
         payload = utils.decode_access_token(token)
         username = payload.get("sub")
+        session_id = payload.get("session_id")  # ✅ 从JWT获取session_id
+
         if not username:
             raise HTTPException(status_code=401, detail="Invalid token")
     except JWTError:
@@ -264,15 +275,20 @@ def report_online_time(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 调用队列版本的函数（异步处理）
-    service.accumulate_online_time(user, seconds)
+    # ✅ Put in queue instead of direct write (non-blocking)
+    from app.logs.service.api_logger import online_time_queue
+    online_time_queue.put({
+        'user_id': user.id,
+        'session_id': session_id,
+        'seconds': seconds,
+        'timestamp': datetime.utcnow()
+    })
 
-    # 返回当前的总在线时长（注意：由于队列异步处理，这个值可能有延迟）
+    # Return immediately (non-blocking)
     return {
         "success": True,
         "reported_seconds": seconds,
-        "total_online_seconds": user.total_online_seconds or 0,
-        "message": "在线时长已记录（异步处理中）"
+        "total_online_seconds": user.total_online_seconds or 0  # May be slightly stale
     }
 
 
@@ -293,6 +309,47 @@ async def update_profile(
             password=password,
             new_password=new_password
         )
-        return {"message": "用戶資料更新成功！", "user": {"username": updated_user.username, "email": updated_user.email}}
+        return {" message": "用戶資料更新成功!", "user": {"username": updated_user.username, "email": updated_user.email}}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/leaderboard", response_model=schemas.LeaderboardResponse)
+def get_leaderboard(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive leaderboard rankings for current user.
+
+    Returns all 18 ranking metrics in a single response:
+    - online_time: Total online time ranking
+    - total_queries: Total API queries ranking
+    - category_音韻查詢: Phonology queries category
+    - category_字調查詢: Character/tone queries category
+    - category_音系分析: System analysis category
+    - category_工具使用: Tools usage category
+    - endpoint_*: Individual endpoint rankings (13 endpoints)
+
+    Each ranking includes:
+    - rank: User's rank (null if no activity)
+    - value: User's value for this metric
+    - gap_to_prev: Gap to previous rank (null for rank 1)
+    - first_place_value: First place user's value
+    """
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Calculate all rankings
+    from app.auth.leaderboard_service import get_user_leaderboard
+    return get_user_leaderboard(db, user.id)

@@ -3,4 +3,4 @@ from .custom import router as custom_router
 
 router = APIRouter()
 
-router.include_router(custom_router, prefix="/custom", tags=["User Custom"])
+router.include_router(custom_router, prefix="/custom")

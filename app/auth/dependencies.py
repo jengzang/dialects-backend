@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
 from app.auth.models import User, ApiUsageLog
+from app.auth.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
 from app.redis_client import redis_client
-from common.config import SECRET_KEY, ALGORITHM, MAX_USER_USAGE_PER_HOUR, \
-    MAX_IP_USAGE_PER_HOUR, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
-
+from common.config import get_secret_key, ALGORITHM, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
+from common.api_config import MAX_USER_USAGE_PER_HOUR, MAX_IP_USAGE_PER_HOUR
 
 
 def user_to_dict(user: models.User) -> dict:
@@ -38,7 +38,7 @@ async def get_current_user(
     else:
         token = auth_header.split(" ")[1]
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
             # username = payload.get("sub")
             username = payload.get("sub")  # 从 JWT 中提取邮箱作为唯一标识
             if not username:
@@ -49,11 +49,16 @@ async def get_current_user(
     # 1. 首先检查缓存中是否存在该用户
     cached_user = await redis_client.get(f"user:{username}")
     if cached_user:
-        # 如果缓存中有数据，反序列化为 User 对象
-        cached_data = json.loads(cached_user)  # 获取缓存的 JSON 字符串
-        user = models.User(**cached_data)  # 使用 User 的字段初始化 User 对象
-        print(f"使用缓存:{username}")
-        return user
+        # ✅ 验证签名
+        user_dict = verify_user_data(cached_user)
+        if user_dict:
+            user = models.User(**user_dict)
+            print(f"使用缓存:{username}")
+            return user
+        else:
+            # 签名无效，删除缓存并重新查库
+            print(f"[SECURITY] Invalid cache for {username}, re-fetching from DB")
+            await redis_client.delete(f"user:{username}")
 
     # 2. 如果缓存中没有，查询数据库
     # print("啥都没存,我还是查库")
@@ -64,11 +69,12 @@ async def get_current_user(
 
     # 将用户信息存入缓存，并设置过期时间
     try:
-        # await 是關鍵！
+        # ✅ 签名数据后再存储
+        signed_data = sign_user_data(user_to_dict(user))
         await redis_client.setex(
             f"user:{username}",
             CACHE_EXPIRATION_TIME,
-            json.dumps(user_to_dict(user))
+            signed_data
         )
         print(f"[SAVE] 緩存寫入成功: user:{username}")
     except Exception as e:
@@ -93,7 +99,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
     token = auth_header.split(" ")[1]
     try:
         # 解码 JWT token
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
         username = payload.get("sub")  # 使用邮箱作为唯一标识
         if not username:
             return None  # Token 无效，返回 None
@@ -106,9 +112,15 @@ async def get_current_user_for_middleware(request: Request, db: Session):
         # [OK] 2. 加上 await
         cached_user = await redis_client.get(f"user:{username}")
         if cached_user:
-            cached_data = json.loads(cached_user)
-            user = models.User(**cached_data)
-            return user
+            # ✅ 验证签名
+            user_dict = verify_user_data(cached_user)
+            if user_dict:
+                user = models.User(**user_dict)
+                return user
+            else:
+                # 签名无效，删除缓存
+                print(f"[SECURITY] Invalid cache for {username} in middleware")
+                await redis_client.delete(f"user:{username}")
     except Exception as e:
         print(f"Redis error in middleware: {e}")
         # 如果 Redis 掛了，不要崩潰，繼續查數據庫
@@ -122,23 +134,61 @@ async def get_current_user_for_middleware(request: Request, db: Session):
 
     # --- 寫回 Redis 改為異步 ---
     try:
-        # [OK] 3. 加上 await
+        # ✅ 签名数据后再存储
+        signed_data = sign_user_data(user_to_dict(user))
         await redis_client.setex(
             f"user:{username}",
             CACHE_EXPIRATION_TIME,
-            json.dumps(user_to_dict(user))
+            signed_data
         )
     except Exception as e:
         print(f"Redis set error: {e}")
 
     return user
 
-def get_current_admin_user(current_user: models.User = Depends(get_current_user)) -> models.User:
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="Token 无效或用户不存在")
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="你没有访问此资源的权限")
-    return current_user
+async def get_current_admin_user(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> models.User:
+    """
+    获取当前admin用户（必须从数据库验证）
+
+    重要：不能只信任JWT中的role字段，必须从DB验证
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 解析JWT获取username和role
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="未登錄用戶沒有訪問此資源的權限")
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        role_in_jwt = payload.get("role")  # JWT中的role（不能作为唯一依据）
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # ✅ 从数据库验证role（最终权威）
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # ⚠️ 安全检查：如果JWT的role和数据库不一致，记录安全事件
+    if role_in_jwt and role_in_jwt != user.role:
+        logger.warning(f"[SECURITY] Role mismatch for {username}: JWT={role_in_jwt}, DB={user.role}")
+        # 可选：记录到安全日志表，或触发告警
+
+    # ✅ 验证是否为admin（基于数据库中的role）
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return user
 
 
 def check_api_usage_limit(

@@ -1,7 +1,7 @@
 import itertools
 
 from app.redis_client import redis_client
-from app.service.match_input_tip import match_locations_batch
+from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from app.service.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
 from common.path import QUERY_DB_USER, DIALECTS_DB_USER
 from common.constants import COLUMN_VALUES
@@ -78,7 +78,7 @@ def _run_dialect_analysis_sync(
     """
     # 1. 處理地點簡稱 (複製原邏輯)
     locations_new = query_dialect_abbreviations(regions, locations, db_path=db_path_query, region_mode=region_mode)
-    match_results = match_locations_batch(" ".join(locations_new))
+    match_results = match_locations_batch_exact(" ".join(locations_new))
 
     # 檢查匹配結果
     if not any(res[1] == 1 for res in match_results):

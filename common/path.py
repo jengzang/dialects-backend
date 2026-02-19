@@ -81,8 +81,9 @@ DB_MAPPING = {
     "dialects_admin": DIALECTS_DB_ADMIN,
     "yubao": YUBAO_DB_PATH,
     "logs": LOGS_DATABASE_PATH,
-    "supple": SUPPLE_DB_PATH,
-    "auth": USER_DATABASE_PATH
+    # "supple": SUPPLE_DB_PATH,
+    # "auth": USER_DATABASE_PATH
 }
 # 管理员专属数据库
-ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs", "supple", "auth"}
+# ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs", "supple", "auth"}
+ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs"}

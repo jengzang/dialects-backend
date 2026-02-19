@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_current_admin_user
 from app.auth.models import User
 from app.auth.utils import get_password_hash
 from app.schemas.admin import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin
@@ -168,7 +168,11 @@ def update_password(user: UpdatePassword, db: Session = Depends(get_db),
     return db_user
 
 @router.put("/let_admin", response_model=UserUpdateSchema)
-def let_admin(user: LetAdmin, db: Session = Depends(get_db)):
+async def let_admin(
+    user: LetAdmin,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(get_current_admin_user)  # ✅ 添加管理员验证（从DB验证）
+):
     if not user.username:
         raise HTTPException(status_code=400, detail="Query parameter is required")
     print(user.username)
@@ -183,10 +187,23 @@ def let_admin(user: LetAdmin, db: Session = Depends(get_db)):
     # 確保更新角色為有效值，這裡假設角色只有 'admin' 和 'user'
     if user.role not in ["admin", "user"]:
         raise HTTPException(status_code=400, detail="Invalid role value. Allowed values: 'admin', 'user'")
+
+    # 记录修改前的role（用于审计）
+    old_role = db_user.role
+
     if user.role:
         db_user.role = user.role
 
     db.commit()
+
+    # ✅ 修改role后立即清除缓存
+    from app.redis_client import redis_client
+    import asyncio
+    try:
+        await redis_client.delete(f"user:{user.username}")
+        print(f"[CACHE-INVALIDATE] Cleared cache for {user.username} after role change: {old_role} -> {user.role}")
+    except Exception as e:
+        print(f"[CACHE-INVALIDATE] Failed to clear cache: {e}")
     db.refresh(db_user)
 
     return db_user

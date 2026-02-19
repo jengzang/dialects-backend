@@ -63,3 +63,6 @@ bcrypt==3.2.0
 # Praat acoustic analysis dependencies
 praat-parselmouth>=0.4.3
 scipy>=1.10.0
+
+# Performance optimization for string matching
+rapidfuzz>=3.0.0

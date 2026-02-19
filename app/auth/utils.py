@@ -8,7 +8,7 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from fastapi import Request
 
-from common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, SECRET_KEY, ALGORITHM, AUDIENCE, ISSUER
+from common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, get_secret_key, ALGORITHM, AUDIENCE, ISSUER
 
 # 可选：SMTP 配置（留空则退化为控制台打印）
 SMTP_HOST: Optional[str] = None      # 如 "smtp.gmail.com"
@@ -42,30 +42,54 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 # ===== JWT =====
-def create_access_token(subject: str, expires_minutes: int | None = None) -> str:
+def create_access_token(subject: str, role: str = "user", session_id: str = None, expires_minutes: int | None = None) -> str:
+    """
+    创建访问令牌
+
+    Args:
+        subject: 用户名
+        role: 用户角色（仅作性能优化，不能作为权限判断唯一依据）
+        session_id: 会话ID（用于心跳双写）
+        expires_minutes: 过期时间（分钟）
+
+    Returns:
+        JWT token字符串
+    """
     # 统一用 epoch 秒，避免 naive datetime 坑
     now_ts = int(time.time())
     exp_minutes = expires_minutes if (expires_minutes and expires_minutes > 0) else ACCESS_TOKEN_EXPIRE_MINUTES
     payload = {
         "sub": subject,
+        "role": role,  # ✅ 添加role字段（仅作性能优化，不能作为权限判断唯一依据）
+        "session_id": session_id,  # ✅ 添加session_id字段（用于心跳双写）
         "iat": now_ts,
         "nbf": now_ts,
         "exp": now_ts + exp_minutes * 60,
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, get_secret_key(), algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
     # 给 2 分钟余量，解决轻微时钟漂移/容器启动时差
-    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    return jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
 
 # ===== Refresh Token Functions =====
 def create_refresh_token() -> str:
     """Generate cryptographically secure refresh token"""
     return secrets.token_urlsafe(64)
 
-def create_token_pair(username: str) -> dict:
-    """Create access + refresh token pair"""
-    access_token = create_access_token(username, ACCESS_TOKEN_EXPIRE_MINUTES)
+def create_token_pair(username: str, role: str = "user", session_id: str = None) -> dict:
+    """
+    Create access + refresh token pair
+
+    Args:
+        username: 用户名
+        role: 用户角色
+        session_id: 会话ID
+
+    Returns:
+        包含access_token, refresh_token的字典
+    """
+    access_token = create_access_token(username, role, session_id, ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token = create_refresh_token()
     return {
         "access_token": access_token,

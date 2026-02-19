@@ -1,3 +1,16 @@
+"""
+基于 RefreshToken 模型的会话管理 API（遗留端点）
+
+⚠️ 注意：推荐使用新的 /admin/user-sessions/* 端点
+新端点基于 Session 模型，提供更丰富的会话元数据和管理功能：
+- IP 历史追踪
+- 设备变更检测
+- 在线时长统计
+- 可疑会话标记
+- 详细活动时间线
+
+此端点保持向后兼容，但未来可能会被弃用。
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List

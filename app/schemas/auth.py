@@ -46,6 +46,25 @@ class UserResponse(BaseModel):
     usage_summary: List[ApiUsageStat] = []
 
 
+# /auth/me 專用響應體（不包含敏感安全信息）
+class UserMeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+    status: str
+    is_verified: bool
+
+    created_at: Optional[datetime] = None
+    profile_picture: Optional[str] = None
+
+    total_online_seconds: int
+
+    usage_summary: List[ApiUsageStat] = []
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -62,5 +81,21 @@ class LogoutResponse(BaseModel):
     message: str
     session_seconds: int
     total_online_seconds: int
+
+
+class RankingDetail(BaseModel):
+    """Individual ranking detail"""
+    rank: Optional[int] = Field(description="User's rank (null if no activity)")
+    value: int = Field(description="User's value for this metric")
+    gap_to_prev: Optional[int] = Field(description="Gap to previous rank (null for rank 1)")
+    first_place_value: int = Field(description="First place user's value")
+
+
+class LeaderboardResponse(BaseModel):
+    """Complete leaderboard response with all 18 rankings"""
+    rankings: dict[str, RankingDetail] = Field(
+        description="Dictionary of all rankings (online_time, total_queries, categories, endpoints)"
+    )
+    total_users: int = Field(description="Total number of active users")
 
 

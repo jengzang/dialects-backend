@@ -28,8 +28,13 @@ event.listen(engine, "connect", _sqlite_pragmas)  # [NEW] 新增
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 建表（保持原样）
-Base.metadata.create_all(bind=engine)
+# 建表（处理多worker竞争）
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    # 多worker环境下可能出现"table already exists"竞争
+    if "already exists" not in str(e).lower():
+        raise  # 其他错误需要抛出
 
 
 # ============ 数据库迁移：检查并添加缺失的列 ============
@@ -54,6 +59,48 @@ def migrate_database():
 
 # 执行迁移
 # migrate_database()
+
+
+# ============ 数据库迁移：创建 user_regions 表 ============
+def migrate_user_regions_table():
+    """检查并创建 user_regions 表"""
+    with engine.connect() as conn:
+        # 检查 user_regions 表是否存在
+        result = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_regions'"
+        ))
+        table_exists = result.fetchone() is not None
+
+        if not table_exists:
+            print("[!] 检测到缺少 user_regions 表，正在创建...")
+
+            # 创建表
+            conn.execute(text("""
+                CREATE TABLE user_regions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    username VARCHAR(100) NOT NULL,
+                    region_name VARCHAR(200) NOT NULL,
+                    locations TEXT NOT NULL,
+                    description TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uq_user_region UNIQUE (user_id, region_name)
+                )
+            """))
+
+            # 创建索引
+            conn.execute(text(
+                "CREATE INDEX idx_user_regions_user_id ON user_regions (user_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX idx_user_regions_region_name ON user_regions (region_name)"
+            ))
+
+            conn.commit()
+            print("[OK] user_regions 表及索引已成功创建")
+        else:
+            print("[OK] user_regions 表已存在")
 
 
 # FastAPI 依賴（保持原样）

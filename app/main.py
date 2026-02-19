@@ -58,6 +58,45 @@ if _RUN_TYPE == 'EXE':
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ============================================================
+    # [STARTUP] 自动迁移检查 - 已完成，保留代码供参考
+    # ============================================================
+    # 注意：数据库迁移已成功完成，以下代码已注释
+    # 如需重新运行迁移，请取消注释以下代码块
+    # ============================================================
+    # print("=" * 70)
+    # print("[STARTUP] 检查数据库结构...")
+    #
+    # from app.auth.auto_migrate import run_auto_migrate, check_migration_needed
+    #
+    # # 尝试自动迁移
+    # migration_success = run_auto_migrate()
+    #
+    # if not migration_success:
+    #     # 迁移失败或被禁用，检查问题
+    #     issues = check_migration_needed()
+    #
+    #     if issues:
+    #         print("❌ 数据库结构不完整：")
+    #         for issue_type, issue_name in issues:
+    #             print(f"   • 缺少{issue_type}: {issue_name}")
+    #         print("\n💡 解决方案：")
+    #         print("   1. 启用自动迁移: docker run -e AUTO_MIGRATE=true ...")
+    #         print("   2. 或手动运行: python check_migrations.py")
+    #         print("\n⚠️  应用将在降级模式下启动（登录功能可能不可用）")
+    # else:
+    #     print("✅ 数据库结构检查通过")
+    #
+    #     # ✅ 刷新 SECRET_KEY（迁移可能创建了新密钥）
+    #     try:
+    #         from common.config import get_secret_key
+    #         key = get_secret_key()
+    #         print(f"[STARTUP] ✅ SECRET_KEY loaded: {key[:20]}...")
+    #     except Exception as e:
+    #         print(f"[STARTUP] ⚠️  Failed to load SECRET_KEY: {e}")
+    #
+    # print("=" * 70)
+
     if _RUN_TYPE == 'EXE':
         global _printer_started
         if not _printer_started:
@@ -83,6 +122,17 @@ async def lifespan(app: FastAPI):
         print("[OK] 数据库连接池初始化完成")
     except Exception as e:
         print(f" 连接池初始化失败: {str(e)}")
+    print("=" * 60)
+
+    # [新增] 迁移 supplements.db - 创建 user_regions 表
+    from app.custom.database import migrate_user_regions_table
+    print("=" * 60)
+    print("[DB] 检查 supplements.db 表结构...")
+    try:
+        migrate_user_regions_table()
+        print("[OK] supplements.db 表结构检查完成")
+    except Exception as e:
+        print(f"⚠️  supplements.db 迁移失败: {str(e)}")
     print("=" * 60)
 
     # [新增] 启动时清理旧的临时文件（12小时前的）
