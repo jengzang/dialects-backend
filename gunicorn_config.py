@@ -56,25 +56,55 @@ def on_exit(server):
     print("🛑 [Gunicorn Master] 停止后台线程...")
     print("=" * 60)
 
-    from app.logs.service.api_logger import stop_api_logger_workers
-    from app.auth.service import stop_user_activity_writer
-    from app.logs.scheduler import stop_scheduler
+    try:
+        from app.logs.service.api_logger import stop_api_logger_workers
+        from app.auth.service import stop_user_activity_writer
+        from app.logs.scheduler import stop_scheduler
 
-    stop_api_logger_workers()
-    stop_user_activity_writer()
-    stop_scheduler()
+        stop_api_logger_workers()
+        stop_user_activity_writer()
+        stop_scheduler()
 
-    print("✅ [Gunicorn Master] 后台线程已停止")
-    print("=" * 60)
+        print("✅ [Gunicorn Master] 后台线程已停止")
+    except Exception as e:
+        print(f"⚠️ [Gunicorn Master] 停止后台线程时出错: {e}")
+    finally:
+        print("=" * 60)
+
+
+def worker_exit(server, worker):
+    """
+    在 worker 进程退出时执行
+    确保资源被释放
+    """
+    print(f"🔄 [Worker {worker.pid}] 正在退出...")
+
+    # 强制关闭数据库连接
+    try:
+        from app.sql.db_pool import close_all_pools
+        close_all_pools()
+    except Exception as e:
+        print(f"⚠️ [Worker {worker.pid}] 关闭数据库连接池失败: {e}")
 
 
 # Gunicorn 配置参数
 bind = "0.0.0.0:5000"
 workers = 3  # 迁移完成，恢复为3
 worker_class = "uvicorn.workers.UvicornWorker"
-timeout = 180
-max_requests = 1000
-max_requests_jitter = 50
+
+# 请求处理超时（单个请求的最大处理时间）
+timeout = 300  # 5分钟，适合大多数同步 API
+
+# Worker 重启配置
+max_requests = 1000  # 每个 worker 处理 1000 个请求后重启（防止内存泄漏）
+max_requests_jitter = 50  # 随机增加 0-50 个请求（避免所有 worker 同时重启）
+
+# 优雅关闭配置
+graceful_timeout = 60  # Worker 重启时，等待现有请求完成的时间（60秒）
+# 注意：graceful_timeout 应该 >= timeout，确保正在处理的请求能完成
+
+# Keep-Alive 配置
+keepalive = 5  # HTTP keep-alive 空闲超时（不影响正在处理的请求）
 
 # 日志配置
 accesslog = "-"  # 输出到 stdout
