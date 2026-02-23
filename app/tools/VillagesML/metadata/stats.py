@@ -42,7 +42,6 @@ def _get_system_overview_sync():
         unique_chars_query = """
             SELECT COUNT(DISTINCT char) as count
             FROM char_frequency_global
-            WHERE run_id = (SELECT MAX(run_id) FROM char_frequency_global)
         """
         unique_chars_result = execute_query(db, unique_chars_query)
         unique_chars = unique_chars_result[0]["count"] if unique_chars_result else 0
