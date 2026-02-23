@@ -6,27 +6,32 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Generator
 from .config import DB_PATH, QUERY_TIMEOUT
+from app.sql.db_pool import get_db_pool
+
+
+# 获取 VillagesML 数据库的连接池
+_villages_pool = None
+
+def get_villages_pool():
+    """获取 VillagesML 数据库连接池（单例模式）"""
+    global _villages_pool
+    if _villages_pool is None:
+        _villages_pool = get_db_pool(DB_PATH)
+    return _villages_pool
 
 
 @contextmanager
 def get_db_connection():
     """
-    数据库连接上下文管理器
-    Database connection context manager
+    数据库连接上下文管理器（使用连接池）
+    Database connection context manager using connection pool
 
     Yields:
         sqlite3.Connection: Database connection with row_factory set to Row
     """
-    conn = sqlite3.connect(
-        DB_PATH,
-        timeout=QUERY_TIMEOUT,
-        check_same_thread=False  # 允许跨线程使用（FastAPI async 需要）
-    )
-    conn.row_factory = sqlite3.Row  # 返回字典格式
-    try:
+    pool = get_villages_pool()
+    with pool.get_connection() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:

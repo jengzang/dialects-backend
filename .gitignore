@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Logs
+*.log
+logs/
+*.sql-shm
+*.sql-wal
+
+# Frontend build artifacts (重要！)
+app/statics/assets/main.*.js
+app/statics/assets/main.*.css
+app/statics/admin/admin.js
+app/statics/admin/admin.css
+
+# Temporary files
+*.tmp
+*.temp
+*.tar
+*.tar.gz
+nul
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

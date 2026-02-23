@@ -2,19 +2,38 @@
 语义类别API
 Semantic Category API endpoints
 """
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query
+from ..dependencies import get_db_connection, execute_query
 from ..config import DEFAULT_RUN_ID, DEFAULT_SEMANTIC_RUN_ID
 from ..models import SemanticCategory, SemanticVTF, RegionalSemanticVTF, SemanticTendency
 
 router = APIRouter(prefix="/semantic/category", tags=["semantic"])
 
 
+def _get_semantic_categories_sync():
+    """同步获取所有语义类别"""
+    with get_db_connection() as db:
+        query = """
+            SELECT
+                category,
+                category as description,
+                vtf_count as character_count
+            FROM semantic_vtf_global
+            WHERE run_id = ?
+            ORDER BY category
+        """
+        results = execute_query(db, query, (DEFAULT_SEMANTIC_RUN_ID,))
+        if not results:
+            raise HTTPException(status_code=404, detail="No semantic categories found")
+        return results
+
+
 @router.get("/list", response_model=List[SemanticCategory])
-def get_semantic_categories(db: sqlite3.Connection = Depends(get_db)):
+async def get_semantic_categories():
     """
     获取所有语义类别
     Get all semantic categories
@@ -22,29 +41,38 @@ def get_semantic_categories(db: sqlite3.Connection = Depends(get_db)):
     Returns:
         List[SemanticCategory]: 语义类别列表
     """
-    query = """
-        SELECT
-            category,
-            category as description,
-            vtf_count as character_count
-        FROM semantic_vtf_global
-        WHERE run_id = ?
-        ORDER BY category
-    """
+    return await run_in_threadpool(_get_semantic_categories_sync)
 
-    results = execute_query(db, query, (DEFAULT_SEMANTIC_RUN_ID,))
 
-    if not results:
-        raise HTTPException(status_code=404, detail="No semantic categories found")
+def _get_global_semantic_vtf_sync(run_id: str, category: Optional[str]):
+    """同步获取全局语义虚拟词频"""
+    with get_db_connection() as db:
+        query = """
+            SELECT
+                category,
+                vtf,
+                character_count
+            FROM semantic_vtf_global
+            WHERE run_id = ?
+        """
+        params = [run_id]
 
-    return results
+        if category is not None:
+            query += " AND category = ?"
+            params.append(category)
+
+        query += " ORDER BY vtf DESC"
+        results = execute_query(db, query, tuple(params))
+
+        if not results:
+            raise HTTPException(status_code=404, detail=f"No VTF data found for run_id: {run_id}")
+        return results
 
 
 @router.get("/vtf/global", response_model=List[SemanticVTF])
-def get_global_semantic_vtf(
+async def get_global_semantic_vtf(
     run_id: str = Query(DEFAULT_SEMANTIC_RUN_ID, description="分析运行ID"),
-    category: Optional[str] = Query(None, description="语义类别过滤"),
-    db: sqlite3.Connection = Depends(get_db)
+    category: Optional[str] = Query(None, description="语义类别过滤")
 ):
     """
     获取全局语义虚拟词频
@@ -57,38 +85,45 @@ def get_global_semantic_vtf(
     Returns:
         List[SemanticVTF]: 语义VTF列表
     """
-    query = """
-        SELECT
-            category,
-            vtf,
-            character_count
-        FROM semantic_vtf_global
-        WHERE run_id = ?
-    """
-    params = [run_id]
+    return await run_in_threadpool(_get_global_semantic_vtf_sync, run_id, category)
 
-    # 现场过滤：类别
-    if category is not None:
-        query += " AND category = ?"
-        params.append(category)
 
-    query += " ORDER BY vtf DESC"
+def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name: Optional[str], category: Optional[str]):
+    """同步获取区域语义虚拟词频"""
+    with get_db_connection() as db:
+        query = """
+            SELECT
+                region_name,
+                category,
+                vtf,
+                intensity_index
+            FROM semantic_vtf_regional
+            WHERE run_id = ? AND region_level = ?
+        """
+        params = [run_id, region_level]
 
-    results = execute_query(db, query, tuple(params))
+        if region_name is not None:
+            query += " AND region_name = ?"
+            params.append(region_name)
 
-    if not results:
-        raise HTTPException(status_code=404, detail=f"No VTF data found for run_id: {run_id}")
+        if category is not None:
+            query += " AND category = ?"
+            params.append(category)
 
-    return results
+        query += " ORDER BY region_name, vtf DESC"
+        results = execute_query(db, query, tuple(params))
+
+        if not results:
+            raise HTTPException(status_code=404, detail=f"No regional VTF data found")
+        return results
 
 
 @router.get("/vtf/regional", response_model=List[RegionalSemanticVTF])
-def get_regional_semantic_vtf(
+async def get_regional_semantic_vtf(
     run_id: str = Query(DEFAULT_SEMANTIC_RUN_ID, description="分析运行ID"),
     region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
     region_name: Optional[str] = Query(None, description="区域名称"),
-    category: Optional[str] = Query(None, description="语义类别"),
-    db: sqlite3.Connection = Depends(get_db)
+    category: Optional[str] = Query(None, description="语义类别")
 ):
     """
     获取区域语义虚拟词频
@@ -103,46 +138,38 @@ def get_regional_semantic_vtf(
     Returns:
         List[RegionalSemanticVTF]: 区域语义VTF列表
     """
-    query = """
-        SELECT
-            region_name,
-            category,
-            vtf,
-            intensity_index
-        FROM semantic_vtf_regional
-        WHERE run_id = ? AND region_level = ?
-    """
-    params = [run_id, region_level]
+    return await run_in_threadpool(_get_regional_semantic_vtf_sync, run_id, region_level, region_name, category)
 
-    # 现场过滤
-    if region_name is not None:
-        query += " AND region_name = ?"
-        params.append(region_name)
 
-    if category is not None:
-        query += " AND category = ?"
-        params.append(category)
+def _get_semantic_tendency_sync(run_id: str, region_level: str, region_name: str, top_n: int):
+    """同步获取区域语义倾向性"""
+    with get_db_connection() as db:
+        query = """
+            SELECT
+                category,
+                lift,
+                z_score
+            FROM semantic_tendency
+            WHERE run_id = ? AND region_level = ? AND region_name = ?
+            ORDER BY z_score DESC
+            LIMIT ?
+        """
+        results = execute_query(db, query, (run_id, region_level, region_name, top_n))
 
-    query += " ORDER BY region_name, vtf DESC"
-
-    results = execute_query(db, query, tuple(params))
-
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No regional VTF data found"
-        )
-
-    return results
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No semantic tendency data found for region: {region_name}"
+            )
+        return results
 
 
 @router.get("/tendency", response_model=List[SemanticTendency])
-def get_semantic_tendency(
+async def get_semantic_tendency(
     run_id: str = Query(DEFAULT_SEMANTIC_RUN_ID, description="分析运行ID"),
     region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
     region_name: str = Query(..., description="区域名称"),
-    top_n: int = Query(9, ge=1, le=20, description="返回前N个类别"),
-    db: sqlite3.Connection = Depends(get_db)
+    top_n: int = Query(9, ge=1, le=20, description="返回前N个类别")
 ):
     """
     获取区域语义倾向性
@@ -157,23 +184,4 @@ def get_semantic_tendency(
     Returns:
         List[SemanticTendency]: 语义倾向性列表
     """
-    query = """
-        SELECT
-            category,
-            lift,
-            z_score
-        FROM semantic_tendency
-        WHERE run_id = ? AND region_level = ? AND region_name = ?
-        ORDER BY z_score DESC
-        LIMIT ?
-    """
-
-    results = execute_query(db, query, (run_id, region_level, region_name, top_n))
-
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No semantic tendency data found for region: {region_name}"
-        )
-
-    return results
+    return await run_in_threadpool(_get_semantic_tendency_sync, run_id, region_level, region_name, top_n)
