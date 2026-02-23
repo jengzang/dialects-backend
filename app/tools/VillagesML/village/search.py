@@ -44,7 +44,7 @@ def search_villages(
 
     # 如果 query 不是空字符串或纯空格，添加关键词过滤
     if query.strip():
-        where_conditions.append("自然村 LIKE ?")
+        where_conditions.append("自然村_规范名 LIKE ?")
         params.append(f"%{query}%")
 
     # 区域过滤条件
@@ -75,7 +75,7 @@ def search_villages(
     data_sql = f"""
         SELECT
             ROWID as village_id,
-            自然村 as village_name,
+            自然村_规范名 as village_name,
             市级 as city,
             区县级 as county,
             乡镇级 as township,
@@ -121,14 +121,14 @@ def get_village_detail(
     # 获取基础信息
     basic_query = """
         SELECT
-            自然村 as village_name,
+            自然村_规范名 as village_name,
             市级 as city,
             区县级 as county,
             乡镇级 as township,
             CAST(longitude AS REAL) as longitude,
             CAST(latitude AS REAL) as latitude
         FROM 广东省自然村_预处理
-        WHERE 自然村 = ? AND 市级 = ? AND 区县级 = ?
+        WHERE 自然村_规范名 = ? AND 市级 = ? AND 区县级 = ?
     """
     basic_info = execute_single(db, basic_query, (village_name, city, county))
 

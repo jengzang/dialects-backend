@@ -31,7 +31,7 @@ def get_village_ngrams(
     """
     # First get village name from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村" as village_name, "村居委" as village_committee
+        SELECT "自然村_规范名" as village_name, "村委会" as village_committee
         FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
@@ -115,7 +115,7 @@ def get_village_semantic_structure(
     """
     # First get village name from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村" as village_name, "村居委" as village_committee
+        SELECT "自然村_规范名" as village_name, "村委会" as village_committee
         FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
@@ -198,7 +198,7 @@ def get_village_features(
 
     # First get village info from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村" as village_name, "市级" as city, "区县级" as county
+        SELECT "自然村_规范名" as village_name, "市级" as city, "区县级" as county
         FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
