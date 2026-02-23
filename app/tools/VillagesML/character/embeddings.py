@@ -8,16 +8,16 @@ import sqlite3
 import json
 
 from ..dependencies import get_db, execute_query, execute_single
-from ..config import DEFAULT_RUN_ID
-from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/character/embeddings", tags=["character"])
+
+# 向量维度常量
+VECTOR_DIM = 225
 
 
 @router.get("/vector")
 def get_character_embedding(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
-    run_id: Optional[str] = Query(None, description="嵌入运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -26,24 +26,19 @@ def get_character_embedding(
 
     Args:
         char: 字符
-        run_id: 嵌入运行ID
 
     Returns:
         dict: 字符嵌入信息（包含向量）
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_embeddings")
-
     query = """
         SELECT
             char as character,
             embedding_vector
         FROM char_embeddings
-        WHERE run_id = ? AND char = ?
+        WHERE char = ?
     """
 
-    result = execute_single(db, query, (run_id, char))
+    result = execute_single(db, query, (char,))
 
     if not result:
         raise HTTPException(
@@ -61,7 +56,6 @@ def get_character_embedding(
 @router.get("/similarities")
 def get_similar_characters(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
-    run_id: Optional[str] = Query(None, description="嵌入运行ID（留空使用活跃版本）"),
     top_k: int = Query(10, ge=1, le=50, description="返回前K个相似字符"),
     min_similarity: Optional[float] = Query(None, ge=0.0, le=1.0, description="最小相似度阈值"),
     db: sqlite3.Connection = Depends(get_db)
@@ -72,32 +66,27 @@ def get_similar_characters(
 
     Args:
         char: 字符
-        run_id: 嵌入运行ID
         top_k: 返回前K个相似字符
         min_similarity: 最小相似度阈值（可选）
 
     Returns:
-        List[dict]: 相似字符列表
+        dict: 包含查询信息和相似字符列表
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_embeddings")
-
     query = """
         SELECT
-            char2 as similar_character,
+            char2 as character,
             cosine_similarity as similarity
         FROM char_similarity
-        WHERE run_id = ? AND char1 = ?
+        WHERE char1 = ?
     """
-    params = [run_id, char]
+    params = [char]
 
     # 现场过滤：最小相似度
     if min_similarity is not None:
-        query += " AND similarity >= ?"
+        query += " AND cosine_similarity >= ?"
         params.append(min_similarity)
 
-    query += " ORDER BY similarity DESC LIMIT ?"
+    query += " ORDER BY cosine_similarity DESC LIMIT ?"
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -108,12 +97,15 @@ def get_similar_characters(
             detail=f"No similarities found for character: {char}"
         )
 
-    return results
+    return {
+        "query_character": char,
+        "top_k": top_k,
+        "similarities": results
+    }
 
 
 @router.get("/list")
 def list_character_embeddings(
-    run_id: Optional[str] = Query(None, description="嵌入运行ID（留空使用活跃版本）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     offset: int = Query(0, ge=0, description="偏移量"),
     db: sqlite3.Connection = Depends(get_db)
@@ -123,32 +115,43 @@ def list_character_embeddings(
     List all character embeddings (metadata only, no vectors)
 
     Args:
-        run_id: 嵌入运行ID
         limit: 返回记录数
         offset: 偏移量
 
     Returns:
-        List[dict]: 字符嵌入元数据列表
+        dict: 包含分页信息和字符嵌入元数据列表
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_embeddings")
+    # 获取总数
+    count_query = "SELECT COUNT(*) as total FROM char_embeddings"
+    count_result = execute_single(db, count_query, ())
+    total = count_result["total"] if count_result else 0
 
+    # 获取数据
     query = """
         SELECT
-            char as character
+            char as character,
+            char_frequency as frequency
         FROM char_embeddings
-        WHERE run_id = ?
         ORDER BY char
         LIMIT ? OFFSET ?
     """
 
-    results = execute_query(db, query, (run_id, limit, offset))
+    results = execute_query(db, query, (limit, offset))
 
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No embeddings found for run_id: {run_id}"
-        )
+    # 添加 vector_dim 信息
+    embeddings = [
+        {
+            **item,
+            "vector_dim": VECTOR_DIM
+        }
+        for item in results
+    ]
 
-    return results
+    return {
+        "embeddings": embeddings,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "page": (offset // limit) + 1,
+        "page_size": limit
+    }
