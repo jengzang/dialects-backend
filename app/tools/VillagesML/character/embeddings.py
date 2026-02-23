@@ -14,6 +14,9 @@ router = APIRouter(prefix="/character/embeddings", tags=["character"])
 # 向量维度常量
 VECTOR_DIM = 225
 
+# 使用最终版本的嵌入
+ACTIVE_RUN_ID = "embed_final_001"
+
 
 @router.get("/vector")
 def get_character_embedding(
@@ -35,10 +38,10 @@ def get_character_embedding(
             char as character,
             embedding_vector
         FROM char_embeddings
-        WHERE char = ?
+        WHERE run_id = ? AND char = ?
     """
 
-    result = execute_single(db, query, (char,))
+    result = execute_single(db, query, (ACTIVE_RUN_ID, char))
 
     if not result:
         raise HTTPException(
@@ -77,9 +80,9 @@ def get_similar_characters(
             char2 as character,
             cosine_similarity as similarity
         FROM char_similarity
-        WHERE char1 = ?
+        WHERE run_id = ? AND char1 = ?
     """
-    params = [char]
+    params = [ACTIVE_RUN_ID, char]
 
     # 现场过滤：最小相似度
     if min_similarity is not None:
@@ -122,8 +125,8 @@ def list_character_embeddings(
         dict: 包含分页信息和字符嵌入元数据列表
     """
     # 获取总数
-    count_query = "SELECT COUNT(*) as total FROM char_embeddings"
-    count_result = execute_single(db, count_query, ())
+    count_query = "SELECT COUNT(*) as total FROM char_embeddings WHERE run_id = ?"
+    count_result = execute_single(db, count_query, (ACTIVE_RUN_ID,))
     total = count_result["total"] if count_result else 0
 
     # 获取数据
@@ -132,11 +135,12 @@ def list_character_embeddings(
             char as character,
             char_frequency as frequency
         FROM char_embeddings
+        WHERE run_id = ?
         ORDER BY char
         LIMIT ? OFFSET ?
     """
 
-    results = execute_query(db, query, (limit, offset))
+    results = execute_query(db, query, (ACTIVE_RUN_ID, limit, offset))
 
     # 添加 vector_dim 信息
     embeddings = [
