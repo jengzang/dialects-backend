@@ -1,13 +1,15 @@
 """
 字符显著性API
 Character Significance API endpoints
+
+注意：当前数据库中的显著性数据为测试数据（全为0），
+需要重新运行显著性分析脚本生成有效数据。
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, execute_query
-from ..config import DEFAULT_RUN_ID
 from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/character/significance", tags=["character"])
