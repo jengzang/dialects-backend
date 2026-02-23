@@ -383,18 +383,13 @@ def get_village_complete_profile(
         """
         ngrams = execute_single(db, ngrams_query, (basic_info['village_name'],))
 
-    # Get features (uses village_name + city + county)
+    # Get features (uses village_id)
     features_query = """
         SELECT *
         FROM village_features
-        WHERE village_name = ? AND city = ? AND county = ? AND run_id = ?
+        WHERE village_id = ?
     """
-    features = execute_single(db, features_query, (
-        basic_info['village_name'],
-        basic_info['city'],
-        basic_info['county'],
-        run_id
-    ))
+    features = execute_single(db, features_query, (basic_info['village_id_str'],))
 
     return {
         "basic_info": basic_info,
