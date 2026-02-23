@@ -7,7 +7,6 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
-from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/patterns", tags=["pattern-analysis"])
 
@@ -94,7 +93,7 @@ def get_regional_pattern_frequency(
             pattern_type,
             frequency,
             rank_within_region as rank_in_region
-        FROM pattern_frequency_regional
+        FROM pattern_regional_analysis
         WHERE region_level = ?
     """
     params = [region_level]
@@ -123,7 +122,6 @@ def get_regional_pattern_frequency(
 
 @router.get("/tendency")
 def get_pattern_tendency(
-    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     pattern: Optional[str] = Query(None, description="模式"),
     region_level: str = Query("county", description="区域级别"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值"),
@@ -143,10 +141,6 @@ def get_pattern_tendency(
     Returns:
         List[dict]: 模式倾向性列表
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("patterns")
-
     query = """
         SELECT
             region_level,
@@ -156,20 +150,20 @@ def get_pattern_tendency(
             lift as tendency_score,
             frequency,
             global_frequency
-        FROM pattern_tendency
-        WHERE run_id = ? AND region_level = ?
+        FROM pattern_regional_analysis
+        WHERE region_level = ?
     """
-    params = [run_id, region_level]
+    params = [region_level]
 
     if pattern is not None:
         query += " AND pattern = ?"
         params.append(pattern)
 
     if min_tendency is not None:
-        query += " AND tendency_score >= ?"
+        query += " AND lift >= ?"
         params.append(min_tendency)
 
-    query += " ORDER BY tendency_score DESC LIMIT ?"
+    query += " ORDER BY lift DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))

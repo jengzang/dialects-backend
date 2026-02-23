@@ -32,35 +32,40 @@ curl http://localhost:8000/health
 
 ```bash
 # Global character frequency (top 20)
-GET /api/character/frequency/global?top_n=20
+GET /api/villages/character/frequency/global?top_n=20
 
 # Regional character frequency
-GET /api/character/frequency/regional?region_level=city&region_name=广州市&top_n=50
+GET /api/villages/character/frequency/regional?region_level=city&region_name=广州市&top_n=50
 
 # Character tendency by region
-GET /api/character/tendency/by-region?region_level=county&region_name=番禺区&top_n=50
+GET /api/villages/character/tendency/by-region?region_level=county&region_name=番禺区&top_n=50
 
 # Character tendency by character
-GET /api/character/tendency/by-char?character=水&region_level=city
+GET /api/villages/character/tendency/by-char?character=水&region_level=city
 
 # Search villages
-GET /api/village/search?query=水&limit=10&offset=0
+GET /api/villages/village/search?query=水&limit=10&offset=0
 
 # Village detail
-GET /api/village/search/detail?village_name=水口村&city=广州市&county=番禺区
+GET /api/villages/village/search/detail?village_name=水口村&city=广州市&county=番禺区
 
 # System overview
-GET /api/metadata/stats/overview
+GET /api/villages/metadata/stats/overview
 
 # Database tables
-GET /api/metadata/stats/tables
+GET /api/villages/metadata/stats/tables
+
+# Get region list (NEW)
+GET /api/villages/metadata/stats/regions?level=city
+GET /api/villages/metadata/stats/regions?level=county&parent=广州市
+GET /api/villages/metadata/stats/regions?level=township&parent=番禺区
 ```
 
 ### Online Compute (Slow, 1-30s)
 
 ```bash
 # Run clustering
-POST /api/compute/clustering/run
+POST /api/villages/compute/clustering/run
 Body: {
   "region_level": "county",
   "algorithm": "kmeans",
@@ -70,7 +75,7 @@ Body: {
 }
 
 # Clustering k-scan
-POST /api/compute/clustering/scan
+POST /api/villages/compute/clustering/scan
 Body: {
   "region_level": "county",
   "algorithm": "kmeans",
@@ -79,28 +84,28 @@ Body: {
 }
 
 # Semantic co-occurrence
-POST /api/compute/semantic/cooccurrence
+POST /api/villages/compute/semantic/cooccurrence
 Body: {
   "min_cooccurrence": 10,
   "alpha": 0.05
 }
 
 # Semantic network
-POST /api/compute/semantic/network
+POST /api/villages/compute/semantic/network
 Body: {
   "min_edge_weight": 1.0,
   "centrality_metrics": ["degree", "betweenness"]
 }
 
 # Extract features
-POST /api/compute/features/extract
+POST /api/villages/compute/features/extract
 Body: {
   "villages": [{"name": "水口村", "city": "广州市"}],
   "features": {"semantic_tags": true, "morphology": true}
 }
 
 # Aggregate features
-POST /api/compute/features/aggregate
+POST /api/villages/compute/features/aggregate
 Body: {
   "region_level": "county",
   "region_names": ["番禺区"],
@@ -108,7 +113,7 @@ Body: {
 }
 
 # Subset clustering
-POST /api/compute/subset/cluster
+POST /api/villages/compute/subset/cluster
 Body: {
   "filter": {"keyword": "水", "city": "广州市"},
   "algorithm": "kmeans",
@@ -117,7 +122,7 @@ Body: {
 }
 
 # Subset comparison
-POST /api/compute/subset/compare
+POST /api/villages/compute/subset/compare
 Body: {
   "group_a": {"keyword": "水"},
   "group_b": {"keyword": "山"},
@@ -125,10 +130,10 @@ Body: {
 }
 
 # Cache stats
-GET /api/compute/cache/stats
+GET /api/villages/compute/cache/stats
 
 # Clear cache
-POST /api/compute/cache/clear
+POST /api/villages/compute/cache/clear
 ```
 
 ---
@@ -200,11 +205,11 @@ Or direct array:
 
 ```javascript
 // GET request
-const response = await fetch('http://localhost:8000/api/village/search?query=水&limit=10');
+const response = await fetch('http://localhost:8000/api/villages/village/search?query=水&limit=10');
 const villages = await response.json();
 
 // POST request
-const response = await fetch('http://localhost:8000/api/compute/clustering/run', {
+const response = await fetch('http://localhost:8000/api/villages/compute/clustering/run', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -224,12 +229,12 @@ const result = await response.json();
 import axios from 'axios';
 
 // GET request
-const { data } = await axios.get('http://localhost:8000/api/village/search', {
+const { data } = await axios.get('http://localhost:8000/api/villages/village/search', {
   params: { query: '水', limit: 10 }
 });
 
 // POST request
-const { data } = await axios.post('http://localhost:8000/api/compute/clustering/run', {
+const { data } = await axios.post('http://localhost:8000/api/villages/compute/clustering/run', {
   region_level: 'county',
   algorithm: 'kmeans',
   k: 4,
@@ -257,7 +262,7 @@ export function useVillageSearch() {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/village/search?query=${keyword}&limit=10`
+        `http://localhost:8000/api/villages/village/search?query=${keyword}&limit=10`
       );
       villages.value = await response.json();
     } catch (err) {
@@ -280,7 +285,7 @@ export function useVillageSearch() {
 ```javascript
 function loadPage(page, pageSize = 20) {
   const offset = (page - 1) * pageSize;
-  return fetch(`/api/village/search?query=水&limit=${pageSize}&offset=${offset}`);
+  return fetch(`/api/villages/village/search?query=水&limit=${pageSize}&offset=${offset}`);
 }
 ```
 
@@ -290,7 +295,7 @@ function loadPage(page, pageSize = 20) {
 import { debounce } from 'lodash-es';
 
 const debouncedSearch = debounce(async (keyword) => {
-  const response = await fetch(`/api/village/search?query=${keyword}`);
+  const response = await fetch(`/api/villages/village/search?query=${keyword}`);
   const results = await response.json();
   // Update UI
 }, 300);
@@ -468,5 +473,5 @@ location / {
 
 - **Issues:** Check logs at `/var/log/village-api/api.log`
 - **Health Check:** `curl http://localhost:8000/health`
-- **Cache Stats:** `GET /api/compute/cache/stats`
-- **Clear Cache:** `POST /api/compute/cache/clear`
+- **Cache Stats:** `GET /api/villages/compute/cache/stats`
+- **Clear Cache:** `POST /api/villages/compute/cache/clear`

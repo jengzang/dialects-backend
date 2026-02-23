@@ -300,8 +300,26 @@ class SystemOverview(BaseModel):
     last_updated: datetime = Field(..., description="最后更新时间")
 
 
+class TableColumn(BaseModel):
+    """表列信息模型"""
+    name: str = Field(..., description="列名")
+    type: str = Field(..., description="数据类型")
+    not_null: bool = Field(..., description="是否非空")
+    has_index: bool = Field(..., description="是否有索引")
+
+
 class TableInfo(BaseModel):
     """表信息模型"""
     table_name: str = Field(..., description="表名")
     row_count: int = Field(..., description="行数")
     size_mb: float = Field(..., description="大小(MB)")
+    index_count: int = Field(0, description="索引数量")
+    last_modified: Optional[str] = Field(None, description="最后修改时间")
+    columns: Optional[List[TableColumn]] = Field(None, description="列信息")
+
+
+class RegionInfo(BaseModel):
+    """区域信息模型"""
+    name: str = Field(..., description="区域名称")
+    level: str = Field(..., description="区域级别 (city/county/township)")
+    village_count: int = Field(..., description="村庄数量")

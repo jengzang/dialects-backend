@@ -57,25 +57,25 @@ with timeout(5):  # 5秒超时
 
 ### 聚类分析
 
-- `POST /api/compute/clustering/run` - 执行聚类
-- `POST /api/compute/clustering/scan` - 参数扫描
-- `GET /api/compute/clustering/cache-stats` - 缓存统计
-- `DELETE /api/compute/clustering/cache` - 清除缓存
+- `POST /api/villages/compute/clustering/run` - 执行聚类
+- `POST /api/villages/compute/clustering/scan` - 参数扫描
+- `GET /api/villages/compute/clustering/cache-stats` - 缓存统计
+- `DELETE /api/villages/compute/clustering/cache` - 清除缓存
 
 ### 语义分析
 
-- `POST /api/compute/semantic/cooccurrence` - 共现分析
-- `POST /api/compute/semantic/network` - 语义网络
+- `POST /api/villages/compute/semantic/cooccurrence` - 共现分析
+- `POST /api/villages/compute/semantic/network` - 语义网络
 
 ### 特征提取
 
-- `POST /api/compute/features/extract` - 批量提取
-- `POST /api/compute/features/aggregate` - 区域聚合
+- `POST /api/villages/compute/features/extract` - 批量提取
+- `POST /api/villages/compute/features/aggregate` - 区域聚合
 
 ### 子集分析
 
-- `POST /api/compute/subset/cluster` - 子集聚类
-- `POST /api/compute/subset/compare` - 子集对比
+- `POST /api/villages/compute/subset/cluster` - 子集聚类
+- `POST /api/villages/compute/subset/compare` - 子集对比
 
 ## 使用示例
 
@@ -86,7 +86,7 @@ import requests
 
 # 聚类分析
 response = requests.post(
-    "http://localhost:8000/api/compute/clustering/run",
+    "http://localhost:8000/api/villages/compute/clustering/run",
     json={
         "algorithm": "kmeans",
         "k": 4,

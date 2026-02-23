@@ -135,7 +135,7 @@ def root():
 ```
 
 Now the village API is available at:
-- `http://localhost:8000/village-api/api/character/frequency/global`
+- `http://localhost:8000/village-api/api/villages/character/frequency/global`
 - `http://localhost:8000/village-api/docs`
 
 **Step 5: Install dependencies**
@@ -555,7 +555,7 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-@app.get("/api/village/search")
+@app.get("/api/villages/village/search")
 @limiter.limit("10/minute")  # 10 requests per minute
 async def search_villages(...):
     ...

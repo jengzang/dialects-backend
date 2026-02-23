@@ -29,10 +29,10 @@ def get_village_ngrams(
     Returns:
         dict: 村庄N-gram信息
     """
-    # First get village name from main table using ROWID
+    # First get village name from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村" as village_name, "村委会" as village_committee
-        FROM "广东省自然村"
+        SELECT "自然村" as village_name, "村居委" as village_committee
+        FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
@@ -44,6 +44,7 @@ def get_village_ngrams(
         )
 
     # Then query ngrams table using village name and committee
+    # Try exact match first
     query = """
         SELECT
             "村委会" as village_committee,
@@ -57,6 +58,21 @@ def get_village_ngrams(
     """
 
     result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
+
+    # If no result, try matching by village_name only (committee might differ)
+    if not result:
+        query = """
+            SELECT
+                "村委会" as village_committee,
+                "自然村" as village_name,
+                bigrams,
+                trigrams,
+                prefix_bigram,
+                suffix_bigram
+            FROM village_ngrams
+            WHERE "自然村" = ?
+        """
+        result = execute_single(db, query, (village_info['village_name'],))
 
     if not result:
         # Return empty structure if no ngram data exists for this village
@@ -97,10 +113,10 @@ def get_village_semantic_structure(
     Returns:
         dict: 村庄语义结构
     """
-    # First get village name from main table using ROWID
+    # First get village name from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村" as village_name, "村委会" as village_committee
-        FROM "广东省自然村"
+        SELECT "自然村" as village_name, "村居委" as village_committee
+        FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
@@ -112,6 +128,7 @@ def get_village_semantic_structure(
         )
 
     # Then query semantic structure table
+    # Try exact match first
     query = """
         SELECT
             "村委会" as village_committee,
@@ -126,6 +143,22 @@ def get_village_semantic_structure(
     """
 
     result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
+
+    # If no result, try matching by village_name only (committee might differ)
+    if not result:
+        query = """
+            SELECT
+                "村委会" as village_committee,
+                "自然村" as village_name,
+                semantic_sequence,
+                sequence_length,
+                has_modifier,
+                has_head,
+                has_settlement
+            FROM village_semantic_structure
+            WHERE "自然村" = ?
+        """
+        result = execute_single(db, query, (village_info['village_name'],))
 
     if not result:
         # Return empty structure if no semantic data exists for this village
@@ -163,10 +196,10 @@ def get_village_features(
     if run_id is None:
         run_id = run_id_manager.get_active_run_id("village_features")
 
-    # First get village info from main table using ROWID
+    # First get village info from preprocessed table using ROWID
     village_query = """
         SELECT "自然村" as village_name, "市级" as city, "区县级" as county
-        FROM "广东省自然村"
+        FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
@@ -248,13 +281,13 @@ def get_village_spatial_features(
         WHERE village_id = ? AND run_id = ?
     """
 
-    result = execute_single(db, query, (str(village_id), run_id))
+    result = execute_single(db, query, (f'v_{village_id}', run_id))
 
     if not result:
         # Return empty dict if no spatial feature data exists
         return {
             "message": "No spatial feature data available for this village",
-            "village_id": str(village_id)
+            "village_id": f'v_{village_id}'
         }
 
     return result
@@ -281,7 +314,7 @@ def get_village_complete_profile(
     if run_id is None:
         run_id = run_id_manager.get_active_run_id("village_features")
 
-    # Get basic info from main table using ROWID
+    # Get basic info from preprocessed table using ROWID
     basic_query = """
         SELECT
             ROWID as village_id,
@@ -289,11 +322,11 @@ def get_village_complete_profile(
             "市级" as city,
             "区县级" as county,
             "乡镇级" as township,
-            "村委会" as village_committee,
+            "村居委" as village_committee,
             "拼音" as pinyin,
             CAST(longitude AS REAL) as longitude,
             CAST(latitude AS REAL) as latitude
-        FROM "广东省自然村"
+        FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
     basic_info = execute_single(db, basic_query, (village_id,))
@@ -310,7 +343,7 @@ def get_village_complete_profile(
         FROM village_spatial_features
         WHERE village_id = ? AND run_id = ?
     """
-    spatial_features = execute_single(db, spatial_query, (str(village_id), run_id))
+    spatial_features = execute_single(db, spatial_query, (f'v_{village_id}', run_id))
 
     # Get semantic structure (uses village_name + committee)
     semantic_query = """
@@ -323,6 +356,15 @@ def get_village_complete_profile(
         basic_info['village_committee']
     ))
 
+    # Fallback: try matching by village_name only
+    if not semantic_structure:
+        semantic_query = """
+            SELECT *
+            FROM village_semantic_structure
+            WHERE "自然村" = ?
+        """
+        semantic_structure = execute_single(db, semantic_query, (basic_info['village_name'],))
+
     # Get n-grams (uses village_name + committee)
     ngrams_query = """
         SELECT *
@@ -333,6 +375,15 @@ def get_village_complete_profile(
         basic_info['village_name'],
         basic_info['village_committee']
     ))
+
+    # Fallback: try matching by village_name only
+    if not ngrams:
+        ngrams_query = """
+            SELECT *
+            FROM village_ngrams
+            WHERE "自然村" = ?
+        """
+        ngrams = execute_single(db, ngrams_query, (basic_info['village_name'],))
 
     # Get features (uses village_name + city + county)
     features_query = """

@@ -8,14 +8,14 @@ import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
 from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DEFAULT_RUN_ID
-from ..models import VillageBasic, VillageDetail
+from ..models import VillageBasic, VillageDetail, PaginatedResponse
 
 router = APIRouter(prefix="/village/search", tags=["village"])
 
 
-@router.get("", response_model=List[VillageBasic])
+@router.get("", response_model=PaginatedResponse)
 def search_villages(
-    query: str = Query(..., description="村名关键词", min_length=1),
+    query: str = Query(..., description="村名关键词（传空字符串或空格查询所有）"),
     city: Optional[str] = Query(None, description="城市过滤"),
     county: Optional[str] = Query(None, description="区县过滤"),
     township: Optional[str] = Query(None, description="乡镇过滤"),
@@ -28,7 +28,7 @@ def search_villages(
     Search villages by keyword
 
     Args:
-        query: 村名关键词
+        query: 村名关键词（传空字符串或空格查询所有）
         city: 城市过滤（可选）
         county: 区县过滤（可选）
         township: 乡镇过滤（可选）
@@ -36,10 +36,43 @@ def search_villages(
         offset: 偏移量
 
     Returns:
-        List[VillageBasic]: 村庄基础信息列表
+        PaginatedResponse: 分页响应，包含总数和数据列表
     """
-    # 构建查询
-    sql = """
+    # 构建 WHERE 条件
+    where_conditions = ["1=1"]
+    params = []
+
+    # 如果 query 不是空字符串或纯空格，添加关键词过滤
+    if query.strip():
+        where_conditions.append("自然村 LIKE ?")
+        params.append(f"%{query}%")
+
+    # 区域过滤条件
+    if city is not None:
+        where_conditions.append("市级 = ?")
+        params.append(city)
+
+    if county is not None:
+        where_conditions.append("区县级 = ?")
+        params.append(county)
+
+    if township is not None:
+        where_conditions.append("乡镇级 = ?")
+        params.append(township)
+
+    where_clause = " AND ".join(where_conditions)
+
+    # 1. 先查询总数
+    count_sql = f"""
+        SELECT COUNT(*) as total
+        FROM 广东省自然村_预处理
+        WHERE {where_clause}
+    """
+    total_result = execute_query(db, count_sql, tuple(params))
+    total = total_result[0]["total"] if total_result else 0
+
+    # 2. 查询当前页数据
+    data_sql = f"""
         SELECT
             ROWID as village_id,
             自然村 as village_name,
@@ -48,31 +81,20 @@ def search_villages(
             乡镇级 as township,
             CAST(longitude AS REAL) as longitude,
             CAST(latitude AS REAL) as latitude
-        FROM 广东省自然村
-        WHERE 自然村 LIKE ?
+        FROM 广东省自然村_预处理
+        WHERE {where_clause}
+        LIMIT ? OFFSET ?
     """
-    params = [f"%{query}%"]
+    data_params = params + [limit, offset]
+    results = execute_query(db, data_sql, tuple(data_params))
 
-    # 现场过滤：区域条件
-    if city is not None:
-        sql += " AND 市级 = ?"
-        params.append(city)
-
-    if county is not None:
-        sql += " AND 区县级 = ?"
-        params.append(county)
-
-    if township is not None:
-        sql += " AND 乡镇级 = ?"
-        params.append(township)
-
-    # 现场分页
-    sql += " LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
-
-    results = execute_query(db, sql, tuple(params))
-
-    return results
+    # 3. 返回分页响应
+    return {
+        "total": total,
+        "page": (offset // limit) + 1,  # 计算当前页码（从1开始）
+        "page_size": limit,
+        "data": results
+    }
 
 
 @router.get("/detail", response_model=VillageDetail)
@@ -105,7 +127,7 @@ def get_village_detail(
             乡镇级 as township,
             CAST(longitude AS REAL) as longitude,
             CAST(latitude AS REAL) as latitude
-        FROM 广东省自然村
+        FROM 广东省自然村_预处理
         WHERE 自然村 = ? AND 市级 = ? AND 区县级 = ?
     """
     basic_info = execute_single(db, basic_query, (village_name, city, county))

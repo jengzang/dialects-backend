@@ -305,3 +305,10 @@ class TableInfo(BaseModel):
     table_name: str = Field(..., description="表名")
     row_count: int = Field(..., description="行数")
     size_mb: float = Field(..., description="大小(MB)")
+
+
+class RegionInfo(BaseModel):
+    """区域信息模型"""
+    name: str = Field(..., description="区域名称")
+    level: str = Field(..., description="区域级别 (city/county/township)")
+    village_count: int = Field(..., description="村庄数量")

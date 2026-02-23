@@ -27,14 +27,14 @@ These endpoints query precomputed results from the database:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/character/frequency/global` | GET | Global character frequency statistics |
-| `/api/character/frequency/regional` | GET | Regional character frequency statistics |
-| `/api/character/tendency/by-region` | GET | Character tendency for specific region |
-| `/api/character/tendency/by-char` | GET | Character tendency across regions |
-| `/api/village/search` | GET | Search villages by keyword |
-| `/api/village/search/detail` | GET | Get village detail information |
-| `/api/metadata/stats/overview` | GET | System overview statistics |
-| `/api/metadata/stats/tables` | GET | Database table information |
+| `/api/villages/character/frequency/global` | GET | Global character frequency statistics |
+| `/api/villages/character/frequency/regional` | GET | Regional character frequency statistics |
+| `/api/villages/character/tendency/by-region` | GET | Character tendency for specific region |
+| `/api/villages/character/tendency/by-char` | GET | Character tendency across regions |
+| `/api/villages/village/search` | GET | Search villages by keyword |
+| `/api/villages/village/search/detail` | GET | Get village detail information |
+| `/api/villages/metadata/stats/overview` | GET | System overview statistics |
+| `/api/villages/metadata/stats/tables` | GET | Database table information |
 
 ### Online Compute Endpoints (Slower, >1s)
 
@@ -42,16 +42,16 @@ These endpoints perform real-time analysis:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/compute/clustering/run` | POST | Run clustering analysis |
-| `/api/compute/clustering/scan` | POST | Scan multiple k values |
-| `/api/compute/semantic/cooccurrence` | POST | Analyze semantic co-occurrence |
-| `/api/compute/semantic/network` | POST | Build semantic network |
-| `/api/compute/features/extract` | POST | Extract village features |
-| `/api/compute/features/aggregate` | POST | Aggregate regional features |
-| `/api/compute/subset/cluster` | POST | Cluster village subset |
-| `/api/compute/subset/compare` | POST | Compare two village groups |
-| `/api/compute/cache/stats` | GET | Get cache statistics |
-| `/api/compute/cache/clear` | POST | Clear cache |
+| `/api/villages/compute/clustering/run` | POST | Run clustering analysis |
+| `/api/villages/compute/clustering/scan` | POST | Scan multiple k values |
+| `/api/villages/compute/semantic/cooccurrence` | POST | Analyze semantic co-occurrence |
+| `/api/villages/compute/semantic/network` | POST | Build semantic network |
+| `/api/villages/compute/features/extract` | POST | Extract village features |
+| `/api/villages/compute/features/aggregate` | POST | Aggregate regional features |
+| `/api/villages/compute/subset/cluster` | POST | Cluster village subset |
+| `/api/villages/compute/subset/compare` | POST | Compare two village groups |
+| `/api/villages/compute/cache/stats` | GET | Get cache statistics |
+| `/api/villages/compute/cache/clear` | POST | Clear cache |
 
 ### Utility Endpoints
 
@@ -66,7 +66,7 @@ These endpoints perform real-time analysis:
 
 ### 1. Global Character Frequency
 
-**GET** `/api/character/frequency/global`
+**GET** `/api/villages/character/frequency/global`
 
 Get global character frequency statistics from precomputed data.
 
@@ -106,7 +106,7 @@ Get global character frequency statistics from precomputed data.
 
 ### 2. Regional Character Frequency
 
-**GET** `/api/character/frequency/regional`
+**GET** `/api/villages/character/frequency/regional`
 
 Get character frequency statistics by region.
 
@@ -148,7 +148,7 @@ Get character frequency statistics by region.
 
 ### 3. Character Tendency by Region
 
-**GET** `/api/character/tendency/by-region`
+**GET** `/api/villages/character/tendency/by-region`
 
 Get character tendency (lift, z-score) for a specific region.
 
@@ -186,7 +186,7 @@ Get character tendency (lift, z-score) for a specific region.
 
 ### 4. Character Tendency by Character
 
-**GET** `/api/character/tendency/by-char`
+**GET** `/api/villages/character/tendency/by-char`
 
 Get tendency of a specific character across all regions.
 
@@ -225,7 +225,7 @@ Get tendency of a specific character across all regions.
 
 ### 5. Search Villages
 
-**GET** `/api/village/search`
+**GET** `/api/villages/village/search`
 
 Search villages by keyword with optional region filters.
 
@@ -264,7 +264,7 @@ Search villages by keyword with optional region filters.
 
 ### 6. Get Village Detail
 
-**GET** `/api/village/search/detail`
+**GET** `/api/villages/village/search/detail`
 
 Get detailed information for a specific village.
 
@@ -309,7 +309,7 @@ Get detailed information for a specific village.
 
 ### 7. System Overview
 
-**GET** `/api/metadata/stats/overview`
+**GET** `/api/villages/metadata/stats/overview`
 
 Get system-wide statistics.
 
@@ -335,7 +335,7 @@ Get system-wide statistics.
 
 ### 8. Database Tables
 
-**GET** `/api/metadata/stats/tables`
+**GET** `/api/villages/metadata/stats/tables`
 
 Get information about all database tables.
 
@@ -366,7 +366,7 @@ Get information about all database tables.
 
 ### 9. Run Clustering
 
-**POST** `/api/compute/clustering/run`
+**POST** `/api/villages/compute/clustering/run`
 
 Run clustering analysis on regional features.
 
@@ -449,7 +449,7 @@ Run clustering analysis on regional features.
 
 ### 10. Clustering K-Scan
 
-**POST** `/api/compute/clustering/scan`
+**POST** `/api/villages/compute/clustering/scan`
 
 Scan multiple k values to find optimal cluster count.
 
@@ -508,7 +508,7 @@ Scan multiple k values to find optimal cluster count.
 
 ### 11. Semantic Co-occurrence
 
-**POST** `/api/compute/semantic/cooccurrence`
+**POST** `/api/villages/compute/semantic/cooccurrence`
 
 Analyze semantic category co-occurrence patterns.
 
@@ -559,7 +559,7 @@ Analyze semantic category co-occurrence patterns.
 
 ### 12. Semantic Network
 
-**POST** `/api/compute/semantic/network`
+**POST** `/api/villages/compute/semantic/network`
 
 Build semantic network graph with community detection.
 
@@ -611,7 +611,7 @@ Build semantic network graph with community detection.
 
 ### 13. Extract Features
 
-**POST** `/api/compute/features/extract`
+**POST** `/api/villages/compute/features/extract`
 
 Extract features for specific villages.
 
@@ -670,7 +670,7 @@ Extract features for specific villages.
 
 ### 14. Aggregate Features
 
-**POST** `/api/compute/features/aggregate`
+**POST** `/api/villages/compute/features/aggregate`
 
 Aggregate features by region.
 
@@ -726,7 +726,7 @@ Aggregate features by region.
 
 ### 15. Subset Clustering
 
-**POST** `/api/compute/subset/cluster`
+**POST** `/api/villages/compute/subset/cluster`
 
 Cluster a subset of villages matching criteria.
 
@@ -775,7 +775,7 @@ Cluster a subset of villages matching criteria.
 
 ### 16. Subset Comparison
 
-**POST** `/api/compute/subset/compare`
+**POST** `/api/villages/compute/subset/compare`
 
 Compare two groups of villages.
 
@@ -837,7 +837,7 @@ Compare two groups of villages.
 
 ### 17. Cache Statistics
 
-**GET** `/api/compute/cache/stats`
+**GET** `/api/villages/compute/cache/stats`
 
 Get cache performance statistics.
 
@@ -862,7 +862,7 @@ Get cache performance statistics.
 
 ### 18. Clear Cache
 
-**POST** `/api/compute/cache/clear`
+**POST** `/api/villages/compute/cache/clear`
 
 Clear all cached computation results.
 
@@ -961,7 +961,7 @@ Online compute endpoints have a 30-second timeout. If computation exceeds this:
 Endpoints that return lists support pagination:
 
 ```
-GET /api/village/search?query=水&limit=20&offset=0
+GET /api/villages/village/search?query=水&limit=20&offset=0
 ```
 
 - `limit`: Number of results per page (default: 20, max: 100)
@@ -972,7 +972,7 @@ GET /api/village/search?query=水&limit=20&offset=0
 Most endpoints support region-level filtering:
 
 ```
-GET /api/character/frequency/regional?region_level=county&region_name=番禺区
+GET /api/villages/character/frequency/regional?region_level=county&region_name=番禺区
 ```
 
 ### Sorting
@@ -980,7 +980,7 @@ GET /api/character/frequency/regional?region_level=county&region_name=番禺区
 Tendency endpoints support custom sorting:
 
 ```
-GET /api/character/tendency/by-region?region_name=广州市&sort_by=z_score
+GET /api/villages/character/tendency/by-region?region_name=广州市&sort_by=z_score
 ```
 
 ### Run ID Versioning
@@ -988,8 +988,8 @@ GET /api/character/tendency/by-region?region_name=广州市&sort_by=z_score
 Precomputed endpoints support multiple analysis versions:
 
 ```
-GET /api/character/frequency/global?run_id=default
-GET /api/character/frequency/global?run_id=2024-02-20
+GET /api/villages/character/frequency/global?run_id=default
+GET /api/villages/character/frequency/global?run_id=2024-02-20
 ```
 
 ### Caching
@@ -997,7 +997,7 @@ GET /api/character/frequency/global?run_id=2024-02-20
 Online compute endpoints cache results for 5 minutes (300 seconds):
 - Cache key includes all request parameters
 - `from_cache: true` indicates cached result
-- Use `/api/compute/cache/clear` to invalidate cache
+- Use `/api/villages/compute/cache/clear` to invalidate cache
 
 ### CORS
 

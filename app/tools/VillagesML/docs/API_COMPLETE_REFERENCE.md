@@ -29,22 +29,22 @@ All 45 database tables now have API endpoints!
 **Endpoints: 12**
 
 #### Frequency (频率)
-- `GET /api/character/frequency/global` - Global character frequency
-- `GET /api/character/frequency/regional` - Regional character frequency
+- `GET /api/villages/character/frequency/global` - Global character frequency
+- `GET /api/villages/character/frequency/regional` - Regional character frequency
 
 #### Embeddings (嵌入)
-- `GET /api/character/embeddings/vector` - Get Word2Vec vector
-- `GET /api/character/embeddings/similarities` - Find similar characters
-- `GET /api/character/embeddings/list` - List all embeddings
+- `GET /api/villages/character/embeddings/vector` - Get Word2Vec vector
+- `GET /api/villages/character/embeddings/similarities` - Find similar characters
+- `GET /api/villages/character/embeddings/list` - List all embeddings
 
 #### Significance (显著性)
-- `GET /api/character/significance/by-character` - Character significance across regions
-- `GET /api/character/significance/by-region` - Significant characters in region
-- `GET /api/character/significance/summary` - Significance summary
+- `GET /api/villages/character/significance/by-character` - Character significance across regions
+- `GET /api/villages/character/significance/by-region` - Significant characters in region
+- `GET /api/villages/character/significance/summary` - Significance summary
 
 #### Tendency (倾向性)
-- `GET /api/character/tendency/by-region` - Character tendency for region
-- `GET /api/character/tendency/by-char` - Character tendency across regions
+- `GET /api/villages/character/tendency/by-region` - Character tendency for region
+- `GET /api/villages/character/tendency/by-char` - Character tendency across regions
 
 ---
 
@@ -53,19 +53,19 @@ All 45 database tables now have API endpoints!
 **Endpoints: 13**
 
 #### Categories & Labels (类别与标签)
-- `GET /api/semantic/category/list` - List semantic categories
-- `GET /api/semantic/category/vtf/global` - Global VTF
-- `GET /api/semantic/category/vtf/regional` - Regional VTF
-- `GET /api/semantic/labels/by-character` - Get label for character
-- `GET /api/semantic/labels/by-category` - Get characters in category
-- `GET /api/semantic/labels/categories` - List all categories
+- `GET /api/villages/semantic/category/list` - List semantic categories
+- `GET /api/villages/semantic/category/vtf/global` - Global VTF
+- `GET /api/villages/semantic/category/vtf/regional` - Regional VTF
+- `GET /api/villages/semantic/labels/by-character` - Get label for character
+- `GET /api/villages/semantic/labels/by-category` - Get characters in category
+- `GET /api/villages/semantic/labels/categories` - List all categories
 
 #### Composition (组合) **NEW**
-- `GET /api/semantic/composition/bigrams` - Semantic bigrams
-- `GET /api/semantic/composition/trigrams` - Semantic trigrams
-- `GET /api/semantic/composition/pmi` - Pointwise mutual information
-- `GET /api/semantic/composition/patterns` - Composition patterns
-- `GET /api/semantic/indices` - Semantic intensity indices
+- `GET /api/villages/semantic/composition/bigrams` - Semantic bigrams
+- `GET /api/villages/semantic/composition/trigrams` - Semantic trigrams
+- `GET /api/villages/semantic/composition/pmi` - Pointwise mutual information
+- `GET /api/villages/semantic/composition/patterns` - Composition patterns
+- `GET /api/villages/semantic/indices` - Semantic intensity indices
 
 ---
 
@@ -74,16 +74,16 @@ All 45 database tables now have API endpoints!
 **Endpoints: 8**
 
 #### Hotspots & Clusters (热点与聚类)
-- `GET /api/spatial/hotspots` - KDE density hotspots
-- `GET /api/spatial/hotspots/{hotspot_id}` - Hotspot details
-- `GET /api/spatial/clusters` - DBSCAN clusters
-- `GET /api/spatial/clusters/summary` - Cluster summary
+- `GET /api/villages/spatial/hotspots` - KDE density hotspots
+- `GET /api/villages/spatial/hotspots/{hotspot_id}` - Hotspot details
+- `GET /api/villages/spatial/clusters` - DBSCAN clusters
+- `GET /api/villages/spatial/clusters/summary` - Cluster summary
 
 #### Integration (整合)
-- `GET /api/spatial/integration` - Spatial-tendency integration
-- `GET /api/spatial/integration/by-character/{character}` - By character
-- `GET /api/spatial/integration/by-cluster/{cluster_id}` - By cluster
-- `GET /api/spatial/integration/summary` - Integration summary
+- `GET /api/villages/spatial/integration` - Spatial-tendency integration
+- `GET /api/villages/spatial/integration/by-character/{character}` - By character
+- `GET /api/villages/spatial/integration/by-cluster/{cluster_id}` - By cluster
+- `GET /api/villages/spatial/integration/summary` - Integration summary
 
 ---
 
@@ -92,13 +92,13 @@ All 45 database tables now have API endpoints!
 **Endpoints: 7**
 
 #### Frequency (频率)
-- `GET /api/ngrams/frequency` - Global n-gram frequency
-- `GET /api/ngrams/regional` - Regional n-gram frequency
-- `GET /api/ngrams/patterns` - Structural patterns
+- `GET /api/villages/ngrams/frequency` - Global n-gram frequency
+- `GET /api/villages/ngrams/regional` - Regional n-gram frequency
+- `GET /api/villages/ngrams/patterns` - Structural patterns
 
 #### Tendency & Significance (倾向性与显著性) **NEW**
-- `GET /api/ngrams/tendency` - N-gram tendency scores
-- `GET /api/ngrams/significance` - N-gram significance tests
+- `GET /api/villages/ngrams/tendency` - N-gram tendency scores
+- `GET /api/villages/ngrams/significance` - N-gram significance tests
 
 ---
 
@@ -106,10 +106,10 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 4**
 
-- `GET /api/patterns/frequency/global` - Global pattern frequency
-- `GET /api/patterns/frequency/regional` - Regional pattern frequency
-- `GET /api/patterns/tendency` - Pattern tendency scores
-- `GET /api/patterns/structural` - Structural naming patterns
+- `GET /api/villages/patterns/frequency/global` - Global pattern frequency
+- `GET /api/villages/patterns/frequency/regional` - Regional pattern frequency
+- `GET /api/villages/patterns/tendency` - Pattern tendency scores
+- `GET /api/villages/patterns/structural` - Structural naming patterns
 
 ---
 
@@ -117,11 +117,11 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 5**
 
-- `GET /api/village/ngrams/{village_id}` - Village n-grams
-- `GET /api/village/semantic-structure/{village_id}` - Semantic structure
-- `GET /api/village/features/{village_id}` - Feature vector
-- `GET /api/village/spatial-features/{village_id}` - Spatial features
-- `GET /api/village/complete/{village_id}` - Complete profile
+- `GET /api/villages/village/ngrams/{village_id}` - Village n-grams
+- `GET /api/villages/village/semantic-structure/{village_id}` - Semantic structure
+- `GET /api/villages/village/features/{village_id}` - Feature vector
+- `GET /api/villages/village/spatial-features/{village_id}` - Spatial features
+- `GET /api/villages/village/complete/{village_id}` - Complete profile
 
 ---
 
@@ -129,11 +129,11 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 6**
 
-- `GET /api/regional/aggregates/city` - City-level aggregates
-- `GET /api/regional/aggregates/county` - County-level aggregates
-- `GET /api/regional/aggregates/town` - Town-level aggregates
-- `GET /api/regional/spatial-aggregates` - Regional spatial aggregates
-- `GET /api/regional/vectors` - Regional feature vectors
+- `GET /api/villages/regional/aggregates/city` - City-level aggregates
+- `GET /api/villages/regional/aggregates/county` - County-level aggregates
+- `GET /api/villages/regional/aggregates/town` - Town-level aggregates
+- `GET /api/villages/regional/spatial-aggregates` - Regional spatial aggregates
+- `GET /api/villages/regional/vectors` - Regional feature vectors
 
 ---
 
@@ -141,9 +141,9 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 3**
 
-- `GET /api/clustering/assignments` - Cluster assignments
-- `GET /api/clustering/metrics` - Clustering metrics
-- `GET /api/clustering/profiles` - Cluster profiles
+- `GET /api/villages/clustering/assignments` - Cluster assignments
+- `GET /api/villages/clustering/metrics` - Clustering metrics
+- `GET /api/villages/clustering/profiles` - Cluster profiles
 
 ---
 
@@ -151,8 +151,8 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 2**
 
-- `GET /api/village/search` - Search villages by keyword
-- `GET /api/village/search/detail` - Get village details
+- `GET /api/villages/village/search` - Search villages by keyword
+- `GET /api/villages/village/search/detail` - Get village details
 
 ---
 
@@ -160,8 +160,8 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 2**
 
-- `GET /api/metadata/stats/overview` - System overview
-- `GET /api/metadata/stats/tables` - Table information
+- `GET /api/villages/metadata/stats/overview` - System overview
+- `GET /api/villages/metadata/stats/tables` - Table information
 
 ---
 
@@ -169,14 +169,14 @@ All 45 database tables now have API endpoints!
 
 **Endpoints: 8+**
 
-- `POST /api/compute/clustering/run` - Run clustering
-- `POST /api/compute/clustering/scan` - Scan k values
-- `POST /api/compute/semantic/cooccurrence` - Semantic co-occurrence
-- `POST /api/compute/semantic/network` - Semantic network
-- `POST /api/compute/features/extract` - Extract features
-- `POST /api/compute/features/aggregate` - Aggregate features
-- `POST /api/compute/subset/cluster` - Cluster subset
-- `POST /api/compute/subset/compare` - Compare groups
+- `POST /api/villages/compute/clustering/run` - Run clustering
+- `POST /api/villages/compute/clustering/scan` - Scan k values
+- `POST /api/villages/compute/semantic/cooccurrence` - Semantic co-occurrence
+- `POST /api/villages/compute/semantic/network` - Semantic network
+- `POST /api/villages/compute/features/extract` - Extract features
+- `POST /api/villages/compute/features/aggregate` - Aggregate features
+- `POST /api/villages/compute/subset/cluster` - Cluster subset
+- `POST /api/villages/compute/subset/compare` - Compare groups
 
 ---
 
@@ -205,70 +205,70 @@ All 45 database tables now have API endpoints!
 ### Character Analysis
 ```bash
 # Get top 10 characters
-curl "http://localhost:8000/api/character/frequency/global?top_n=10"
+curl "http://localhost:8000/api/villages/character/frequency/global?top_n=10"
 
 # Find similar characters
-curl "http://localhost:8000/api/character/embeddings/similarities?char=村&top_k=5"
+curl "http://localhost:8000/api/villages/character/embeddings/similarities?char=村&top_k=5"
 
 # Get character significance
-curl "http://localhost:8000/api/character/significance/by-character?char=村"
+curl "http://localhost:8000/api/villages/character/significance/by-character?char=村"
 ```
 
 ### Semantic Analysis
 ```bash
 # Get semantic categories
-curl "http://localhost:8000/api/semantic/category/list"
+curl "http://localhost:8000/api/villages/semantic/category/list"
 
 # Get semantic bigrams
-curl "http://localhost:8000/api/semantic/composition/bigrams?min_frequency=10"
+curl "http://localhost:8000/api/villages/semantic/composition/bigrams?min_frequency=10"
 
 # Get semantic indices
-curl "http://localhost:8000/api/semantic/indices?category=water"
+curl "http://localhost:8000/api/villages/semantic/indices?category=water"
 ```
 
 ### Spatial Analysis
 ```bash
 # Get spatial hotspots
-curl "http://localhost:8000/api/spatial/hotspots"
+curl "http://localhost:8000/api/villages/spatial/hotspots"
 
 # Get spatial-tendency integration
-curl "http://localhost:8000/api/spatial/integration/by-character/村"
+curl "http://localhost:8000/api/villages/spatial/integration/by-character/村"
 ```
 
 ### N-gram & Pattern Analysis
 ```bash
 # Get bigrams
-curl "http://localhost:8000/api/ngrams/frequency?n=2&top_k=20"
+curl "http://localhost:8000/api/villages/ngrams/frequency?n=2&top_k=20"
 
 # Get n-gram tendency
-curl "http://localhost:8000/api/ngrams/tendency?ngram=新村"
+curl "http://localhost:8000/api/villages/ngrams/tendency?ngram=新村"
 
 # Get pattern frequency
-curl "http://localhost:8000/api/patterns/frequency/global?pattern_type=suffix"
+curl "http://localhost:8000/api/villages/patterns/frequency/global?pattern_type=suffix"
 ```
 
 ### Village Data
 ```bash
 # Get complete village profile
-curl "http://localhost:8000/api/village/complete/VILLAGE_ID"
+curl "http://localhost:8000/api/villages/village/complete/VILLAGE_ID"
 
 # Get village n-grams
-curl "http://localhost:8000/api/village/ngrams/VILLAGE_ID"
+curl "http://localhost:8000/api/villages/village/ngrams/VILLAGE_ID"
 
 # Get village semantic structure
-curl "http://localhost:8000/api/village/semantic-structure/VILLAGE_ID"
+curl "http://localhost:8000/api/villages/village/semantic-structure/VILLAGE_ID"
 ```
 
 ### Regional Aggregates
 ```bash
 # Get city aggregates
-curl "http://localhost:8000/api/regional/aggregates/city"
+curl "http://localhost:8000/api/villages/regional/aggregates/city"
 
 # Get county aggregates
-curl "http://localhost:8000/api/regional/aggregates/county?city_name=广州市"
+curl "http://localhost:8000/api/villages/regional/aggregates/county?city_name=广州市"
 
 # Get spatial aggregates
-curl "http://localhost:8000/api/regional/spatial-aggregates?region_level=city"
+curl "http://localhost:8000/api/villages/regional/spatial-aggregates?region_level=city"
 ```
 
 ---
@@ -363,10 +363,10 @@ curl "http://localhost:8000/api/endpoint?limit=100&offset=100"
 ### Combining Queries
 ```bash
 # Multiple filters
-curl "http://localhost:8000/api/ngrams/frequency?n=2&min_frequency=100&top_k=50"
+curl "http://localhost:8000/api/villages/ngrams/frequency?n=2&min_frequency=100&top_k=50"
 
 # Regional + type filters
-curl "http://localhost:8000/api/patterns/frequency/regional?region_level=city&pattern_type=suffix"
+curl "http://localhost:8000/api/villages/patterns/frequency/regional?region_level=city&pattern_type=suffix"
 ```
 
 ---
@@ -376,37 +376,37 @@ curl "http://localhost:8000/api/patterns/frequency/regional?region_level=city&pa
 ### 1. Character Analysis Workflow
 ```bash
 # 1. Get top characters
-GET /api/character/frequency/global?top_n=20
+GET /api/villages/character/frequency/global?top_n=20
 
 # 2. Analyze specific character
-GET /api/character/significance/by-character?char=村
+GET /api/villages/character/significance/by-character?char=村
 
 # 3. Find similar characters
-GET /api/character/embeddings/similarities?char=村&top_k=10
+GET /api/villages/character/embeddings/similarities?char=村&top_k=10
 ```
 
 ### 2. Regional Analysis Workflow
 ```bash
 # 1. Get regional aggregates
-GET /api/regional/aggregates/city
+GET /api/villages/regional/aggregates/city
 
 # 2. Get regional patterns
-GET /api/patterns/frequency/regional?region_level=city&region_name=广州市
+GET /api/villages/patterns/frequency/regional?region_level=city&region_name=广州市
 
 # 3. Get regional n-grams
-GET /api/ngrams/regional?n=2&region_level=city&region_name=广州市
+GET /api/villages/ngrams/regional?n=2&region_level=city&region_name=广州市
 ```
 
 ### 3. Village Profile Workflow
 ```bash
 # 1. Search for village
-GET /api/village/search?query=新村
+GET /api/villages/village/search?query=新村
 
 # 2. Get complete profile
-GET /api/village/complete/{village_id}
+GET /api/villages/village/complete/{village_id}
 
 # 3. Get specific features
-GET /api/village/spatial-features/{village_id}
+GET /api/villages/village/spatial-features/{village_id}
 ```
 
 ---

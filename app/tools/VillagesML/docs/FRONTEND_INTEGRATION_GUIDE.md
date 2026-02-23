@@ -38,10 +38,10 @@ Access:
 curl http://localhost:8000/health
 
 # Search villages
-curl "http://localhost:8000/api/village/search?query=水&limit=10"
+curl "http://localhost:8000/api/villages/village/search?query=水&limit=10"
 
 # Get character frequency
-curl "http://localhost:8000/api/character/frequency/global?top_n=20"
+curl "http://localhost:8000/api/villages/character/frequency/global?top_n=20"
 ```
 
 ---
@@ -122,7 +122,116 @@ export default client;
 
 ## Common Use Cases
 
-### 1. Search Villages
+### 1. Get Region Lists (NEW)
+
+**Scenario:** Load region options for dropdown selectors (cities, counties, townships).
+
+```javascript
+// src/api/regions.js
+import { apiGet } from './client';
+
+export async function getRegions(level, parent = null) {
+  const params = { level };
+  if (parent) {
+    params.parent = parent;
+  }
+  return apiGet('/api/villages/metadata/stats/regions', params);
+}
+
+// Get all cities
+export async function getCities() {
+  return getRegions('city');
+}
+
+// Get counties in a city
+export async function getCounties(cityName) {
+  return getRegions('county', cityName);
+}
+
+// Get townships in a county
+export async function getTownships(countyName) {
+  return getRegions('township', countyName);
+}
+```
+
+**Vue Component (Cascading Selectors):**
+
+```vue
+<template>
+  <div>
+    <select v-model="selectedCity" @change="onCityChange">
+      <option value="">Select City</option>
+      <option v-for="city in cities" :key="city.name" :value="city.name">
+        {{ city.name }} ({{ city.village_count }})
+      </option>
+    </select>
+
+    <select v-model="selectedCounty" @change="onCountyChange" :disabled="!selectedCity">
+      <option value="">Select County</option>
+      <option v-for="county in counties" :key="county.name" :value="county.name">
+        {{ county.name }} ({{ county.village_count }})
+      </option>
+    </select>
+
+    <select v-model="selectedTownship" :disabled="!selectedCounty">
+      <option value="">Select Township</option>
+      <option v-for="township in townships" :key="township.name" :value="township.name">
+        {{ township.name }} ({{ township.village_count }})
+      </option>
+    </select>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue';
+import { getCities, getCounties, getTownships } from '@/api/regions';
+
+const cities = ref([]);
+const counties = ref([]);
+const townships = ref([]);
+
+const selectedCity = ref('');
+const selectedCounty = ref('');
+const selectedTownship = ref('');
+
+onMounted(async () => {
+  cities.value = await getCities();
+});
+
+async function onCityChange() {
+  selectedCounty.value = '';
+  selectedTownship.value = '';
+  townships.value = [];
+
+  if (selectedCity.value) {
+    counties.value = await getCounties(selectedCity.value);
+  } else {
+    counties.value = [];
+  }
+}
+
+async function onCountyChange() {
+  selectedTownship.value = '';
+
+  if (selectedCounty.value) {
+    townships.value = await getTownships(selectedCounty.value);
+  } else {
+    townships.value = [];
+  }
+}
+</script>
+```
+
+**Key Points:**
+- Load cities on component mount
+- Load counties when city is selected
+- Load townships when county is selected
+- Clear child selections when parent changes
+- Display village counts in dropdown options
+
+---
+
+### 2. Search Villages
 
 **Scenario:** User types keyword in search box, display matching villages.
 
@@ -131,7 +240,7 @@ export default client;
 import { apiGet } from './client';
 
 export async function searchVillages(keyword, filters = {}) {
-  return apiGet('/api/village/search', {
+  return apiGet('/api/villages/village/search', {
     query: keyword,
     city: filters.city || null,
     county: filters.county || null,
@@ -203,7 +312,7 @@ const onSearch = debounce(async () => {
 import { apiGet } from './client';
 
 export async function getGlobalCharFrequency(topN = 20) {
-  return apiGet('/api/character/frequency/global', {
+  return apiGet('/api/villages/character/frequency/global', {
     top_n: topN,
     run_id: 'default',
   });
@@ -269,7 +378,7 @@ onMounted(async () => {
 ```javascript
 // src/api/characters.js
 export async function getCharTendencyByChar(character, regionLevel = 'city') {
-  return apiGet('/api/character/tendency/by-char', {
+  return apiGet('/api/villages/character/tendency/by-char', {
     character,
     region_level: regionLevel,
     run_id: 'default',
@@ -313,7 +422,7 @@ function getColorByZScore(zScore) {
 import { apiPost } from './client';
 
 export async function runClustering(params) {
-  return apiPost('/api/compute/clustering/run', {
+  return apiPost('/api/villages/compute/clustering/run', {
     region_level: params.regionLevel || 'county',
     algorithm: params.algorithm || 'kmeans',
     k: params.k || 4,
@@ -604,7 +713,7 @@ async function runClusteringWithTimeout(params, timeoutMs = 30000) {
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch('http://localhost:8000/api/compute/clustering/run', {
+    const response = await fetch('http://localhost:8000/api/villages/compute/clustering/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),

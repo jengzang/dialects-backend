@@ -4,14 +4,14 @@ Metadata Statistics API endpoints
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from typing import List
+from typing import List, Optional
 import sqlite3
 import os
 from datetime import datetime
 
 from ..dependencies import get_db_connection, execute_query
 from ..config import DB_PATH
-from ..models import SystemOverview, TableInfo
+from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
 
 router = APIRouter(prefix="/metadata/stats", tags=["metadata"])
 
@@ -91,6 +91,10 @@ def _get_table_info_sync():
         """
         tables = execute_query(db, tables_query)
 
+        # 获取数据库页大小
+        page_size_query = "PRAGMA page_size"
+        page_size = execute_query(db, page_size_query)[0]["page_size"]
+
         table_info_list = []
         for table in tables:
             table_name = table["table_name"]
@@ -102,14 +106,88 @@ def _get_table_info_sync():
             except:
                 row_count = 0
 
-            # 估算表大小（SQLite没有直接的表大小查询，这里简化处理）
-            # 实际大小需要通过VACUUM或其他方式获取
-            size_mb = 0.0  # 简化处理，实际可以通过页数估算
+            # 获取表大小（估算方法：行数 * 平均行大小）
+            # SQLite 没有直接的表大小查询，这里使用估算
+            try:
+                # 尝试使用 dbstat（如果可用）
+                page_count_query = f"SELECT SUM(pageno) as pages FROM dbstat WHERE name = ?"
+                page_result = execute_query(db, page_count_query, (table_name,))
+                if page_result and page_result[0]["pages"]:
+                    page_count = page_result[0]["pages"]
+                    size_mb = (page_count * page_size) / (1024 * 1024)
+                else:
+                    # dbstat 不可用，使用粗略估算
+                    # 假设每行平均 100 字节
+                    size_mb = (row_count * 100) / (1024 * 1024)
+            except:
+                # 如果 dbstat 不可用，使用粗略估算
+                # 假设每行平均 100 字节
+                size_mb = (row_count * 100) / (1024 * 1024) if row_count > 0 else 0.0
+
+            # 获取索引信息
+            index_query = f"""
+                SELECT COUNT(*) as count
+                FROM sqlite_master
+                WHERE type='index' AND tbl_name = ? AND name NOT LIKE 'sqlite_%'
+            """
+            try:
+                index_count = execute_query(db, index_query, (table_name,))[0]["count"]
+            except:
+                index_count = 0
+
+            # 获取列信息
+            columns = []
+            try:
+                # 获取列定义
+                pragma_query = f"PRAGMA table_info(`{table_name}`)"
+                column_info = execute_query(db, pragma_query)
+
+                # 获取所有索引
+                index_list_query = f"""
+                    SELECT name FROM sqlite_master
+                    WHERE type='index' AND tbl_name = ? AND name NOT LIKE 'sqlite_%'
+                """
+                indexes = execute_query(db, index_list_query, (table_name,))
+
+                # 对每个索引，获取其包含的列
+                indexed_columns = set()
+                for idx in indexes:
+                    idx_name = idx["name"]
+                    idx_info_query = f"PRAGMA index_info(`{idx_name}`)"
+                    idx_cols = execute_query(db, idx_info_query)
+                    for col in idx_cols:
+                        indexed_columns.add(col["name"])
+
+                # 构建列信息
+                for col in column_info:
+                    columns.append({
+                        "name": col["name"],
+                        "type": col["type"],
+                        "not_null": bool(col["notnull"]),
+                        "has_index": col["name"] in indexed_columns
+                    })
+            except:
+                columns = []
+
+            # 获取最后修改时间（SQLite 没有直接的表修改时间，使用数据库文件时间）
+            try:
+                import os
+                from datetime import datetime
+                if os.path.exists(DB_PATH):
+                    mtime = os.path.getmtime(DB_PATH)
+                    last_modified = datetime.fromtimestamp(mtime).isoformat()
+                else:
+                    last_modified = None
+            except:
+                last_modified = None
 
             table_info_list.append({
                 "table_name": table_name,
                 "row_count": row_count,
-                "size_mb": size_mb
+                "size_mb": round(size_mb, 2),
+                "index_count": index_count,
+                "last_modified": last_modified,
+                "columns": columns
             })
 
         return table_info_list
@@ -125,3 +203,113 @@ async def get_table_info():
         List[TableInfo]: 表信息列表
     """
     return await run_in_threadpool(_get_table_info_sync)
+
+
+def _get_regions_sync(level: str, parent: Optional[str] = None):
+    """
+    同步获取区域列表（在线程池中执行）
+    Synchronous function to get region list (runs in thread pool)
+
+    Args:
+        level: 区域级别 ('city', 'county', 'township')
+        parent: 父区域名称（可选）
+
+    Returns:
+        List[dict]: 区域信息列表
+    """
+    # 映射级别到数据库列名
+    level_column_map = {
+        'city': '市级',
+        'county': '区县级',
+        'township': '乡镇级'
+    }
+
+    # 映射父级别到列名
+    parent_column_map = {
+        'county': '市级',  # county的父级是city
+        'township': '区县级'  # township的父级是county
+    }
+
+    if level not in level_column_map:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid level: {level}. Must be one of: city, county, township"
+        )
+
+    level_column = level_column_map[level]
+
+    with get_db_connection() as db:
+        # 构建查询
+        if parent is None:
+            # 没有父级过滤，返回所有该级别的区域
+            query = f"""
+                SELECT
+                    {level_column} as name,
+                    '{level}' as level,
+                    COUNT(*) as village_count
+                FROM 广东省自然村
+                WHERE {level_column} IS NOT NULL AND {level_column} != ''
+                GROUP BY {level_column}
+                ORDER BY name
+            """
+            results = execute_query(db, query)
+        else:
+            # 有父级过滤
+            if level == 'city':
+                # city级别不应该有parent参数
+                raise HTTPException(
+                    status_code=422,
+                    detail="City level does not support parent parameter"
+                )
+
+            parent_column = parent_column_map[level]
+            query = f"""
+                SELECT
+                    {level_column} as name,
+                    '{level}' as level,
+                    COUNT(*) as village_count
+                FROM 广东省自然村
+                WHERE {parent_column} = ?
+                    AND {level_column} IS NOT NULL
+                    AND {level_column} != ''
+                GROUP BY {level_column}
+                ORDER BY name
+            """
+            results = execute_query(db, query, (parent,))
+
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No regions found for level={level}" + (f", parent={parent}" if parent else "")
+            )
+
+        return results
+
+
+@router.get("/regions", response_model=List[RegionInfo])
+async def get_regions(
+    level: str,
+    parent: Optional[str] = None
+):
+    """
+    获取区域列表
+    Get list of regions at specified level
+
+    Args:
+        level: 区域级别 ('city', 'county', 'township')
+        parent: 父区域名称（可选，用于层级过滤）
+            - level=county时，parent为城市名称
+            - level=township时，parent为县区名称
+
+    Returns:
+        List[RegionInfo]: 区域信息列表
+
+    Examples:
+        - GET /metadata/stats/regions?level=city
+          返回所有城市
+        - GET /metadata/stats/regions?level=county&parent=广州市
+          返回广州市下的所有县区
+        - GET /metadata/stats/regions?level=township&parent=番禺区
+          返回番禺区下的所有乡镇
+    """
+    return await run_in_threadpool(_get_regions_sync, level, parent)
