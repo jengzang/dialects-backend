@@ -7,7 +7,6 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
-from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/village", tags=["village-data"])
 
@@ -178,7 +177,6 @@ def get_village_semantic_structure(
 @router.get("/features/{village_id}")
 def get_village_features(
     village_id: int,
-    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -187,18 +185,13 @@ def get_village_features(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
-        run_id: 分析运行ID
 
     Returns:
         dict: 村庄特征
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("village_features")
-
     # First get village info from preprocessed table using ROWID
     village_query = """
-        SELECT "自然村_规范名" as village_name, "市级" as city, "区县级" as county
+        SELECT "自然村_规范名" as village_name, "市级" as city, "区县级" as county, village_id
         FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
@@ -210,19 +203,14 @@ def get_village_features(
             detail=f"Village {village_id} not found"
         )
 
-    # Then query features table
+    # Then query features table using village_id
     query = """
         SELECT *
         FROM village_features
-        WHERE village_name = ? AND city = ? AND county = ? AND run_id = ?
+        WHERE village_id = ?
     """
 
-    result = execute_single(db, query, (
-        village_info['village_name'],
-        village_info['city'],
-        village_info['county'],
-        run_id
-    ))
+    result = execute_single(db, query, (village_info['village_id'],))
 
     if not result:
         # Return empty dict if no feature data exists for this village
@@ -239,7 +227,6 @@ def get_village_features(
 @router.get("/spatial-features/{village_id}")
 def get_village_spatial_features(
     village_id: int,
-    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -248,14 +235,23 @@ def get_village_spatial_features(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
-        run_id: 分析运行ID
 
     Returns:
         dict: 村庄空间特征
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("village_features")
+    # First get village_id from preprocessed table
+    village_query = """
+        SELECT village_id
+        FROM "广东省自然村_预处理"
+        WHERE ROWID = ?
+    """
+    village_info = execute_single(db, village_query, (village_id,))
+
+    if not village_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Village {village_id} not found"
+        )
 
     # spatial_features table has village_id column, so we can query directly
     query = """
@@ -278,10 +274,10 @@ def get_village_spatial_features(
             spatial_cluster_id,
             cluster_size
         FROM village_spatial_features
-        WHERE village_id = ? AND run_id = ?
+        WHERE village_id = ?
     """
 
-    result = execute_single(db, query, (f'v_{village_id}', run_id))
+    result = execute_single(db, query, (village_info['village_id'],))
 
     if not result:
         # Return empty dict if no spatial feature data exists
@@ -296,7 +292,6 @@ def get_village_spatial_features(
 @router.get("/complete/{village_id}")
 def get_village_complete_profile(
     village_id: int,
-    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -305,27 +300,22 @@ def get_village_complete_profile(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
-        run_id: 分析运行ID
 
     Returns:
         dict: 村庄完整档案
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("village_features")
-
     # Get basic info from preprocessed table using ROWID
     basic_query = """
         SELECT
             ROWID as village_id,
-            "自然村" as village_name,
+            "自然村_规范名" as village_name,
             "市级" as city,
             "区县级" as county,
             "乡镇级" as township,
-            "村居委" as village_committee,
-            "拼音" as pinyin,
+            "村委会" as village_committee,
             CAST(longitude AS REAL) as longitude,
-            CAST(latitude AS REAL) as latitude
+            CAST(latitude AS REAL) as latitude,
+            village_id as village_id_str
         FROM "广东省自然村_预处理"
         WHERE ROWID = ?
     """
@@ -337,13 +327,21 @@ def get_village_complete_profile(
             detail=f"Village {village_id} not found"
         )
 
-    # Get spatial features (has village_id column)
+    # Get village features (no run_id needed)
+    features_query = """
+        SELECT *
+        FROM village_features
+        WHERE village_id = ?
+    """
+    features = execute_single(db, features_query, (basic_info['village_id_str'],))
+
+    # Get spatial features (no run_id needed)
     spatial_query = """
         SELECT *
         FROM village_spatial_features
-        WHERE village_id = ? AND run_id = ?
+        WHERE village_id = ?
     """
-    spatial_features = execute_single(db, spatial_query, (f'v_{village_id}', run_id))
+    spatial_features = execute_single(db, spatial_query, (basic_info['village_id_str'],))
 
     # Get semantic structure (uses village_name + committee)
     semantic_query = """
