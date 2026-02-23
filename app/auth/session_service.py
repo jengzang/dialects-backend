@@ -120,12 +120,12 @@ def create_session(
     user_sessions = db.query(Session).filter(
         Session.user_id == user.id,
         Session.revoked == False
-    ).order_by(Session.created_at.desc()).all()
+    ).order_by(Session.last_activity_at.desc()).all()
 
     if len(user_sessions) >= MAX_SESSIONS_PER_USER:
-        # 撤销最旧的session
-        oldest_session = user_sessions[-1]
-        revoke_session(db, oldest_session.id, reason="max_sessions_exceeded")
+        # 撤销最不活跃的session
+        least_active_session = user_sessions[-1]
+        revoke_session(db, least_active_session.id, reason="max_sessions_exceeded")
 
     # 生成token
     token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
