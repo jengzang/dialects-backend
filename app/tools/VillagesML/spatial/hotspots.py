@@ -10,7 +10,7 @@ from ..dependencies import get_db, execute_query, execute_single
 from ..config import DEFAULT_RUN_ID
 from ..run_id_manager import run_id_manager
 
-router = APIRouter(prefix="/spatial", tags=["spatial"])
+router = APIRouter(prefix="/spatial")
 
 
 @router.get("/hotspots")
@@ -121,7 +121,7 @@ def get_spatial_clusters(
     run_id: Optional[str] = Query(None, description="空间分析运行ID（留空使用活跃版本）"),
     cluster_id: Optional[int] = Query(None, description="聚类ID过滤"),
     min_size: Optional[int] = Query(None, ge=1, description="最小聚类大小"),
-    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    limit: int = Query(100, ge=0, description="返回记录数（0表示返回所有）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -132,7 +132,7 @@ def get_spatial_clusters(
         run_id: 空间分析运行ID（留空使用活跃版本）
         cluster_id: 聚类ID（可选，-1表示噪声点）
         min_size: 最小聚类大小（可选）
-        limit: 返回记录数
+        limit: 返回记录数（0表示返回所有，默认100）
 
     Returns:
         List[dict]: 聚类结果列表
@@ -173,8 +173,12 @@ def get_spatial_clusters(
         """
         params.extend([run_id, min_size])
 
-    query += " ORDER BY cluster_id LIMIT ?"
-    params.append(limit)
+    query += " ORDER BY cluster_id"
+
+    # 只有当 limit > 0 时才添加 LIMIT 子句
+    if limit > 0:
+        query += " LIMIT ?"
+        params.append(limit)
 
     results = execute_query(db, query, tuple(params))
 
@@ -193,14 +197,14 @@ def get_cluster_summary(
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    获取聚类汇总统计
-    Get clustering summary statistics
+    获取聚类汇总统计（仅统计信息，不返回具体数据）
+    Get clustering summary statistics (statistics only, no detailed data)
 
     Args:
         run_id: 空间分析运行ID（留空使用活跃版本）
 
     Returns:
-        dict: 聚类汇总信息
+        dict: 聚类汇总统计信息
     """
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
@@ -208,28 +212,95 @@ def get_cluster_summary(
 
     query = """
         SELECT
-            cluster_id,
-            cluster_size as size,
-            centroid_lon,
-            centroid_lat,
-            avg_distance_km
+            COUNT(*) as total_records,
+            COUNT(DISTINCT cluster_id) as unique_clusters,
+            AVG(cluster_size) as avg_cluster_size,
+            MIN(cluster_size) as min_cluster_size,
+            MAX(cluster_size) as max_cluster_size,
+            SUM(cluster_size) as total_villages,
+            SUM(CASE WHEN cluster_id = -1 THEN 1 ELSE 0 END) as noise_count,
+            AVG(avg_distance_km) as avg_distance,
+            MIN(centroid_lon) as min_lon,
+            MAX(centroid_lon) as max_lon,
+            MIN(centroid_lat) as min_lat,
+            MAX(centroid_lat) as max_lat
         FROM spatial_clusters
         WHERE run_id = ?
-        ORDER BY cluster_size DESC
     """
 
-    results = execute_query(db, query, (run_id,))
+    result = execute_single(db, query, (run_id,))
 
-    if not results:
+    if not result:
         raise HTTPException(
             status_code=404,
             detail=f"No cluster summary found for run_id: {run_id}"
         )
 
+    # 计算有效聚类数（排除噪声点）
+    valid_clusters = result["unique_clusters"]
+    if result["noise_count"] > 0:
+        valid_clusters -= 1
+
     return {
         "run_id": run_id,
-        "total_clusters": len([r for r in results if r["cluster_id"] != -1]),
-        "noise_points": next((r["size"] for r in results if r["cluster_id"] == -1), 0),
-        "clusters": results
+        "total_records": result["total_records"],
+        "total_clusters": valid_clusters,
+        "noise_points": result["noise_count"],
+        "total_villages": result["total_villages"],
+        "cluster_size": {
+            "avg": result["avg_cluster_size"],
+            "min": result["min_cluster_size"],
+            "max": result["max_cluster_size"]
+        },
+        "spatial_extent": {
+            "avg_distance_km": result["avg_distance"],
+            "lon_range": [result["min_lon"], result["max_lon"]],
+            "lat_range": [result["min_lat"], result["max_lat"]]
+        }
     }
 
+
+
+@router.get("/clusters/available-runs")
+def get_available_cluster_runs(db: sqlite3.Connection = Depends(get_db)):
+    """
+    获取所有可用的聚类 run_id 及其统计信息
+    Get all available clustering run_ids with statistics
+
+    Returns:
+        dict: 包含活跃 run_id 和所有可用 run_id 列表
+    """
+    query = """
+        SELECT
+            run_id,
+            COUNT(*) as total_records,
+            COUNT(DISTINCT cluster_id) as unique_clusters,
+            MIN(cluster_id) as min_cluster_id,
+            MAX(cluster_id) as max_cluster_id,
+            AVG(cluster_size) as avg_cluster_size,
+            MAX(cluster_size) as max_cluster_size,
+            SUM(CASE WHEN cluster_id = -1 THEN 1 ELSE 0 END) as noise_count
+        FROM spatial_clusters
+        GROUP BY run_id
+        ORDER BY run_id
+    """
+
+    results = execute_query(db, query, ())
+
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail="No clustering runs found"
+        )
+
+    # 获取当前活跃的 run_id
+    active_run_id = run_id_manager.get_active_run_id("spatial_hotspots")
+
+    # 添加 is_active 标记
+    for result in results:
+        result["is_active"] = (result["run_id"] == active_run_id)
+
+    return {
+        "active_run_id": active_run_id,
+        "available_runs": results
+    }

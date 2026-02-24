@@ -50,9 +50,16 @@ class CharTendency(BaseModel):
 
 class CharTendencyByRegion(BaseModel):
     """按字符查询的区域倾向性"""
+    region_level: str = Field(..., description="区域级别")
     region_name: str = Field(..., description="区域名称")
+    city: Optional[str] = Field(None, description="市级")
+    county: Optional[str] = Field(None, description="区县级")
+    township: Optional[str] = Field(None, description="乡镇级")
     lift: float = Field(..., description="Lift值")
     z_score: float = Field(..., description="Z-score值")
+    centroid_lon: Optional[float] = Field(None, description="区域中心点经度")
+    centroid_lat: Optional[float] = Field(None, description="区域中心点纬度")
+
 
 
 class CharSignificance(BaseModel):
@@ -311,4 +318,7 @@ class RegionInfo(BaseModel):
     """区域信息模型"""
     name: str = Field(..., description="区域名称")
     level: str = Field(..., description="区域级别 (city/county/township)")
+    city: Optional[str] = Field(None, description="市级")
+    county: Optional[str] = Field(None, description="区县级")
+    township: Optional[str] = Field(None, description="乡镇级")
     village_count: int = Field(..., description="村庄数量")

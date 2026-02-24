@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/semantic", tags=["semantic-composition"])
+router = APIRouter(prefix="/semantic")
 
 
 @router.get("/composition/bigrams")
@@ -248,68 +248,35 @@ def get_semantic_indices(
     Returns:
         List[dict]: 语义指数列表
     """
-    # If min_villages is specified, need to JOIN with main table to count villages
-    if min_villages is not None:
-        query = """
-            SELECT
-                si.region_level,
-                si.region_name,
-                si.category as semantic_category,
-                si.raw_intensity as semantic_index,
-                si.normalized_index,
-                si.rank_within_province as rank_in_region,
-                COUNT(DISTINCT v.自然村) as village_count
-            FROM semantic_indices si
-            LEFT JOIN 广东省自然村 v ON (
-                (si.region_level = 'city' AND si.region_name = v.市级) OR
-                (si.region_level = 'county' AND si.region_name = v.区县级) OR
-                (si.region_level = 'township' AND si.region_name = v.乡镇级)
-            )
-            WHERE 1=1
-        """
-    else:
-        query = """
-            SELECT
-                region_level,
-                region_name,
-                category as semantic_category,
-                raw_intensity as semantic_index,
-                normalized_index,
-                rank_within_province as rank_in_region
-            FROM semantic_indices
-            WHERE 1=1
-        """
-
+    # Use pre-computed village_count column for optimal performance
+    query = """
+        SELECT
+            region_level,
+            region_name,
+            category as semantic_category,
+            raw_intensity as semantic_index,
+            normalized_index,
+            rank_within_province as rank_in_region,
+            village_count
+        FROM semantic_indices
+        WHERE 1=1
+    """
     params = []
 
     if category is not None:
-        if min_villages is not None:
-            query += " AND si.category = ?"
-        else:
-            query += " AND semantic_category = ?"
+        query += " AND category = ?"
         params.append(category)
 
     if region_level is not None:
-        if min_villages is not None:
-            query += " AND si.region_level = ?"
-        else:
-            query += " AND region_level = ?"
+        query += " AND region_level = ?"
         params.append(region_level)
 
     if region_name is not None:
-        if min_villages is not None:
-            query += " AND si.region_name = ?"
-        else:
-            query += " AND region_name = ?"
+        query += " AND region_name = ?"
         params.append(region_name)
 
-    # Add GROUP BY and HAVING for min_villages filter
     if min_villages is not None:
-        query += """
-            GROUP BY si.region_level, si.region_name, si.category,
-                     si.raw_intensity, si.normalized_index, si.rank_within_province
-            HAVING village_count >= ?
-        """
+        query += " AND village_count >= ?"
         params.append(min_villages)
 
     query += " ORDER BY semantic_index DESC LIMIT ?"
