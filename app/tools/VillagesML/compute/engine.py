@@ -288,14 +288,13 @@ class SemanticEngine:
 
         conn = sqlite3.connect(self.db_path)
 
-        # 从semantic_bigrams和semantic_pmi读取
+        # 从semantic_bigrams读取
         query = """
         SELECT
-            b.cat1, b.cat2, b.count as cooccurrence_count,
-            p.pmi, p.chi2_statistic, p.p_value
-        FROM semantic_bigrams b
-        LEFT JOIN semantic_pmi p ON b.cat1 = p.cat1 AND b.cat2 = p.cat2
-        WHERE b.count >= ?
+            category1, category2, frequency as cooccurrence_count,
+            pmi
+        FROM semantic_bigrams
+        WHERE frequency >= ?
         """
 
         df = pd.read_sql_query(query, conn, params=(params['min_cooccurrence'],))
@@ -303,12 +302,13 @@ class SemanticEngine:
         # 过滤类别
         if params.get('categories'):
             df = df[
-                df['cat1'].isin(params['categories']) |
-                df['cat2'].isin(params['categories'])
+                df['category1'].isin(params['categories']) |
+                df['category2'].isin(params['categories'])
             ]
 
-        # 识别显著模式（p_value可能为NULL）
-        df_significant = df[df['p_value'].notna() & (df['p_value'] < params['alpha'])]
+        # 识别显著模式（基于 PMI 阈值）
+        # 使用 PMI > 0 作为显著性标准
+        df_significant = df[df['pmi'] > 0]
         significant_pairs = df_significant.to_dict('records')
 
         conn.close()
@@ -348,10 +348,9 @@ class SemanticEngine:
 
         # 从semantic_bigrams读取边（使用PMI作为权重）
         query = """
-        SELECT b.cat1, b.cat2, p.pmi as weight
-        FROM semantic_bigrams b
-        LEFT JOIN semantic_pmi p ON b.cat1 = p.cat1 AND b.cat2 = p.cat2
-        WHERE p.pmi >= ?
+        SELECT category1, category2, pmi as weight
+        FROM semantic_bigrams
+        WHERE pmi >= ?
         """
 
         df = pd.read_sql_query(query, conn, params=(params['min_edge_weight'],))
@@ -362,7 +361,7 @@ class SemanticEngine:
 
         for _, row in df.iterrows():
             if pd.notna(row['weight']):
-                G.add_edge(row['cat1'], row['cat2'], weight=float(row['weight']))
+                G.add_edge(row['category1'], row['category2'], weight=float(row['weight']))
 
         # 计算中心性指标
         nodes = []

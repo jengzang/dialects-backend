@@ -32,8 +32,10 @@ def setup_villages_routes(app: FastAPI):
     from .regional import aggregates_realtime as regional_aggregates
     from .compute import clustering, semantic, features, subset
     from .admin import run_ids as admin_run_ids
+    from .statistics import router as statistics_router  # NEW: Statistics endpoints
 
     # Register all routers with /api/villages prefix
+    # Tags are defined here to avoid duplication (routers should not define their own tags)
     app.include_router(char_frequency.router, prefix="/api/villages", tags=["VillagesML-Character"])
     app.include_router(char_tendency.router, prefix="/api/villages", tags=["VillagesML-Character"])
     app.include_router(char_embeddings.router, prefix="/api/villages", tags=["VillagesML-Character"])
@@ -55,3 +57,4 @@ def setup_villages_routes(app: FastAPI):
     app.include_router(features.router, prefix="/api/villages", tags=["VillagesML-Compute"])
     app.include_router(subset.router, prefix="/api/villages", tags=["VillagesML-Compute"])
     app.include_router(admin_run_ids.router, prefix="/api/villages/admin", tags=["VillagesML-Admin"])
+    app.include_router(statistics_router, prefix="/api/villages", tags=["VillagesML-Statistics"])  # NEW

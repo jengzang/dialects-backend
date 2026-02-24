@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/semantic/labels", tags=["semantic"])
+router = APIRouter(prefix="/semantic/labels")
 
 
 @router.get("/by-character")

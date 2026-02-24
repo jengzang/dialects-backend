@@ -23,7 +23,7 @@ from app.auth.models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/compute/clustering", tags=["compute-clustering"])
+router = APIRouter(prefix="/compute/clustering")
 
 
 def get_clustering_engine():

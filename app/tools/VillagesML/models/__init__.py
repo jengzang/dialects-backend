@@ -322,4 +322,7 @@ class RegionInfo(BaseModel):
     """区域信息模型"""
     name: str = Field(..., description="区域名称")
     level: str = Field(..., description="区域级别 (city/county/township)")
+    city: Optional[str] = Field(None, description="市级")
+    county: Optional[str] = Field(None, description="区县级")
+    township: Optional[str] = Field(None, description="乡镇级")
     village_count: int = Field(..., description="村庄数量")

@@ -29,7 +29,7 @@ from app.auth.models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/compute/subset", tags=["compute-subset"])
+router = APIRouter(prefix="/compute/subset")
 
 
 def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> pd.DataFrame:

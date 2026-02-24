@@ -12,7 +12,7 @@ import sqlite3
 from ..dependencies import get_db, execute_query
 from ..run_id_manager import run_id_manager
 
-router = APIRouter(prefix="/character/significance", tags=["character"])
+router = APIRouter(prefix="/character/significance")
 
 
 @router.get("/by-character")

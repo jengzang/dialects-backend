@@ -10,7 +10,7 @@ import sqlite3
 from ..dependencies import get_db_connection, execute_query
 from ..models import SemanticCategory, SemanticVTF, RegionalSemanticVTF, SemanticTendency
 
-router = APIRouter(prefix="/semantic/category", tags=["semantic"])
+router = APIRouter(prefix="/semantic/category")
 
 
 def _get_semantic_categories_sync():
@@ -84,12 +84,16 @@ async def get_global_semantic_vtf(
     return await run_in_threadpool(_get_global_semantic_vtf_sync, category)
 
 
-def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name: Optional[str], category: Optional[str]):
+def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name: Optional[str], city: Optional[str], county: Optional[str], township: Optional[str], category: Optional[str]):
     """同步获取区域语义虚拟词频"""
     with get_db_connection() as db:
         query = """
             SELECT
+                region_level,
                 region_name,
+                city,
+                county,
+                township,
                 category,
                 frequency AS vtf,
                 frequency AS intensity_index
@@ -98,9 +102,21 @@ def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name:
         """
         params = [region_level]
 
+        # 优先使用层级参数（精确匹配）
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND county = ?"
+            params.append(county)
+        if township is not None:
+            query += " AND township = ?"
+            params.append(township)
+
+        # 向后兼容：region_name（模糊匹配）
         if region_name is not None:
-            query += " AND region_name = ?"
-            params.append(region_name)
+            query += " AND (city = ? OR county = ? OR township = ?)"
+            params.extend([region_name, region_name, region_name])
 
         if category is not None:
             query += " AND category = ?"
@@ -117,7 +133,10 @@ def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name:
 @router.get("/vtf/regional", response_model=List[RegionalSemanticVTF])
 async def get_regional_semantic_vtf(
     region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
-    region_name: Optional[str] = Query(None, description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     category: Optional[str] = Query(None, description="语义类别")
 ):
     """
@@ -126,34 +145,61 @@ async def get_regional_semantic_vtf(
 
     Args:
         region_level: 区域级别 (city/county/township)
-        region_name: 区域名称（可选）
+        region_name: 区域名称（模糊匹配，可选，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         category: 语义类别（可选）
 
     Returns:
         List[RegionalSemanticVTF]: 区域语义VTF列表
     """
-    return await run_in_threadpool(_get_regional_semantic_vtf_sync, None, region_level, region_name, category)
+    return await run_in_threadpool(_get_regional_semantic_vtf_sync, None, region_level, region_name, city, county, township, category)
 
 
-def _get_semantic_tendency_sync(run_id: str, region_level: str, region_name: str, top_n: int):
+def _get_semantic_tendency_sync(run_id: str, region_level: str, region_name: Optional[str], city: Optional[str], county: Optional[str], township: Optional[str], top_n: int):
     """同步获取区域语义倾向性"""
     with get_db_connection() as db:
         query = """
             SELECT
+                region_level,
+                region_name,
+                city,
+                county,
+                township,
                 category,
                 lift,
                 z_score
             FROM semantic_regional_analysis
-            WHERE region_level = ? AND region_name = ?
-            ORDER BY z_score DESC
-            LIMIT ?
+            WHERE region_level = ?
         """
-        results = execute_query(db, query, (region_level, region_name, top_n))
+        params = [region_level]
+
+        # 优先使用层级参数（精确匹配）
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND county = ?"
+            params.append(county)
+        if township is not None:
+            query += " AND township = ?"
+            params.append(township)
+
+        # 向后兼容：region_name（模糊匹配）
+        if region_name is not None:
+            query += " AND (city = ? OR county = ? OR township = ?)"
+            params.extend([region_name, region_name, region_name])
+
+        query += " ORDER BY z_score DESC LIMIT ?"
+        params.append(top_n)
+
+        results = execute_query(db, query, tuple(params))
 
         if not results:
             raise HTTPException(
                 status_code=404,
-                detail=f"No semantic tendency data found for region: {region_name}"
+                detail=f"No semantic tendency data found"
             )
         return results
 
@@ -161,7 +207,10 @@ def _get_semantic_tendency_sync(run_id: str, region_level: str, region_name: str
 @router.get("/tendency", response_model=List[SemanticTendency])
 async def get_semantic_tendency(
     region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
-    region_name: str = Query(..., description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     top_n: int = Query(9, ge=1, le=20, description="返回前N个类别")
 ):
     """
@@ -170,10 +219,13 @@ async def get_semantic_tendency(
 
     Args:
         region_level: 区域级别
-        region_name: 区域名称
+        region_name: 区域名称（模糊匹配，可选，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         top_n: 返回前N个类别
 
     Returns:
         List[SemanticTendency]: 语义倾向性列表
     """
-    return await run_in_threadpool(_get_semantic_tendency_sync, None, region_level, region_name, top_n)
+    return await run_in_threadpool(_get_semantic_tendency_sync, None, region_level, region_name, city, county, township, top_n)

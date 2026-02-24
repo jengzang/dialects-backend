@@ -22,7 +22,7 @@ from app.auth.models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/compute/features", tags=["compute-features"])
+router = APIRouter(prefix="/compute/features")
 
 
 def get_feature_engine():

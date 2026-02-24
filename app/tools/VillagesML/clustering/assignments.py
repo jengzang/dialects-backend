@@ -11,7 +11,7 @@ from ..config import DEFAULT_RUN_ID, DEFAULT_CLUSTERING_RUN_ID
 from ..models import ClusterAssignment, ClusterProfile, ClusteringMetrics
 from ..run_id_manager import run_id_manager
 
-router = APIRouter(prefix="/clustering", tags=["clustering"])
+router = APIRouter(prefix="/clustering")
 
 
 @router.get("/assignments", response_model=List[ClusterAssignment])

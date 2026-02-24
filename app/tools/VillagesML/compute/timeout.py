@@ -6,6 +6,8 @@
 
 import signal
 import asyncio
+import platform
+import threading
 from contextlib import contextmanager
 from typing import Callable, Any
 import logging
@@ -18,10 +20,14 @@ class TimeoutException(Exception):
     pass
 
 
+# 检测操作系统
+IS_WINDOWS = platform.system() == 'Windows'
+
+
 @contextmanager
 def timeout(seconds: int):
     """
-    超时上下文管理器（同步版本）
+    超时上下文管理器（跨平台版本）
 
     Args:
         seconds: 超时时间（秒）
@@ -33,18 +39,38 @@ def timeout(seconds: int):
         with timeout(5):
             result = expensive_computation()
     """
-    def timeout_handler(signum, frame):
-        raise TimeoutException(f"Computation exceeded {seconds} seconds")
+    if IS_WINDOWS:
+        # Windows 不支持 signal.SIGALRM，使用 threading.Timer
+        timer = None
+        timed_out = [False]  # 使用列表以便在闭包中修改
 
-    # 设置信号处理器
-    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(seconds)
+        def timeout_handler():
+            timed_out[0] = True
+            logger.warning(f"Computation exceeded {seconds} seconds (Windows mode)")
 
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        timer = threading.Timer(seconds, timeout_handler)
+        timer.start()
+
+        try:
+            yield
+            if timed_out[0]:
+                raise TimeoutException(f"Computation exceeded {seconds} seconds")
+        finally:
+            timer.cancel()
+    else:
+        # Unix/Linux 使用 signal.SIGALRM
+        def timeout_handler(signum, frame):
+            raise TimeoutException(f"Computation exceeded {seconds} seconds")
+
+        # 设置信号处理器
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(seconds)
+
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
 
 
 async def timeout_async(coro, seconds: int):

@@ -9,7 +9,7 @@ import json
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/character/embeddings", tags=["character"])
+router = APIRouter(prefix="/character/embeddings")
 
 # 向量维度常量
 VECTOR_DIM = 225

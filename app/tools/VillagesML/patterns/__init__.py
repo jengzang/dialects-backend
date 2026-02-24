@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/patterns", tags=["pattern-analysis"])
+router = APIRouter(prefix="/patterns")
 
 
 @router.get("/frequency/global")
@@ -67,7 +67,10 @@ def get_global_pattern_frequency(
 @router.get("/frequency/regional")
 def get_regional_pattern_frequency(
     region_level: str = Query(..., description="区域级别"),
-    region_name: Optional[str] = Query(None, description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     top_k: int = Query(50, ge=1, le=500, description="返回Top K"),
     db: sqlite3.Connection = Depends(get_db)
@@ -78,7 +81,10 @@ def get_regional_pattern_frequency(
 
     Args:
         region_level: 区域级别（city/county/town）
-        region_name: 区域名称（可选）
+        region_name: 区域名称（模糊匹配，可选，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         pattern_type: 模式类型（可选）
         top_k: 返回Top K
 
@@ -89,6 +95,9 @@ def get_regional_pattern_frequency(
         SELECT
             region_level,
             region_name,
+            city,
+            county,
+            township,
             pattern,
             pattern_type,
             frequency,
@@ -98,9 +107,21 @@ def get_regional_pattern_frequency(
     """
     params = [region_level]
 
+    # 优先使用层级参数（精确匹配）
+    if city is not None:
+        query += " AND city = ?"
+        params.append(city)
+    if county is not None:
+        query += " AND county = ?"
+        params.append(county)
+    if township is not None:
+        query += " AND township = ?"
+        params.append(township)
+
+    # 向后兼容：region_name（模糊匹配）
     if region_name is not None:
-        query += " AND region_name = ?"
-        params.append(region_name)
+        query += " AND (city = ? OR county = ? OR township = ?)"
+        params.extend([region_name, region_name, region_name])
 
     if pattern_type is not None:
         query += " AND pattern_type = ?"
@@ -124,6 +145,10 @@ def get_regional_pattern_frequency(
 def get_pattern_tendency(
     pattern: Optional[str] = Query(None, description="模式"),
     region_level: str = Query("county", description="区域级别"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     db: sqlite3.Connection = Depends(get_db)
@@ -135,6 +160,10 @@ def get_pattern_tendency(
     Args:
         pattern: 模式（可选）
         region_level: 区域级别
+        region_name: 区域名称（模糊匹配，可选，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         min_tendency: 最小倾向值
         limit: 返回记录数
 
@@ -145,6 +174,9 @@ def get_pattern_tendency(
         SELECT
             region_level,
             region_name,
+            city,
+            county,
+            township,
             pattern,
             pattern_type,
             lift as tendency_score,
@@ -154,6 +186,22 @@ def get_pattern_tendency(
         WHERE region_level = ?
     """
     params = [region_level]
+
+    # 优先使用层级参数（精确匹配）
+    if city is not None:
+        query += " AND city = ?"
+        params.append(city)
+    if county is not None:
+        query += " AND county = ?"
+        params.append(county)
+    if township is not None:
+        query += " AND township = ?"
+        params.append(township)
+
+    # 向后兼容：region_name（模糊匹配）
+    if region_name is not None:
+        query += " AND (city = ? OR county = ? OR township = ?)"
+        params.extend([region_name, region_name, region_name])
 
     if pattern is not None:
         query += " AND pattern = ?"

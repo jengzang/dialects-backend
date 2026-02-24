@@ -13,7 +13,6 @@ import logging
 from .validators import SemanticAnalysisParams, SemanticNetworkParams
 from .cache import compute_cache
 from .engine import SemanticEngine
-from .timeout import timeout, TimeoutException
 from ..config import get_db_path
 
 # 导入身份验证依赖
@@ -22,7 +21,7 @@ from app.auth.models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/compute/semantic", tags=["compute-semantic"])
+router = APIRouter(prefix="/compute/semantic")
 
 
 def get_semantic_engine():
@@ -64,19 +63,14 @@ async def analyze_cooccurrence(
 
         logger.info(f"Analyzing cooccurrence: region={params.region_name}, level={params.region_level}")
 
-        # 执行分析（带超时控制）
-        with timeout(5):  # 5秒超时
-            result = engine.analyze_cooccurrence(params.dict())
+        # 执行分析
+        result = engine.analyze_cooccurrence(params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_cooccurrence", params.dict(), result)
 
         result['from_cache'] = False
         return result
-
-    except TimeoutException as e:
-        logger.error(f"Cooccurrence analysis timeout: {str(e)}")
-        raise HTTPException(status_code=408, detail=str(e))
 
     except Exception as e:
         logger.error(f"Cooccurrence analysis error: {str(e)}")
@@ -116,19 +110,14 @@ async def build_semantic_network(
 
         logger.info(f"Building semantic network: region={params.region_name}")
 
-        # 构建网络（带超时控制）
-        with timeout(5):  # 5秒超时
-            result = engine.build_semantic_network(params.dict())
+        # 构建网络
+        result = engine.build_semantic_network(params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_network", params.dict(), result)
 
         result['from_cache'] = False
         return result
-
-    except TimeoutException as e:
-        logger.error(f"Network building timeout: {str(e)}")
-        raise HTTPException(status_code=408, detail=str(e))
 
     except Exception as e:
         logger.error(f"Network building error: {str(e)}")

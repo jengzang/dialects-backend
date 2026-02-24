@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/regional", tags=["regional-aggregates"])
+router = APIRouter(prefix="/regional")
 
 
 @router.get("/aggregates/city")

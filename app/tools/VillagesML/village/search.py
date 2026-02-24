@@ -10,7 +10,7 @@ from ..dependencies import get_db, execute_query, execute_single
 from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DEFAULT_RUN_ID
 from ..models import VillageBasic, VillageDetail, PaginatedResponse
 
-router = APIRouter(prefix="/village/search", tags=["village"])
+router = APIRouter(prefix="/village/search")
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -41,6 +41,9 @@ def search_villages(
     # 构建 WHERE 条件
     where_conditions = ["1=1"]
     params = []
+
+    # 过滤掉名字为空的记录
+    where_conditions.append("自然村_规范名 IS NOT NULL AND 自然村_规范名 != ''")
 
     # 如果 query 不是空字符串或纯空格，添加关键词过滤
     if query.strip():

@@ -13,7 +13,7 @@ from ..dependencies import get_db_connection, execute_query
 from ..config import DB_PATH
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
 
-router = APIRouter(prefix="/metadata/stats", tags=["metadata"])
+router = APIRouter(prefix="/metadata/stats")
 
 
 def _get_system_overview_sync():
@@ -214,7 +214,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
         parent: 父区域名称（可选）
 
     Returns:
-        List[dict]: 区域信息列表
+        List[dict]: 区域信息列表（包含完整层级信息）
     """
     # 映射级别到数据库列名
     level_column_map = {
@@ -238,43 +238,101 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
     level_column = level_column_map[level]
 
     with get_db_connection() as db:
-        # 构建查询
-        if parent is None:
-            # 没有父级过滤，返回所有该级别的区域
-            query = f"""
-                SELECT
-                    {level_column} as name,
-                    '{level}' as level,
-                    COUNT(*) as village_count
-                FROM 广东省自然村
-                WHERE {level_column} IS NOT NULL AND {level_column} != ''
-                GROUP BY {level_column}
-                ORDER BY name
-            """
-            results = execute_query(db, query)
-        else:
-            # 有父级过滤
-            if level == 'city':
-                # city级别不应该有parent参数
+        # 根据 level 构建不同的查询
+        if level == 'city':
+            # 城市级别：只返回城市，county 和 township 为 NULL
+            if parent is not None:
                 raise HTTPException(
                     status_code=422,
                     detail="City level does not support parent parameter"
                 )
 
-            parent_column = parent_column_map[level]
-            query = f"""
+            query = """
                 SELECT
-                    {level_column} as name,
-                    '{level}' as level,
+                    市级 as city,
+                    NULL as county,
+                    NULL as township,
+                    市级 as name,
+                    'city' as level,
                     COUNT(*) as village_count
                 FROM 广东省自然村
-                WHERE {parent_column} = ?
-                    AND {level_column} IS NOT NULL
-                    AND {level_column} != ''
-                GROUP BY {level_column}
-                ORDER BY name
+                WHERE 市级 IS NOT NULL AND 市级 != ''
+                GROUP BY 市级
+                ORDER BY 市级
             """
-            results = execute_query(db, query, (parent,))
+            results = execute_query(db, query)
+
+        elif level == 'county':
+            # 县区级别：返回城市和县区，township 为 NULL
+            if parent is None:
+                query = """
+                    SELECT
+                        市级 as city,
+                        区县级 as county,
+                        NULL as township,
+                        区县级 as name,
+                        'county' as level,
+                        COUNT(*) as village_count
+                    FROM 广东省自然村
+                    WHERE 区县级 IS NOT NULL AND 区县级 != ''
+                    GROUP BY 市级, 区县级
+                    ORDER BY 市级, 区县级
+                """
+                results = execute_query(db, query)
+            else:
+                # 有父级过滤（按城市过滤）
+                query = """
+                    SELECT
+                        市级 as city,
+                        区县级 as county,
+                        NULL as township,
+                        区县级 as name,
+                        'county' as level,
+                        COUNT(*) as village_count
+                    FROM 广东省自然村
+                    WHERE 市级 = ?
+                        AND 区县级 IS NOT NULL
+                        AND 区县级 != ''
+                    GROUP BY 市级, 区县级
+                    ORDER BY 市级, 区县级
+                """
+                results = execute_query(db, query, (parent,))
+
+        else:  # level == 'township'
+            # 乡镇级别：返回完整的层级信息
+            if parent is None:
+                query = """
+                    SELECT
+                        市级 as city,
+                        区县级 as county,
+                        乡镇级 as township,
+                        乡镇级 as name,
+                        'township' as level,
+                        COUNT(*) as village_count
+                    FROM 广东省自然村
+                    WHERE 乡镇级 IS NOT NULL AND 乡镇级 != ''
+                    GROUP BY 市级, 区县级, 乡镇级
+                    ORDER BY 市级, 区县级, 乡镇级
+                """
+                results = execute_query(db, query)
+            else:
+                # 有父级过滤（按县区过滤）
+                query = """
+                    SELECT
+                        市级 as city,
+                        区县级 as county,
+                        乡镇级 as township,
+                        乡镇级 as name,
+                        'township' as level,
+                        COUNT(*) as village_count
+                    FROM 广东省自然村
+                    WHERE 区县级 = ?
+                        AND 乡镇级 IS NOT NULL
+                        AND 乡镇级 != ''
+                    GROUP BY 市级, 区县级, 乡镇级
+                    ORDER BY 市级, 区县级, 乡镇级
+                """
+                results = execute_query(db, query, (parent,))
 
         if not results:
             raise HTTPException(
