@@ -174,6 +174,7 @@ def get_semantic_pmi(
 def get_composition_patterns(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
+    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -183,6 +184,7 @@ def get_composition_patterns(
     Args:
         pattern_type: 模式类型（可选）
         min_frequency: 最小频率（可选）
+        limit: 返回记录数
 
     Returns:
         List[dict]: 组合模式列表
@@ -209,7 +211,8 @@ def get_composition_patterns(
         query += " AND frequency >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC"
+    query += " ORDER BY frequency DESC LIMIT ?"
+    params.append(limit)
 
     results = execute_query(db, query, tuple(params))
 
