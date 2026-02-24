@@ -14,7 +14,7 @@ router = APIRouter(prefix="/semantic", tags=["semantic-composition"])
 @router.get("/composition/bigrams")
 def get_semantic_bigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
-    min_pmi: Optional[float] = Query(None, description="最小PMI值"),
+    min_pmi: Optional[float] = Query(0.3, description="最小PMI值（默认0.3，过滤无意义组合）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     db: sqlite3.Connection = Depends(get_db)
 ):
