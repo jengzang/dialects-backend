@@ -403,25 +403,9 @@ def get_ngram_tendency(
         raise HTTPException(status_code=404, detail=detail)
 
     return results
-        params.append(min_tendency)
 
-    query += " ORDER BY lift DESC LIMIT ?"
-    params.append(limit)
 
-    results = execute_query(db, query, tuple(params))
-
-    if not results:
-        # 提供更友好的错误信息
-        if region_level in ['city', 'county']:
-            detail = f"No data available for region_level='{region_level}'. Currently only 'township' level data is available."
-        elif ngram and len(ngram) == 1:
-            detail = f"No data found for single character '{ngram}'. Only n-grams (2-4 chars) are supported. Try using character tendency endpoints instead."
-        else:
-            detail = "No n-gram tendency data found with the given filters."
-
-        raise HTTPException(status_code=404, detail=detail)
-
-    return results
+@router.get("/significance")
 
 
 @router.get("/significance")
