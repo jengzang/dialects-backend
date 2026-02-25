@@ -105,7 +105,6 @@ def get_ngram_frequency(
 @router.get("/regional")
 def get_regional_ngram_frequency(
     n: int = Query(..., ge=2, le=4, description="N-gram大小"),
-    run_id: Optional[str] = Query(None, description="N-gram分析运行ID（留空使用活跃版本）"),
     region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
@@ -119,9 +118,10 @@ def get_regional_ngram_frequency(
     获取区域N-gram频率
     Get regional n-gram frequencies
 
+    注意：表中没有 run_id 字段，数据是静态的
+
     Args:
         n: N-gram大小
-        run_id: N-gram分析运行ID
         region_level: 区域级别 (city/county/township)
         region_name: 区域名称（模糊匹配，可选，向后兼容）
         city: 市级过滤（精确匹配）
@@ -133,24 +133,23 @@ def get_regional_ngram_frequency(
     Returns:
         List[dict] 或 dict: N-gram频率列表，或包含data和metadata的字典
     """
-    # 如果未指定run_id，使用活跃版本
-    if run_id is None:
-        run_id = run_id_manager.get_active_run_id("ngrams")
-
+    # 注意：表结构中字段名是 level，不是 region_level
+    # 使用子查询添加 rank
     query = """
         SELECT
-            region_level,
-            region_name,
+            level as region_level,
+            region as region_name,
             city,
             county,
             township,
             ngram,
             frequency,
-            rank_within_region as rank
+            percentage,
+            ROW_NUMBER() OVER (PARTITION BY region ORDER BY frequency DESC) as rank
         FROM regional_ngram_frequency
-        WHERE run_id = ? AND n = ? AND region_level = ?
+        WHERE n = ? AND level = ?
     """
-    params = [run_id, n, region_level]
+    params = [n, region_level]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -165,11 +164,16 @@ def get_regional_ngram_frequency(
 
     # 向后兼容：region_name（模糊匹配）
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ?)"
-        params.extend([region_name, region_name, region_name])
+        query += " AND region = ?"
+        params.append(region_name)
 
-    # 现场排序和限制（每个区域前K个）
-    query += " AND rank_within_region <= ? ORDER BY region_name, rank_within_region"
+    # 包装为子查询以应用 rank 过滤
+    query = f"""
+        SELECT * FROM (
+            {query}
+        ) WHERE rank <= ?
+        ORDER BY region_name, rank
+    """
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -419,19 +423,25 @@ def get_ngram_significance(
     """
     获取N-gram显著性
     Get n-gram significance test results
+
+    注意：表中字段名是 level，不是 region_level
     """
     query = """
         SELECT
-            region_level,
-            region_name,
+            level as region_level,
+            region as region_name,
+            city,
+            county,
+            township,
             ngram,
             n,
-            z_score,
+            position,
+            chi2 as z_score,
             p_value,
             is_significant,
-            lift
+            cramers_v as lift
         FROM ngram_significance
-        WHERE region_level = ?
+        WHERE level = ?
     """
     params = [region_level]
 
@@ -443,7 +453,7 @@ def get_ngram_significance(
         query += " AND is_significant = ?"
         params.append(1 if is_significant else 0)
 
-    query += " ORDER BY ABS(z_score) DESC LIMIT ?"
+    query += " ORDER BY ABS(chi2) DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
