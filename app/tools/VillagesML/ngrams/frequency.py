@@ -359,7 +359,7 @@ def get_structural_patterns(
 @router.get("/tendency")
 def get_ngram_tendency(
     ngram: Optional[str] = Query(None, description="N-gram（2-4字符，如'新村'、'村村'）"),
-    region_level: str = Query("township", description="区域级别（当前数据仅包含township）", pattern="^(city|county|township)$"),
+    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern="^(city|county|township)$"),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
@@ -372,16 +372,20 @@ def get_ngram_tendency(
     获取N-gram倾向性分析
     Get n-gram tendency scores
 
+    支持三种级别：
+    - township: 直接查询乡镇级数据（原始数据）
+    - county: 从乡镇数据动态聚合到区县级
+    - city: 从乡镇数据动态聚合到市级
+
     注意：
-    - 当前数据仅包含 township (乡镇) 级别的倾向性
-    - 如果查询 city 或 county 级别会返回 404
     - ngram 必须是 2-4 字符的组合（如"新村"、"山村"），不支持单字符
     - 倾向值 (lift) > 1 表示该区域偏好使用该 n-gram
     - 倾向值 (lift) < 1 表示该区域较少使用该 n-gram
+    - 聚合级别的 lift 值会重新计算
 
     Args:
         ngram: N-gram内容（2-4字符）
-        region_level: 区域级别（city/county/township，当前仅 township 有数据）
+        region_level: 区域级别（city/county/township）
         region_name: 区域名称（模糊匹配）
         city: 市级过滤（精确匹配）
         county: 区县级过滤（精确匹配）
@@ -392,79 +396,180 @@ def get_ngram_tendency(
     Returns:
         List[dict]: N-gram倾向性列表（包含区域中心点坐标）
     """
-    # 根据 region_level 确定坐标计算的字段
-    if region_level == 'city':
-        coord_field = '市级'
-    elif region_level == 'county':
-        coord_field = '区县级'
-    else:  # township
+
+    # 根据 region_level 构建不同的查询
+    if region_level == "township":
+        # Township 级别：直接查询原始数据
         coord_field = '乡镇级'
 
-    query = f"""
-        SELECT
-            nt.level as region_level,
-            nt.region as region_name,
-            nt.city,
-            nt.county,
-            nt.township,
-            nt.ngram,
-            nt.n,
-            nt.position,
-            nt.lift as tendency_score,
-            nt.log_odds,
-            nt.z_score,
-            nt.regional_count as frequency,
-            nt.regional_total,
-            nt.global_count as expected_frequency,
-            nt.global_total,
-            AVG(v.longitude) as centroid_lon,
-            AVG(v.latitude) as centroid_lat
-        FROM ngram_tendency nt
-        LEFT JOIN 广东省自然村_预处理 v ON nt.region = v.{coord_field}
-        WHERE nt.level = ?
-    """
-    params = [region_level]
+        query = f"""
+            SELECT
+                nt.level as region_level,
+                nt.region as region_name,
+                nt.city,
+                nt.county,
+                nt.township,
+                nt.ngram,
+                nt.n,
+                nt.position,
+                nt.lift as tendency_score,
+                nt.log_odds,
+                nt.z_score,
+                nt.regional_count as frequency,
+                nt.regional_total,
+                nt.global_count as expected_frequency,
+                nt.global_total,
+                AVG(v.longitude) as centroid_lon,
+                AVG(v.latitude) as centroid_lat
+            FROM ngram_tendency nt
+            LEFT JOIN 广东省自然村_预处理 v ON nt.region = v.{coord_field}
+            WHERE nt.level = 'township'
+        """
+        params = []
 
-    # 优先使用层级参数（精确匹配）
-    if city is not None:
-        query += " AND nt.city = ?"
-        params.append(city)
-    if county is not None:
-        query += " AND nt.county = ?"
-        params.append(county)
-    if township is not None:
-        query += " AND nt.township = ?"
-        params.append(township)
+        # 过滤条件
+        if city is not None:
+            query += " AND nt.city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND nt.county = ?"
+            params.append(county)
+        if township is not None:
+            query += " AND nt.township = ?"
+            params.append(township)
+        if region_name is not None:
+            query += " AND nt.region = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND nt.ngram = ?"
+            params.append(ngram)
+        if min_tendency is not None:
+            query += " AND nt.lift >= ?"
+            params.append(min_tendency)
 
-    # 向后兼容：region_name（模糊匹配）
-    if region_name is not None:
-        query += " AND nt.region = ?"
-        params.append(region_name)
+        query += """
+            GROUP BY nt.level, nt.region, nt.city, nt.county, nt.township,
+                     nt.ngram, nt.n, nt.position, nt.lift, nt.log_odds, nt.z_score,
+                     nt.regional_count, nt.regional_total, nt.global_count, nt.global_total
+            ORDER BY nt.lift DESC
+            LIMIT ?
+        """
+        params.append(limit)
 
-    if ngram is not None:
-        query += " AND nt.ngram = ?"
-        params.append(ngram)
+    elif region_level == "county":
+        # County 级别：从 township 聚合
+        coord_field = '区县级'
 
-    if min_tendency is not None:
-        query += " AND nt.lift >= ?"
-        params.append(min_tendency)
+        query = f"""
+            SELECT
+                'county' as region_level,
+                nt.county as region_name,
+                nt.city,
+                nt.county,
+                NULL as township,
+                nt.ngram,
+                nt.n,
+                nt.position,
+                (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
+                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
+                NULL as log_odds,
+                NULL as z_score,
+                SUM(nt.regional_count) as frequency,
+                SUM(nt.regional_total) as regional_total,
+                SUM(nt.global_count) as expected_frequency,
+                SUM(nt.global_total) as global_total,
+                AVG(v.longitude) as centroid_lon,
+                AVG(v.latitude) as centroid_lat
+            FROM ngram_tendency nt
+            LEFT JOIN 广东省自然村_预处理 v ON nt.county = v.{coord_field}
+            WHERE nt.level = 'township'
+        """
+        params = []
 
-    query += """
-        GROUP BY nt.level, nt.region, nt.city, nt.county, nt.township,
-                 nt.ngram, nt.n, nt.position, nt.lift, nt.log_odds, nt.z_score,
-                 nt.regional_count, nt.regional_total, nt.global_count, nt.global_total
-        ORDER BY nt.lift DESC
-        LIMIT ?
-    """
-    params.append(limit)
+        # 过滤条件
+        if city is not None:
+            query += " AND nt.city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND nt.county = ?"
+            params.append(county)
+        if region_name is not None:
+            query += " AND nt.county = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND nt.ngram = ?"
+            params.append(ngram)
+
+        query += """
+            GROUP BY nt.county, nt.city, nt.ngram, nt.n, nt.position
+        """
+
+        # min_tendency 过滤需要在 HAVING 子句中
+        if min_tendency is not None:
+            query += " HAVING tendency_score >= ?"
+            params.append(min_tendency)
+
+        query += " ORDER BY tendency_score DESC LIMIT ?"
+        params.append(limit)
+
+    else:  # region_level == "city"
+        # City 级别：从 township 聚合
+        coord_field = '市级'
+
+        query = f"""
+            SELECT
+                'city' as region_level,
+                nt.city as region_name,
+                nt.city,
+                NULL as county,
+                NULL as township,
+                nt.ngram,
+                nt.n,
+                nt.position,
+                (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
+                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
+                NULL as log_odds,
+                NULL as z_score,
+                SUM(nt.regional_count) as frequency,
+                SUM(nt.regional_total) as regional_total,
+                SUM(nt.global_count) as expected_frequency,
+                SUM(nt.global_total) as global_total,
+                AVG(v.longitude) as centroid_lon,
+                AVG(v.latitude) as centroid_lat
+            FROM ngram_tendency nt
+            LEFT JOIN 广东省自然村_预处理 v ON nt.city = v.{coord_field}
+            WHERE nt.level = 'township'
+        """
+        params = []
+
+        # 过滤条件
+        if city is not None:
+            query += " AND nt.city = ?"
+            params.append(city)
+        if region_name is not None:
+            query += " AND nt.city = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND nt.ngram = ?"
+            params.append(ngram)
+
+        query += """
+            GROUP BY nt.city, nt.ngram, nt.n, nt.position
+        """
+
+        # min_tendency 过滤需要在 HAVING 子句中
+        if min_tendency is not None:
+            query += " HAVING tendency_score >= ?"
+            params.append(min_tendency)
+
+        query += " ORDER BY tendency_score DESC LIMIT ?"
+        params.append(limit)
 
     results = execute_query(db, query, tuple(params))
 
     if not results:
         # 提供更友好的错误信息
-        if region_level in ['city', 'county']:
-            detail = f"No data available for region_level='{region_level}'. Currently only 'township' level data is available."
-        elif ngram and len(ngram) == 1:
+        if ngram and len(ngram) == 1:
             detail = f"No data found for single character '{ngram}'. Only n-grams (2-4 chars) are supported. Try using character tendency endpoints instead."
         else:
             detail = "No n-gram tendency data found with the given filters."
