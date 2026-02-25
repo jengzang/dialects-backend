@@ -147,7 +147,9 @@ def get_spatial_clusters(
             cluster_size,
             centroid_lon,
             centroid_lat,
-            avg_distance_km
+            avg_distance_km,
+            dominant_city,
+            dominant_county
         FROM spatial_clusters
         WHERE run_id = ?
     """
