@@ -227,6 +227,10 @@ def get_village_features(
 @router.get("/spatial-features/{village_id}")
 def get_village_spatial_features(
     village_id: int,
+    clustering_version: Optional[str] = Query(
+        "spatial_eps_20",
+        description="聚类版本ID (spatial_eps_05/10/20, spatial_hdbscan_v1)"
+    ),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -235,6 +239,7 @@ def get_village_spatial_features(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
+        clustering_version: 聚类版本ID，默认 spatial_eps_20
 
     Returns:
         dict: 村庄空间特征
@@ -256,28 +261,32 @@ def get_village_spatial_features(
     # spatial_features table has village_id column, so we can query directly
     query = """
         SELECT
-            village_id,
-            village_name,
-            city,
-            county,
-            town,
-            longitude,
-            latitude,
-            nn_distance_1,
-            nn_distance_5,
-            nn_distance_10,
-            local_density_1km,
-            local_density_5km,
-            local_density_10km,
-            isolation_score,
-            is_isolated,
-            spatial_cluster_id,
-            cluster_size
-        FROM village_spatial_features
-        WHERE village_id = ?
+            vsf.village_id,
+            vsf.village_name,
+            vsf.city,
+            vsf.county,
+            vsf.town,
+            vsf.longitude,
+            vsf.latitude,
+            vsf.nn_distance_1,
+            vsf.nn_distance_5,
+            vsf.nn_distance_10,
+            vsf.local_density_1km,
+            vsf.local_density_5km,
+            vsf.local_density_10km,
+            vsf.isolation_score,
+            vsf.is_isolated,
+            vca.cluster_id as spatial_cluster_id,
+            sc.cluster_size
+        FROM village_spatial_features vsf
+        LEFT JOIN village_cluster_assignments vca
+            ON vsf.village_id = vca.village_id AND vca.run_id = ?
+        LEFT JOIN spatial_clusters sc
+            ON vca.run_id = sc.run_id AND vca.cluster_id = sc.cluster_id
+        WHERE vsf.village_id = ?
     """
 
-    result = execute_single(db, query, (village_info['village_id'],))
+    result = execute_single(db, query, (clustering_version, village_info['village_id']))
 
     if not result:
         # Return empty dict if no spatial feature data exists
@@ -335,11 +344,18 @@ def get_village_complete_profile(
     """
     features = execute_single(db, features_query, (basic_info['village_id_str'],))
 
-    # Get spatial features (no run_id needed)
+    # Get spatial features (with clustering info from new table)
     spatial_query = """
-        SELECT *
-        FROM village_spatial_features
-        WHERE village_id = ?
+        SELECT
+            vsf.*,
+            vca.cluster_id as spatial_cluster_id,
+            sc.cluster_size
+        FROM village_spatial_features vsf
+        LEFT JOIN village_cluster_assignments vca
+            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
+        LEFT JOIN spatial_clusters sc
+            ON vca.run_id = sc.run_id AND vca.cluster_id = sc.cluster_id
+        WHERE vsf.village_id = ?
     """
     spatial_features = execute_single(db, spatial_query, (basic_info['village_id_str'],))
 

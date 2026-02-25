@@ -152,13 +152,16 @@ def get_village_detail(
     # 获取空间特征（如果存在）
     spatial_query = """
         SELECT
-            knn_mean_distance,
-            local_density,
-            isolation_score
-        FROM village_spatial_features
-        WHERE run_id = ? AND village_name = ? AND city = ? AND county = ?
+            vsf.knn_mean_distance,
+            vsf.local_density,
+            vsf.isolation_score,
+            vca.cluster_id as spatial_cluster_id
+        FROM village_spatial_features vsf
+        LEFT JOIN village_cluster_assignments vca
+            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
+        WHERE vsf.village_name = ? AND vsf.city = ? AND vsf.county = ?
     """
-    spatial = execute_single(db, spatial_query, (run_id, village_name, city, county))
+    spatial = execute_single(db, spatial_query, (village_name, city, county))
 
     # 组装详情
     detail = {
