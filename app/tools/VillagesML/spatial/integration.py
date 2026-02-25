@@ -333,3 +333,55 @@ def get_integration_summary(
         "top_characters": top_characters[:10],
         "top_clusters": top_clusters
     }
+
+
+@router.get("/integration/available-characters")
+def get_available_characters(
+    run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    获取可用字符列表
+    Get list of available characters for spatial-tendency integration
+
+    Returns all characters that have spatial-tendency integration data,
+    along with their statistics to help frontend avoid querying non-existent characters.
+
+    Args:
+        run_id: 整合分析运行ID（留空使用活跃版本）
+
+    Returns:
+        dict: 包含可用字符列表及其统计信息
+    """
+    # 如果未指定run_id，使用活跃版本
+    if run_id is None:
+        run_id = run_id_manager.get_active_run_id("spatial_integration")
+
+    query = """
+        SELECT
+            character,
+            character_category as category,
+            COUNT(DISTINCT cluster_id) as total_clusters,
+            SUM(n_villages_with_char) as total_villages,
+            AVG(cluster_tendency_mean) as avg_tendency,
+            AVG(spatial_coherence) as avg_spatial_coherence,
+            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_clusters
+        FROM spatial_tendency_integration
+        WHERE run_id = ?
+        GROUP BY character, character_category
+        ORDER BY character
+    """
+
+    results = execute_query(db, query, (run_id,))
+
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No characters found for run_id: {run_id}"
+        )
+
+    return {
+        "run_id": run_id,
+        "total_characters": len(results),
+        "characters": results
+    }
