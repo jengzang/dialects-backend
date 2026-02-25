@@ -385,3 +385,71 @@ def get_available_characters(
         "total_characters": len(results),
         "characters": results
     }
+
+
+@router.get("/integration/clusterlist")
+def get_cluster_list(
+    run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
+    min_cluster_size: Optional[int] = Query(None, ge=1, description="最小聚类大小"),
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    获取聚类列表（含地区信息）
+    Get cluster list with geographic information
+
+    Returns a list of all clusters with their basic information including
+    dominant city/county, size, location, and character count.
+
+    Args:
+        run_id: 整合分析运行ID（留空使用活跃版本）
+        min_cluster_size: 最小聚类大小（可选）
+
+    Returns:
+        dict: 包含聚类列表
+    """
+    # 如果未指定run_id，使用活跃版本
+    if run_id is None:
+        run_id = run_id_manager.get_active_run_id("spatial_integration")
+
+    query = """
+        SELECT
+            cluster_id,
+            MAX(cluster_size) as cluster_size,
+            MAX(dominant_city) as dominant_city,
+            MAX(dominant_county) as dominant_county,
+            MAX(centroid_lon) as centroid_lon,
+            MAX(centroid_lat) as centroid_lat,
+            COUNT(DISTINCT character) as total_characters,
+            AVG(cluster_tendency_mean) as avg_tendency,
+            AVG(spatial_coherence) as avg_spatial_coherence,
+            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_characters
+        FROM spatial_tendency_integration
+        WHERE run_id = ?
+        GROUP BY cluster_id
+    """
+    params = [run_id]
+
+    # 添加聚类大小过滤
+    if min_cluster_size is not None:
+        query = f"""
+        SELECT * FROM (
+            {query}
+        ) WHERE cluster_size >= ?
+        """
+        params.append(min_cluster_size)
+
+    query += " ORDER BY cluster_size DESC"
+
+    results = execute_query(db, query, tuple(params))
+
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No clusters found for run_id: {run_id}"
+        )
+
+    return {
+        "run_id": run_id,
+        "total_clusters": len(results),
+        "clusters": results
+    }
