@@ -397,10 +397,18 @@ def get_ngram_tendency(
         List[dict]: N-gram倾向性列表（包含区域中心点坐标）
     """
 
+    # 检查 regional_total_raw 字段是否存在
+    cursor = db.cursor()
+    cursor.execute("PRAGMA table_info(ngram_tendency)")
+    columns = [col[1] for col in cursor.fetchall()]
+    has_regional_total_raw = 'regional_total_raw' in columns
+
     # 根据 region_level 构建不同的查询
     if region_level == "township":
         # Township 级别：直接查询原始数据
-        query = """
+        regional_total_raw_field = "nt.regional_total_raw" if has_regional_total_raw else "NULL"
+
+        query = f"""
             SELECT
                 nt.level as region_level,
                 nt.region as region_name,
@@ -415,6 +423,7 @@ def get_ngram_tendency(
                 nt.z_score,
                 nt.regional_count as frequency,
                 nt.regional_total,
+                {regional_total_raw_field} as regional_total_raw,
                 nt.global_count as expected_frequency,
                 nt.global_total,
                 NULL as centroid_lon,
@@ -452,7 +461,9 @@ def get_ngram_tendency(
 
     elif region_level == "county":
         # County 级别：从 township 聚合
-        query = """
+        regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
+
+        query = f"""
             SELECT
                 'county' as region_level,
                 nt.county as region_name,
@@ -480,6 +491,7 @@ def get_ngram_tendency(
                 END as z_score,
                 SUM(nt.regional_count) as frequency,
                 SUM(nt.regional_total) as regional_total,
+                {regional_total_raw_sum} as regional_total_raw,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
                 NULL as centroid_lon,
@@ -517,7 +529,9 @@ def get_ngram_tendency(
 
     else:  # region_level == "city"
         # City 级别：从 township 聚合
-        query = """
+        regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
+
+        query = f"""
             SELECT
                 'city' as region_level,
                 nt.city as region_name,
@@ -545,6 +559,7 @@ def get_ngram_tendency(
                 END as z_score,
                 SUM(nt.regional_count) as frequency,
                 SUM(nt.regional_total) as regional_total,
+                {regional_total_raw_sum} as regional_total_raw,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
                 NULL as centroid_lon,
