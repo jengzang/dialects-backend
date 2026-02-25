@@ -279,7 +279,7 @@ class SemanticEngine:
         分析语义共现（使用实际表结构）
 
         Args:
-            params: 分析参数
+            params: 分析参数（包含 detail: bool 参数）
 
         Returns:
             共现分析结果
@@ -288,12 +288,15 @@ class SemanticEngine:
 
         conn = sqlite3.connect(self.db_path)
 
+        # 根据 detail 参数选择表
+        table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
+
         # 从semantic_bigrams读取
-        query = """
+        query = f"""
         SELECT
             category1, category2, frequency as cooccurrence_count,
             pmi
-        FROM semantic_bigrams
+        FROM {table_name}
         WHERE frequency >= ?
         """
 
@@ -328,7 +331,7 @@ class SemanticEngine:
         构建语义网络
 
         Args:
-            params: 网络构建参数
+            params: 网络构建参数（包含 detail: bool 参数）
 
         Returns:
             语义网络结果
@@ -346,10 +349,13 @@ class SemanticEngine:
 
         conn = sqlite3.connect(self.db_path)
 
+        # 根据 detail 参数选择表
+        table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
+
         # 从semantic_bigrams读取边（使用PMI作为权重）
-        query = """
+        query = f"""
         SELECT category1, category2, pmi as weight
-        FROM semantic_bigrams
+        FROM {table_name}
         WHERE pmi >= ?
         """
 

@@ -426,9 +426,10 @@ def get_ngram_tendency(
                 {regional_total_raw_field} as regional_total_raw,
                 nt.global_count as expected_frequency,
                 nt.global_total,
-                NULL as centroid_lon,
-                NULL as centroid_lat
+                rc.centroid_lon,
+                rc.centroid_lat
             FROM ngram_tendency nt
+            LEFT JOIN regional_centroids rc ON rc.region_level = 'township' AND rc.region_name = nt.region
             WHERE nt.level = 'township'
         """
         params = []
@@ -501,9 +502,10 @@ def get_ngram_tendency(
                 {regional_total_raw_sum} as regional_total_raw,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
-                NULL as centroid_lon,
-                NULL as centroid_lat
+                rc.centroid_lon,
+                rc.centroid_lat
             FROM ngram_tendency nt
+            LEFT JOIN regional_centroids rc ON rc.region_level = 'county' AND rc.region_name = nt.county
             WHERE nt.level = 'township'
         """
         params = []
@@ -576,9 +578,10 @@ def get_ngram_tendency(
                 {regional_total_raw_sum} as regional_total_raw,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
-                NULL as centroid_lon,
-                NULL as centroid_lat
+                rc.centroid_lon,
+                rc.centroid_lat
             FROM ngram_tendency nt
+            LEFT JOIN regional_centroids rc ON rc.region_level = 'city' AND rc.region_name = nt.city
             WHERE nt.level = 'township'
         """
         params = []

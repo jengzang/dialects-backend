@@ -16,6 +16,7 @@ def get_semantic_bigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     min_pmi: Optional[float] = Query(0.3, description="最小PMI值（默认0.3，过滤无意义组合）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -26,18 +27,21 @@ def get_semantic_bigrams(
         min_frequency: 最小频率（可选）
         min_pmi: 最小点互信息值（可选）
         limit: 返回记录数
+        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义二元组列表
     """
-    query = """
+    table_name = "semantic_bigrams_detailed" if detail else "semantic_bigrams"
+
+    query = f"""
         SELECT
             category1,
             category2,
             frequency,
             percentage,
             pmi as pmi_score
-        FROM semantic_bigrams
+        FROM {table_name}
         WHERE 1=1
     """
     params = []
@@ -68,6 +72,7 @@ def get_semantic_bigrams(
 def get_semantic_trigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -77,18 +82,21 @@ def get_semantic_trigrams(
     Args:
         min_frequency: 最小频率（可选）
         limit: 返回记录数
+        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义三元组列表
     """
-    query = """
+    table_name = "semantic_trigrams_detailed" if detail else "semantic_trigrams"
+
+    query = f"""
         SELECT
             category1,
             category2,
             category3,
             frequency,
             percentage
-        FROM semantic_trigrams
+        FROM {table_name}
         WHERE 1=1
     """
     params = []
@@ -117,6 +125,7 @@ def get_semantic_pmi(
     category2: Optional[str] = Query(None, description="第二个语义类别"),
     min_pmi: Optional[float] = Query(None, description="最小PMI值"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -128,18 +137,21 @@ def get_semantic_pmi(
         category2: 第二个语义类别（可选）
         min_pmi: 最小PMI值（可选）
         limit: 返回记录数
+        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: PMI分数列表
     """
-    query = """
+    table_name = "semantic_pmi_detailed" if detail else "semantic_pmi"
+
+    query = f"""
         SELECT
             category1,
             category2,
             pmi as pmi_score,
             frequency,
             is_positive
-        FROM semantic_pmi
+        FROM {table_name}
         WHERE 1=1
     """
     params = []

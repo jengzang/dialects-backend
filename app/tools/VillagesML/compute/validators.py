@@ -94,6 +94,7 @@ class SemanticAnalysisParams(BaseModel):
     min_cooccurrence: int = Field(5, ge=1, le=100)
     alpha: float = Field(0.05, gt=0, lt=1)
     categories: Optional[List[str]] = None
+    detail: bool = Field(False, description="是否使用详细表（76子类别）")
 
     @validator('categories')
     def validate_categories(cls, v):
@@ -112,6 +113,7 @@ class SemanticNetworkParams(BaseModel):
     region_name: Optional[str] = None
     min_edge_weight: float = Field(0.5, ge=0, le=10)
     centrality_metrics: List[str] = Field(["degree", "betweenness"])
+    detail: bool = Field(False, description="是否使用详细表（76子类别）")
 
     @validator('centrality_metrics')
     def validate_centrality_metrics(cls, v):
