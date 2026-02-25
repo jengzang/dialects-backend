@@ -454,10 +454,11 @@ def get_region_spatial_aggregates(
             '{region_level}' as region_level,
             v.{column_name} as region_name,
             COUNT(DISTINCT v.自然村) as village_count,
-            AVG(sf.local_density) as avg_density,
-            AVG(sf.nn_distance) as avg_nn_distance,
+            AVG(sf.local_density_5km) as avg_density,
+            AVG(sf.nn_distance_5) as avg_nn_distance,
             AVG(sf.isolation_score) as avg_isolation_score,
-            STDEV(sf.local_density) as spatial_dispersion
+            AVG(sf.local_density_1km) as avg_density_1km,
+            AVG(sf.local_density_10km) as avg_density_10km
         FROM 广东省自然村 v
         LEFT JOIN village_spatial_features sf ON v.自然村 = sf.village_name
         WHERE 1=1
