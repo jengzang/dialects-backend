@@ -187,6 +187,7 @@ def get_composition_patterns(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -197,11 +198,14 @@ def get_composition_patterns(
         pattern_type: 模式类型（可选）
         min_frequency: 最小频率（可选）
         limit: 返回记录数
+        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 组合模式列表
     """
-    query = """
+    table_name = "semantic_composition_patterns_detailed" if detail else "semantic_composition_patterns"
+
+    query = f"""
         SELECT
             pattern,
             pattern_type,
@@ -210,7 +214,7 @@ def get_composition_patterns(
             frequency,
             percentage,
             description
-        FROM semantic_composition_patterns
+        FROM {table_name}
         WHERE 1=1
     """
     params = []
@@ -244,6 +248,7 @@ def get_semantic_indices(
     region_name: Optional[str] = Query(None, description="区域名称"),
     min_villages: Optional[int] = Query(None, ge=1, description="最小村庄数（过滤小样本区域）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -256,12 +261,15 @@ def get_semantic_indices(
         region_name: 区域名称（可选）
         min_villages: 最小村庄数，过滤村庄数少的区域（可选）
         limit: 返回记录数
+        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义指数列表
     """
+    table_name = "semantic_indices_detailed" if detail else "semantic_indices"
+
     # Use pre-computed village_count column for optimal performance
-    query = """
+    query = f"""
         SELECT
             region_level,
             region_name,
@@ -270,7 +278,7 @@ def get_semantic_indices(
             normalized_index,
             rank_within_province as rank_in_region,
             village_count
-        FROM semantic_indices
+        FROM {table_name}
         WHERE 1=1
     """
     params = []
