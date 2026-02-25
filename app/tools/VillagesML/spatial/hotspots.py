@@ -137,9 +137,26 @@ def get_spatial_clusters(
     Returns:
         List[dict]: 聚类结果列表
     """
-    # 如果未指定run_id，使用活跃版本
+    # 如果未指定run_id，尝试获取活跃版本，如果失败则使用最新的run_id
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_hotspots")
+        # 尝试从active_run_ids获取（可能配置为spatial_clusters或其他名称）
+        run_id = run_id_manager.get_active_run_id("spatial_clusters")
+
+        # 如果没有配置，回退到查询数据库中最新的run_id
+        if not run_id:
+            fallback_query = """
+                SELECT run_id FROM spatial_clusters
+                ORDER BY run_id DESC
+                LIMIT 1
+            """
+            result = execute_single(db, fallback_query, ())
+            if result:
+                run_id = result['run_id']
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No spatial clusters data found in database"
+                )
 
     query = """
         SELECT
