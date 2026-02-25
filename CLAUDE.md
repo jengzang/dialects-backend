@@ -232,6 +232,40 @@ path = file_manager.get_file_path(task_id, "praat", filename)
 deleted = file_manager.cleanup_old_files(max_age_hours=12)
 ```
 
+### Module Organization
+
+**Rule**: A module should be EITHER a file OR a package, never both simultaneously.
+
+❌ **Wrong** (causes Python import conflicts):
+```
+mymodule.py
+mymodule/__init__.py  # Conflict! Python will only use the package
+```
+
+✅ **Correct** (choose one approach):
+```
+# Option 1: Single-file module
+mymodule.py
+
+# Option 2: Package module
+mymodule/
+  __init__.py
+  submodule1.py
+  submodule2.py
+```
+
+**When to use a package**:
+- Module content exceeds 500 lines
+- Need to split into multiple submodules
+- Require internal organizational structure
+
+**When to use a file**:
+- Simple module (< 500 lines)
+- Single responsibility
+- No need for submodules
+
+**Prevention**: A pre-commit hook is installed at `.git/hooks/pre-commit` to detect and prevent module name conflicts.
+
 ## Configuration
 
 ### Environment Variables
