@@ -105,7 +105,7 @@ def get_ngram_frequency(
 @router.get("/regional")
 def get_regional_ngram_frequency(
     n: int = Query(..., ge=2, le=4, description="N-gram大小"),
-    region_level: str = Query("township", description="区域级别（当前仅支持 township）", pattern="^(city|county|township)$"),
+    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern="^(city|county|township)$"),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
@@ -118,14 +118,14 @@ def get_regional_ngram_frequency(
     获取区域N-gram频率
     Get regional n-gram frequencies
 
-    注意：
-    - 当前数据仅包含 township (乡镇) 级别
-    - 查询 city 或 county 级别会返回 404
-    - 表中没有 run_id 字段，数据是静态的
+    支持三种级别：
+    - township: 直接查询乡镇级数据（原始数据）
+    - county: 从乡镇数据动态聚合到区县级
+    - city: 从乡镇数据动态聚合到市级
 
     Args:
         n: N-gram大小
-        region_level: 区域级别 (city/county/township)，当前仅 township 有数据
+        region_level: 区域级别 (city/county/township)
         region_name: 区域名称（模糊匹配，可选，向后兼容）
         city: 市级过滤（精确匹配）
         county: 区县级过滤（精确匹配）
@@ -136,39 +136,98 @@ def get_regional_ngram_frequency(
     Returns:
         List[dict] 或 dict: N-gram频率列表，或包含data和metadata的字典
     """
-    # 注意：表结构中字段名是 level，不是 region_level
-    # 使用子查询添加 rank
-    query = """
-        SELECT
-            level as region_level,
-            region as region_name,
-            city,
-            county,
-            township,
-            ngram,
-            frequency,
-            percentage,
-            ROW_NUMBER() OVER (PARTITION BY region ORDER BY frequency DESC) as rank
-        FROM regional_ngram_frequency
-        WHERE n = ? AND level = ?
-    """
-    params = [n, region_level]
 
-    # 优先使用层级参数（精确匹配）
-    if city is not None:
-        query += " AND city = ?"
-        params.append(city)
-    if county is not None:
-        query += " AND county = ?"
-        params.append(county)
-    if township is not None:
-        query += " AND township = ?"
-        params.append(township)
+    # 根据 region_level 构建不同的查询
+    if region_level == "township":
+        # Township 级别：直接查询原始数据
+        query = """
+            SELECT
+                'township' as region_level,
+                region as region_name,
+                city,
+                county,
+                township,
+                ngram,
+                frequency,
+                percentage,
+                ROW_NUMBER() OVER (PARTITION BY region ORDER BY frequency DESC) as rank
+            FROM regional_ngram_frequency
+            WHERE n = ? AND level = 'township'
+        """
+        params = [n]
 
-    # 向后兼容：region_name（模糊匹配）
-    if region_name is not None:
-        query += " AND region = ?"
-        params.append(region_name)
+        # 过滤条件
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND county = ?"
+            params.append(county)
+        if township is not None:
+            query += " AND township = ?"
+            params.append(township)
+        if region_name is not None:
+            query += " AND region = ?"
+            params.append(region_name)
+
+    elif region_level == "county":
+        # County 级别：从 township 聚合
+        query = """
+            SELECT
+                'county' as region_level,
+                county as region_name,
+                city,
+                county,
+                NULL as township,
+                ngram,
+                SUM(frequency) as frequency,
+                SUM(frequency) * 100.0 / SUM(SUM(frequency)) OVER (PARTITION BY county) as percentage,
+                ROW_NUMBER() OVER (PARTITION BY county ORDER BY SUM(frequency) DESC) as rank
+            FROM regional_ngram_frequency
+            WHERE n = ? AND level = 'township'
+        """
+        params = [n]
+
+        # 过滤条件
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND county = ?"
+            params.append(county)
+        if region_name is not None:
+            query += " AND county = ?"
+            params.append(region_name)
+
+        query += " GROUP BY county, city, ngram"
+
+    else:  # region_level == "city"
+        # City 级别：从 township 聚合
+        query = """
+            SELECT
+                'city' as region_level,
+                city as region_name,
+                city,
+                NULL as county,
+                NULL as township,
+                ngram,
+                SUM(frequency) as frequency,
+                SUM(frequency) * 100.0 / SUM(SUM(frequency)) OVER (PARTITION BY city) as percentage,
+                ROW_NUMBER() OVER (PARTITION BY city ORDER BY SUM(frequency) DESC) as rank
+            FROM regional_ngram_frequency
+            WHERE n = ? AND level = 'township'
+        """
+        params = [n]
+
+        # 过滤条件
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if region_name is not None:
+            query += " AND city = ?"
+            params.append(region_name)
+
+        query += " GROUP BY city, ngram"
 
     # 包装为子查询以应用 rank 过滤
     query = f"""
@@ -182,22 +241,19 @@ def get_regional_ngram_frequency(
     results = execute_query(db, query, tuple(params))
 
     if not results:
-        # 提供更友好的错误信息
-        if region_level in ['city', 'county']:
-            detail = f"No data available for region_level='{region_level}'. Currently only 'township' level data is available in the database."
-        else:
-            detail = f"No regional {n}-grams found with the given filters."
-
         raise HTTPException(
             status_code=404,
-            detail=detail
+            detail=f"No regional {n}-grams found with the given filters."
         )
 
     # 如果需要返回元数据
     if return_metadata:
+        metadata = _build_metadata(len(results))
+        if region_level in ['city', 'county']:
+            metadata['note'] = f"Data aggregated from township level to {region_level} level"
         return {
             "data": results,
-            "metadata": _build_metadata(len(results))
+            "metadata": metadata
         }
 
     return results
