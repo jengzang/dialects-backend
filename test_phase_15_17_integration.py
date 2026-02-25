@@ -94,12 +94,28 @@ def test_phase_15_17_integration():
     print("=" * 60)
     print("Phase 15 (Region Similarity): READY")
     print("Phase 16 (Spatial Integration): READY")
-    print("Phase 17 (Semantic Subcategories): NEEDS DATA SYNC")
+
+    # Check Phase 17 status
+    conn = sqlite3.connect('data/villages.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='semantic_subcategory_labels'")
+    phase17_ready = cursor.fetchone() is not None
+    conn.close()
+
+    if phase17_ready:
+        print("Phase 17 (Semantic Subcategories): READY")
+    else:
+        print("Phase 17 (Semantic Subcategories): NEEDS DATA SYNC")
+
     print("\nAPI Endpoints Added:")
     print("  - 4 endpoints for Phase 15 (region similarity)")
     print("  - 4 endpoints for Phase 16 (spatial integration)")
     print("  - 6 endpoints for Phase 17 (semantic subcategories)")
     print("  Total: 14 new API endpoints")
+
+    if phase17_ready:
+        print("\nOK: All phases are ready! APIs can be used immediately.")
+
     print("=" * 60)
 
 if __name__ == "__main__":
