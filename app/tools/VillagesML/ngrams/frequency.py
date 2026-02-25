@@ -105,7 +105,7 @@ def get_ngram_frequency(
 @router.get("/regional")
 def get_regional_ngram_frequency(
     n: int = Query(..., ge=2, le=4, description="N-gram大小"),
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("township", description="区域级别（当前仅支持 township）", pattern="^(city|county|township)$"),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
@@ -118,11 +118,14 @@ def get_regional_ngram_frequency(
     获取区域N-gram频率
     Get regional n-gram frequencies
 
-    注意：表中没有 run_id 字段，数据是静态的
+    注意：
+    - 当前数据仅包含 township (乡镇) 级别
+    - 查询 city 或 county 级别会返回 404
+    - 表中没有 run_id 字段，数据是静态的
 
     Args:
         n: N-gram大小
-        region_level: 区域级别 (city/county/township)
+        region_level: 区域级别 (city/county/township)，当前仅 township 有数据
         region_name: 区域名称（模糊匹配，可选，向后兼容）
         city: 市级过滤（精确匹配）
         county: 区县级过滤（精确匹配）
@@ -179,9 +182,15 @@ def get_regional_ngram_frequency(
     results = execute_query(db, query, tuple(params))
 
     if not results:
+        # 提供更友好的错误信息
+        if region_level in ['city', 'county']:
+            detail = f"No data available for region_level='{region_level}'. Currently only 'township' level data is available in the database."
+        else:
+            detail = f"No regional {n}-grams found with the given filters."
+
         raise HTTPException(
             status_code=404,
-            detail=f"No regional {n}-grams found"
+            detail=detail
         )
 
     # 如果需要返回元数据
