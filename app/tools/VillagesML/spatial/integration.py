@@ -51,20 +51,27 @@ def get_spatial_tendency_integration(
         SELECT
             id,
             run_id,
+            tendency_run_id,
+            spatial_run_id,
             character,
+            character_category,
             cluster_id,
             cluster_tendency_mean,
             cluster_tendency_std,
+            global_tendency_mean,
+            tendency_deviation,
             cluster_size,
             n_villages_with_char,
             centroid_lon,
             centroid_lat,
             avg_distance_km,
             spatial_coherence,
+            spatial_specificity,
             dominant_city,
             dominant_county,
             is_significant,
-            avg_p_value
+            p_value,
+            u_statistic
         FROM spatial_tendency_integration
         WHERE run_id = ?
     """
