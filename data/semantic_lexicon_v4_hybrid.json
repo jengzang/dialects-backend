@@ -1,0 +1,481 @@
+{
+  "version": "4.0.0-hybrid",
+  "created_at": "2026-02-25",
+  "description": "Hybrid semantic lexicon combining LLM validation and v3 expertise",
+  "subcategories": {
+    "number_small": [
+      "一",
+      "三",
+      "二",
+      "五",
+      "四"
+    ],
+    "number_large": [
+      "七",
+      "九",
+      "八",
+      "六",
+      "十"
+    ],
+    "direction_vertical": [
+      "上",
+      "下",
+      "低"
+    ],
+    "direction_cardinal": [
+      "东",
+      "北",
+      "南",
+      "西"
+    ],
+    "direction_inside": [
+      "中",
+      "内",
+      "里"
+    ],
+    "symbolic_virtue": [
+      "义",
+      "仁",
+      "信",
+      "圣",
+      "德",
+      "文",
+      "智",
+      "礼",
+      "贤"
+    ],
+    "water_spring": [
+      "井",
+      "泉"
+    ],
+    "infrastructure_station": [
+      "亭",
+      "站",
+      "驿"
+    ],
+    "time": [
+      "今",
+      "冬",
+      "古",
+      "夏",
+      "新",
+      "旧",
+      "春",
+      "晚",
+      "朝",
+      "秋"
+    ],
+    "agriculture_storage": [
+      "仓",
+      "廪"
+    ],
+    "symbolic_religion": [
+      "仙",
+      "佛",
+      "堂",
+      "宫",
+      "寺",
+      "庙",
+      "灵",
+      "神",
+      "观"
+    ],
+    "clan_he": [
+      "何"
+    ],
+    "direction_outside": [
+      "侧",
+      "外",
+      "旁",
+      "边"
+    ],
+    "symbolic_light": [
+      "光",
+      "明",
+      "朗",
+      "耀",
+      "辉"
+    ],
+    "direction_opening": [
+      "关",
+      "口",
+      "门"
+    ],
+    "symbolic_prosperity": [
+      "兴",
+      "华",
+      "富",
+      "昌",
+      "盛",
+      "荣",
+      "贵"
+    ],
+    "mountain_slope": [
+      "冈",
+      "坎",
+      "坡",
+      "坳",
+      "岗"
+    ],
+    "agriculture_activity": [
+      "农",
+      "牧",
+      "畜",
+      "耕"
+    ],
+    "clan_other": [
+      "冯",
+      "卢",
+      "叶",
+      "周",
+      "唐",
+      "徐",
+      "戴",
+      "曹",
+      "曾",
+      "朱",
+      "杨",
+      "欧",
+      "潘",
+      "苏",
+      "萧",
+      "蔡",
+      "袁",
+      "许",
+      "谢",
+      "赖",
+      "邓",
+      "邱",
+      "郑",
+      "郭",
+      "钟",
+      "高"
+    ],
+    "symbolic_animal": [
+      "凤",
+      "虎",
+      "鹤",
+      "鹿",
+      "麟",
+      "龙",
+      "龟"
+    ],
+    "clan_liu": [
+      "刘"
+    ],
+    "number_ordinal": [
+      "初",
+      "第",
+      "老"
+    ],
+    "direction_horizontal": [
+      "前",
+      "右",
+      "后",
+      "左"
+    ],
+    "mountain_plateau": [
+      "台",
+      "坪",
+      "塱"
+    ],
+    "symbolic_fortune": [
+      "吉",
+      "喜",
+      "寿",
+      "瑞",
+      "祥",
+      "禄",
+      "福"
+    ],
+    "clan_wu": [
+      "吴",
+      "武"
+    ],
+    "symbolic_peace": [
+      "和",
+      "宁",
+      "安",
+      "康",
+      "泰"
+    ],
+    "agriculture_garden": [
+      "园",
+      "圃",
+      "场"
+    ],
+    "settlement_district": [
+      "围",
+      "坊"
+    ],
+    "shape": [
+      "圆",
+      "尖",
+      "平",
+      "扁",
+      "方",
+      "曲",
+      "直"
+    ],
+    "settlement_market": [
+      "圩",
+      "墟",
+      "市",
+      "集"
+    ],
+    "agriculture_field": [
+      "地",
+      "田",
+      "畔",
+      "畲",
+      "畴"
+    ],
+    "water_stream": [
+      "圳",
+      "沟",
+      "沥",
+      "涌"
+    ],
+    "mountain_valley": [
+      "坑",
+      "峒",
+      "峡",
+      "峪"
+    ],
+    "agriculture_irrigation": [
+      "坝",
+      "堤",
+      "渠"
+    ],
+    "settlement_fort": [
+      "城",
+      "堡",
+      "寨"
+    ],
+    "infrastructure_port": [
+      "埠",
+      "渡",
+      "码"
+    ],
+    "settlement_village": [
+      "塆",
+      "屯",
+      "庄",
+      "村"
+    ],
+    "water_pond": [
+      "塘",
+      "池",
+      "泊",
+      "淀",
+      "潭"
+    ],
+    "mountain_rock": [
+      "壁",
+      "岩",
+      "崖",
+      "石"
+    ],
+    "size_large": [
+      "大",
+      "宽",
+      "巨",
+      "广"
+    ],
+    "direction_center": [
+      "央",
+      "心"
+    ],
+    "direction_end": [
+      "头",
+      "尾",
+      "端",
+      "角"
+    ],
+    "settlement_building": [
+      "宅",
+      "屋",
+      "楼",
+      "祠"
+    ],
+    "symbolic_treasure": [
+      "宝",
+      "玉",
+      "珍"
+    ],
+    "size_small": [
+      "小",
+      "微",
+      "细"
+    ],
+    "mountain_peak": [
+      "山",
+      "岭",
+      "峰",
+      "巅",
+      "顶"
+    ],
+    "water_island": [
+      "屿",
+      "岛",
+      "洲"
+    ],
+    "mountain_ridge": [
+      "岐",
+      "峦",
+      "嶂",
+      "脊"
+    ],
+    "water_shore": [
+      "岸",
+      "汀",
+      "沿",
+      "渚",
+      "滨"
+    ],
+    "water_river": [
+      "川",
+      "江",
+      "河",
+      "涧",
+      "溪"
+    ],
+    "infrastructure_road": [
+      "巷",
+      "街",
+      "路",
+      "道"
+    ],
+    "clan_zhang": [
+      "张"
+    ],
+    "vegetation_forest": [
+      "木",
+      "林",
+      "树",
+      "森"
+    ],
+    "vegetation_pine": [
+      "杉",
+      "松",
+      "柏"
+    ],
+    "clan_li": [
+      "李"
+    ],
+    "vegetation_fruit": [
+      "杏",
+      "果",
+      "桃",
+      "梅",
+      "榄",
+      "蕉"
+    ],
+    "vegetation_other": [
+      "枫",
+      "柳",
+      "桉",
+      "桐",
+      "榕",
+      "槐",
+      "樟",
+      "草",
+      "蔗",
+      "藤"
+    ],
+    "infrastructure_bridge": [
+      "桥"
+    ],
+    "clan_liang": [
+      "梁"
+    ],
+    "water_beach": [
+      "沙",
+      "滩"
+    ],
+    "water_lake": [
+      "泽",
+      "洼",
+      "湖"
+    ],
+    "water_port": [
+      "津",
+      "港"
+    ],
+    "size_short": [
+      "浅",
+      "短",
+      "近"
+    ],
+    "water_bay": [
+      "浦",
+      "湾",
+      "滘",
+      "濠"
+    ],
+    "size_long": [
+      "深",
+      "远",
+      "长"
+    ],
+    "settlement_group": [
+      "片",
+      "社",
+      "组",
+      "队"
+    ],
+    "color": [
+      "白",
+      "紫",
+      "红",
+      "绿",
+      "蓝",
+      "金",
+      "银",
+      "青",
+      "黑"
+    ],
+    "agriculture_crop": [
+      "禾",
+      "稻",
+      "谷",
+      "麦"
+    ],
+    "vegetation_bamboo": [
+      "竹",
+      "笋"
+    ],
+    "clan_luo": [
+      "罗"
+    ],
+    "vegetation_flower": [
+      "花",
+      "荷",
+      "莲",
+      "菊"
+    ],
+    "vegetation_tea": [
+      "茶"
+    ],
+    "infrastructure_transport": [
+      "车",
+      "铁",
+      "隧"
+    ],
+    "clan_chen": [
+      "陈"
+    ],
+    "clan_huang": [
+      "黄"
+    ]
+  },
+  "metadata": {
+    "base_v3": "C:\\Users\\joengzaang\\PycharmProjects\\villages-ML\\data\\semantic_lexicon_v3_expanded.json",
+    "base_llm": "C:\\Users\\joengzaang\\PycharmProjects\\villages-ML\\data\\semantic_lexicon_v4_pilot.json",
+    "total_chars": 313,
+    "hybrid_rules": 46,
+    "llm_adopted": 7,
+    "v3_retained": 71,
+    "both_agreed": 235
+  }
+}

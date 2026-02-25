@@ -24,12 +24,14 @@ def setup_villages_routes(app: FastAPI):
     from .semantic import category as semantic_category
     from .semantic import labels as semantic_labels
     from .semantic import composition as semantic_composition
+    from .semantic import subcategories as semantic_subcategories  # NEW: Phase 17
     from .clustering import assignments as cluster_assignments
     from .spatial import hotspots as spatial_hotspots
     from .spatial import integration as spatial_integration
     from .ngrams import frequency as ngram_frequency
     from .patterns import router as patterns_router
     from .regional import aggregates_realtime as regional_aggregates
+    from .regional import similarity as regional_similarity  # NEW: Phase 15
     from .compute import clustering, semantic, features, subset
     from .admin import run_ids as admin_run_ids
     from .statistics import router as statistics_router  # NEW: Statistics endpoints
@@ -46,12 +48,14 @@ def setup_villages_routes(app: FastAPI):
     app.include_router(semantic_category.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
     app.include_router(semantic_labels.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
     app.include_router(semantic_composition.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
+    app.include_router(semantic_subcategories.router, prefix="/api/villages", tags=["VillagesML-Semantic"])  # NEW: Phase 17
     app.include_router(cluster_assignments.router, prefix="/api/villages", tags=["VillagesML-Clustering"])
     app.include_router(spatial_hotspots.router, prefix="/api/villages", tags=["VillagesML-Spatial"])
-    app.include_router(spatial_integration.router, prefix="/api/villages", tags=["VillagesML-Spatial"])
+    app.include_router(spatial_integration.router, prefix="/api/villages", tags=["VillagesML-Spatial"])  # Phase 16
     app.include_router(ngram_frequency.router, prefix="/api/villages", tags=["VillagesML-Ngrams"])
     app.include_router(patterns_router, prefix="/api/villages", tags=["VillagesML-Patterns"])
     app.include_router(regional_aggregates.router, prefix="/api/villages", tags=["VillagesML-Regional"])
+    app.include_router(regional_similarity.router, prefix="/api/villages", tags=["VillagesML-Regional"])  # NEW: Phase 15
     app.include_router(clustering.router, prefix="/api/villages", tags=["VillagesML-Compute"])
     app.include_router(semantic.router, prefix="/api/villages", tags=["VillagesML-Compute"])
     app.include_router(features.router, prefix="/api/villages", tags=["VillagesML-Compute"])
