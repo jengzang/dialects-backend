@@ -463,14 +463,6 @@ def get_ngram_tendency(
         # County 级别：从 township 聚合
         regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
 
-        # 使用 regional_total_raw 计算 Lift（如果存在），否则使用 regional_total
-        if has_regional_total_raw:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total_raw)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
-        else:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
-
         query = f"""
             SELECT
                 'county' as region_level,
@@ -481,7 +473,8 @@ def get_ngram_tendency(
                 nt.ngram,
                 nt.n,
                 nt.position,
-                {lift_formula} as tendency_score,
+                (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
+                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
                 CASE
                     WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
                          SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
@@ -538,14 +531,6 @@ def get_ngram_tendency(
         # City 级别：从 township 聚合
         regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
 
-        # 使用 regional_total_raw 计算 Lift（如果存在），否则使用 regional_total
-        if has_regional_total_raw:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total_raw)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
-        else:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
-
         query = f"""
             SELECT
                 'city' as region_level,
@@ -556,7 +541,8 @@ def get_ngram_tendency(
                 nt.ngram,
                 nt.n,
                 nt.position,
-                {lift_formula} as tendency_score,
+                (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
+                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
                 CASE
                     WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
                          SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
