@@ -464,8 +464,20 @@ def get_ngram_tendency(
                 nt.position,
                 (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
                 (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
-                NULL as log_odds,
-                NULL as z_score,
+                CASE
+                    WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
+                         SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
+                    THEN LOG((SUM(nt.regional_count) * 1.0 / (SUM(nt.regional_total) - SUM(nt.regional_count) + 1)) /
+                             (SUM(nt.global_count) * 1.0 / (SUM(nt.global_total) - SUM(nt.global_count) + 1)))
+                    ELSE 0.0
+                END as log_odds,
+                CASE
+                    WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
+                    THEN (SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) /
+                         SQRT(SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) *
+                              (1 - SUM(nt.global_count) * 1.0 / SUM(nt.global_total)))
+                    ELSE 0.0
+                END as z_score,
                 SUM(nt.regional_count) as frequency,
                 SUM(nt.regional_total) as regional_total,
                 SUM(nt.global_count) as expected_frequency,
@@ -517,8 +529,20 @@ def get_ngram_tendency(
                 nt.position,
                 (SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
                 (SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) as tendency_score,
-                NULL as log_odds,
-                NULL as z_score,
+                CASE
+                    WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
+                         SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
+                    THEN LOG((SUM(nt.regional_count) * 1.0 / (SUM(nt.regional_total) - SUM(nt.regional_count) + 1)) /
+                             (SUM(nt.global_count) * 1.0 / (SUM(nt.global_total) - SUM(nt.global_count) + 1)))
+                    ELSE 0.0
+                END as log_odds,
+                CASE
+                    WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
+                    THEN (SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) /
+                         SQRT(SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) *
+                              (1 - SUM(nt.global_count) * 1.0 / SUM(nt.global_total)))
+                    ELSE 0.0
+                END as z_score,
                 SUM(nt.regional_count) as frequency,
                 SUM(nt.regional_total) as regional_total,
                 SUM(nt.global_count) as expected_frequency,
