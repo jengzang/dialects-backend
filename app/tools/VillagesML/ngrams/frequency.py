@@ -400,9 +400,7 @@ def get_ngram_tendency(
     # 根据 region_level 构建不同的查询
     if region_level == "township":
         # Township 级别：直接查询原始数据
-        coord_field = '乡镇级'
-
-        query = f"""
+        query = """
             SELECT
                 nt.level as region_level,
                 nt.region as region_name,
@@ -419,10 +417,9 @@ def get_ngram_tendency(
                 nt.regional_total,
                 nt.global_count as expected_frequency,
                 nt.global_total,
-                AVG(v.longitude) as centroid_lon,
-                AVG(v.latitude) as centroid_lat
+                NULL as centroid_lon,
+                NULL as centroid_lat
             FROM ngram_tendency nt
-            LEFT JOIN 广东省自然村_预处理 v ON nt.region = v.{coord_field}
             WHERE nt.level = 'township'
         """
         params = []
@@ -448,9 +445,6 @@ def get_ngram_tendency(
             params.append(min_tendency)
 
         query += """
-            GROUP BY nt.level, nt.region, nt.city, nt.county, nt.township,
-                     nt.ngram, nt.n, nt.position, nt.lift, nt.log_odds, nt.z_score,
-                     nt.regional_count, nt.regional_total, nt.global_count, nt.global_total
             ORDER BY nt.lift DESC
             LIMIT ?
         """
@@ -458,9 +452,7 @@ def get_ngram_tendency(
 
     elif region_level == "county":
         # County 级别：从 township 聚合
-        coord_field = '区县级'
-
-        query = f"""
+        query = """
             SELECT
                 'county' as region_level,
                 nt.county as region_name,
@@ -478,10 +470,9 @@ def get_ngram_tendency(
                 SUM(nt.regional_total) as regional_total,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
-                AVG(v.longitude) as centroid_lon,
-                AVG(v.latitude) as centroid_lat
+                NULL as centroid_lon,
+                NULL as centroid_lat
             FROM ngram_tendency nt
-            LEFT JOIN 广东省自然村_预处理 v ON nt.county = v.{coord_field}
             WHERE nt.level = 'township'
         """
         params = []
@@ -514,9 +505,7 @@ def get_ngram_tendency(
 
     else:  # region_level == "city"
         # City 级别：从 township 聚合
-        coord_field = '市级'
-
-        query = f"""
+        query = """
             SELECT
                 'city' as region_level,
                 nt.city as region_name,
@@ -534,10 +523,9 @@ def get_ngram_tendency(
                 SUM(nt.regional_total) as regional_total,
                 SUM(nt.global_count) as expected_frequency,
                 SUM(nt.global_total) as global_total,
-                AVG(v.longitude) as centroid_lon,
-                AVG(v.latitude) as centroid_lat
+                NULL as centroid_lon,
+                NULL as centroid_lat
             FROM ngram_tendency nt
-            LEFT JOIN 广东省自然村_预处理 v ON nt.city = v.{coord_field}
             WHERE nt.level = 'township'
         """
         params = []
