@@ -84,7 +84,7 @@ def get_regional_character_frequency(
     """
     # 构建查询
     query = """
-        SELECT
+        SELECT DISTINCT
             region_level,
             region_name,
             city,

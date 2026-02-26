@@ -40,7 +40,7 @@ def get_character_tendency_by_region(
         List[CharTendency]: 字符倾向性列表
     """
     query = f"""
-        SELECT
+        SELECT DISTINCT
             region_level,
             region_name,
             city,

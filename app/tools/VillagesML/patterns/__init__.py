@@ -14,7 +14,7 @@ router = APIRouter(prefix="/patterns")
 @router.get("/frequency/global")
 def get_global_pattern_frequency(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
-    min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
+    min_frequency: Optional[float] = Query(None, ge=0, le=1, description="最小频率（0-1之间的小数，如0.05表示5%）"),
     top_k: int = Query(100, ge=1, le=1000, description="返回Top K"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -31,7 +31,7 @@ def get_global_pattern_frequency(
         List[dict]: 模式频率列表
     """
     query = """
-        SELECT
+        SELECT DISTINCT
             pattern,
             pattern_type,
             frequency,
@@ -92,7 +92,7 @@ def get_regional_pattern_frequency(
         List[dict]: 区域模式频率列表
     """
     query = """
-        SELECT
+        SELECT DISTINCT
             region_level,
             region_name,
             city,
@@ -171,7 +171,7 @@ def get_pattern_tendency(
         List[dict]: 模式倾向性列表
     """
     query = """
-        SELECT
+        SELECT DISTINCT
             region_level,
             region_name,
             city,
@@ -243,7 +243,7 @@ def get_structural_patterns(
         List[dict]: 结构化模式列表
     """
     query = """
-        SELECT
+        SELECT DISTINCT
             pattern,
             pattern_type,
             n,
