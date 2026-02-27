@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, Optional
 import logging
 
-from .validators import ClusteringParams, ClusteringScanParams
+from .validators import ClusteringParams, ClusteringScanParams, CharacterTendencyClusteringParams, SampledVillageClusteringParams, SpatialAwareClusteringParams, HierarchicalClusteringParams
 from .cache import compute_cache
 from .engine import ClusteringEngine
 from .timeout import timeout, TimeoutException
@@ -192,6 +192,215 @@ async def clear_cache() -> Dict[str, str]:
     """
     compute_cache.clear("clustering")
     return {"status": "success", "message": "Clustering cache cleared"}
+
+
+@router.post("/character-tendency")
+async def run_character_tendency_clustering(
+    params: CharacterTendencyClusteringParams,
+    user: Optional[User] = Depends(ApiLimiter),
+    engine: ClusteringEngine = Depends(get_clustering_engine)
+) -> Dict[str, Any]:
+    """
+    执行字符倾向性聚类（需要登录）
+
+    基于字符使用模式（lift/z_score）对区域进行聚类
+
+    Args:
+        params: 字符倾向性聚类参数
+        user: 当前用户（由 ApiLimiter 自动验证）
+
+    Returns:
+        聚类结果
+
+    Raises:
+        HTTPException: 如果未登录、计算失败或超时
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="此功能需要登录")
+
+    try:
+        # 检查缓存
+        cached_result = compute_cache.get("character_tendency", params.dict())
+        if cached_result:
+            logger.info("Returning cached character tendency clustering result")
+            cached_result['from_cache'] = True
+            return cached_result
+
+        logger.info(f"Running character tendency clustering: {params.algorithm}, level={params.region_level}, metric={params.tendency_metric}")
+
+        with timeout(5):
+            result = engine.run_character_tendency_clustering(params.dict())
+
+        # 缓存结果
+        compute_cache.set("character_tendency", params.dict(), result)
+
+        result['from_cache'] = False
+        return result
+
+    except TimeoutException as e:
+        logger.error(f"Character tendency clustering timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Character tendency clustering error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Character tendency clustering failed: {str(e)}")
+
+
+@router.post("/sampled-villages")
+async def run_sampled_village_clustering(
+    params: SampledVillageClusteringParams,
+    user: Optional[User] = Depends(ApiLimiter),
+    engine: ClusteringEngine = Depends(get_clustering_engine)
+) -> Dict[str, Any]:
+    """
+    执行采样村庄聚类（需要登录）
+
+    对28.5万村庄进行智能采样后聚类
+
+    Args:
+        params: 采样村庄聚类参数
+        user: 当前用户（由 ApiLimiter 自动验证）
+
+    Returns:
+        聚类结果
+
+    Raises:
+        HTTPException: 如果未登录、计算失败或超时
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="此功能需要登录")
+
+    try:
+        # 检查缓存
+        cached_result = compute_cache.get("sampled_villages", params.dict())
+        if cached_result:
+            logger.info("Returning cached sampled village clustering result")
+            cached_result['from_cache'] = True
+            return cached_result
+
+        logger.info(f"Running sampled village clustering: {params.algorithm}, strategy={params.sampling_strategy}, size={params.sample_size}")
+
+        with timeout(5):
+            result = engine.run_sampled_village_clustering(params.dict())
+
+        # 缓存结果
+        compute_cache.set("sampled_villages", params.dict(), result)
+
+        result['from_cache'] = False
+        return result
+
+    except TimeoutException as e:
+        logger.error(f"Sampled village clustering timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Sampled village clustering error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Sampled village clustering failed: {str(e)}")
+
+
+@router.post("/spatial-aware")
+async def run_spatial_aware_clustering(
+    params: SpatialAwareClusteringParams,
+    user: Optional[User] = Depends(ApiLimiter),
+    engine: ClusteringEngine = Depends(get_clustering_engine)
+) -> Dict[str, Any]:
+    """
+    执行空间感知聚类（需要登录）
+
+    对已有的空间聚类结果进行二次聚类
+
+    Args:
+        params: 空间感知聚类参数
+        user: 当前用户（由 ApiLimiter 自动验证）
+
+    Returns:
+        聚类结果
+
+    Raises:
+        HTTPException: 如果未登录、计算失败或超时
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="此功能需要登录")
+
+    try:
+        # 检查缓存
+        cached_result = compute_cache.get("spatial_aware", params.dict())
+        if cached_result:
+            logger.info("Returning cached spatial-aware clustering result")
+            cached_result['from_cache'] = True
+            return cached_result
+
+        logger.info(f"Running spatial-aware clustering: {params.algorithm}, run_id={params.spatial_run_id}")
+
+        with timeout(5):
+            result = engine.run_spatial_aware_clustering(params.dict())
+
+        # 缓存结果
+        compute_cache.set("spatial_aware", params.dict(), result)
+
+        result['from_cache'] = False
+        return result
+
+    except TimeoutException as e:
+        logger.error(f"Spatial-aware clustering timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Spatial-aware clustering error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Spatial-aware clustering failed: {str(e)}")
+
+
+@router.post("/hierarchical")
+async def run_hierarchical_clustering(
+    params: HierarchicalClusteringParams,
+    user: Optional[User] = Depends(ApiLimiter),
+    engine: ClusteringEngine = Depends(get_clustering_engine)
+) -> Dict[str, Any]:
+    """
+    执行层次聚类（需要登录）
+
+    展示市→县→镇的嵌套聚类结构
+
+    Args:
+        params: 层次聚类参数
+        user: 当前用户（由 ApiLimiter 自动验证）
+
+    Returns:
+        层次聚类结果
+
+    Raises:
+        HTTPException: 如果未登录、计算失败或超时
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="此功能需要登录")
+
+    try:
+        # 检查缓存
+        cached_result = compute_cache.get("hierarchical", params.dict())
+        if cached_result:
+            logger.info("Returning cached hierarchical clustering result")
+            cached_result['from_cache'] = True
+            return cached_result
+
+        logger.info(f"Running hierarchical clustering: {params.algorithm}, k_city={params.k_city}, k_county={params.k_county}, k_township={params.k_township}")
+
+        # 层次聚类可能需要更长时间
+        with timeout(8):
+            result = engine.run_hierarchical_clustering(params.dict())
+
+        # 缓存结果
+        compute_cache.set("hierarchical", params.dict(), result)
+
+        result['from_cache'] = False
+        return result
+
+    except TimeoutException as e:
+        logger.error(f"Hierarchical clustering timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Hierarchical clustering error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Hierarchical clustering failed: {str(e)}")
 
 
 import time

@@ -149,11 +149,12 @@ def get_global_subcategory_vtf(
 
 @router.get("/vtf/regional")
 def get_regional_subcategory_vtf(
-    region_level: str = Query("市级", description="区域级别"),
+    region_level: str = Query("市级", description="区域级别（市级/区县级/乡镇级）"),
     region_name: Optional[str] = Query(None, description="区域名称"),
     parent_category: Optional[str] = Query(None, description="父类别过滤"),
     subcategory: Optional[str] = Query(None, description="子类别过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值"),
+    min_villages: int = Query(0, ge=0, le=100, description="最小村庄数过滤（建议乡镇级使用5+）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数限制"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -167,6 +168,7 @@ def get_regional_subcategory_vtf(
         parent_category: 可选的父类别过滤
         subcategory: 可选的子类别过滤
         min_tendency: 最小倾向值过滤
+        min_villages: 最小村庄数过滤（建议乡镇级使用5+）
         limit: 返回记录数限制
 
     Returns:
@@ -185,8 +187,9 @@ def get_regional_subcategory_vtf(
             tendency
         FROM semantic_subcategory_vtf_regional
         WHERE region_level = ?
+          AND village_count >= ?
     """
-    params = [region_level]
+    params = [region_level, min_villages]
 
     if region_name:
         query += " AND region_name = ?"
@@ -217,8 +220,9 @@ def get_regional_subcategory_vtf(
 
 @router.get("/tendency/top")
 def get_top_tendency_subcategories(
-    region_level: str = Query("市级", description="区域级别"),
+    region_level: str = Query("市级", description="区域级别（市级/区县级/乡镇级）"),
     parent_category: Optional[str] = Query(None, description="父类别过滤"),
+    min_villages: int = Query(5, ge=0, le=100, description="最小村庄数过滤（默认5，排除小样本噪声）"),
     top_n: int = Query(10, ge=1, le=50, description="返回前N个"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -227,12 +231,17 @@ def get_top_tendency_subcategories(
     Get subcategories with highest tendency values
 
     Args:
-        region_level: 区域级别
+        region_level: 区域级别（市级/区县级/乡镇级）
         parent_category: 可选的父类别过滤
+        min_villages: 最小村庄数过滤（默认5，排除小样本噪声）
         top_n: 返回前N个
 
     Returns:
         List[Dict]: 倾向值最高的子类别
+
+    Note:
+        - 默认过滤 village_count < 5 的数据，避免小样本噪声
+        - 乡镇级数据建议使用更高的 min_villages 值（如10）
     """
     query = """
         SELECT
@@ -244,8 +253,9 @@ def get_top_tendency_subcategories(
             village_count
         FROM semantic_subcategory_vtf_regional
         WHERE region_level = ?
+          AND village_count >= ?
     """
-    params = [region_level]
+    params = [region_level, min_villages]
 
     if parent_category:
         query += " AND parent_category = ?"
@@ -265,8 +275,9 @@ def get_top_tendency_subcategories(
 @router.get("/comparison")
 def compare_subcategories(
     region_name: str = Query(..., description="区域名称"),
-    region_level: str = Query("市级", description="区域级别"),
+    region_level: str = Query("市级", description="区域级别（市级/区县级/乡镇级）"),
     parent_category: str = Query(..., description="父类别（mountain/water）"),
+    min_villages: int = Query(0, ge=0, le=100, description="最小村庄数过滤（建议乡镇级使用5+）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -275,11 +286,16 @@ def compare_subcategories(
 
     Args:
         region_name: 区域名称
-        region_level: 区域级别
-        parent_category: 父类别
+        region_level: 区域级别（市级/区县级/乡镇级）
+        parent_category: 父类别（mountain/water等）
+        min_villages: 最小村庄数过滤，用于排除小样本噪声（建议乡镇级使用5+）
 
     Returns:
         Dict: 子类别比较数据
+
+    Note:
+        - 乡镇级数据可能存在小样本噪声（村庄数<5），建议使用 min_villages=5 过滤
+        - 数据覆盖：市级21个，区县级121个，乡镇级1439个
     """
     query = """
         SELECT
@@ -292,21 +308,23 @@ def compare_subcategories(
         WHERE region_level = ?
           AND region_name = ?
           AND parent_category = ?
+          AND village_count >= ?
         ORDER BY vtf DESC
     """
 
-    results = execute_query(db, query, (region_level, region_name, parent_category))
+    results = execute_query(db, query, (region_level, region_name, parent_category, min_villages))
 
     if not results:
         raise HTTPException(
             status_code=404,
-            detail=f"No data found for {region_name} ({parent_category})"
+            detail=f"No data found for {region_name} ({parent_category}) with min_villages >= {min_villages}"
         )
 
     return {
         "region_name": region_name,
         "region_level": region_level,
         "parent_category": parent_category,
+        "min_villages": min_villages,
         "subcategories": results,
         "total_count": len(results)
     }

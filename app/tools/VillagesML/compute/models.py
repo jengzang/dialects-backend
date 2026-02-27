@@ -109,3 +109,31 @@ class ErrorResponse(BaseModel):
     detail: str
     error_type: Optional[str] = None
     timestamp: Optional[str] = None
+
+
+class HierarchicalClusterNode(BaseModel):
+    """层次聚类节点"""
+    cluster_id: int
+    level: str  # "city", "county", "township"
+    region_name: str
+    parent_cluster_id: Optional[int] = None
+    children: List['HierarchicalClusterNode'] = []
+    region_count: int = 0
+    metrics: Dict[str, float] = {}
+
+
+class HierarchicalClusteringResult(BaseModel):
+    """层次聚类结果模型"""
+    run_id: str
+    algorithm: str
+    k_city: int
+    k_county: int
+    k_township: int
+    execution_time_ms: int
+    tree: List[Dict[str, Any]]
+    metrics: Dict[str, Any]
+    from_cache: bool = False
+
+
+# Enable forward references for recursive model
+HierarchicalClusterNode.model_rebuild()
