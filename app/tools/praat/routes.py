@@ -30,7 +30,7 @@ from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id
 from app.logs.service.api_limiter import ApiLimiter
 from app.auth.models import User
 
-router = APIRouter()
+router = APIRouter(prefix="/api/tools/praat", tags=["Praat Acoustic Analysis"])
 
 
 @router.get("/capabilities")

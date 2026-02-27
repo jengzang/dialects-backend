@@ -1,0 +1,34 @@
+# ============================================================
+# NOTE: VillagesML has been integrated into the main FastAPI app
+# These dependencies have been added to the main requirements.txt
+# This file is kept for REFERENCE ONLY - DO NOT install separately
+#
+# 注意：VillagesML 已集成到主 FastAPI 应用
+# 这些依赖已添加到主 requirements.txt
+# 此文件仅供参考 - 请勿单独安装
+# ============================================================
+
+# FastAPI Requirements (already in main requirements.txt)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+
+# Machine Learning & Scientific Computing
+# ✅ Added to main requirements.txt:
+scikit-learn>=1.3.0  # ✅ Added
+scipy>=1.10.0        # ✅ Already present
+networkx>=3.0        # ✅ Added
+
+# Already in main requirements.txt:
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Optional: Production deployment (already in main requirements.txt)
+gunicorn>=21.2.0
+
+# Optional: Caching (already in main requirements.txt)
+redis>=5.0.0
+
+# Optional: Rate limiting (not needed - using main app's rate limiting)
+# slowapi>=0.1.9
