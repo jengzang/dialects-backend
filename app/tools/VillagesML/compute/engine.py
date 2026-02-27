@@ -166,9 +166,24 @@ class ClusteringEngine:
             logger.info(f"KMeans clustering completed: k={params['k']}")
 
         elif algorithm == 'dbscan':
-            model = DBSCAN(eps=0.5, min_samples=5)
+            # 使用配置的参数或默认值
+            dbscan_config = params.get('dbscan_config', {})
+            eps = dbscan_config.get('eps', 0.5)
+            min_samples = dbscan_config.get('min_samples', 5)
+
+            # 对于小数据集,自动调整参数
+            n_samples = X.shape[0]
+            if n_samples < 30 and eps == 0.5 and min_samples == 5:
+                # 自动调整为更宽松的参数
+                eps = 1.5
+                min_samples = max(2, n_samples // 10)
+                logger.info(f"Auto-adjusted DBSCAN params for small dataset: eps={eps}, min_samples={min_samples}")
+
+            model = DBSCAN(eps=eps, min_samples=min_samples)
             labels = model.fit_predict(X)
-            logger.info(f"DBSCAN clustering completed: {len(set(labels))} clusters")
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            n_noise = list(labels).count(-1)
+            logger.info(f"DBSCAN clustering completed: {n_clusters} clusters, {n_noise} noise points")
 
         elif algorithm == 'gmm':
             model = GaussianMixture(
@@ -179,6 +194,9 @@ class ClusteringEngine:
             logger.info(f"GMM clustering completed: k={params['k']}")
 
         # 4. 评估指标
+        n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        n_noise = list(labels).count(-1)
+
         metrics = {}
         if len(set(labels)) > 1:  # 至少2个聚类
             metrics['silhouette_score'] = float(silhouette_score(X, labels))
@@ -188,6 +206,11 @@ class ClusteringEngine:
             metrics['silhouette_score'] = 0.0
             metrics['davies_bouldin_index'] = 0.0
             metrics['calinski_harabasz_score'] = 0.0
+
+        # 添加聚类统计
+        metrics['n_clusters'] = n_clusters
+        metrics['n_noise'] = n_noise
+        metrics['noise_ratio'] = round(n_noise / len(labels), 3) if len(labels) > 0 else 0.0
 
         # 5. 聚类分配
         assignments = []
@@ -205,7 +228,12 @@ class ClusteringEngine:
 
         execution_time = int((time.time() - start_time) * 1000)
 
-        return {
+        # 生成参数建议(仅DBSCAN)
+        param_suggestion = None
+        if algorithm == 'dbscan':
+            param_suggestion = self._suggest_dbscan_params(n_clusters, n_noise, len(region_names))
+
+        result = {
             'run_id': f"online_clustering_{int(time.time())}",
             'algorithm': algorithm,
             'k': params.get('k'),
@@ -215,6 +243,11 @@ class ClusteringEngine:
             'assignments': assignments,
             'cluster_profiles': cluster_profiles
         }
+
+        if param_suggestion:
+            result['param_suggestion'] = param_suggestion
+
+        return result
 
     def _generate_cluster_profiles(
         self,
@@ -260,6 +293,900 @@ class ClusteringEngine:
             profiles.append(profile)
 
         return profiles
+
+    def _suggest_dbscan_params(
+        self,
+        n_clusters: int,
+        n_noise: int,
+        n_samples: int
+    ) -> Dict[str, Any]:
+        """
+        根据聚类结果建议DBSCAN参数调整
+
+        Args:
+            n_clusters: 聚类数量
+            n_noise: 噪声点数量
+            n_samples: 样本总数
+
+        Returns:
+            参数建议字典
+        """
+        noise_ratio = n_noise / n_samples if n_samples > 0 else 0
+
+        if n_clusters == 0:
+            # 全是噪声点 - 参数太严格
+            return {
+                'status': 'too_strict',
+                'message': '所有点都是噪声,参数过于严格',
+                'suggestion': '增大eps(如+0.3)或减小min_samples(如-1)',
+                'recommended_action': 'increase_eps'
+            }
+        elif n_clusters == 1 and n_noise == 0:
+            # 只有一个聚类 - 参数太宽松
+            return {
+                'status': 'too_loose',
+                'message': '所有点在同一聚类,参数过于宽松',
+                'suggestion': '减小eps(如-0.3)或增大min_samples(如+1)',
+                'recommended_action': 'decrease_eps'
+            }
+        elif noise_ratio > 0.3:
+            # 噪声点过多
+            return {
+                'status': 'high_noise',
+                'message': f'噪声点比例过高({noise_ratio:.1%})',
+                'suggestion': '适当增大eps或减小min_samples',
+                'recommended_action': 'increase_eps'
+            }
+        elif n_clusters > n_samples * 0.5:
+            # 聚类过于碎片化
+            return {
+                'status': 'too_fragmented',
+                'message': f'聚类过于碎片化({n_clusters}个聚类)',
+                'suggestion': '增大eps以合并小聚类',
+                'recommended_action': 'increase_eps'
+            }
+        else:
+            # 参数合理
+            return {
+                'status': 'good',
+                'message': f'聚类效果良好({n_clusters}个聚类,{noise_ratio:.1%}噪声)',
+                'suggestion': '参数设置合理',
+                'recommended_action': 'none'
+            }
+
+    def _build_character_tendency_features(
+        self,
+        region_level: str,
+        top_n_chars: int,
+        tendency_metric: str,
+        region_filter: Optional[List[str]] = None
+    ) -> Tuple[np.ndarray, List[str], List[str]]:
+        """
+        构建字符倾向性特征矩阵
+
+        Args:
+            region_level: 区域级别
+            top_n_chars: 每个区域选择top N字符
+            tendency_metric: 倾向性指标 (z_score/lift/log_odds)
+            region_filter: 区域过滤器
+
+        Returns:
+            (特征矩阵, 区域名称列表, 字符列表)
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        # 映射region_level到表中的列名
+        level_map = {
+            'city': 'city',
+            'county': 'county',
+            'township': 'town'
+        }
+        region_col = level_map.get(region_level, 'county')
+
+        # 使用窗口函数选择每个区域的top N字符
+        query = f"""
+        SELECT region, character, {tendency_metric}
+        FROM (
+            SELECT
+                {region_col} as region,
+                character,
+                {tendency_metric},
+                ROW_NUMBER() OVER (PARTITION BY {region_col} ORDER BY {tendency_metric} DESC) as rn
+            FROM char_regional_analysis
+            WHERE {region_col} IS NOT NULL
+        )
+        WHERE rn <= ?
+        """
+
+        params = [top_n_chars]
+
+        # 添加区域过滤
+        if region_filter:
+            placeholders = ','.join(['?' for _ in region_filter])
+            query = query.replace("WHERE rn <=", f"AND region IN ({placeholders}) WHERE rn <=")
+            params = region_filter + params
+
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+
+        # Pivot操作：region × character矩阵
+        pivot_df = df.pivot(index='region', columns='character', values=tendency_metric)
+
+        # 缺失值填充为0
+        pivot_df = pivot_df.fillna(0)
+
+        region_names = pivot_df.index.tolist()
+        characters = pivot_df.columns.tolist()
+        X = pivot_df.values
+
+        logger.info(f"Built character tendency matrix: {X.shape} ({len(region_names)} regions × {len(characters)} chars)")
+
+        return X, region_names, characters
+
+    def _sample_villages(
+        self,
+        df: pd.DataFrame,
+        strategy: str,
+        sample_size: int,
+        random_state: int
+    ) -> pd.DataFrame:
+        """
+        村庄采样
+
+        Args:
+            df: 村庄数据框
+            strategy: 采样策略 (random/stratified/spatial)
+            sample_size: 采样大小
+            random_state: 随机种子
+
+        Returns:
+            采样后的数据框
+        """
+        if len(df) <= sample_size:
+            return df
+
+        if strategy == "random":
+            return df.sample(n=sample_size, random_state=random_state)
+
+        elif strategy == "stratified":
+            # 按县分层采样，保持区域分布
+            if 'county' not in df.columns:
+                logger.warning("County column not found, falling back to random sampling")
+                return df.sample(n=sample_size, random_state=random_state)
+
+            county_counts = df['county'].value_counts()
+            total = len(df)
+
+            # 计算每个县应采样的数量
+            samples_per_county = (county_counts / total * sample_size).astype(int)
+
+            # 确保至少采样1个
+            samples_per_county = samples_per_county.clip(lower=1)
+
+            # 调整总数
+            if samples_per_county.sum() > sample_size:
+                # 从最大的县减少
+                diff = samples_per_county.sum() - sample_size
+                largest_counties = samples_per_county.nlargest(diff).index
+                for county in largest_counties:
+                    samples_per_county[county] -= 1
+
+            sampled_dfs = []
+            for county, n_samples in samples_per_county.items():
+                county_df = df[df['county'] == county]
+                if len(county_df) >= n_samples:
+                    sampled_dfs.append(county_df.sample(n=n_samples, random_state=random_state))
+                else:
+                    sampled_dfs.append(county_df)
+
+            return pd.concat(sampled_dfs, ignore_index=True)
+
+        elif strategy == "spatial":
+            # 空间网格采样，确保地理均匀性
+            if 'longitude' not in df.columns or 'latitude' not in df.columns:
+                logger.warning("Spatial columns not found, falling back to random sampling")
+                return df.sample(n=sample_size, random_state=random_state)
+
+            # 将坐标空间划分为50×50网格
+            n_grids = 50
+            df['grid_x'] = pd.cut(df['longitude'], bins=n_grids, labels=False)
+            df['grid_y'] = pd.cut(df['latitude'], bins=n_grids, labels=False)
+            df['grid_id'] = df['grid_x'].astype(str) + '_' + df['grid_y'].astype(str)
+
+            # 计算每个网格应采样的数量
+            grid_counts = df['grid_id'].value_counts()
+            samples_per_grid = max(1, sample_size // len(grid_counts))
+
+            sampled_dfs = []
+            for grid_id in grid_counts.index:
+                grid_df = df[df['grid_id'] == grid_id]
+                n_samples = min(samples_per_grid, len(grid_df))
+                sampled_dfs.append(grid_df.sample(n=n_samples, random_state=random_state))
+
+            result = pd.concat(sampled_dfs, ignore_index=True)
+
+            # 如果采样不足，随机补充
+            if len(result) < sample_size:
+                remaining = df[~df.index.isin(result.index)]
+                additional = remaining.sample(n=sample_size - len(result), random_state=random_state)
+                result = pd.concat([result, additional], ignore_index=True)
+
+            # 删除临时列
+            result = result.drop(columns=['grid_x', 'grid_y', 'grid_id'])
+
+            return result.head(sample_size)
+
+        else:
+            raise ValueError(f"Unknown sampling strategy: {strategy}")
+
+    def _parse_spatial_json(
+        self,
+        run_id: str
+    ) -> Tuple[np.ndarray, List[int], Dict[str, Any]]:
+        """
+        解析空间聚类JSON字段
+
+        Args:
+            run_id: 空间聚类运行ID
+
+        Returns:
+            (特征矩阵, 聚类ID列表, 元数据)
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        query = """
+        SELECT
+            cluster_id,
+            village_count,
+            semantic_profile_json,
+            naming_patterns_json,
+            centroid_lon,
+            centroid_lat
+        FROM spatial_clusters
+        WHERE run_id = ?
+        """
+
+        df = pd.read_sql_query(query, conn, params=[run_id])
+        conn.close()
+
+        if len(df) == 0:
+            raise ValueError(f"No spatial clusters found for run_id: {run_id}")
+
+        logger.info(f"Loaded {len(df)} spatial clusters for run_id: {run_id}")
+
+        # 对>5000聚类自动采样到5000
+        if len(df) > 5000:
+            logger.info(f"Sampling {len(df)} clusters down to 5000")
+            df = df.sample(n=5000, random_state=42)
+
+        cluster_ids = df['cluster_id'].tolist()
+
+        # 解析JSON字段并构建特征向量
+        import json
+
+        features_list = []
+
+        for _, row in df.iterrows():
+            feature_vec = []
+
+            # 语义特征
+            try:
+                semantic_profile = json.loads(row['semantic_profile_json']) if pd.notna(row['semantic_profile_json']) else {}
+                # 提取9个主要语义类别的百分比
+                for category in ['mountain', 'water', 'settlement', 'direction', 'clan', 'symbolic', 'agriculture', 'vegetation', 'infrastructure']:
+                    feature_vec.append(semantic_profile.get(f'{category}_pct', 0.0))
+            except:
+                feature_vec.extend([0.0] * 9)
+
+            # 命名模式特征
+            try:
+                naming_patterns = json.loads(row['naming_patterns_json']) if pd.notna(row['naming_patterns_json']) else {}
+                # 提取top 3后缀/前缀的频率
+                top_suffixes = naming_patterns.get('top_suffixes', [])
+                for i in range(3):
+                    if i < len(top_suffixes):
+                        feature_vec.append(top_suffixes[i].get('frequency', 0))
+                    else:
+                        feature_vec.append(0)
+            except:
+                feature_vec.extend([0.0] * 3)
+
+            # 地理特征
+            feature_vec.append(row['centroid_lon'] if pd.notna(row['centroid_lon']) else 0.0)
+            feature_vec.append(row['centroid_lat'] if pd.notna(row['centroid_lat']) else 0.0)
+
+            # 聚类大小
+            feature_vec.append(row['village_count'] if pd.notna(row['village_count']) else 0)
+
+            features_list.append(feature_vec)
+
+        X = np.array(features_list)
+
+        metadata = {
+            'original_count': len(df),
+            'run_id': run_id
+        }
+
+        logger.info(f"Built spatial feature matrix: {X.shape}")
+
+        return X, cluster_ids, metadata
+
+    def run_character_tendency_clustering(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        执行字符倾向性聚类
+
+        Args:
+            params: 聚类参数
+
+        Returns:
+            聚类结果字典
+        """
+        start_time = time.time()
+
+        # 1. 构建字符倾向性特征矩阵
+        X, region_names, characters = self._build_character_tendency_features(
+            params['region_level'],
+            params['top_n_chars'],
+            params['tendency_metric'],
+            params.get('region_filter')
+        )
+
+        # 2. 预处理
+        if params['preprocessing']['standardize']:
+            X = StandardScaler().fit_transform(X)
+            logger.info("Features standardized")
+
+        if params['preprocessing']['use_pca']:
+            n_components = min(params['preprocessing']['pca_n_components'], X.shape[1])
+            pca = PCA(n_components=n_components)
+            X = pca.fit_transform(X)
+            logger.info(f"PCA applied: {X.shape[1]} components")
+
+        # 3. 聚类
+        algorithm = params['algorithm']
+        labels = None
+
+        if algorithm == 'kmeans':
+            model = KMeans(
+                n_clusters=params['k'],
+                random_state=params['random_state'],
+                n_init=10,
+                max_iter=300
+            )
+            labels = model.fit_predict(X)
+            logger.info(f"KMeans clustering completed: k={params['k']}")
+
+        elif algorithm == 'dbscan':
+            eps = params.get('eps', 0.5)
+            min_samples = params.get('min_samples', 5)
+            model = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = model.fit_predict(X)
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            logger.info(f"DBSCAN clustering completed: {n_clusters} clusters")
+
+        elif algorithm == 'gmm':
+            model = GaussianMixture(
+                n_components=params['k'],
+                random_state=params['random_state']
+            )
+            labels = model.fit_predict(X)
+            logger.info(f"GMM clustering completed: k={params['k']}")
+
+        # 4. 评估指标
+        metrics = {}
+        if len(set(labels)) > 1:
+            metrics['silhouette_score'] = float(silhouette_score(X, labels))
+            metrics['davies_bouldin_index'] = float(davies_bouldin_score(X, labels))
+            metrics['calinski_harabasz_score'] = float(calinski_harabasz_score(X, labels))
+        else:
+            metrics['silhouette_score'] = 0.0
+            metrics['davies_bouldin_index'] = 0.0
+            metrics['calinski_harabasz_score'] = 0.0
+
+        # 5. 聚类分配
+        assignments = []
+        for i in range(len(region_names)):
+            assignments.append({
+                'region_name': region_names[i],
+                'cluster_id': int(labels[i])
+            })
+
+        # 6. 聚类画像
+        cluster_profiles = self._generate_cluster_profiles(X, labels, region_names)
+
+        execution_time = int((time.time() - start_time) * 1000)
+
+        return {
+            'run_id': f"char_tendency_{int(time.time())}",
+            'algorithm': algorithm,
+            'k': params.get('k'),
+            'n_regions': len(region_names),
+            'tendency_metric': params['tendency_metric'],
+            'top_n_chars': params['top_n_chars'],
+            'execution_time_ms': execution_time,
+            'metrics': metrics,
+            'assignments': assignments,
+            'cluster_profiles': cluster_profiles
+        }
+
+    def run_sampled_village_clustering(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        执行采样村庄聚类
+
+        Args:
+            params: 聚类参数
+
+        Returns:
+            聚类结果字典
+        """
+        start_time = time.time()
+
+        conn = sqlite3.connect(self.db_path)
+
+        # 1. 查询村庄特征
+        query = "SELECT * FROM village_features"
+        where_clauses = []
+        query_params = []
+
+        # 应用过滤器
+        filter_config = params.get('filter', {})
+        if filter_config:
+            if filter_config.get('cities'):
+                placeholders = ','.join(['?' for _ in filter_config['cities']])
+                where_clauses.append(f"city IN ({placeholders})")
+                query_params.extend(filter_config['cities'])
+
+            if filter_config.get('counties'):
+                placeholders = ','.join(['?' for _ in filter_config['counties']])
+                where_clauses.append(f"county IN ({placeholders})")
+                query_params.extend(filter_config['counties'])
+
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+
+        df = pd.read_sql_query(query, conn, params=query_params if query_params else None)
+        conn.close()
+
+        original_count = len(df)
+        logger.info(f"Loaded {original_count} villages")
+
+        # 2. 采样
+        df_sampled = self._sample_villages(
+            df,
+            params['sampling_strategy'],
+            params['sample_size'],
+            params['random_state']
+        )
+
+        logger.info(f"Sampled {len(df_sampled)} villages using {params['sampling_strategy']} strategy")
+
+        # 3. 构建特征矩阵
+        feature_columns = []
+        feature_config = params['features']
+
+        if feature_config.get('use_semantic', True):
+            semantic_cols = [col for col in df_sampled.columns if col.startswith('sem_') and col.endswith('_pct')]
+            feature_columns.extend(semantic_cols)
+
+        if feature_config.get('use_morphology', True):
+            feature_columns.append('name_length')
+
+        X = df_sampled[feature_columns].values
+        X = np.nan_to_num(X, nan=0.0)
+
+        village_names = df_sampled['village_name'].tolist()
+
+        # 4. 预处理
+        if params['preprocessing']['standardize']:
+            X = StandardScaler().fit_transform(X)
+
+        if params['preprocessing']['use_pca']:
+            n_components = min(params['preprocessing']['pca_n_components'], X.shape[1])
+            pca = PCA(n_components=n_components)
+            X = pca.fit_transform(X)
+
+        # 5. 聚类
+        algorithm = params['algorithm']
+        labels = None
+
+        if algorithm == 'kmeans':
+            model = KMeans(
+                n_clusters=params['k'],
+                random_state=params['random_state'],
+                n_init=10,
+                max_iter=300
+            )
+            labels = model.fit_predict(X)
+
+        elif algorithm == 'dbscan':
+            eps = params.get('eps', 0.5)
+            min_samples = params.get('min_samples', 5)
+            model = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = model.fit_predict(X)
+
+        elif algorithm == 'gmm':
+            model = GaussianMixture(
+                n_components=params['k'],
+                random_state=params['random_state']
+            )
+            labels = model.fit_predict(X)
+
+        # 6. 评估指标
+        metrics = {}
+        if len(set(labels)) > 1:
+            metrics['silhouette_score'] = float(silhouette_score(X, labels))
+            metrics['davies_bouldin_index'] = float(davies_bouldin_score(X, labels))
+            metrics['calinski_harabasz_score'] = float(calinski_harabasz_score(X, labels))
+        else:
+            metrics['silhouette_score'] = 0.0
+            metrics['davies_bouldin_index'] = 0.0
+            metrics['calinski_harabasz_score'] = 0.0
+
+        # 7. 聚类分配（只返回前1000个）
+        assignments = []
+        for i in range(min(len(village_names), 1000)):
+            assignments.append({
+                'village_name': village_names[i],
+                'cluster_id': int(labels[i])
+            })
+
+        # 8. 聚类画像
+        cluster_profiles = self._generate_cluster_profiles(X, labels, village_names)
+
+        execution_time = int((time.time() - start_time) * 1000)
+
+        return {
+            'run_id': f"sampled_villages_{int(time.time())}",
+            'algorithm': algorithm,
+            'k': params.get('k'),
+            'original_village_count': original_count,
+            'sampled_village_count': len(df_sampled),
+            'sampling_strategy': params['sampling_strategy'],
+            'execution_time_ms': execution_time,
+            'metrics': metrics,
+            'assignments': assignments,
+            'cluster_profiles': cluster_profiles
+        }
+
+    def run_spatial_aware_clustering(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        执行空间感知聚类（对空间聚类结果进行二次聚类）
+
+        Args:
+            params: 聚类参数
+
+        Returns:
+            聚类结果字典
+        """
+        start_time = time.time()
+
+        # 1. 解析空间聚类JSON
+        X, cluster_ids, metadata = self._parse_spatial_json(params['spatial_run_id'])
+
+        # 2. 特征选择
+        feature_config = params.get('features', {})
+        feature_indices = []
+
+        # 语义特征 (0-8)
+        if feature_config.get('use_semantic_profile', True):
+            feature_indices.extend(range(0, 9))
+
+        # 命名模式特征 (9-11)
+        if feature_config.get('use_naming_patterns', True):
+            feature_indices.extend(range(9, 12))
+
+        # 地理特征 (12-13)
+        if feature_config.get('use_geographic', True):
+            feature_indices.extend(range(12, 14))
+
+        # 聚类大小 (14)
+        if feature_config.get('use_cluster_size', True):
+            feature_indices.append(14)
+
+        X_selected = X[:, feature_indices]
+
+        # 3. 预处理
+        if params['preprocessing']['standardize']:
+            X_selected = StandardScaler().fit_transform(X_selected)
+            logger.info("Features standardized")
+
+        if params['preprocessing']['use_pca']:
+            n_components = min(params['preprocessing']['pca_n_components'], X_selected.shape[1])
+            pca = PCA(n_components=n_components)
+            X_selected = pca.fit_transform(X_selected)
+            logger.info(f"PCA applied: {X_selected.shape[1]} components")
+
+        # 4. 聚类
+        algorithm = params['algorithm']
+        labels = None
+
+        if algorithm == 'kmeans':
+            model = KMeans(
+                n_clusters=params['k'],
+                random_state=params['random_state'],
+                n_init=10,
+                max_iter=300
+            )
+            labels = model.fit_predict(X_selected)
+            logger.info(f"KMeans clustering completed: k={params['k']}")
+
+        elif algorithm == 'dbscan':
+            eps = params.get('eps', 0.5)
+            min_samples = params.get('min_samples', 5)
+            model = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = model.fit_predict(X_selected)
+            n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+            logger.info(f"DBSCAN clustering completed: {n_clusters} clusters")
+
+        elif algorithm == 'gmm':
+            model = GaussianMixture(
+                n_components=params['k'],
+                random_state=params['random_state']
+            )
+            labels = model.fit_predict(X_selected)
+            logger.info(f"GMM clustering completed: k={params['k']}")
+
+        # 5. 评估指标
+        metrics = {}
+        if len(set(labels)) > 1:
+            metrics['silhouette_score'] = float(silhouette_score(X_selected, labels))
+            metrics['davies_bouldin_index'] = float(davies_bouldin_score(X_selected, labels))
+            metrics['calinski_harabasz_score'] = float(calinski_harabasz_score(X_selected, labels))
+        else:
+            metrics['silhouette_score'] = 0.0
+            metrics['davies_bouldin_index'] = 0.0
+            metrics['calinski_harabasz_score'] = 0.0
+
+        # 6. 聚类分配
+        assignments = []
+        for i in range(len(cluster_ids)):
+            assignments.append({
+                'spatial_cluster_id': int(cluster_ids[i]),
+                'meta_cluster_id': int(labels[i])
+            })
+
+        # 7. 聚类画像
+        cluster_profiles = self._generate_cluster_profiles(X_selected, labels, [str(cid) for cid in cluster_ids])
+
+        execution_time = int((time.time() - start_time) * 1000)
+
+        return {
+            'run_id': f"spatial_aware_{int(time.time())}",
+            'algorithm': algorithm,
+            'k': params.get('k'),
+            'spatial_run_id': params['spatial_run_id'],
+            'n_spatial_clusters': len(cluster_ids),
+            'execution_time_ms': execution_time,
+            'metrics': metrics,
+            'assignments': assignments,
+            'cluster_profiles': cluster_profiles
+        }
+
+    def run_hierarchical_clustering(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        执行层次聚类（市→县→镇三层嵌套）
+
+        Args:
+            params: 聚类参数
+
+        Returns:
+            层次聚类结果字典
+        """
+        start_time = time.time()
+
+        # 1. City-level聚类
+        city_params = {
+            'algorithm': params['algorithm'],
+            'k': params['k_city'],
+            'region_level': 'city',
+            'features': params['features'],
+            'preprocessing': params['preprocessing'],
+            'random_state': params['random_state']
+        }
+
+        city_result = self.run_clustering(city_params)
+        logger.info(f"City-level clustering completed: {params['k_city']} clusters")
+
+        # 2. 构建city cluster到city的映射
+        city_to_cluster = {}
+        for assignment in city_result['assignments']:
+            city_to_cluster[assignment['region_name']] = assignment['cluster_id']
+
+        # 3. County-level聚类（对每个city cluster）
+        county_results = {}
+        for city_cluster_id in range(params['k_city']):
+            # 找到属于这个city cluster的所有城市
+            cities_in_cluster = [city for city, cid in city_to_cluster.items() if cid == city_cluster_id]
+
+            if len(cities_in_cluster) == 0:
+                continue
+
+            # 对这些城市的县进行聚类
+            county_params = {
+                'algorithm': params['algorithm'],
+                'k': min(params['k_county'], len(cities_in_cluster) * 10),  # 动态调整k
+                'region_level': 'county',
+                'region_filter': cities_in_cluster,
+                'features': params['features'],
+                'preprocessing': params['preprocessing'],
+                'random_state': params['random_state']
+            }
+
+            try:
+                county_result = self.run_clustering(county_params)
+                county_results[city_cluster_id] = county_result
+                logger.info(f"County-level clustering for city cluster {city_cluster_id}: {county_result['n_regions']} counties")
+            except Exception as e:
+                logger.warning(f"County clustering failed for city cluster {city_cluster_id}: {e}")
+                county_results[city_cluster_id] = {'assignments': [], 'skipped': True}
+
+        # 4. Township-level聚类（对每个county cluster）
+        township_results = {}
+        for city_cluster_id, county_result in county_results.items():
+            if county_result.get('skipped'):
+                continue
+
+            # 构建county到cluster的映射
+            county_to_cluster = {}
+            for assignment in county_result['assignments']:
+                county_to_cluster[assignment['region_name']] = assignment['cluster_id']
+
+            for county_cluster_id in range(county_result.get('k', 0)):
+                # 找到属于这个county cluster的所有县
+                counties_in_cluster = [county for county, cid in county_to_cluster.items() if cid == county_cluster_id]
+
+                if len(counties_in_cluster) == 0:
+                    continue
+
+                # 对这些县的镇进行聚类
+                township_params = {
+                    'algorithm': params['algorithm'],
+                    'k': min(params['k_township'], len(counties_in_cluster) * 20),  # 动态调整k
+                    'region_level': 'township',
+                    'region_filter': counties_in_cluster,
+                    'features': params['features'],
+                    'preprocessing': params['preprocessing'],
+                    'random_state': params['random_state']
+                }
+
+                try:
+                    township_result = self.run_clustering(township_params)
+                    key = (city_cluster_id, county_cluster_id)
+                    township_results[key] = township_result
+                    logger.info(f"Township-level clustering for county cluster {key}: {township_result['n_regions']} townships")
+                except Exception as e:
+                    logger.warning(f"Township clustering failed for county cluster {key}: {e}")
+                    township_results[key] = {'assignments': [], 'skipped': True}
+
+        # 5. 构建层次树
+        tree = []
+        for city_assignment in city_result['assignments']:
+            city_name = city_assignment['region_name']
+            city_cluster_id = city_assignment['cluster_id']
+
+            city_node = {
+                'level': 'city',
+                'region_name': city_name,
+                'cluster_id': city_cluster_id,
+                'children': []
+            }
+
+            # 添加county节点
+            if city_cluster_id in county_results and not county_results[city_cluster_id].get('skipped'):
+                county_result = county_results[city_cluster_id]
+                for county_assignment in county_result['assignments']:
+                    county_name = county_assignment['region_name']
+                    county_cluster_id = county_assignment['cluster_id']
+
+                    county_node = {
+                        'level': 'county',
+                        'region_name': county_name,
+                        'cluster_id': county_cluster_id,
+                        'parent_cluster_id': city_cluster_id,
+                        'children': []
+                    }
+
+                    # 添加township节点
+                    key = (city_cluster_id, county_cluster_id)
+                    if key in township_results and not township_results[key].get('skipped'):
+                        township_result = township_results[key]
+                        for township_assignment in township_result['assignments']:
+                            township_name = township_assignment['region_name']
+                            township_cluster_id = township_assignment['cluster_id']
+
+                            township_node = {
+                                'level': 'township',
+                                'region_name': township_name,
+                                'cluster_id': township_cluster_id,
+                                'parent_cluster_id': county_cluster_id
+                            }
+
+                            county_node['children'].append(township_node)
+
+                    city_node['children'].append(county_node)
+
+            tree.append(city_node)
+
+        execution_time = int((time.time() - start_time) * 1000)
+
+        # 6. 汇总指标
+        total_metrics = {
+            'city_metrics': city_result['metrics'],
+            'county_clusters_count': len([r for r in county_results.values() if not r.get('skipped')]),
+            'township_clusters_count': len([r for r in township_results.values() if not r.get('skipped')])
+        }
+
+        return {
+            'run_id': f"hierarchical_{int(time.time())}",
+            'algorithm': params['algorithm'],
+            'k_city': params['k_city'],
+            'k_county': params['k_county'],
+            'k_township': params['k_township'],
+            'execution_time_ms': execution_time,
+            'tree': tree,
+            'metrics': total_metrics
+        }
+
+    def _suggest_dbscan_params(
+        self,
+        n_clusters: int,
+        n_noise: int,
+        n_samples: int
+    ) -> Dict[str, Any]:
+        """
+        根据聚类结果建议DBSCAN参数调整
+
+        Args:
+            n_clusters: 聚类数量
+            n_noise: 噪声点数量
+            n_samples: 样本总数
+
+        Returns:
+            参数建议字典
+        """
+        noise_ratio = n_noise / n_samples if n_samples > 0 else 0
+
+        if n_clusters == 0:
+            # 全是噪声点 - 参数太严格
+            return {
+                'status': 'too_strict',
+                'message': '所有点都是噪声,参数过于严格',
+                'suggestion': '增大eps(如+0.3)或减小min_samples(如-1)',
+                'recommended_action': 'increase_eps'
+            }
+        elif n_clusters == 1 and n_noise == 0:
+            # 只有一个聚类 - 参数太宽松
+            return {
+                'status': 'too_loose',
+                'message': '所有点在同一聚类,参数过于宽松',
+                'suggestion': '减小eps(如-0.3)或增大min_samples(如+1)',
+                'recommended_action': 'decrease_eps'
+            }
+        elif noise_ratio > 0.3:
+            # 噪声点过多
+            return {
+                'status': 'high_noise',
+                'message': f'噪声点比例过高({noise_ratio:.1%})',
+                'suggestion': '适当增大eps或减小min_samples',
+                'recommended_action': 'increase_eps'
+            }
+        elif n_clusters > n_samples * 0.5:
+            # 聚类过于碎片化
+            return {
+                'status': 'too_fragmented',
+                'message': f'聚类过于碎片化({n_clusters}个聚类)',
+                'suggestion': '增大eps以合并小聚类',
+                'recommended_action': 'increase_eps'
+            }
+        else:
+            # 参数合理
+            return {
+                'status': 'good',
+                'message': f'聚类效果良好({n_clusters}个聚类,{noise_ratio:.1%}噪声)',
+                'suggestion': '参数设置合理',
+                'recommended_action': 'none'
+            }
+
 
 
 class SemanticEngine:
@@ -548,7 +1475,13 @@ class FeatureEngine:
             'township': 'town_aggregates'
         }
         table_name = table_map.get(region_level, 'county_aggregates')
-        region_col = 'city' if region_level == 'city' else 'county'
+
+        region_col_map = {
+            'city': 'city',
+            'county': 'county',
+            'township': 'town'
+        }
+        region_col = region_col_map.get(region_level, 'county')
 
         # 构建查询
         query = f"SELECT * FROM {table_name}"
@@ -562,8 +1495,16 @@ class FeatureEngine:
         aggregates = []
 
         for _, row in df.iterrows():
+            # 构建区域名称（包含完整路径）
+            if region_level == 'township':
+                region_name = f"{row['city']} > {row['county']} > {row['town']}"
+            elif region_level == 'county':
+                region_name = f"{row['city']} > {row['county']}"
+            else:
+                region_name = row[region_col]
+
             aggregate_dict = {
-                'region_name': row[region_col],
+                'region_name': region_name,
                 'total_villages': row.get('total_villages', 0)
             }
 

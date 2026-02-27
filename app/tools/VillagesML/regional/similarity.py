@@ -89,9 +89,9 @@ async def get_pair_similarity(
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    获取两个区域之间的相似度指标
+    获取两个区域之间的相似度指标(支持跨层级比较)
 
-    Get similarity metrics between two specific regions.
+    Get similarity metrics between two specific regions (supports cross-level comparison).
 
     Args:
         region1: First region name
@@ -100,7 +100,7 @@ async def get_pair_similarity(
     Returns:
         All similarity metrics, common chars, and distinctive chars
     """
-    # Query (handle both orderings)
+    # 先尝试从预计算表查询(同层级)
     query = """
     SELECT
         region1, region2,
@@ -114,26 +114,182 @@ async def get_pair_similarity(
 
     row = execute_single(db, query, (region1, region2, region2, region1))
 
-    if not row:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Similarity data not found for regions '{region1}' and '{region2}'"
-        )
+    if row:
+        # 找到预计算的相似度数据
+        r1_is_first = (row["region1"] == region1)
 
-    # Determine correct ordering
-    r1_is_first = (row["region1"] == region1)
+        return {
+            "region1": region1,
+            "region2": region2,
+            "cosine_similarity": round(row["cosine_similarity"], 4),
+            "jaccard_similarity": round(row["jaccard_similarity"], 4),
+            "euclidean_distance": round(row["euclidean_distance"], 4),
+            "common_chars": json.loads(row["common_high_tendency_chars"]) if row["common_high_tendency_chars"] else [],
+            "distinctive_chars_r1": json.loads(row["distinctive_chars_r1"] if r1_is_first else row["distinctive_chars_r2"]) if row["distinctive_chars_r1"] else [],
+            "distinctive_chars_r2": json.loads(row["distinctive_chars_r2"] if r1_is_first else row["distinctive_chars_r1"]) if row["distinctive_chars_r2"] else [],
+            "feature_dimension": row["feature_dimension"],
+            "cross_level": False
+        }
+
+    # 没有预计算数据,尝试跨层级实时计算
+    from fastapi.concurrency import run_in_threadpool
+    result = await run_in_threadpool(_compute_cross_level_similarity, db, region1, region2)
+
+    if result:
+        return result
+
+    # 都找不到
+    raise HTTPException(
+        status_code=404,
+        detail=f"Similarity data not found for regions '{region1}' and '{region2}'"
+    )
+
+
+def _compute_cross_level_similarity(db: sqlite3.Connection, region1: str, region2: str) -> dict:
+    """
+    实时计算跨层级区域相似度
+
+    Args:
+        db: 数据库连接
+        region1: 区域1名称
+        region2: 区域2名称
+
+    Returns:
+        相似度结果字典,如果无法计算则返回None
+    """
+    import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
+    from sklearn.metrics import jaccard_score
+
+    # 1. 检测区域层级并获取特征
+    features1 = _get_region_features(db, region1)
+    features2 = _get_region_features(db, region2)
+
+    if not features1 or not features2:
+        return None
+
+    # 2. 计算相似度
+    # Cosine similarity
+    vec1 = np.array(features1['feature_vector']).reshape(1, -1)
+    vec2 = np.array(features2['feature_vector']).reshape(1, -1)
+    cosine_sim = float(sklearn_cosine(vec1, vec2)[0][0])
+
+    # Euclidean distance
+    euclidean_dist = float(np.linalg.norm(vec1 - vec2))
+
+    # Jaccard similarity (基于高倾向字符)
+    chars1 = set(features1.get('high_tendency_chars', []))
+    chars2 = set(features2.get('high_tendency_chars', []))
+    if chars1 or chars2:
+        jaccard_sim = len(chars1 & chars2) / len(chars1 | chars2) if (chars1 | chars2) else 0.0
+    else:
+        jaccard_sim = 0.0
+
+    # 3. 找出共同字符和特征字符
+    common_chars = list(chars1 & chars2)[:10]
+    distinctive_chars1 = list(chars1 - chars2)[:10]
+    distinctive_chars2 = list(chars2 - chars1)[:10]
 
     return {
         "region1": region1,
         "region2": region2,
-        "cosine_similarity": round(row["cosine_similarity"], 4),
-        "jaccard_similarity": round(row["jaccard_similarity"], 4),
-        "euclidean_distance": round(row["euclidean_distance"], 4),
-        "common_chars": json.loads(row["common_high_tendency_chars"]) if row["common_high_tendency_chars"] else [],
-        "distinctive_chars_r1": json.loads(row["distinctive_chars_r1"] if r1_is_first else row["distinctive_chars_r2"]) if row["distinctive_chars_r1"] else [],
-        "distinctive_chars_r2": json.loads(row["distinctive_chars_r2"] if r1_is_first else row["distinctive_chars_r1"]) if row["distinctive_chars_r2"] else [],
-        "feature_dimension": row["feature_dimension"]
+        "region1_level": features1['level'],
+        "region2_level": features2['level'],
+        "cosine_similarity": round(cosine_sim, 4),
+        "jaccard_similarity": round(jaccard_sim, 4),
+        "euclidean_distance": round(euclidean_dist, 4),
+        "common_chars": common_chars,
+        "distinctive_chars_r1": distinctive_chars1,
+        "distinctive_chars_r2": distinctive_chars2,
+        "feature_dimension": len(features1['feature_vector']),
+        "cross_level": features1['level'] != features2['level'],
+        "computed_realtime": True
     }
+
+
+def _get_region_features(db: sqlite3.Connection, region_name: str) -> dict:
+    """
+    获取区域特征向量
+
+    Args:
+        db: 数据库连接
+        region_name: 区域名称
+
+    Returns:
+        包含特征向量和元数据的字典,如果找不到则返回None
+    """
+    # 尝试从不同层级的聚合表查询
+    tables = [
+        ('city_aggregates', 'city', 'city'),
+        ('county_aggregates', 'county', 'county'),
+        ('town_aggregates', 'town', 'township')
+    ]
+
+    for table_name, column_name, level in tables:
+        query = f"""
+        SELECT
+            {column_name},
+            sem_mountain_pct, sem_water_pct, sem_settlement_pct,
+            sem_direction_pct, sem_clan_pct, sem_symbolic_pct,
+            sem_agriculture_pct, sem_vegetation_pct, sem_infrastructure_pct,
+            avg_name_length, total_villages
+        FROM {table_name}
+        WHERE {column_name} = ?
+        """
+
+        row = execute_single(db, query, (region_name,))
+
+        if row:
+            # 构建特征向量
+            feature_vector = [
+                row.get('sem_mountain_pct', 0) or 0,
+                row.get('sem_water_pct', 0) or 0,
+                row.get('sem_settlement_pct', 0) or 0,
+                row.get('sem_direction_pct', 0) or 0,
+                row.get('sem_clan_pct', 0) or 0,
+                row.get('sem_symbolic_pct', 0) or 0,
+                row.get('sem_agriculture_pct', 0) or 0,
+                row.get('sem_vegetation_pct', 0) or 0,
+                row.get('sem_infrastructure_pct', 0) or 0,
+                row.get('avg_name_length', 0) or 0,
+                row.get('total_villages', 0) or 0
+            ]
+
+            # 获取高倾向字符
+            high_tendency_chars = _get_high_tendency_chars(db, region_name, level)
+
+            return {
+                'region_name': region_name,
+                'level': level,
+                'feature_vector': feature_vector,
+                'high_tendency_chars': high_tendency_chars
+            }
+
+    return None
+
+
+def _get_high_tendency_chars(db: sqlite3.Connection, region_name: str, level: str) -> list:
+    """
+    获取区域的高倾向字符
+
+    Args:
+        db: 数据库连接
+        region_name: 区域名称
+        level: 区域层级
+
+    Returns:
+        高倾向字符列表
+    """
+    query = """
+    SELECT char
+    FROM char_regional_analysis
+    WHERE region_level = ? AND region_name = ?
+    ORDER BY z_score DESC
+    LIMIT 20
+    """
+
+    rows = execute_query(db, query, (level, region_name))
+    return [row['char'] for row in rows] if rows else []
 
 
 @router.get("/similarity/matrix")
