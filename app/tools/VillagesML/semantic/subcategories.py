@@ -223,7 +223,7 @@ def get_top_tendency_subcategories(
     region_level: str = Query("市级", description="区域级别（市级/区县级/乡镇级）"),
     parent_category: Optional[str] = Query(None, description="父类别过滤"),
     min_villages: int = Query(5, ge=0, le=100, description="最小村庄数过滤（默认5，排除小样本噪声）"),
-    top_n: int = Query(10, ge=1, le=50, description="返回前N个"),
+    top_n: int = Query(10, ge=1, le=100, description="返回前N个"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
