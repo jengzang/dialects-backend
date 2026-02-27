@@ -76,12 +76,31 @@ class ClusteringEngine:
         query = f"SELECT * FROM {table_name}"
         df_regional = pd.read_sql_query(query, conn)
 
-        # 确定区域名称列
-        region_col = 'city' if region_level == 'city' else 'county'
+        # 区域名称列（用于输出 region_names）
+        # - city_aggregates: 'city'
+        # - county_aggregates: 'county'
+        # - town_aggregates: 'town'
+        region_col_map = {
+            'city': 'city',
+            'county': 'county',
+            'township': 'town'
+        }
+        region_col = region_col_map.get(region_level, 'county')
+
+        # 过滤列（region_filter 传入的是父级区域名）
+        # - city 级：按 city 列自身过滤（region_filter 包含城市名）
+        # - county 级：region_filter 是城市名 → 过滤 city 列
+        # - township 级：region_filter 是县名 → 过滤 county 列
+        filter_col_map = {
+            'city': 'city',
+            'county': 'city',
+            'township': 'county'
+        }
+        filter_col = filter_col_map.get(region_level, region_col)
 
         # 过滤区域
         if region_filter:
-            df_regional = df_regional[df_regional[region_col].isin(region_filter)]
+            df_regional = df_regional[df_regional[filter_col].isin(region_filter)]
 
         region_names = df_regional[region_col].tolist()
 
@@ -373,44 +392,61 @@ class ClusteringEngine:
         Returns:
             (特征矩阵, 区域名称列表, 字符列表)
         """
+        # 枚举对象转字符串（Pydantic .dict() 保留枚举对象，f-string 会输出 "TendencyMetric.Z_SCORE"）
+        if hasattr(tendency_metric, 'value'):
+            tendency_metric = tendency_metric.value
+        if hasattr(region_level, 'value'):
+            region_level = region_level.value
+
         conn = sqlite3.connect(self.db_path)
 
-        # 映射region_level到表中的列名
-        level_map = {
+        # 映射region_level到数据库中的region_level值
+        db_level_map = {
             'city': 'city',
             'county': 'county',
-            'township': 'town'
+            'township': 'township'
         }
-        region_col = level_map.get(region_level, 'county')
+        db_level = db_level_map.get(region_level, 'county')
 
-        # 使用窗口函数选择每个区域的top N字符
+        # region_filter 语义：传入的是"父级区域名"，用于限制目标级别的范围
+        # - city 级：用户传城市名 → 过滤 region_name（region_name 本身就是城市名）
+        # - county 级：用户传城市名 → 过滤 city 列（取该市下所有县）
+        # - township 级：用户传县名 → 过滤 county 列（取该县下所有镇）
+        filter_col_map = {
+            'city': 'region_name',
+            'county': 'city',
+            'township': 'county',
+        }
+        filter_col = filter_col_map.get(db_level, 'region_name')
+
+        region_filter_clause = ""
+        params = []
+        if region_filter:
+            placeholders = ','.join(['?' for _ in region_filter])
+            region_filter_clause = f" AND {filter_col} IN ({placeholders})"
+            params = list(region_filter)
+
         query = f"""
-        SELECT region, character, {tendency_metric}
+        SELECT region, char, {tendency_metric}
         FROM (
-            SELECT
-                {region_col} as region,
-                character,
-                {tendency_metric},
-                ROW_NUMBER() OVER (PARTITION BY {region_col} ORDER BY {tendency_metric} DESC) as rn
-            FROM char_regional_analysis
-            WHERE {region_col} IS NOT NULL
+            SELECT region, char, {tendency_metric},
+                   ROW_NUMBER() OVER (PARTITION BY region ORDER BY {tendency_metric} DESC) as rn
+            FROM (
+                SELECT region_name as region, char, MAX({tendency_metric}) as {tendency_metric}
+                FROM char_regional_analysis
+                WHERE region_level = ?{region_filter_clause}
+                GROUP BY region_name, char
+            )
         )
         WHERE rn <= ?
         """
-
-        params = [top_n_chars]
-
-        # 添加区域过滤
-        if region_filter:
-            placeholders = ','.join(['?' for _ in region_filter])
-            query = query.replace("WHERE rn <=", f"AND region IN ({placeholders}) WHERE rn <=")
-            params = region_filter + params
+        params = [db_level] + params + [top_n_chars]
 
         df = pd.read_sql_query(query, conn, params=params)
         conn.close()
 
         # Pivot操作：region × character矩阵
-        pivot_df = df.pivot(index='region', columns='character', values=tendency_metric)
+        pivot_df = df.pivot(index='region', columns='char', values=tendency_metric)
 
         # 缺失值填充为0
         pivot_df = pivot_df.fillna(0)
@@ -537,7 +573,7 @@ class ClusteringEngine:
         query = """
         SELECT
             cluster_id,
-            village_count,
+            cluster_size,
             semantic_profile_json,
             naming_patterns_json,
             centroid_lon,
@@ -596,7 +632,7 @@ class ClusteringEngine:
             feature_vec.append(row['centroid_lat'] if pd.notna(row['centroid_lat']) else 0.0)
 
             # 聚类大小
-            feature_vec.append(row['village_count'] if pd.notna(row['village_count']) else 0)
+            feature_vec.append(row['cluster_size'] if pd.notna(row['cluster_size']) else 0)
 
             features_list.append(feature_vec)
 
@@ -644,6 +680,9 @@ class ClusteringEngine:
 
         # 3. 聚类
         algorithm = params['algorithm']
+        # 枚举对象转字符串（Pydantic .dict() 保留枚举对象）
+        if hasattr(algorithm, 'value'):
+            algorithm = algorithm.value
         labels = None
 
         if algorithm == 'kmeans':
@@ -657,8 +696,9 @@ class ClusteringEngine:
             logger.info(f"KMeans clustering completed: k={params['k']}")
 
         elif algorithm == 'dbscan':
-            eps = params.get('eps', 0.5)
-            min_samples = params.get('min_samples', 5)
+            dbscan_cfg = params.get('dbscan_config') or {}
+            eps = dbscan_cfg.get('eps', 0.5) if isinstance(dbscan_cfg, dict) else getattr(dbscan_cfg, 'eps', 0.5)
+            min_samples = dbscan_cfg.get('min_samples', 5) if isinstance(dbscan_cfg, dict) else getattr(dbscan_cfg, 'min_samples', 5)
             model = DBSCAN(eps=eps, min_samples=min_samples)
             labels = model.fit_predict(X)
             n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
@@ -721,44 +761,65 @@ class ClusteringEngine:
         """
         start_time = time.time()
 
-        conn = sqlite3.connect(self.db_path)
+        # 枚举转字符串
+        strategy = params['sampling_strategy']
+        if hasattr(strategy, 'value'):
+            strategy = strategy.value
 
-        # 1. 查询村庄特征
-        query = "SELECT * FROM village_features"
+        sample_size = params['sample_size']
+        random_state = params['random_state']
+
+        # 构建 WHERE 子句（过滤器）
+        filter_config = params.get('filter') or {}
+        if hasattr(filter_config, '__dict__'):
+            filter_config = vars(filter_config)
         where_clauses = []
-        query_params = []
-
-        # 应用过滤器
-        filter_config = params.get('filter', {})
-        if filter_config:
+        filter_params = []
+        if isinstance(filter_config, dict):
             if filter_config.get('cities'):
                 placeholders = ','.join(['?' for _ in filter_config['cities']])
                 where_clauses.append(f"city IN ({placeholders})")
-                query_params.extend(filter_config['cities'])
-
+                filter_params.extend(filter_config['cities'])
             if filter_config.get('counties'):
                 placeholders = ','.join(['?' for _ in filter_config['counties']])
                 where_clauses.append(f"county IN ({placeholders})")
-                query_params.extend(filter_config['counties'])
+                filter_params.extend(filter_config['counties'])
+        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        and_sql = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
 
-        if where_clauses:
-            query += " WHERE " + " AND ".join(where_clauses)
+        conn = sqlite3.connect(self.db_path)
 
-        df = pd.read_sql_query(query, conn, params=query_params if query_params else None)
+        # 1. SQL 层采样（不再全量加载）
+        if strategy == 'random':
+            # 随机采样直接在 SQL 完成
+            query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
+            df_sampled = pd.read_sql_query(query, conn, params=filter_params + [sample_size])
+
+        elif strategy == 'stratified':
+            # Step1: 按县统计数量
+            count_query = f"SELECT county, COUNT(*) as cnt FROM village_features{where_sql} GROUP BY county"
+            county_df = pd.read_sql_query(count_query, conn, params=filter_params if filter_params else None)
+            total = county_df['cnt'].sum()
+            county_df['quota'] = (county_df['cnt'] / total * sample_size).astype(int).clip(lower=1)
+
+            # Step2: 每个县分别在 SQL 随机采样
+            sampled_dfs = []
+            for _, row in county_df.iterrows():
+                q = f"SELECT * FROM village_features WHERE county = ?{and_sql} ORDER BY RANDOM() LIMIT ?"
+                cdf = pd.read_sql_query(q, conn, params=[row['county']] + filter_params + [int(row['quota'])])
+                sampled_dfs.append(cdf)
+            df_sampled = pd.concat([d for d in sampled_dfs if not d.empty], ignore_index=True)
+
+        else:
+            # spatial：需要坐标范围做网格划分，先随机预取 3x 再 Python 端网格采样
+            oversample = min(sample_size * 3, 50000)
+            query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
+            df_pre = pd.read_sql_query(query, conn, params=filter_params + [oversample])
+            df_sampled = self._sample_villages(df_pre, strategy, sample_size, random_state)
+
         conn.close()
 
-        original_count = len(df)
-        logger.info(f"Loaded {original_count} villages")
-
-        # 2. 采样
-        df_sampled = self._sample_villages(
-            df,
-            params['sampling_strategy'],
-            params['sample_size'],
-            params['random_state']
-        )
-
-        logger.info(f"Sampled {len(df_sampled)} villages using {params['sampling_strategy']} strategy")
+        logger.info(f"Sampled {len(df_sampled)} villages using {strategy} strategy (SQL-level)")
 
         # 3. 构建特征矩阵
         feature_columns = []
@@ -839,7 +900,7 @@ class ClusteringEngine:
             'run_id': f"sampled_villages_{int(time.time())}",
             'algorithm': algorithm,
             'k': params.get('k'),
-            'original_village_count': original_count,
+            'original_village_count': None,  # SQL层采样，不再全量加载
             'sampled_village_count': len(df_sampled),
             'sampling_strategy': params['sampling_strategy'],
             'execution_time_ms': execution_time,
@@ -898,6 +959,8 @@ class ClusteringEngine:
 
         # 4. 聚类
         algorithm = params['algorithm']
+        if hasattr(algorithm, 'value'):
+            algorithm = algorithm.value
         labels = None
 
         if algorithm == 'kmeans':
@@ -966,6 +1029,11 @@ class ClusteringEngine:
         """
         执行层次聚类（市→县→镇三层嵌套）
 
+        三级各自独立聚类，然后按真实地理父子关系组织树结构：
+        - 每个城市只展示自己的县（非城市群所有县）
+        - 每个县只展示自己的镇
+        - 各级 cluster_id 来自各自独立的聚类结果
+
         Args:
             params: 聚类参数
 
@@ -974,157 +1042,105 @@ class ClusteringEngine:
         """
         start_time = time.time()
 
-        # 1. City-level聚类
-        city_params = {
-            'algorithm': params['algorithm'],
-            'k': params['k_city'],
-            'region_level': 'city',
+        algorithm = params['algorithm']
+        if hasattr(algorithm, 'value'):
+            algorithm = algorithm.value
+
+        base = {
+            'algorithm': algorithm,
             'features': params['features'],
             'preprocessing': params['preprocessing'],
             'random_state': params['random_state']
         }
 
-        city_result = self.run_clustering(city_params)
-        logger.info(f"City-level clustering completed: {params['k_city']} clusters")
+        # 1. 三级各自独立聚类（不按父级分组，保证 cluster_id 语义全局一致）
+        city_result = self.run_clustering({**base, 'k': params['k_city'], 'region_level': 'city'})
+        logger.info(f"City clustering: {city_result['n_regions']} cities → {params['k_city']} clusters")
 
-        # 2. 构建city cluster到city的映射
-        city_to_cluster = {}
-        for assignment in city_result['assignments']:
-            city_to_cluster[assignment['region_name']] = assignment['cluster_id']
+        county_result = self.run_clustering({**base, 'k': params['k_county'], 'region_level': 'county'})
+        logger.info(f"County clustering: {county_result['n_regions']} counties → {params['k_county']} clusters")
 
-        # 3. County-level聚类（对每个city cluster）
-        county_results = {}
-        for city_cluster_id in range(params['k_city']):
-            # 找到属于这个city cluster的所有城市
-            cities_in_cluster = [city for city, cid in city_to_cluster.items() if cid == city_cluster_id]
+        try:
+            township_result = self.run_clustering({**base, 'k': params['k_township'], 'region_level': 'township'})
+            logger.info(f"Township clustering: {township_result['n_regions']} townships → {params['k_township']} clusters")
+            township_to_cluster = {a['region_name']: a['cluster_id'] for a in township_result['assignments']}
+            township_metrics = township_result['metrics']
+        except Exception as e:
+            logger.warning(f"Township clustering failed (skipped): {e}")
+            township_to_cluster = {}
+            township_metrics = {}
 
-            if len(cities_in_cluster) == 0:
-                continue
+        city_to_cluster = {a['region_name']: a['cluster_id'] for a in city_result['assignments']}
+        county_to_cluster = {a['region_name']: a['cluster_id'] for a in county_result['assignments']}
 
-            # 对这些城市的县进行聚类
-            county_params = {
-                'algorithm': params['algorithm'],
-                'k': min(params['k_county'], len(cities_in_cluster) * 10),  # 动态调整k
-                'region_level': 'county',
-                'region_filter': cities_in_cluster,
-                'features': params['features'],
-                'preprocessing': params['preprocessing'],
-                'random_state': params['random_state']
-            }
+        # 2. 从数据库查询真实地理父子关系
+        conn = sqlite3.connect(self.db_path)
 
-            try:
-                county_result = self.run_clustering(county_params)
-                county_results[city_cluster_id] = county_result
-                logger.info(f"County-level clustering for city cluster {city_cluster_id}: {county_result['n_regions']} counties")
-            except Exception as e:
-                logger.warning(f"County clustering failed for city cluster {city_cluster_id}: {e}")
-                county_results[city_cluster_id] = {'assignments': [], 'skipped': True}
+        city_to_counties: Dict[str, List[str]] = {}
+        for city, county in conn.execute("SELECT DISTINCT city, county FROM county_aggregates").fetchall():
+            city_to_counties.setdefault(city, []).append(county)
 
-        # 4. Township-level聚类（对每个county cluster）
-        township_results = {}
-        for city_cluster_id, county_result in county_results.items():
-            if county_result.get('skipped'):
-                continue
+        county_to_townships: Dict[str, List[str]] = {}
+        for county, town in conn.execute("SELECT DISTINCT county, town FROM town_aggregates").fetchall():
+            county_to_townships.setdefault(county, []).append(town)
 
-            # 构建county到cluster的映射
-            county_to_cluster = {}
-            for assignment in county_result['assignments']:
-                county_to_cluster[assignment['region_name']] = assignment['cluster_id']
+        conn.close()
 
-            for county_cluster_id in range(county_result.get('k', 0)):
-                # 找到属于这个county cluster的所有县
-                counties_in_cluster = [county for county, cid in county_to_cluster.items() if cid == county_cluster_id]
-
-                if len(counties_in_cluster) == 0:
-                    continue
-
-                # 对这些县的镇进行聚类
-                township_params = {
-                    'algorithm': params['algorithm'],
-                    'k': min(params['k_township'], len(counties_in_cluster) * 20),  # 动态调整k
-                    'region_level': 'township',
-                    'region_filter': counties_in_cluster,
-                    'features': params['features'],
-                    'preprocessing': params['preprocessing'],
-                    'random_state': params['random_state']
-                }
-
-                try:
-                    township_result = self.run_clustering(township_params)
-                    key = (city_cluster_id, county_cluster_id)
-                    township_results[key] = township_result
-                    logger.info(f"Township-level clustering for county cluster {key}: {township_result['n_regions']} townships")
-                except Exception as e:
-                    logger.warning(f"Township clustering failed for county cluster {key}: {e}")
-                    township_results[key] = {'assignments': [], 'skipped': True}
-
-        # 5. 构建层次树
+        # 3. 构建层次树：每个城市只挂自己的县，每个县只挂自己的镇
         tree = []
-        for city_assignment in city_result['assignments']:
+        for city_assignment in sorted(city_result['assignments'], key=lambda a: a['region_name']):
             city_name = city_assignment['region_name']
             city_cluster_id = city_assignment['cluster_id']
 
-            city_node = {
+            county_children = []
+            for county_name in sorted(city_to_counties.get(city_name, [])):
+                county_cluster_id = county_to_cluster.get(county_name)
+                if county_cluster_id is None:
+                    continue
+
+                township_children = []
+                for township_name in sorted(county_to_townships.get(county_name, [])):
+                    tc = township_to_cluster.get(township_name)
+                    if tc is None:
+                        continue
+                    township_children.append({
+                        'level': 'township',
+                        'region_name': township_name,
+                        'cluster_id': tc
+                    })
+
+                county_children.append({
+                    'level': 'county',
+                    'region_name': county_name,
+                    'cluster_id': county_cluster_id,
+                    'children': township_children
+                })
+
+            tree.append({
                 'level': 'city',
                 'region_name': city_name,
                 'cluster_id': city_cluster_id,
-                'children': []
-            }
-
-            # 添加county节点
-            if city_cluster_id in county_results and not county_results[city_cluster_id].get('skipped'):
-                county_result = county_results[city_cluster_id]
-                for county_assignment in county_result['assignments']:
-                    county_name = county_assignment['region_name']
-                    county_cluster_id = county_assignment['cluster_id']
-
-                    county_node = {
-                        'level': 'county',
-                        'region_name': county_name,
-                        'cluster_id': county_cluster_id,
-                        'parent_cluster_id': city_cluster_id,
-                        'children': []
-                    }
-
-                    # 添加township节点
-                    key = (city_cluster_id, county_cluster_id)
-                    if key in township_results and not township_results[key].get('skipped'):
-                        township_result = township_results[key]
-                        for township_assignment in township_result['assignments']:
-                            township_name = township_assignment['region_name']
-                            township_cluster_id = township_assignment['cluster_id']
-
-                            township_node = {
-                                'level': 'township',
-                                'region_name': township_name,
-                                'cluster_id': township_cluster_id,
-                                'parent_cluster_id': county_cluster_id
-                            }
-
-                            county_node['children'].append(township_node)
-
-                    city_node['children'].append(county_node)
-
-            tree.append(city_node)
+                'children': county_children
+            })
 
         execution_time = int((time.time() - start_time) * 1000)
 
-        # 6. 汇总指标
-        total_metrics = {
-            'city_metrics': city_result['metrics'],
-            'county_clusters_count': len([r for r in county_results.values() if not r.get('skipped')]),
-            'township_clusters_count': len([r for r in township_results.values() if not r.get('skipped')])
-        }
-
         return {
             'run_id': f"hierarchical_{int(time.time())}",
-            'algorithm': params['algorithm'],
+            'algorithm': algorithm,
             'k_city': params['k_city'],
             'k_county': params['k_county'],
             'k_township': params['k_township'],
+            'n_cities': len(city_result['assignments']),
+            'n_counties': len(county_result['assignments']),
+            'n_townships': len(township_to_cluster),
             'execution_time_ms': execution_time,
             'tree': tree,
-            'metrics': total_metrics
+            'metrics': {
+                'city': city_result['metrics'],
+                'county': county_result['metrics'],
+                'township': township_metrics
+            }
         }
 
     def _suggest_dbscan_params(

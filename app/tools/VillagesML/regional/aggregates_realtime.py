@@ -295,7 +295,7 @@ def get_county_aggregates(
 def get_town_aggregates(
     town_name: Optional[str] = Query(None, description="乡镇名称"),
     county_name: Optional[str] = Query(None, description="所属县区"),
-    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -306,7 +306,7 @@ def get_town_aggregates(
     Args:
         town_name: 乡镇名称（可选）
         county_name: 所属县区（可选）
-        limit: 返回记录数
+        limit: 返回记录数（不传则返回全部）
         run_id: 分析运行ID（可选）
 
     Returns:
@@ -337,8 +337,11 @@ def get_town_aggregates(
         query_basic += " AND v.区县级 = ?"
         params_basic.append(county_name)
 
-    query_basic += " GROUP BY v.市级, v.区县级, v.乡镇级 ORDER BY COUNT(DISTINCT v.自然村) DESC LIMIT ?"
-    params_basic.append(limit)
+    if limit is not None:
+        query_basic += " GROUP BY v.市级, v.区县级, v.乡镇级 ORDER BY COUNT(DISTINCT v.自然村) DESC LIMIT ?"
+        params_basic.append(limit)
+    else:
+        query_basic += " GROUP BY v.市级, v.区县级, v.乡镇级 ORDER BY COUNT(DISTINCT v.自然村) DESC"
 
     basic_results = execute_query(db, query_basic, tuple(params_basic))
 
@@ -419,59 +422,52 @@ def get_town_aggregates(
 def get_region_spatial_aggregates(
     region_level: str = Query(..., description="区域级别（city/county/town）"),
     region_name: Optional[str] = Query(None, description="区域名称"),
-    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    获取区域空间聚合数据（实时计算）
-    Get regional spatial aggregate statistics (computed in real-time)
+    获取区域空间聚合数据（查询预计算表，毫秒级响应）
+    Get regional spatial aggregate statistics from pre-computed table.
 
     Args:
         region_level: 区域级别（city/county/town）
         region_name: 区域名称（可选）
-        limit: 返回记录数
+        limit: 返回记录数（不传则返回全部）
 
     Returns:
         List[dict]: 区域空间聚合数据
     """
-    # Map region_level to column name
-    level_column_map = {
-        'city': '市级',
-        'county': '区县级',
-        'town': '乡镇级'
-    }
-
-    if region_level not in level_column_map:
+    if region_level not in ('city', 'county', 'town'):
         raise HTTPException(
             status_code=400,
             detail=f"Invalid region_level: {region_level}. Must be one of: city, county, town"
         )
 
-    column_name = level_column_map[region_level]
-
-    query = f"""
+    query = """
         SELECT
-            '{region_level}' as region_level,
-            v.{column_name} as region_name,
-            COUNT(DISTINCT v.自然村) as village_count,
-            AVG(sf.local_density_5km) as avg_density,
-            AVG(sf.nn_distance_5) as avg_nn_distance,
-            AVG(sf.isolation_score) as avg_isolation_score,
-            AVG(sf.local_density_1km) as avg_density_1km,
-            AVG(sf.local_density_10km) as avg_density_10km
-        FROM 广东省自然村 v
-        LEFT JOIN village_spatial_features sf ON v.自然村 = sf.village_name
-        WHERE 1=1
+            region_level,
+            region_name,
+            total_villages as village_count,
+            avg_local_density as avg_density,
+            avg_nn_distance,
+            avg_isolation_score,
+            spatial_dispersion,
+            n_isolated_villages,
+            n_spatial_clusters
+        FROM region_spatial_aggregates
+        WHERE region_level = ?
     """
-
-    params = []
+    params = [region_level]
 
     if region_name is not None:
-        query += f" AND v.{column_name} = ?"
+        query += " AND region_name = ?"
         params.append(region_name)
 
-    query += f" GROUP BY v.{column_name} ORDER BY village_count DESC LIMIT ?"
-    params.append(limit)
+    query += " ORDER BY village_count DESC"
+
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
 
     results = execute_query(db, query, tuple(params))
 

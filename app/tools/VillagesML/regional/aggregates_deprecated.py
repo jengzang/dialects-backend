@@ -146,7 +146,7 @@ def get_town_aggregates(
 def get_region_spatial_aggregates(
     region_level: str = Query(..., description="区域级别"),
     region_name: Optional[str] = Query(None, description="区域名称"),
-    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    limit: int = Query(10000, ge=1, le=10000, description="返回记录数"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """

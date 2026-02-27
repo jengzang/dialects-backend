@@ -211,6 +211,7 @@ class CharacterTendencyClusteringParams(BaseModel):
     top_n_chars: int = Field(100, ge=10, le=500, description="每个区域选择top N字符")
     tendency_metric: TendencyMetric = TendencyMetric.Z_SCORE
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
+    dbscan_config: DBSCANConfig = Field(default_factory=DBSCANConfig)
     random_state: int = Field(42, ge=0)
 
     @validator('k')

@@ -280,7 +280,7 @@ async def run_sampled_village_clustering(
 
         logger.info(f"Running sampled village clustering: {params.algorithm}, strategy={params.sampling_strategy}, size={params.sample_size}")
 
-        with timeout(5):
+        with timeout(60):
             result = engine.run_sampled_village_clustering(params.dict())
 
         # 缓存结果
