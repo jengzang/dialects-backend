@@ -22,75 +22,66 @@ def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, 
     """
     cursor = db.cursor()
 
-    # 统计 ngram_significance 表
-    cursor.execute("SELECT COUNT(*) FROM ngram_significance")
-    total_significance = cursor.fetchone()[0]
-
-    # 统计显著 N-gram
-    cursor.execute("SELECT COUNT(*) FROM ngram_significance WHERE p_value < 0.05")
-    significant_count = cursor.fetchone()[0]
-
     # 检查是否有 total_before_filter 字段
     cursor.execute("PRAGMA table_info(ngram_significance)")
     columns = [col[1] for col in cursor.fetchall()]
     has_total_before_filter = 'total_before_filter' in columns
 
-    # 按级别统计
-    if has_total_before_filter:
-        # 有原始总数字段：统计清理前后的数量
-        cursor.execute("""
-            SELECT level,
-                   COUNT(*) as total,
-                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) as significant,
-                   (SELECT SUM(total_before_filter)
-                    FROM (SELECT DISTINCT level as l, region, total_before_filter
-                          FROM ngram_significance WHERE level = ns.level)) as total_before
-            FROM ngram_significance ns
-            GROUP BY level
-        """)
+    # 按级别统计，同时推导全局计数（避免额外的全表 COUNT 查询）
+    by_level = {}
+    total_significance = 0
+    significant_count = 0
+    total_before_filter_global = 0
 
-        by_level = {}
-        for row in cursor.fetchall():
-            level, total, sig, total_before = row
+    if has_total_before_filter:
+        # 用 CTE 预聚合去重，消灭关联子查询
+        cursor.execute("""
+            WITH level_before AS (
+                SELECT level, SUM(total_before_filter) AS total_before
+                FROM (SELECT DISTINCT level, region, total_before_filter
+                      FROM ngram_significance)
+                GROUP BY level
+            )
+            SELECT ns.level,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) AS significant,
+                   lb.total_before
+            FROM ngram_significance ns
+            JOIN level_before lb ON ns.level = lb.level
+            GROUP BY ns.level
+        """)
+        for level, total, sig, total_before in cursor.fetchall():
+            total_before = total_before or total
             by_level[level] = {
                 "total": total,
                 "significant": sig,
-                "total_before_filter": total_before if total_before else total,
-                "significant_rate": round(sig / total_before * 100, 1) if total_before and total_before > 0 else 0
+                "total_before_filter": total_before,
+                "significant_rate": round(sig / total_before * 100, 1) if total_before > 0 else 0
             }
+            total_significance += total
+            significant_count += sig
+            total_before_filter_global += total_before
     else:
-        # 没有原始总数字段：使用当前数据
         cursor.execute("""
             SELECT level,
-                   COUNT(*) as total,
-                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) as significant
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) AS significant
             FROM ngram_significance
             GROUP BY level
         """)
-
-        by_level = {}
-        for row in cursor.fetchall():
-            level, total, sig = row
+        for level, total, sig in cursor.fetchall():
             by_level[level] = {
                 "total": total,
                 "significant": sig,
                 "significant_rate": round(sig / total * 100, 1) if total > 0 else 0
             }
+            total_significance += total
+            significant_count += sig
+        total_before_filter_global = None
 
     # 统计 regional_ngram_frequency 表
     cursor.execute("SELECT COUNT(*) FROM regional_ngram_frequency")
     regional_total = cursor.fetchone()[0]
-
-    # 计算全局的原始总数（如果有字段）
-    if has_total_before_filter:
-        cursor.execute("""
-            SELECT SUM(total_before_filter)
-            FROM (SELECT DISTINCT level, region, total_before_filter
-                  FROM ngram_significance)
-        """)
-        total_before_filter_global = cursor.fetchone()[0]
-    else:
-        total_before_filter_global = None
 
     result = {
         "ngram_significance": {
