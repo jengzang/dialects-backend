@@ -20,7 +20,7 @@ router = APIRouter(prefix="/regional")
 
 def compute_city_aggregates(
     db: sqlite3.Connection,
-    city_name: Optional[str] = None,
+    city: Optional[str] = None,
     run_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -44,9 +44,9 @@ def compute_city_aggregates(
 
     params_basic = []
 
-    if city_name is not None:
+    if city is not None:
         query_basic += " AND v.市级 = ?"
-        params_basic.append(city_name)
+        params_basic.append(city)
 
     query_basic += " GROUP BY v.市级"
 
@@ -55,7 +55,7 @@ def compute_city_aggregates(
     # Step 2: Get semantic category statistics from semantic_indices
     query_semantic = """
         SELECT
-            region_name as city,
+            city,
             category,
             raw_intensity
         FROM semantic_indices
@@ -64,9 +64,9 @@ def compute_city_aggregates(
 
     params_semantic = [run_id]
 
-    if city_name is not None:
-        query_semantic += " AND region_name = ?"
-        params_semantic.append(city_name)
+    if city is not None:
+        query_semantic += " AND city = ?"
+        params_semantic.append(city)
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
 
@@ -74,23 +74,23 @@ def compute_city_aggregates(
     # Create a dict of city -> semantic stats
     semantic_by_city = {}
     for row in semantic_results:
-        city = row['city']
+        city_val = row['city']
         category = row['category']
         intensity = row['raw_intensity']
 
-        if city not in semantic_by_city:
-            semantic_by_city[city] = {}
+        if city_val not in semantic_by_city:
+            semantic_by_city[city_val] = {}
 
-        semantic_by_city[city][category] = intensity
+        semantic_by_city[city_val][category] = intensity
 
     # Merge with basic results
     final_results = []
     for row in basic_results:
-        city = row['city']
+        city_val = row['city']
         total = row['total_villages']
 
         # Add semantic category percentages
-        semantic_stats = semantic_by_city.get(city, {})
+        semantic_stats = semantic_by_city.get(city_val, {})
 
         row['sem_mountain_pct'] = semantic_stats.get('mountain', 0.0) * 100
         row['sem_water_pct'] = semantic_stats.get('water', 0.0) * 100
@@ -125,7 +125,7 @@ def compute_city_aggregates(
 
 @router.get("/aggregates/city")
 def get_city_aggregates(
-    city_name: Optional[str] = Query(None, description="城市名称"),
+    city: Optional[str] = Query(None, description="城市名称"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -134,13 +134,13 @@ def get_city_aggregates(
     Get city-level aggregate statistics (computed in real-time)
 
     Args:
-        city_name: 城市名称（可选）
+        city: 城市名称（可选）
         run_id: 分析运行ID（可选）
 
     Returns:
         List[dict]: 城市聚合数据
     """
-    results = compute_city_aggregates(db, city_name, run_id)
+    results = compute_city_aggregates(db, city, run_id)
 
     if not results:
         raise HTTPException(
@@ -155,6 +155,8 @@ def compute_county_aggregates(
     db: sqlite3.Connection,
     county_name: Optional[str] = None,
     city_name: Optional[str] = None,
+    city: Optional[str] = None,
+    county: Optional[str] = None,
     run_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -179,10 +181,18 @@ def compute_county_aggregates(
 
     params_basic = []
 
+    # Priority 1: Use hierarchy parameters
+    if city is not None:
+        query_basic += " AND v.市级 = ?"
+        params_basic.append(city)
+    if county is not None:
+        query_basic += " AND v.区县级 = ?"
+        params_basic.append(county)
+
+    # Priority 2: Backward compatibility
     if county_name is not None:
         query_basic += " AND v.区县级 = ?"
         params_basic.append(county_name)
-
     if city_name is not None:
         query_basic += " AND v.市级 = ?"
         params_basic.append(city_name)
@@ -194,7 +204,8 @@ def compute_county_aggregates(
     # Step 2: Get semantic category statistics from semantic_indices
     query_semantic = """
         SELECT
-            region_name as county,
+            city,
+            county,
             category,
             raw_intensity
         FROM semantic_indices
@@ -203,32 +214,41 @@ def compute_county_aggregates(
 
     params_semantic = [run_id]
 
+    # Priority 1: Use hierarchy parameters
+    if city is not None:
+        query_semantic += " AND city = ?"
+        params_semantic.append(city)
+    if county is not None:
+        query_semantic += " AND county = ?"
+        params_semantic.append(county)
+
+    # Priority 2: Backward compatibility
     if county_name is not None:
-        query_semantic += " AND region_name = ?"
-        params_semantic.append(county_name)
+        query_semantic += " AND (county = ? OR region_name = ?)"
+        params_semantic.extend([county_name, county_name])
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
 
     # Step 3: Merge results
     semantic_by_county = {}
     for row in semantic_results:
-        county = row['county']
+        key = (row['city'], row['county'])
         category = row['category']
         intensity = row['raw_intensity']
 
-        if county not in semantic_by_county:
-            semantic_by_county[county] = {}
+        if key not in semantic_by_county:
+            semantic_by_county[key] = {}
 
-        semantic_by_county[county][category] = intensity
+        semantic_by_county[key][category] = intensity
 
     # Merge with basic results
     final_results = []
     for row in basic_results:
-        county = row['county']
+        key = (row['city'], row['county'])
         total = row['total_villages']
 
         # Add semantic category percentages
-        semantic_stats = semantic_by_county.get(county, {})
+        semantic_stats = semantic_by_county.get(key, {})
 
         row['sem_mountain_pct'] = semantic_stats.get('mountain', 0.0) * 100
         row['sem_water_pct'] = semantic_stats.get('water', 0.0) * 100
@@ -263,8 +283,10 @@ def compute_county_aggregates(
 
 @router.get("/aggregates/county")
 def get_county_aggregates(
-    county_name: Optional[str] = Query(None, description="县区名称"),
-    city_name: Optional[str] = Query(None, description="所属城市"),
+    county_name: Optional[str] = Query(None, description="县区名称（向后兼容）"),
+    city_name: Optional[str] = Query(None, description="所属城市（向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -273,14 +295,16 @@ def get_county_aggregates(
     Get county-level aggregate statistics (computed in real-time)
 
     Args:
-        county_name: 县区名称（可选）
-        city_name: 所属城市（可选）
+        county_name: 县区名称（向后兼容）
+        city_name: 所属城市（向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
         run_id: 分析运行ID（可选）
 
     Returns:
         List[dict]: 县区聚合数据
     """
-    results = compute_county_aggregates(db, county_name, city_name, run_id)
+    results = compute_county_aggregates(db, county_name, city_name, city, county, run_id)
 
     if not results:
         raise HTTPException(
@@ -293,8 +317,11 @@ def get_county_aggregates(
 
 @router.get("/aggregates/town")
 def get_town_aggregates(
-    town_name: Optional[str] = Query(None, description="乡镇名称"),
-    county_name: Optional[str] = Query(None, description="所属县区"),
+    town_name: Optional[str] = Query(None, description="乡镇名称（向后兼容）"),
+    county_name: Optional[str] = Query(None, description="所属县区（向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
@@ -304,8 +331,11 @@ def get_town_aggregates(
     Get town-level aggregate statistics (computed in real-time)
 
     Args:
-        town_name: 乡镇名称（可选）
-        county_name: 所属县区（可选）
+        town_name: 乡镇名称（向后兼容）
+        county_name: 所属县区（向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         limit: 返回记录数（不传则返回全部）
         run_id: 分析运行ID（可选）
 
@@ -329,10 +359,24 @@ def get_town_aggregates(
 
     params_basic = []
 
+    # Priority 1: Use hierarchy parameters
+    if city is not None:
+        query_basic += " AND v.市级 = ?"
+        params_basic.append(city)
+    if county is not None:
+        query_basic += " AND v.区县级 = ?"
+        params_basic.append(county)
+    elif city is not None:
+        # Handle 东莞市/中山市 (no county level)
+        query_basic += " AND (v.区县级 IS NULL OR v.区县级 = '')"
+    if township is not None:
+        query_basic += " AND v.乡镇级 = ?"
+        params_basic.append(township)
+
+    # Priority 2: Backward compatibility
     if town_name is not None:
         query_basic += " AND v.乡镇级 = ?"
         params_basic.append(town_name)
-
     if county_name is not None:
         query_basic += " AND v.区县级 = ?"
         params_basic.append(county_name)
@@ -348,7 +392,9 @@ def get_town_aggregates(
     # Step 2: Get semantic category statistics from semantic_indices
     query_semantic = """
         SELECT
-            region_name as town,
+            city,
+            county,
+            township,
             category,
             raw_intensity
         FROM semantic_indices
@@ -357,32 +403,47 @@ def get_town_aggregates(
 
     params_semantic = [run_id]
 
+    # Priority 1: Use hierarchy parameters
+    if city is not None:
+        query_semantic += " AND city = ?"
+        params_semantic.append(city)
+    if county is not None:
+        query_semantic += " AND county = ?"
+        params_semantic.append(county)
+    elif city is not None:
+        # Handle 东莞市/中山市 (no county level)
+        query_semantic += " AND (county IS NULL OR county = '')"
+    if township is not None:
+        query_semantic += " AND township = ?"
+        params_semantic.append(township)
+
+    # Priority 2: Backward compatibility
     if town_name is not None:
-        query_semantic += " AND region_name = ?"
-        params_semantic.append(town_name)
+        query_semantic += " AND (township = ? OR region_name = ?)"
+        params_semantic.extend([town_name, town_name])
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
 
     # Step 3: Merge results
     semantic_by_town = {}
     for row in semantic_results:
-        town = row['town']
+        key = (row['city'], row['county'], row['township'])
         category = row['category']
         intensity = row['raw_intensity']
 
-        if town not in semantic_by_town:
-            semantic_by_town[town] = {}
+        if key not in semantic_by_town:
+            semantic_by_town[key] = {}
 
-        semantic_by_town[town][category] = intensity
+        semantic_by_town[key][category] = intensity
 
     # Merge with basic results
     final_results = []
     for row in basic_results:
-        town = row['town']
+        key = (row['city'], row['county'], row['town'])
         total = row['total_villages']
 
         # Add semantic category percentages
-        semantic_stats = semantic_by_town.get(town, {})
+        semantic_stats = semantic_by_town.get(key, {})
 
         row['sem_mountain_pct'] = semantic_stats.get('mountain', 0.0) * 100
         row['sem_water_pct'] = semantic_stats.get('water', 0.0) * 100
@@ -421,7 +482,10 @@ def get_town_aggregates(
 @router.get("/spatial-aggregates")
 def get_region_spatial_aggregates(
     region_level: str = Query(..., description="区域级别（city/county/town）"),
-    region_name: Optional[str] = Query(None, description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    town: Optional[str] = Query(None, description="乡镇级过滤"),
     limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -431,7 +495,10 @@ def get_region_spatial_aggregates(
 
     Args:
         region_level: 区域级别（city/county/town）
-        region_name: 区域名称（可选）
+        region_name: 区域名称（模糊匹配，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        town: 乡镇级过滤（精确匹配）
         limit: 返回记录数（不传则返回全部）
 
     Returns:
@@ -447,6 +514,9 @@ def get_region_spatial_aggregates(
         SELECT
             region_level,
             region_name,
+            city,
+            county,
+            town,
             total_villages as village_count,
             avg_local_density as avg_density,
             avg_nn_distance,
@@ -459,9 +529,24 @@ def get_region_spatial_aggregates(
     """
     params = [region_level]
 
+    # Priority 1: Use hierarchy parameters (exact match)
+    if city is not None:
+        query += " AND city = ?"
+        params.append(city)
+    if county is not None:
+        query += " AND county = ?"
+        params.append(county)
+    elif city is not None and region_level == 'town':
+        # Handle 东莞市/中山市 (no county level)
+        query += " AND (county IS NULL OR county = '')"
+    if town is not None:
+        query += " AND town = ?"
+        params.append(town)
+
+    # Priority 2: Backward compatibility (fuzzy match)
     if region_name is not None:
-        query += " AND region_name = ?"
-        params.append(region_name)
+        query += " AND (city = ? OR county = ? OR town = ? OR region_name = ?)"
+        params.extend([region_name, region_name, region_name, region_name])
 
     query += " ORDER BY village_count DESC"
 

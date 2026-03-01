@@ -245,7 +245,10 @@ def get_composition_patterns(
 def get_semantic_indices(
     category: Optional[str] = Query(None, description="语义类别"),
     region_level: Optional[str] = Query(None, description="区域级别"),
-    region_name: Optional[str] = Query(None, description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_villages: Optional[int] = Query(None, ge=1, description="最小村庄数（过滤小样本区域）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（76子类别）"),
@@ -258,7 +261,10 @@ def get_semantic_indices(
     Args:
         category: 语义类别（可选）
         region_level: 区域级别（可选）
-        region_name: 区域名称（可选）
+        region_name: 区域名称（模糊匹配，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         min_villages: 最小村庄数，过滤村庄数少的区域（可选）
         limit: 返回记录数
         detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
@@ -273,6 +279,9 @@ def get_semantic_indices(
         SELECT
             region_level,
             region_name,
+            city,
+            county,
+            township,
             category as semantic_category,
             raw_intensity as semantic_index,
             normalized_index,
@@ -291,9 +300,24 @@ def get_semantic_indices(
         query += " AND region_level = ?"
         params.append(region_level)
 
+    # Priority 1: Use hierarchy parameters (exact match)
+    if city is not None:
+        query += " AND city = ?"
+        params.append(city)
+    if county is not None:
+        query += " AND county = ?"
+        params.append(county)
+    elif city is not None and region_level == 'township':
+        # Handle 东莞市/中山市 (no county level)
+        query += " AND (county IS NULL OR county = '')"
+    if township is not None:
+        query += " AND township = ?"
+        params.append(township)
+
+    # Priority 2: Backward compatibility (fuzzy match)
     if region_name is not None:
-        query += " AND region_name = ?"
-        params.append(region_name)
+        query += " AND (city = ? OR county = ? OR township = ?)"
+        params.extend([region_name, region_name, region_name])
 
     if min_villages is not None:
         query += " AND village_count >= ?"

@@ -66,6 +66,9 @@ async def search_similar_regions(
         if county is not None:
             target_query += " AND county = ?"
             params.append(county)
+        elif city is not None and region_level == 'township':
+            # Handle 东莞市/中山市 (no county level)
+            target_query += " AND (county IS NULL OR county = '')"
 
         if township is not None:
             target_query += " AND township = ?"

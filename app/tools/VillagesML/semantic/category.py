@@ -109,6 +109,9 @@ def _get_regional_semantic_vtf_sync(run_id: str, region_level: str, region_name:
         if county is not None:
             query += " AND county = ?"
             params.append(county)
+        elif city is not None and region_level == 'township':
+            # Handle 东莞市/中山市 (no county level)
+            query += " AND (county IS NULL OR county = '')"
         if township is not None:
             query += " AND township = ?"
             params.append(township)
@@ -182,6 +185,9 @@ def _get_semantic_tendency_sync(run_id: str, region_level: str, region_name: Opt
         if county is not None:
             query += " AND county = ?"
             params.append(county)
+        elif city is not None and region_level == 'township':
+            # Handle 东莞市/中山市 (no county level)
+            query += " AND (county IS NULL OR county = '')"
         if township is not None:
             query += " AND township = ?"
             params.append(township)

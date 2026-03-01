@@ -72,7 +72,10 @@ def get_character_significance(
 
 @router.get("/by-region")
 def get_significant_characters_by_region(
-    region_name: str = Query(..., description="区域名称"),
+    region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
+    city: Optional[str] = Query(None, description="市级过滤"),
+    county: Optional[str] = Query(None, description="区县级过滤"),
+    township: Optional[str] = Query(None, description="乡镇级过滤"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
     significance_only: bool = Query(True, description="仅返回显著字符"),
@@ -84,7 +87,10 @@ def get_significant_characters_by_region(
     Get significant characters for a specific region
 
     Args:
-        region_name: 区域名称
+        region_name: 区域名称（模糊匹配，向后兼容）
+        city: 市级过滤（精确匹配）
+        county: 区县级过滤（精确匹配）
+        township: 乡镇级过滤（精确匹配）
         run_id: 分析运行ID
         region_level: 区域级别
         significance_only: 仅返回显著字符（p < 0.05）
@@ -105,9 +111,28 @@ def get_significant_characters_by_region(
             is_significant,
             effect_size
         FROM tendency_significance
-        WHERE run_id = ? AND region_name = ? AND region_level = ?
+        WHERE run_id = ? AND region_level = ?
     """
-    params = [run_id, region_name, region_level]
+    params = [run_id, region_level]
+
+    # Priority 1: Use hierarchy parameters (exact match)
+    if city is not None:
+        query += " AND city = ?"
+        params.append(city)
+    if county is not None:
+        query += " AND county = ?"
+        params.append(county)
+    elif city is not None and region_level == 'township':
+        # Handle 东莞市/中山市 (no county level)
+        query += " AND (county IS NULL OR county = '')"
+    if township is not None:
+        query += " AND township = ?"
+        params.append(township)
+
+    # Priority 2: Backward compatibility (fuzzy match)
+    if region_name is not None:
+        query += " AND (city = ? OR county = ? OR township = ? OR region_name = ?)"
+        params.extend([region_name, region_name, region_name, region_name])
 
     # 现场过滤：仅显著字符
     if significance_only:
@@ -121,7 +146,7 @@ def get_significant_characters_by_region(
     if not results:
         raise HTTPException(
             status_code=404,
-            detail=f"No significant characters found for region: {region_name}"
+            detail=f"No significant characters found for the specified region"
         )
 
     return results
