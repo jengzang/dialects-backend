@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
@@ -49,33 +49,75 @@ def get_user_api_usage(query: str, db: Session = Depends(get_db)):
 
 # 通过查询日志数据获取指定字段
 @router.get("/api-usage")
-def get_all_api_usage(db: Session = Depends(get_db)):
-    # 查询 api_usage_logs 表，排除 path='/login' 的记录
-    logs = db.query(models.ApiUsageLog).filter(models.ApiUsageLog.path != '/login').all()
+def get_all_api_usage(
+    skip: int = Query(None, ge=0, description="分页偏移（可选）"),
+    limit: int = Query(None, ge=1, le=500, description="分页限制（可选）"),
+    db: Session = Depends(get_db)
+):
+    # 使用 JOIN 查询避免 N+1 问题
+    query = db.query(
+        models.ApiUsageLog,
+        models.User.username
+    ).outerjoin(
+        models.User,
+        models.ApiUsageLog.user_id == models.User.id
+    ).filter(
+        models.ApiUsageLog.path != '/login'
+    ).order_by(models.ApiUsageLog.called_at.desc())
 
-    # 将数据整理成需要的格式
-    result = []
-    for log in logs:
-        # 提取操作系统和浏览器信息
-        os, browser = extract_device_info(log.user_agent)
-        # 查找用户名，如果没有找到则使用空字符串
-        user = db.query(models.User).filter(models.User.id == log.user_id).first()
-        username = user.username if user else ''  # 如果没有找到用户，用户名为空字符串
+    # 如果提供了分页参数，返回分页格式
+    if skip is not None or limit is not None:
+        # 获取总数
+        total = query.count()
 
-        # 构建返回数据
-        result.append({
-            "user": username,
-            "ip": log.ip,
-            "path": log.path,
-            "duration": log.duration,
-            "os": os,
-            "browser": browser,
-            "called_at": log.called_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "request_size":log.request_size,
-            "response_size":log.response_size,
-        })
+        # 应用分页
+        skip = skip or 0
+        limit = limit or 100
+        logs = query.offset(skip).limit(limit).all()
 
-    return result
+        # 构建结果
+        result = []
+        for log, username in logs:
+            os, browser = extract_device_info(log.user_agent)
+            result.append({
+                "user": username or '',
+                "ip": log.ip,
+                "path": log.path,
+                "duration": log.duration,
+                "os": os,
+                "browser": browser,
+                "called_at": log.called_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "request_size": log.request_size,
+                "response_size": log.response_size,
+            })
+
+        return {
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "data": result
+        }
+
+    # 如果没有分页参数，返回所有数据（向后兼容）
+    else:
+        logs = query.all()
+
+        result = []
+        for log, username in logs:
+            os, browser = extract_device_info(log.user_agent)
+            result.append({
+                "user": username or '',
+                "ip": log.ip,
+                "path": log.path,
+                "duration": log.duration,
+                "os": os,
+                "browser": browser,
+                "called_at": log.called_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "request_size": log.request_size,
+                "response_size": log.response_size,
+            })
+
+        return result
 
 
 # 提取设备信息（操作系统和浏览器）
