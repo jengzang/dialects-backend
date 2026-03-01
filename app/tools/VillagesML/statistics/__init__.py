@@ -3,19 +3,23 @@ VillagesML 统计 API
 Statistics API endpoints for VillagesML
 """
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 import sqlite3
 from typing import Dict, Any
 
 from ..dependencies import get_db
+from ..cache_utils import api_cache
 
 router = APIRouter(prefix="/statistics")
 
 
-@router.get("/ngrams")
-def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, Any]:
+def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
     """
-    获取 N-gram 统计信息
-    Get N-gram statistics
+    同步获取 N-gram 统计信息（在线程池中执行）
+    Synchronous function to get N-gram statistics (runs in thread pool)
+
+    Args:
+        db: 数据库连接
 
     Returns:
         dict: N-gram 统计数据
@@ -103,6 +107,19 @@ def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, 
         result["ngram_significance"]["filter_rate"] = round((total_before_filter_global - total_significance) / total_before_filter_global * 100, 1)
 
     return result
+
+
+@router.get("/ngrams")
+@api_cache(ttl=300, prefix="ngrams_stats")
+async def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, Any]:
+    """
+    获取 N-gram 统计信息
+    Get N-gram statistics
+
+    Returns:
+        dict: N-gram 统计数据
+    """
+    return await run_in_threadpool(_get_ngram_statistics_sync, db)
 
 
 @router.get("/database")

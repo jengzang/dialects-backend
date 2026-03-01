@@ -12,6 +12,7 @@ from datetime import datetime
 from ..dependencies import get_db_connection, execute_query
 from ..config import DB_PATH
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
+from ..cache_utils import api_cache
 
 router = APIRouter(prefix="/metadata/stats")
 
@@ -94,16 +95,44 @@ def _get_table_info_sync():
         page_size_query = "PRAGMA page_size"
         page_size = execute_query(db, page_size_query)[0]["page_size"]
 
+        # 尝试从 sqlite_stat1 获取行数估算（避免 COUNT(*) 全表扫描）
+        stat1_available = False
+        stat1_data = {}
+        try:
+            stat1_query = "SELECT tbl, stat FROM sqlite_stat1"
+            stat1_results = execute_query(db, stat1_query)
+            stat1_available = True
+
+            # 解析 stat 字段（格式: "row_count avg_row_size ..."）
+            for row in stat1_results:
+                tbl = row["tbl"]
+                stat = row["stat"]
+                if stat:
+                    parts = stat.split()
+                    if parts:
+                        try:
+                            row_count = int(parts[0])
+                            stat1_data[tbl] = row_count
+                        except:
+                            pass
+        except:
+            # sqlite_stat1 不存在或未运行 ANALYZE
+            pass
+
         table_info_list = []
         for table in tables:
             table_name = table["table_name"]
 
-            # 获取行数
-            count_query = f"SELECT COUNT(*) as count FROM `{table_name}`"
-            try:
-                row_count = execute_query(db, count_query)[0]["count"]
-            except:
-                row_count = 0
+            # 获取行数（优先使用 sqlite_stat1 估算）
+            if stat1_available and table_name in stat1_data:
+                row_count = stat1_data[table_name]
+            else:
+                # Fallback: 使用 COUNT(*) （仅当 stat1 不可用时）
+                count_query = f"SELECT COUNT(*) as count FROM `{table_name}`"
+                try:
+                    row_count = execute_query(db, count_query)[0]["count"]
+                except:
+                    row_count = 0
 
             # 获取表大小（估算方法：行数 * 平均行大小）
             # SQLite 没有直接的表大小查询，这里使用估算
@@ -193,6 +222,7 @@ def _get_table_info_sync():
 
 
 @router.get("/tables", response_model=List[TableInfo])
+@api_cache(ttl=300, prefix="metadata_tables")
 async def get_table_info():
     """
     获取数据库表信息
