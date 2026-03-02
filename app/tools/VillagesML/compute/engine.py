@@ -1397,31 +1397,37 @@ class FeatureEngine:
         feature_config = params.get('features', {})
         villages = params['villages']
 
-        # 批量查询村庄特征（避免 N+1 问题）
-        village_conditions = []
-        village_params = []
-        for village in villages:
-            if 'city' in village:
-                village_conditions.append("(village_name = ? AND city = ?)")
-                village_params.extend([village['name'], village['city']])
-            else:
-                village_conditions.append("(village_name = ?)")
-                village_params.append(village['name'])
-
-        # 批量查询所有村庄
-        batch_query = f"""
-        SELECT * FROM village_features
-        WHERE {' OR '.join(village_conditions)}
-        """
-        cursor.execute(batch_query, village_params)
-        village_rows = cursor.fetchall()
-
-        # 构建村庄数据字典（用于快速查找）
+        # 分批查询村庄特征（避免 SQL 表达式树过大，SQLite 限制深度 1000）
+        BATCH_SIZE = 500
         village_data = {}
-        for row in village_rows:
-            row_dict = dict(zip(columns, row))
-            key = (row_dict['village_name'], row_dict['city'])
-            village_data[key] = row_dict
+
+        for i in range(0, len(villages), BATCH_SIZE):
+            batch = villages[i:i + BATCH_SIZE]
+
+            # 构建查询条件
+            village_conditions = []
+            village_params = []
+            for village in batch:
+                if 'city' in village:
+                    village_conditions.append("(village_name = ? AND city = ?)")
+                    village_params.extend([village['name'], village['city']])
+                else:
+                    village_conditions.append("(village_name = ?)")
+                    village_params.append(village['name'])
+
+            # 批量查询当前批次
+            batch_query = f"""
+            SELECT * FROM village_features
+            WHERE {' OR '.join(village_conditions)}
+            """
+            cursor.execute(batch_query, village_params)
+            village_rows = cursor.fetchall()
+
+            # 构建村庄数据字典
+            for row in village_rows:
+                row_dict = dict(zip(columns, row))
+                key = (row_dict['village_name'], row_dict['city'])
+                village_data[key] = row_dict
 
         # 如果启用 spatial，批量查询坐标
         spatial_data = {}
