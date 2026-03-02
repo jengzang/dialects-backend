@@ -1377,10 +1377,10 @@ class FeatureEngine:
 
     def extract_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        提取村庄特征（使用批量查询优化性能）
+        提取村庄特征（使用 village_id 直接查询，性能最优）
 
         Args:
-            params: 提取参数
+            params: 提取参数，villages 为 village_id 列表
 
         Returns:
             特征提取结果
@@ -1397,63 +1397,47 @@ class FeatureEngine:
         feature_config = params.get('features', {})
         villages = params['villages']
 
-        # 分批查询村庄特征（避免 SQL 表达式树过大，SQLite 限制深度 1000）
-        BATCH_SIZE = 500
+        # 提取所有 village_id
+        village_ids = [v['village_id'] for v in villages]
+
+        # 批量查询村庄特征（使用 IN 子句，性能最优）
+        placeholders = ','.join(['?'] * len(village_ids))
+        batch_query = f"""
+        SELECT * FROM village_features
+        WHERE village_id IN ({placeholders})
+        """
+        cursor.execute(batch_query, village_ids)
+        village_rows = cursor.fetchall()
+
+        # 构建村庄数据字典（用于快速查找）
         village_data = {}
-
-        for i in range(0, len(villages), BATCH_SIZE):
-            batch = villages[i:i + BATCH_SIZE]
-
-            # 构建查询条件
-            village_conditions = []
-            village_params = []
-            for village in batch:
-                if 'city' in village:
-                    village_conditions.append("(village_name = ? AND city = ?)")
-                    village_params.extend([village['name'], village['city']])
-                else:
-                    village_conditions.append("(village_name = ?)")
-                    village_params.append(village['name'])
-
-            # 批量查询当前批次
-            batch_query = f"""
-            SELECT * FROM village_features
-            WHERE {' OR '.join(village_conditions)}
-            """
-            cursor.execute(batch_query, village_params)
-            village_rows = cursor.fetchall()
-
-            # 构建村庄数据字典
-            for row in village_rows:
-                row_dict = dict(zip(columns, row))
-                key = (row_dict['village_name'], row_dict['city'])
-                village_data[key] = row_dict
+        for row in village_rows:
+            row_dict = dict(zip(columns, row))
+            village_data[row_dict['village_id']] = row_dict
 
         # 如果启用 spatial，批量查询坐标
         spatial_data = {}
         if feature_config.get('spatial', False):
-            village_ids = [v.get('village_id') for v in village_data.values() if v.get('village_id')]
-            if village_ids:
-                placeholders = ','.join(['?'] * len(village_ids))
-                spatial_query = f"""
-                SELECT village_id, longitude, latitude
-                FROM 广东省自然村_预处理
-                WHERE village_id IN ({placeholders})
-                """
-                cursor.execute(spatial_query, village_ids)
-                for row in cursor.fetchall():
+            spatial_query = f"""
+            SELECT village_id, longitude, latitude
+            FROM 广东省自然村_预处理
+            WHERE village_id IN ({placeholders})
+            """
+            cursor.execute(spatial_query, village_ids)
+            for row in cursor.fetchall():
+                if row[1] is not None:  # 只保存有效坐标
                     spatial_data[row[0]] = {'longitude': row[1], 'latitude': row[2]}
 
         # 如果启用 character，批量查询字符特征
         character_data = {}
         if feature_config.get('character', False):
-            towns = list(set([v.get('town') for v in village_data.values() if v.get('town')]))
+            towns = list(set([village_data[vid].get('town') for vid in village_ids if vid in village_data and village_data[vid].get('town')]))
             if towns:
-                placeholders = ','.join(['?'] * len(towns))
+                town_placeholders = ','.join(['?'] * len(towns))
                 char_query = f"""
                 SELECT region_name, char, frequency
                 FROM char_regional_analysis
-                WHERE region_level = 'township' AND region_name IN ({placeholders})
+                WHERE region_level = 'township' AND region_name IN ({town_placeholders})
                 ORDER BY region_name, frequency DESC
                 """
                 cursor.execute(char_query, towns)
@@ -1475,13 +1459,13 @@ class FeatureEngine:
 
         # 构建特征列表
         features_list = []
-        for village in villages:
-            key = (village['name'], village.get('city'))
-            row_dict = village_data.get(key)
+        for village_id in village_ids:
+            row_dict = village_data.get(village_id)
 
             if row_dict:
                 feature_dict = {
-                    'village_name': village['name'],
+                    'village_id': village_id,
+                    'village_name': row_dict.get('village_name'),
                     'city': row_dict.get('city'),
                     'county': row_dict.get('county')
                 }
@@ -1516,10 +1500,9 @@ class FeatureEngine:
                     }
                     feature_dict['clustering'] = clustering_features
 
-                # 提取空间特征（从批量查询结果中获取）
+                # 提取空间特征
                 if feature_config.get('spatial', False):
-                    village_id = row_dict.get('village_id')
-                    if village_id and village_id in spatial_data:
+                    if village_id in spatial_data:
                         feature_dict['spatial'] = spatial_data[village_id]
                     else:
                         feature_dict['spatial'] = {
@@ -1527,7 +1510,7 @@ class FeatureEngine:
                             'latitude': None
                         }
 
-                # 提取字符特征（从批量查询结果中获取）
+                # 提取字符特征
                 if feature_config.get('character', False):
                     town = row_dict.get('town')
                     if town and town in character_data:
@@ -1559,10 +1542,10 @@ class FeatureEngine:
             dimension += 3
             dimension_breakdown['clustering'] = 3
         if feature_config.get('character', False):
-            dimension += 20  # Top-20 高频字符
+            dimension += 20
             dimension_breakdown['character'] = 20
         if feature_config.get('spatial', False):
-            dimension += 2  # 经度、纬度
+            dimension += 2
             dimension_breakdown['spatial'] = 2
 
         return {

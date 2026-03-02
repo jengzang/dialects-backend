@@ -133,10 +133,8 @@ class SemanticNetworkParams(BaseModel):
 
 
 class VillageInput(BaseModel):
-    """村庄输入"""
-    name: str = Field(..., min_length=1, max_length=50)
-    city: Optional[str] = None
-    county: Optional[str] = None
+    """村庄输入（仅支持 ID）"""
+    village_id: str = Field(..., min_length=1, max_length=50, description="村庄唯一标识符")
 
 
 class FeatureExtractionParams(BaseModel):
