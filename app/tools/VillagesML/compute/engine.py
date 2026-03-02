@@ -1452,15 +1452,92 @@ class FeatureEngine:
                     }
                     feature_dict['clustering'] = clustering_features
 
+                # 提取空间特征（优先级高）
+                if feature_config.get('spatial', False):
+                    # 使用 village_id 从预处理表查询经纬度（更准确）
+                    village_id = row_dict.get('village_id')
+                    if village_id:
+                        spatial_query = """
+                        SELECT longitude, latitude
+                        FROM 广东省自然村_预处理
+                        WHERE village_id = ?
+                        """
+                        cursor.execute(spatial_query, (village_id,))
+                        spatial_row = cursor.fetchone()
+
+                        if spatial_row and spatial_row[0] is not None:
+                            feature_dict['spatial'] = {
+                                'longitude': spatial_row[0],
+                                'latitude': spatial_row[1]
+                            }
+                        else:
+                            feature_dict['spatial'] = {
+                                'longitude': None,
+                                'latitude': None
+                            }
+                    else:
+                        feature_dict['spatial'] = {
+                            'longitude': None,
+                            'latitude': None
+                        }
+
+                # 提取字符特征（Top-20 高频字符）
+                if feature_config.get('character', False):
+                    # 从字符频率表查询 Top-20
+                    char_query = """
+                    SELECT char, frequency
+                    FROM char_regional_analysis
+                    WHERE region_level = 'township' AND region_name = ?
+                    ORDER BY frequency DESC
+                    LIMIT 20
+                    """
+                    # 使用乡镇名作为区域名
+                    cursor.execute(char_query, (row_dict.get('town'),))
+                    char_rows = cursor.fetchall()
+
+                    if char_rows:
+                        feature_dict['character'] = {
+                            'top_chars': [
+                                {'char': row[0], 'frequency': row[1]}
+                                for row in char_rows
+                            ]
+                        }
+                    else:
+                        feature_dict['character'] = {
+                            'top_chars': []
+                        }
+
                 features_list.append(feature_dict)
 
         conn.close()
 
         execution_time = int((time.time() - start_time) * 1000)
 
+        # 计算特征维度
+        dimension = 0
+        dimension_breakdown = {}
+
+        if feature_config.get('semantic_tags', True):
+            dimension += 9
+            dimension_breakdown['semantic_tags'] = 9
+        if feature_config.get('morphology', True):
+            dimension += 7
+            dimension_breakdown['morphology'] = 7
+        if feature_config.get('clustering', True):
+            dimension += 3
+            dimension_breakdown['clustering'] = 3
+        if feature_config.get('character', False):
+            dimension += 20  # Top-20 高频字符
+            dimension_breakdown['character'] = 20
+        if feature_config.get('spatial', False):
+            dimension += 2  # 经度、纬度
+            dimension_breakdown['spatial'] = 2
+
         return {
             'extraction_id': f"extract_{int(time.time())}",
             'village_count': len(features_list),
+            'feature_dimension': dimension,
+            'dimension_breakdown': dimension_breakdown,
             'execution_time_ms': execution_time,
             'features': features_list
         }
