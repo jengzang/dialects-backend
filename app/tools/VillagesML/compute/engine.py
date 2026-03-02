@@ -1454,7 +1454,7 @@ class FeatureEngine:
 
                 # 提取空间特征（优先级高）
                 if feature_config.get('spatial', False):
-                    # 使用 village_id 从预处理表查询经纬度（更准确）
+                    # 使用 village_id 进行精确匹配（最可靠，避免重名问题）
                     village_id = row_dict.get('village_id')
                     if village_id:
                         spatial_query = """
@@ -1476,6 +1476,7 @@ class FeatureEngine:
                                 'latitude': None
                             }
                     else:
+                        # 如果没有 village_id，返回 None
                         feature_dict['spatial'] = {
                             'longitude': None,
                             'latitude': None
