@@ -1377,7 +1377,7 @@ class FeatureEngine:
 
     def extract_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        提取村庄特征（使用实际表结构）
+        提取村庄特征（使用批量查询优化性能）
 
         Args:
             params: 提取参数
@@ -1394,28 +1394,86 @@ class FeatureEngine:
         cursor.execute("PRAGMA table_info(village_features)")
         columns = [col[1] for col in cursor.fetchall()]
 
-        features_list = []
         feature_config = params.get('features', {})
+        villages = params['villages']
 
-        for village in params['villages']:
-            # 查询村庄特征
-            query = """
-            SELECT * FROM village_features
-            WHERE village_name = ?
-            """
-
-            # 如果提供了城市/县区过滤
+        # 批量查询村庄特征（避免 N+1 问题）
+        village_conditions = []
+        village_params = []
+        for village in villages:
             if 'city' in village:
-                query += " AND city = ?"
-                cursor.execute(query, (village['name'], village['city']))
+                village_conditions.append("(village_name = ? AND city = ?)")
+                village_params.extend([village['name'], village['city']])
             else:
-                cursor.execute(query, (village['name'],))
+                village_conditions.append("(village_name = ?)")
+                village_params.append(village['name'])
 
-            row = cursor.fetchone()
+        # 批量查询所有村庄
+        batch_query = f"""
+        SELECT * FROM village_features
+        WHERE {' OR '.join(village_conditions)}
+        """
+        cursor.execute(batch_query, village_params)
+        village_rows = cursor.fetchall()
 
-            if row:
-                # 构建特征字典
-                row_dict = dict(zip(columns, row))
+        # 构建村庄数据字典（用于快速查找）
+        village_data = {}
+        for row in village_rows:
+            row_dict = dict(zip(columns, row))
+            key = (row_dict['village_name'], row_dict['city'])
+            village_data[key] = row_dict
+
+        # 如果启用 spatial，批量查询坐标
+        spatial_data = {}
+        if feature_config.get('spatial', False):
+            village_ids = [v.get('village_id') for v in village_data.values() if v.get('village_id')]
+            if village_ids:
+                placeholders = ','.join(['?'] * len(village_ids))
+                spatial_query = f"""
+                SELECT village_id, longitude, latitude
+                FROM 广东省自然村_预处理
+                WHERE village_id IN ({placeholders})
+                """
+                cursor.execute(spatial_query, village_ids)
+                for row in cursor.fetchall():
+                    spatial_data[row[0]] = {'longitude': row[1], 'latitude': row[2]}
+
+        # 如果启用 character，批量查询字符特征
+        character_data = {}
+        if feature_config.get('character', False):
+            towns = list(set([v.get('town') for v in village_data.values() if v.get('town')]))
+            if towns:
+                placeholders = ','.join(['?'] * len(towns))
+                char_query = f"""
+                SELECT region_name, char, frequency
+                FROM char_regional_analysis
+                WHERE region_level = 'township' AND region_name IN ({placeholders})
+                ORDER BY region_name, frequency DESC
+                """
+                cursor.execute(char_query, towns)
+
+                # 按乡镇分组，每个乡镇取 Top-20
+                current_town = None
+                current_chars = []
+                for row in cursor.fetchall():
+                    town, char, freq = row
+                    if town != current_town:
+                        if current_town and current_chars:
+                            character_data[current_town] = current_chars[:20]
+                        current_town = town
+                        current_chars = []
+                    current_chars.append({'char': char, 'frequency': freq})
+                # 保存最后一个乡镇
+                if current_town and current_chars:
+                    character_data[current_town] = current_chars[:20]
+
+        # 构建特征列表
+        features_list = []
+        for village in villages:
+            key = (village['name'], village.get('city'))
+            row_dict = village_data.get(key)
+
+            if row_dict:
                 feature_dict = {
                     'village_name': village['name'],
                     'city': row_dict.get('city'),
@@ -1452,56 +1510,23 @@ class FeatureEngine:
                     }
                     feature_dict['clustering'] = clustering_features
 
-                # 提取空间特征（优先级高）
+                # 提取空间特征（从批量查询结果中获取）
                 if feature_config.get('spatial', False):
-                    # 使用 village_id 进行精确匹配（最可靠，避免重名问题）
                     village_id = row_dict.get('village_id')
-                    if village_id:
-                        spatial_query = """
-                        SELECT longitude, latitude
-                        FROM 广东省自然村_预处理
-                        WHERE village_id = ?
-                        """
-                        cursor.execute(spatial_query, (village_id,))
-                        spatial_row = cursor.fetchone()
-
-                        if spatial_row and spatial_row[0] is not None:
-                            feature_dict['spatial'] = {
-                                'longitude': spatial_row[0],
-                                'latitude': spatial_row[1]
-                            }
-                        else:
-                            feature_dict['spatial'] = {
-                                'longitude': None,
-                                'latitude': None
-                            }
+                    if village_id and village_id in spatial_data:
+                        feature_dict['spatial'] = spatial_data[village_id]
                     else:
-                        # 如果没有 village_id，返回 None
                         feature_dict['spatial'] = {
                             'longitude': None,
                             'latitude': None
                         }
 
-                # 提取字符特征（Top-20 高频字符）
+                # 提取字符特征（从批量查询结果中获取）
                 if feature_config.get('character', False):
-                    # 从字符频率表查询 Top-20
-                    char_query = """
-                    SELECT char, frequency
-                    FROM char_regional_analysis
-                    WHERE region_level = 'township' AND region_name = ?
-                    ORDER BY frequency DESC
-                    LIMIT 20
-                    """
-                    # 使用乡镇名作为区域名
-                    cursor.execute(char_query, (row_dict.get('town'),))
-                    char_rows = cursor.fetchall()
-
-                    if char_rows:
+                    town = row_dict.get('town')
+                    if town and town in character_data:
                         feature_dict['character'] = {
-                            'top_chars': [
-                                {'char': row[0], 'frequency': row[1]}
-                                for row in char_rows
-                            ]
+                            'top_chars': character_data[town]
                         }
                     else:
                         feature_dict['character'] = {
