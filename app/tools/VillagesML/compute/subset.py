@@ -73,6 +73,65 @@ def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> 
     return df
 
 
+def get_villages_by_ids(conn: sqlite3.Connection, village_ids: List[int]) -> pd.DataFrame:
+    """
+    根据村庄ID列表获取村庄数据
+
+    Args:
+        conn: 数据库连接
+        village_ids: 村庄ID列表
+
+    Returns:
+        村庄数据DataFrame
+    """
+    # 标准化 ID 格式（添加 v_ 前缀）
+    normalized_ids = []
+    for vid in village_ids:
+        vid_str = str(vid)
+        if not vid_str.startswith('v_'):
+            vid_str = f'v_{vid_str}'
+        normalized_ids.append(vid_str)
+
+    # 批量查询（分批处理以避免 SQL 表达式树过大）
+    batch_size = 500
+    all_dfs = []
+
+    for i in range(0, len(normalized_ids), batch_size):
+        batch_ids = normalized_ids[i:i + batch_size]
+        placeholders = ','.join(['?' for _ in batch_ids])
+        query = f"SELECT * FROM village_features WHERE village_id IN ({placeholders})"
+        df_batch = pd.read_sql_query(query, conn, params=batch_ids)
+        all_dfs.append(df_batch)
+
+    # 合并所有批次
+    if all_dfs:
+        return pd.concat(all_dfs, ignore_index=True)
+    else:
+        return pd.DataFrame()
+        query += f" AND city IN ({placeholders})"
+        params.extend(filter_params['cities'])
+
+    # 县区过滤
+    if filter_params.get('counties'):
+        placeholders = ','.join(['?' for _ in filter_params['counties']])
+        query += f" AND county IN ({placeholders})"
+        params.extend(filter_params['counties'])
+
+    # 语义标签过滤
+    if filter_params.get('semantic_tags'):
+        for tag in filter_params['semantic_tags']:
+            query += f" AND sem_{tag} = 1"
+
+    df = pd.read_sql_query(query, conn, params=params)
+
+    # 采样
+    sample_size = filter_params.get('sample_size')
+    if sample_size and len(df) > sample_size:
+        df = df.sample(n=sample_size, random_state=42)
+
+    return df
+
+
 @router.post("/cluster")
 async def cluster_subset(
     params: SubsetClusteringParams,
@@ -241,15 +300,24 @@ async def compare_subsets(
             db_path = get_db_path()
             conn = sqlite3.connect(db_path)
 
-            # 1. 过滤两组村庄
-            df_a = filter_villages(conn, params.group_a.filter.dict())
-            df_b = filter_villages(conn, params.group_b.filter.dict())
+            # 1. 获取两组村庄数据（支持 village_ids 或 filter 两种模式）
+            if params.group_a.village_ids is not None:
+                df_a = get_villages_by_ids(conn, params.group_a.village_ids)
+            else:
+                df_a = filter_villages(conn, params.group_a.filter.dict())
+
+            if params.group_b.village_ids is not None:
+                df_b = get_villages_by_ids(conn, params.group_b.village_ids)
+            else:
+                df_b = filter_villages(conn, params.group_b.filter.dict())
 
             group_a_size = len(df_a)
             group_b_size = len(df_b)
 
             semantic_comparison = []
             morphology_comparison = []
+            character_comparison = []
+            spatial_comparison = []
             significant_differences = []
 
             # 2. 语义分布对比
@@ -290,7 +358,7 @@ async def compare_subsets(
                         except Exception as e:
                             logger.warning(f"Chi-square test failed for {col}: {e}")
 
-            # 3. 形态学对比
+            # 3. 形态学对比（扩展）
             if params.analysis.get('morphology_patterns', True):
                 # 平均名称长度
                 avg_len_a = df_a['name_length'].mean() if 'name_length' in df_a.columns else 0
@@ -303,6 +371,132 @@ async def compare_subsets(
                     'difference': float(avg_len_a - avg_len_b)
                 })
 
+                # 名称长度分布
+                if 'name_length' in df_a.columns and 'name_length' in df_b.columns:
+                    len_dist_a = df_a['name_length'].value_counts(normalize=True).to_dict()
+                    len_dist_b = df_b['name_length'].value_counts(normalize=True).to_dict()
+
+                    # 对比每个长度的占比
+                    all_lengths = sorted(set(len_dist_a.keys()) | set(len_dist_b.keys()))
+                    for length in all_lengths:
+                        pct_a = len_dist_a.get(length, 0)
+                        pct_b = len_dist_b.get(length, 0)
+                        morphology_comparison.append({
+                            'feature': f'length_{length}_pct',
+                            'group_a_value': float(pct_a),
+                            'group_b_value': float(pct_b),
+                            'difference': float(pct_a - pct_b)
+                        })
+
+                # 前缀对比（Top 10）
+                if 'suffix_1' in df_a.columns and 'suffix_1' in df_b.columns:
+                    suffix_a = df_a['suffix_1'].value_counts(normalize=True).head(10).to_dict()
+                    suffix_b = df_b['suffix_1'].value_counts(normalize=True).head(10).to_dict()
+
+                    all_suffixes = sorted(set(suffix_a.keys()) | set(suffix_b.keys()))
+                    for suffix in all_suffixes:
+                        if suffix and suffix != '':  # 跳过空值
+                            pct_a = suffix_a.get(suffix, 0)
+                            pct_b = suffix_b.get(suffix, 0)
+                            morphology_comparison.append({
+                                'feature': f'suffix_{suffix}',
+                                'group_a_value': float(pct_a),
+                                'group_b_value': float(pct_b),
+                                'difference': float(pct_a - pct_b)
+                            })
+
+            # 4. 字符特征对比
+            if params.analysis.get('character_distribution', False):
+                if 'village_name' in df_a.columns and 'village_name' in df_b.columns:
+                    # 提取所有字符
+                    from collections import Counter
+
+                    chars_a = Counter()
+                    for name in df_a['village_name'].dropna():
+                        chars_a.update(str(name))
+
+                    chars_b = Counter()
+                    for name in df_b['village_name'].dropna():
+                        chars_b.update(str(name))
+
+                    # 计算频率（Top 20）
+                    total_chars_a = sum(chars_a.values())
+                    total_chars_b = sum(chars_b.values())
+
+                    top_chars_a = {char: count/total_chars_a for char, count in chars_a.most_common(20)}
+                    top_chars_b = {char: count/total_chars_b for char, count in chars_b.most_common(20)}
+
+                    # 对比高频字符
+                    all_chars = sorted(set(top_chars_a.keys()) | set(top_chars_b.keys()))
+                    for char in all_chars:
+                        freq_a = top_chars_a.get(char, 0)
+                        freq_b = top_chars_b.get(char, 0)
+                        character_comparison.append({
+                            'char': char,
+                            'group_a_freq': float(freq_a),
+                            'group_b_freq': float(freq_b),
+                            'difference': float(freq_a - freq_b),
+                            'lift': float(freq_a / freq_b) if freq_b > 0 else float('inf')
+                        })
+
+                    # 按差异排序
+                    character_comparison.sort(key=lambda x: abs(x['difference']), reverse=True)
+
+            # 5. 空间特征对比
+            if params.analysis.get('spatial_distribution', False):
+                # 需要从预处理表获取经纬度
+                if group_a_size > 0 and group_b_size > 0:
+                    # 获取村庄ID列表
+                    village_ids_a = df_a['village_id'].tolist()
+                    village_ids_b = df_b['village_id'].tolist()
+
+                    # 批量查询坐标
+                    def get_spatial_stats(village_ids):
+                        batch_size = 500
+                        all_coords = []
+                        for i in range(0, len(village_ids), batch_size):
+                            batch = village_ids[i:i + batch_size]
+                            placeholders = ','.join(['?' for _ in batch])
+                            query = f"""
+                            SELECT longitude, latitude
+                            FROM 广东省自然村_预处理
+                            WHERE village_id IN ({placeholders})
+                            AND longitude IS NOT NULL AND latitude IS NOT NULL
+                            """
+                            cursor.execute(query, batch)
+                            all_coords.extend(cursor.fetchall())
+
+                        if not all_coords:
+                            return None
+
+                        lons = [c[0] for c in all_coords]
+                        lats = [c[1] for c in all_coords]
+
+                        return {
+                            'count': len(all_coords),
+                            'lon_min': min(lons),
+                            'lon_max': max(lons),
+                            'lon_mean': sum(lons) / len(lons),
+                            'lat_min': min(lats),
+                            'lat_max': max(lats),
+                            'lat_mean': sum(lats) / len(lats),
+                            'lon_range': max(lons) - min(lons),
+                            'lat_range': max(lats) - min(lats)
+                        }
+
+                    stats_a = get_spatial_stats(village_ids_a)
+                    stats_b = get_spatial_stats(village_ids_b)
+
+                    if stats_a and stats_b:
+                        spatial_comparison = {
+                            'group_a': stats_a,
+                            'group_b': stats_b,
+                            'centroid_distance_km': float(
+                                ((stats_a['lon_mean'] - stats_b['lon_mean'])**2 +
+                                 (stats_a['lat_mean'] - stats_b['lat_mean'])**2)**0.5 * 111
+                            )
+                        }
+
             conn.close()
 
             execution_time = int((time.time() - start_time) * 1000)
@@ -314,6 +508,8 @@ async def compare_subsets(
                 'execution_time_ms': execution_time,
                 'semantic_comparison': semantic_comparison,
                 'morphology_comparison': morphology_comparison,
+                'character_comparison': character_comparison,
+                'spatial_comparison': spatial_comparison,
                 'significant_differences': significant_differences
             }
 

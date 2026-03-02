@@ -1397,8 +1397,14 @@ class FeatureEngine:
         feature_config = params.get('features', {})
         villages = params['villages']
 
-        # 提取所有 village_id
-        village_ids = [v['village_id'] for v in villages]
+        # 提取所有 village_id 并标准化格式（添加 v_ 前缀）
+        village_ids = []
+        for v in villages:
+            vid = v['village_id']
+            # 如果 ID 不以 v_ 开头，添加前缀
+            if not vid.startswith('v_'):
+                vid = f'v_{vid}'
+            village_ids.append(vid)
 
         # 批量查询村庄特征（使用 IN 子句，性能最优）
         placeholders = ','.join(['?'] * len(village_ids))

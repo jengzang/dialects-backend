@@ -4,7 +4,7 @@
 使用Pydantic进行请求参数验证
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -174,9 +174,29 @@ class SubsetClusteringParams(BaseModel):
 
 
 class ComparisonGroup(BaseModel):
-    """对比组"""
-    filter: SubsetFilter
+    """对比组（支持两种模式：village_ids 或 filter）"""
     label: str = Field(..., min_length=1, max_length=50)
+    village_ids: Optional[List[int]] = Field(None, description="村庄ID列表（推荐使用）")
+    filter: Optional[SubsetFilter] = Field(None, description="过滤条件（向后兼容）")
+
+    @validator('village_ids')
+    def validate_village_ids(cls, v):
+        """验证村庄ID列表"""
+        if v is not None:
+            if len(v) == 0:
+                raise ValueError("village_ids cannot be empty")
+            if len(v) > 50000:
+                raise ValueError("Cannot compare more than 50000 villages at once")
+        return v
+
+    @model_validator(mode='after')
+    def validate_filter_or_ids(self):
+        """确保 village_ids 或 filter 至少提供一个"""
+        if self.village_ids is None and self.filter is None:
+            raise ValueError("Either village_ids or filter must be provided")
+        if self.village_ids is not None and self.filter is not None:
+            raise ValueError("Cannot specify both village_ids and filter")
+        return self
 
 
 class SubsetComparisonParams(BaseModel):
