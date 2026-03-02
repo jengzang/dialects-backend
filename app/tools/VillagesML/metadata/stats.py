@@ -23,20 +23,20 @@ def _get_system_overview_sync():
     Synchronous function to get system overview (runs in thread pool)
     """
     with get_db_connection() as db:
-        # 获取村庄总数
-        total_villages_query = "SELECT COUNT(*) as count FROM 广东省自然村"
+        # 获取村庄总数（使用预处理表）
+        total_villages_query = "SELECT COUNT(*) as count FROM 广东省自然村_预处理"
         total_villages = execute_query(db, total_villages_query)[0]["count"]
 
-        # 获取城市数量
-        total_cities_query = "SELECT COUNT(DISTINCT 市级) as count FROM 广东省自然村"
+        # 获取城市数量（使用预处理表）
+        total_cities_query = "SELECT COUNT(DISTINCT 市级) as count FROM 广东省自然村_预处理"
         total_cities = execute_query(db, total_cities_query)[0]["count"]
 
-        # 获取区县数量
-        total_counties_query = "SELECT COUNT(DISTINCT 区县级) as count FROM 广东省自然村"
+        # 获取区县数量（使用预处理表）
+        total_counties_query = "SELECT COUNT(DISTINCT 区县级) as count FROM 广东省自然村_预处理"
         total_counties = execute_query(db, total_counties_query)[0]["count"]
 
-        # 获取乡镇数量
-        total_townships_query = "SELECT COUNT(DISTINCT 乡镇级) as count FROM 广东省自然村"
+        # 获取乡镇数量（使用预处理表）
+        total_townships_query = "SELECT COUNT(DISTINCT 乡镇级) as count FROM 广东省自然村_预处理"
         total_townships = execute_query(db, total_townships_query)[0]["count"]
 
         # 获取唯一字符数（从char_frequency_global表）
@@ -285,7 +285,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
                     市级 as name,
                     'city' as level,
                     COUNT(*) as village_count
-                FROM 广东省自然村
+                FROM 广东省自然村_预处理
                 WHERE 市级 IS NOT NULL AND 市级 != ''
                 GROUP BY 市级
                 ORDER BY 市级
@@ -303,7 +303,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
                         区县级 as name,
                         'county' as level,
                         COUNT(*) as village_count
-                    FROM 广东省自然村
+                    FROM 广东省自然村_预处理
                     WHERE 区县级 IS NOT NULL AND 区县级 != ''
                     GROUP BY 市级, 区县级
                     ORDER BY 市级, 区县级
@@ -319,7 +319,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
                         区县级 as name,
                         'county' as level,
                         COUNT(*) as village_count
-                    FROM 广东省自然村
+                    FROM 广东省自然村_预处理
                     WHERE 市级 = ?
                         AND 区县级 IS NOT NULL
                         AND 区县级 != ''
@@ -339,7 +339,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
                         乡镇级 as name,
                         'township' as level,
                         COUNT(*) as village_count
-                    FROM 广东省自然村
+                    FROM 广东省自然村_预处理
                     WHERE 乡镇级 IS NOT NULL AND 乡镇级 != ''
                     GROUP BY 市级, 区县级, 乡镇级
                     ORDER BY 市级, 区县级, 乡镇级
@@ -355,7 +355,7 @@ def _get_regions_sync(level: str, parent: Optional[str] = None):
                         乡镇级 as name,
                         'township' as level,
                         COUNT(*) as village_count
-                    FROM 广东省自然村
+                    FROM 广东省自然村_预处理
                     WHERE 区县级 = ?
                         AND 乡镇级 IS NOT NULL
                         AND 乡镇级 != ''

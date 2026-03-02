@@ -636,45 +636,208 @@ def get_ngram_tendency(
 def get_ngram_significance(
     ngram: Optional[str] = Query(None, description="N-gram"),
     region_level: str = Query("county", description="区域级别"),
+    region_name: Optional[str] = Query(None, description="区域名称"),
+    city: Optional[str] = Query(None, description="城市"),
+    county: Optional[str] = Query(None, description="区县"),
     is_significant: Optional[bool] = Query(None, description="仅显示显著结果"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    获取N-gram显著性
-    Get n-gram significance test results
+    获取N-gram显著性（支持动态聚合）
+    Get n-gram significance test results with dynamic aggregation
 
-    注意：表中字段名是 level，不是 region_level
+    - township: 直接查询 Township 级别数据
+    - county: 从 Township 聚合到 County 级别
+    - city: 从 Township 聚合到 City 级别
     """
-    query = """
-        SELECT
-            level as region_level,
-            region as region_name,
-            city,
-            county,
-            township,
-            ngram,
-            n,
-            position,
-            chi2 as z_score,
-            p_value,
-            is_significant,
-            cramers_v as lift
-        FROM ngram_significance
-        WHERE level = ?
-    """
-    params = [region_level]
 
-    if ngram is not None:
-        query += " AND ngram = ?"
-        params.append(ngram)
+    if region_level == "township":
+        # Township 级别：直接查询
+        query = """
+            SELECT
+                level as region_level,
+                region as region_name,
+                city,
+                county,
+                township,
+                ngram,
+                n,
+                position,
+                chi2 as z_score,
+                p_value,
+                is_significant,
+                cramers_v as lift
+            FROM ngram_significance
+            WHERE level = 'township'
+        """
+        params = []
 
-    if is_significant is not None:
-        query += " AND is_significant = ?"
-        params.append(1 if is_significant else 0)
+        if city is not None:
+            query += " AND city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND county = ?"
+            params.append(county)
+        if region_name is not None:
+            query += " AND region = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND ngram = ?"
+            params.append(ngram)
+        if is_significant is not None:
+            query += " AND is_significant = ?"
+            params.append(1 if is_significant else 0)
 
-    query += " ORDER BY ABS(chi2) DESC LIMIT ?"
-    params.append(limit)
+        query += " ORDER BY ABS(chi2) DESC LIMIT ?"
+        params.append(limit)
+
+    elif region_level == "county":
+        # County 级别：从 Township 聚合
+        # 使用 ngram_tendency 表的底层计数数据来重新计算 chi2
+        query = """
+            WITH chi2_calc AS (
+                SELECT
+                    nt.county,
+                    nt.city,
+                    nt.ngram,
+                    nt.n,
+                    nt.position,
+                    CASE
+                        WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
+                        THEN POWER(SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total), 2) /
+                             (SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total))
+                        ELSE 0.0
+                    END as chi2_value,
+                    SUM(nt.regional_total) as total
+                FROM ngram_tendency nt
+                WHERE nt.level = 'township'
+        """
+        params = []
+
+        if city is not None:
+            query += " AND nt.city = ?"
+            params.append(city)
+        if county is not None:
+            query += " AND nt.county = ?"
+            params.append(county)
+        if region_name is not None:
+            query += " AND nt.county = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND nt.ngram = ?"
+            params.append(ngram)
+
+        query += """
+                GROUP BY nt.county, nt.city, nt.ngram, nt.n, nt.position
+            )
+            SELECT
+                'county' as region_level,
+                county as region_name,
+                city,
+                county,
+                NULL as township,
+                ngram,
+                n,
+                position,
+                chi2_value as z_score,
+                CASE
+                    WHEN chi2_value > 0
+                    THEN EXP(-chi2_value / 2.0) * SQRT(2.0 / (3.14159265359 * chi2_value))
+                    ELSE 1.0
+                END as p_value,
+                CASE
+                    WHEN chi2_value > 3.841
+                    THEN 1
+                    ELSE 0
+                END as is_significant,
+                CASE
+                    WHEN total > 0
+                    THEN SQRT(chi2_value) / total
+                    ELSE 0.0
+                END as lift
+            FROM chi2_calc
+        """
+
+        if is_significant is not None:
+            if is_significant:
+                query += " WHERE chi2_value > 3.841"
+            else:
+                query += " WHERE chi2_value <= 3.841"
+
+        query += " ORDER BY ABS(chi2_value) DESC LIMIT ?"
+        params.append(limit)
+
+    else:  # region_level == "city"
+        # City 级别：从 Township 聚合
+        query = """
+            WITH chi2_calc AS (
+                SELECT
+                    nt.city,
+                    nt.ngram,
+                    nt.n,
+                    nt.position,
+                    CASE
+                        WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
+                        THEN POWER(SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total), 2) /
+                             (SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total))
+                        ELSE 0.0
+                    END as chi2_value,
+                    SUM(nt.regional_total) as total
+                FROM ngram_tendency nt
+                WHERE nt.level = 'township'
+        """
+        params = []
+
+        if city is not None:
+            query += " AND nt.city = ?"
+            params.append(city)
+        if region_name is not None:
+            query += " AND nt.city = ?"
+            params.append(region_name)
+        if ngram is not None:
+            query += " AND nt.ngram = ?"
+            params.append(ngram)
+
+        query += """
+                GROUP BY nt.city, nt.ngram, nt.n, nt.position
+            )
+            SELECT
+                'city' as region_level,
+                city as region_name,
+                city,
+                NULL as county,
+                NULL as township,
+                ngram,
+                n,
+                position,
+                chi2_value as z_score,
+                CASE
+                    WHEN chi2_value > 0
+                    THEN EXP(-chi2_value / 2.0) * SQRT(2.0 / (3.14159265359 * chi2_value))
+                    ELSE 1.0
+                END as p_value,
+                CASE
+                    WHEN chi2_value > 3.841
+                    THEN 1
+                    ELSE 0
+                END as is_significant,
+                CASE
+                    WHEN total > 0
+                    THEN SQRT(chi2_value) / total
+                    ELSE 0.0
+                END as lift
+            FROM chi2_calc
+        """
+
+        if is_significant is not None:
+            if is_significant:
+                query += " WHERE chi2_value > 3.841"
+            else:
+                query += " WHERE chi2_value <= 3.841"
+
+        query += " ORDER BY ABS(chi2_value) DESC LIMIT ?"
+        params.append(limit)
 
     results = execute_query(db, query, tuple(params))
 

@@ -6,10 +6,21 @@ from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, get_current_admin_user
 from app.auth.models import User
 from app.auth.utils import get_password_hash
-from app.schemas.admin import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin
+from app.schemas.admin import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin, UserListItem
 from app.schemas.auth import UserResponse
 
 router = APIRouter()
+
+
+# 获取用户列表（轻量级，仅包含基本信息）
+@router.get("/list", response_model=List[UserListItem])
+def get_users_list(db: Session = Depends(get_db)):
+    """
+    获取用户列表（轻量级）
+    仅返回用户名、邮箱和角色，适合用于下拉列表、表格等场景
+    """
+    users = db.query(models.User).all()
+    return [UserListItem.from_orm(user) for user in users]
 
 
 # 获取所有用户

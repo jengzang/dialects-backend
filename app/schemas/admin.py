@@ -94,6 +94,16 @@ class LetAdmin(BaseModel):
         from_attributes = True
 
 
+class UserListItem(BaseModel):
+    """轻量级用户列表项（仅包含基本信息）"""
+    username: str
+    email: EmailStr
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
 # 权限管理相关 Schema
 class PermissionBase(BaseModel):
     """权限基础模型"""

@@ -76,8 +76,17 @@ async def search_similar_regions(
 
     # 向后兼容：region_name（模糊匹配）
     elif region_name is not None:
-        target_query += " AND region1 = ?"
-        params.append(region_name)
+        # 特殊处理：中山市和东莞市没有县级，当 county 级别查询时自动切换到 city 级别
+        actual_level = region_level
+        if region_level == 'county' and region_name in ['中山市', '东莞市']:
+            actual_level = 'city'
+
+        target_query = """
+        SELECT DISTINCT region1 as region_name
+        FROM region_similarity
+        WHERE region_level = ? AND region1 = ?
+        """
+        params = [actual_level, region_name]
     else:
         raise HTTPException(status_code=400, detail="Must provide either city/county/township or region_name")
 
@@ -95,6 +104,11 @@ async def search_similar_regions(
         )
 
     target_region = target_rows[0]['region_name']
+
+    # 确定实际查询的级别（处理中山市/东莞市特殊情况）
+    query_level = region_level
+    if region_level == 'county' and target_region in ['中山市', '东莞市']:
+        query_level = 'city'
 
     # Determine which similarity column to use
     sim_column = f"{metric}_similarity"
@@ -120,7 +134,7 @@ async def search_similar_regions(
     LIMIT ?
     """
 
-    rows = execute_query(db, query, (target_region, target_region, region_level, target_region, target_region, min_similarity, top_k))
+    rows = execute_query(db, query, (target_region, target_region, query_level, target_region, target_region, min_similarity, top_k))
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No similar regions found for '{target_region}'")
@@ -421,9 +435,9 @@ async def get_similarity_matrix(
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    获取多个区域的相似度矩阵
+    获取多个区域的相似度矩阵（支持跨层级）
 
-    Get similarity matrix for multiple regions.
+    Get similarity matrix for multiple regions (supports cross-level comparison).
 
     Args:
         regions: Comma-separated region names (optional, default: top 20 by village count)
@@ -432,6 +446,8 @@ async def get_similarity_matrix(
     Returns:
         Similarity matrix as 2D array with region labels
     """
+    from fastapi.concurrency import run_in_threadpool
+
     # Get region list
     if regions:
         region_list = [r.strip() for r in regions.split(',')]
@@ -450,10 +466,18 @@ async def get_similarity_matrix(
     if not region_list:
         raise HTTPException(status_code=400, detail="No regions specified")
 
+    # Detect region levels
+    region_levels = {}
+    for region in region_list:
+        features = _get_region_features(db, region)
+        if features:
+            region_levels[region] = features['level']
+        else:
+            raise HTTPException(status_code=404, detail=f"Region '{region}' not found")
+
     # Build similarity matrix
     n = len(region_list)
     matrix = [[0.0] * n for _ in range(n)]
-
     sim_column = f"{metric}_similarity"
 
     for i, r1 in enumerate(region_list):
@@ -461,21 +485,35 @@ async def get_similarity_matrix(
             if i == j:
                 matrix[i][j] = 1.0
             elif i < j:
-                # Query database
-                query = f"""
-                SELECT {sim_column}
-                FROM region_similarity
-                WHERE (region1 = ? AND region2 = ?) OR (region1 = ? AND region2 = ?)
-                """
-                row = execute_single(db, query, (r1, r2, r2, r1))
-                if row:
-                    matrix[i][j] = round(row[sim_column], 4)
-                    matrix[j][i] = round(row[sim_column], 4)
+                # Check if same level or cross-level
+                same_level = region_levels[r1] == region_levels[r2]
+
+                if same_level:
+                    # Try pre-computed data first
+                    query = f"""
+                    SELECT {sim_column}
+                    FROM region_similarity
+                    WHERE (region1 = ? AND region2 = ?) OR (region1 = ? AND region2 = ?)
+                    """
+                    row = execute_single(db, query, (r1, r2, r2, r1))
+                    if row:
+                        matrix[i][j] = round(row[sim_column], 4)
+                        matrix[j][i] = round(row[sim_column], 4)
+                        continue
+
+                # Cross-level or no pre-computed data: compute in real-time
+                result = await run_in_threadpool(_compute_cross_level_similarity, db, r1, r2)
+                if result:
+                    sim_value = result[sim_column]
+                    matrix[i][j] = round(sim_value, 4)
+                    matrix[j][i] = round(sim_value, 4)
 
     return {
         "regions": region_list,
+        "region_levels": region_levels,
         "metric": metric,
-        "matrix": matrix
+        "matrix": matrix,
+        "cross_level": len(set(region_levels.values())) > 1
     }
 
 

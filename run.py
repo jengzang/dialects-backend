@@ -122,7 +122,7 @@ if __name__ == "__main__":
         if should_open_browser:
             # 跑在局域網ip地址上
             threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
-        uvicorn.run("run:app", host="0.0.0.0", port=5000, reload=True)
+        uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
 
     elif _RUN_TYPE == 'EXE':
         if should_open_browser:

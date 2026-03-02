@@ -881,8 +881,9 @@ def get_semantic_vector_by_hierarchy(
         )
 
     # 使用层级参数精确查询，避免重名问题
+    # 使用 DISTINCT 去除重复数据
     query = """
-        SELECT category, raw_intensity
+        SELECT DISTINCT category, raw_intensity
         FROM semantic_indices
         WHERE region_level = ? AND run_id = ?
     """
