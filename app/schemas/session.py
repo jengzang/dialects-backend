@@ -156,12 +156,6 @@ class DailyActivityItem(BaseModel):
     count: int
 
 
-class LoginHeatmapData(BaseModel):
-    """登录热力图数据"""
-    by_hour: List[int] = Field(description="24小时，每小时登录次数")
-    by_weekday: List[int] = Field(description="7天，每天登录次数（0=周日）")
-
-
 class UserActivityData(BaseModel):
     """用户活跃度数据"""
     dau: List[DailyActivityItem] = Field(description="最近30天每日活跃用户数")
@@ -196,7 +190,9 @@ class SessionDurationDistribution(BaseModel):
 
 class AnalyticsResponse(BaseModel):
     """聚合统计响应"""
-    login_heatmap: LoginHeatmapData
+    login_heatmap: List[List[int]] = Field(
+        description="登录热力图：7x24 二维数组，[weekday][hour]，weekday: 0=周日, 1=周一, ..., 6=周六"
+    )
     user_activity: UserActivityData
     device_distribution: DeviceDistribution
     geo_distribution: List[GeoDistributionItem]

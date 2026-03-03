@@ -651,9 +651,9 @@ def get_analytics(
         Session.created_at >= start_date
     ).all()
 
-    # 1. 登录热力图数据
-    hour_counts = [0] * 24
-    weekday_counts = [0] * 7
+    # 1. 登录热力图数据（7x24 二维数组）
+    # 初始化：7天 x 24小时
+    heatmap = [[0 for _ in range(24)] for _ in range(7)]
 
     for session in sessions:
         hour = session.created_at.hour
@@ -661,8 +661,7 @@ def get_analytics(
         # 转换为 0=周日, 1=周一, ..., 6=周六
         weekday_adjusted = (weekday + 1) % 7
 
-        hour_counts[hour] += 1
-        weekday_counts[weekday_adjusted] += 1
+        heatmap[weekday_adjusted][hour] += 1
 
     # 2. DAU 趋势（最近30天）
     dau_dict = defaultdict(set)
@@ -751,10 +750,7 @@ def get_analytics(
 
     # 构建响应
     return AnalyticsResponse(
-        login_heatmap={
-            "by_hour": hour_counts,
-            "by_weekday": weekday_counts
-        },
+        login_heatmap=heatmap,
         user_activity={
             "dau": dau_list,
             "mau": mau
