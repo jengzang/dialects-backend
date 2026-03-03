@@ -492,17 +492,34 @@ def get_analytics(
         heatmap[weekday_adjusted][hour] += 1
 
     # 2. DAU 趋势（最近30天）
+    # 使用 RefreshToken.created_at 获取准确的每日活跃数据
+    # 每次 token 刷新都会创建新记录，能准确反映用户活跃情况
     dau_dict = defaultdict(set)
-    for session in sessions:
-        date_str = session.last_seen.date().isoformat() if session.last_seen else session.created_at.date().isoformat()
-        dau_dict[date_str].add(session.user_id)
+
+    # 查询最近30天的所有 token 刷新记录
+    tokens = db.query(RefreshToken).filter(
+        RefreshToken.created_at >= start_date
+    ).all()
+
+    for token in tokens:
+        date_str = token.created_at.date().isoformat()
+        dau_dict[date_str].add(token.user_id)
 
     dau_list = [
         {"date": date, "count": len(users)}
         for date, users in sorted(dau_dict.items())
     ]
 
+    # WAU（最近7天活跃用户总数）
+    # 基于 RefreshToken 统计最近7天有刷新记录的唯一用户
+    wau_start_date = now - timedelta(days=7)
+    wau_users = db.query(RefreshToken.user_id).filter(
+        RefreshToken.created_at >= wau_start_date
+    ).distinct().all()
+    wau = len(wau_users)
+
     # MAU（最近30天活跃用户总数）
+    # 基于 RefreshToken 统计最近30天有刷新记录的唯一用户
     all_active_users = set()
     for users in dau_dict.values():
         all_active_users.update(users)
@@ -581,6 +598,7 @@ def get_analytics(
         login_heatmap=heatmap,
         user_activity={
             "dau": dau_list,
+            "wau": wau,
             "mau": mau
         },
         device_distribution=device_counts,

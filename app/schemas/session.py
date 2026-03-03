@@ -159,6 +159,7 @@ class DailyActivityItem(BaseModel):
 class UserActivityData(BaseModel):
     """用户活跃度数据"""
     dau: List[DailyActivityItem] = Field(description="最近30天每日活跃用户数")
+    wau: int = Field(description="最近7天活跃用户总数")
     mau: int = Field(description="最近30天活跃用户总数")
 
 
