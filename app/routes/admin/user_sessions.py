@@ -491,35 +491,29 @@ def get_analytics(
 
         heatmap[weekday_adjusted][hour] += 1
 
-    # 2. DAU 趋势（最近30天）
-    # 使用 RefreshToken.created_at 获取准确的每日活跃数据
-    # 每次 token 刷新都会创建新记录，能准确反映用户活跃情况
+    # 2. DAU/WAU/MAU 计算
+    # 数据源：Session 表（不会自动清理，数据完整）
+
+    # DAU: 每日登录用户数（基于 created_at）
     dau_dict = defaultdict(set)
-
-    # 查询最近30天的所有 token 刷新记录
-    tokens = db.query(RefreshToken).filter(
-        RefreshToken.created_at >= start_date
-    ).all()
-
-    for token in tokens:
-        date_str = token.created_at.date().isoformat()
-        dau_dict[date_str].add(token.user_id)
+    for session in sessions:
+        date_str = session.created_at.date().isoformat()
+        dau_dict[date_str].add(session.user_id)
 
     dau_list = [
         {"date": date, "count": len(users)}
         for date, users in sorted(dau_dict.items())
     ]
 
-    # WAU（最近7天活跃用户总数）
-    # 基于 RefreshToken 统计最近7天有刷新记录的唯一用户
+    # WAU: 最近7天有活动的唯一用户数（基于 last_activity_at）
+    # last_activity_at 在每次 token 刷新时更新
     wau_start_date = now - timedelta(days=7)
-    wau_users = db.query(RefreshToken.user_id).filter(
-        RefreshToken.created_at >= wau_start_date
+    wau_sessions = db.query(Session.user_id).filter(
+        Session.last_activity_at >= wau_start_date
     ).distinct().all()
-    wau = len(wau_users)
+    wau = len(wau_sessions)
 
-    # MAU（最近30天活跃用户总数）
-    # 基于 RefreshToken 统计最近30天有刷新记录的唯一用户
+    # MAU: 最近30天登录过的唯一用户数（基于 created_at）
     all_active_users = set()
     for users in dau_dict.values():
         all_active_users.update(users)
