@@ -146,3 +146,73 @@ class FlagSessionRequest(BaseModel):
     """标记会话请求"""
     is_suspicious: bool
     reason: Optional[str] = Field(None, max_length=255)
+
+
+# ===== Analytics Schemas =====
+
+class DailyActivityItem(BaseModel):
+    """每日活跃度数据项"""
+    date: str
+    count: int
+
+
+class LoginHeatmapData(BaseModel):
+    """登录热力图数据"""
+    by_hour: List[int] = Field(description="24小时，每小时登录次数")
+    by_weekday: List[int] = Field(description="7天，每天登录次数（0=周日）")
+
+
+class UserActivityData(BaseModel):
+    """用户活跃度数据"""
+    dau: List[DailyActivityItem] = Field(description="最近30天每日活跃用户数")
+    mau: int = Field(description="最近30天活跃用户总数")
+
+
+class DeviceDistribution(BaseModel):
+    """设备类型分布"""
+    desktop: int
+    mobile: int
+    tablet: int
+    unknown: int
+
+
+class GeoDistributionItem(BaseModel):
+    """地理分布数据项"""
+    country: str
+    count: int
+
+
+class SessionDurationDistribution(BaseModel):
+    """会话时长分布"""
+    duration_0_5min: int = Field(alias="0-5min")
+    duration_5_30min: int = Field(alias="5-30min")
+    duration_30_60min: int = Field(alias="30-60min")
+    duration_1_2h: int = Field(alias="1-2h")
+    duration_2h_plus: int = Field(alias="2h+")
+
+    class Config:
+        populate_by_name = True
+
+
+class AnalyticsResponse(BaseModel):
+    """聚合统计响应"""
+    login_heatmap: LoginHeatmapData
+    user_activity: UserActivityData
+    device_distribution: DeviceDistribution
+    geo_distribution: List[GeoDistributionItem]
+    session_duration_distribution: SessionDurationDistribution
+
+
+class OnlineUserItem(BaseModel):
+    """在线用户数据项"""
+    user_id: int
+    username: str
+    last_seen: datetime
+    current_ip: str
+    device_info: Optional[str] = None
+
+
+class OnlineUsersResponse(BaseModel):
+    """实时在线用户响应"""
+    online_count: int
+    users: List[OnlineUserItem]

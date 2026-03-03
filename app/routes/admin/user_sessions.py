@@ -25,7 +25,9 @@ from app.schemas.session import (
     RevokeSessionResponse,
     RevokeBulkResponse,
     FlagSessionRequest,
-    IPHistoryItem
+    IPHistoryItem,
+    AnalyticsResponse,
+    OnlineUsersResponse
 )
 
 router = APIRouter()
@@ -577,3 +579,182 @@ def flag_session(
     db.refresh(session)
 
     return build_session_detail(db, session)
+
+
+# ===== Analytics Endpoints =====
+
+@router.get("/online-users", response_model=OnlineUsersResponse)
+def get_online_users(
+    threshold_minutes: int = Query(5, ge=1, le=60, description="在线判断阈值（分钟）"),
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    获取实时在线用户列表
+
+    判断标准：last_seen < threshold_minutes 分钟前
+    """
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    threshold = now - timedelta(minutes=threshold_minutes)
+
+    # 查询在线用户
+    online_sessions = db.query(Session).filter(
+        Session.revoked == False,
+        Session.expires_at > now,
+        Session.last_seen > threshold
+    ).order_by(Session.last_seen.desc()).all()
+
+    # 构建响应
+    users = []
+    for session in online_sessions:
+        users.append({
+            "user_id": session.user_id,
+            "username": session.username,
+            "last_seen": session.last_seen,
+            "current_ip": session.current_ip,
+            "device_info": session.device_info
+        })
+
+    return OnlineUsersResponse(
+        online_count=len(users),
+        users=users
+    )
+
+
+@router.get("/analytics", response_model=AnalyticsResponse)
+def get_analytics(
+    days: int = Query(30, ge=1, le=90, description="统计天数"),
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    获取聚合统计数据
+
+    包括：登录热力图、DAU/MAU、设备分布、地理分布、会话时长分布
+    """
+    from datetime import timedelta
+    from collections import defaultdict
+    import re
+
+    now = datetime.utcnow()
+    start_date = now - timedelta(days=days)
+
+    # 查询时间范围内的所有会话
+    sessions = db.query(Session).filter(
+        Session.created_at >= start_date
+    ).all()
+
+    # 1. 登录热力图数据
+    hour_counts = [0] * 24
+    weekday_counts = [0] * 7
+
+    for session in sessions:
+        hour = session.created_at.hour
+        weekday = session.created_at.weekday()  # 0=周一, 6=周日
+        # 转换为 0=周日, 1=周一, ..., 6=周六
+        weekday_adjusted = (weekday + 1) % 7
+
+        hour_counts[hour] += 1
+        weekday_counts[weekday_adjusted] += 1
+
+    # 2. DAU 趋势（最近30天）
+    dau_dict = defaultdict(set)
+    for session in sessions:
+        date_str = session.last_seen.date().isoformat() if session.last_seen else session.created_at.date().isoformat()
+        dau_dict[date_str].add(session.user_id)
+
+    dau_list = [
+        {"date": date, "count": len(users)}
+        for date, users in sorted(dau_dict.items())
+    ]
+
+    # MAU（最近30天活跃用户总数）
+    all_active_users = set()
+    for users in dau_dict.values():
+        all_active_users.update(users)
+    mau = len(all_active_users)
+
+    # 3. 设备类型分布
+    device_counts = {
+        "desktop": 0,
+        "mobile": 0,
+        "tablet": 0,
+        "unknown": 0
+    }
+
+    for session in sessions:
+        if not session.device_info:
+            device_counts["unknown"] += 1
+            continue
+
+        device_lower = session.device_info.lower()
+        if any(keyword in device_lower for keyword in ["mobile", "android", "iphone", "ipad"]):
+            if "ipad" in device_lower or "tablet" in device_lower:
+                device_counts["tablet"] += 1
+            else:
+                device_counts["mobile"] += 1
+        else:
+            device_counts["desktop"] += 1
+
+    # 4. IP 地理分布（简化版：只统计 IP 前缀）
+    # 注意：真实的地理位置需要 GeoIP 数据库，这里只做简单统计
+    ip_counts = defaultdict(int)
+    for session in sessions:
+        # 简化处理：提取 IP 的前两段作为"地区"
+        ip = session.first_ip
+        if ip:
+            # 简单分类：内网 vs 外网
+            if ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("172."):
+                ip_counts["LAN"] += 1
+            else:
+                # 提取前两段
+                parts = ip.split(".")
+                if len(parts) >= 2:
+                    prefix = f"{parts[0]}.{parts[1]}.x.x"
+                    ip_counts[prefix] += 1
+                else:
+                    ip_counts["Unknown"] += 1
+
+    geo_distribution = [
+        {"country": region, "count": count}
+        for region, count in sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    ]
+
+    # 5. 会话时长分布
+    duration_counts = {
+        "0-5min": 0,
+        "5-30min": 0,
+        "30-60min": 0,
+        "1-2h": 0,
+        "2h+": 0
+    }
+
+    for session in sessions:
+        minutes = session.total_online_seconds / 60
+        if minutes < 5:
+            duration_counts["0-5min"] += 1
+        elif minutes < 30:
+            duration_counts["5-30min"] += 1
+        elif minutes < 60:
+            duration_counts["30-60min"] += 1
+        elif minutes < 120:
+            duration_counts["1-2h"] += 1
+        else:
+            duration_counts["2h+"] += 1
+
+    # 构建响应
+    return AnalyticsResponse(
+        login_heatmap={
+            "by_hour": hour_counts,
+            "by_weekday": weekday_counts
+        },
+        user_activity={
+            "dau": dau_list,
+            "mau": mau
+        },
+        device_distribution=device_counts,
+        geo_distribution=geo_distribution,
+        session_duration_distribution=duration_counts
+    )
