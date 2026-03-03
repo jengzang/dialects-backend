@@ -80,13 +80,13 @@ async def delete_region(
 ):
     """管理员删除任意用户的区域"""
     try:
-        success = region_service.delete_region_admin(db, data.username, data.region_name)
+        success = region_service.delete_region_admin(db, data.username, data.created_at)
         if success:
             return {
                 "success": True,
                 "deleted": True,
                 "username": data.username,
-                "region_name": data.region_name
+                "created_at": data.created_at
             }
         else:
             raise HTTPException(status_code=404, detail="区域不存在")
@@ -103,7 +103,7 @@ async def batch_delete_regions(
 ):
     """批量删除区域"""
     try:
-        regions_data = [{"username": r.username, "region_name": r.region_name} for r in regions]
+        regions_data = [{"username": r.username, "created_at": r.created_at} for r in regions]
         deleted_count, failed = region_service.batch_delete_regions_admin(db, regions_data)
         return {
             "success": True,

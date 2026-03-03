@@ -352,7 +352,7 @@ def update_region_admin(
     return region
 
 
-def delete_region_admin(db: Session, username: str, region_name: str) -> bool:
+def delete_region_admin(db: Session, username: str, created_at: str) -> bool:
     """管理员删除任意用户的区域"""
     from app.auth.models import User
     from app.auth.database import SessionLocal as SessionLocal_user
@@ -368,12 +368,13 @@ def delete_region_admin(db: Session, username: str, region_name: str) -> bool:
         session_user.close()
 
     # 查找并删除区域
-    region = db.query(UserRegion).filter(
-        and_(UserRegion.user_id == user_id, UserRegion.region_name == region_name)
-    ).first()
+    regions = db.query(UserRegion).filter(
+        and_(UserRegion.user_id == user_id, UserRegion.created_at == created_at)
+    ).all()
 
-    if region:
-        db.delete(region)
+    if regions:
+        for region in regions:
+            db.delete(region)
         db.commit()
         return True
     return False
@@ -386,19 +387,19 @@ def batch_delete_regions_admin(db: Session, regions: List[dict]) -> tuple[int, L
 
     for item in regions:
         try:
-            success = delete_region_admin(db, item["username"], item["region_name"])
+            success = delete_region_admin(db, item["username"], item["created_at"])
             if success:
                 deleted_count += 1
             else:
                 failed.append({
                     "username": item["username"],
-                    "region_name": item["region_name"],
+                    "created_at": item["created_at"],
                     "error": "区域不存在"
                 })
         except Exception as e:
             failed.append({
                 "username": item["username"],
-                "region_name": item["region_name"],
+                "created_at": item["created_at"],
                 "error": str(e)
             })
 

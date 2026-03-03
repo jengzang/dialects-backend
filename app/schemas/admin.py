@@ -173,7 +173,7 @@ class AdminRegionUpdate(BaseModel):
 class AdminRegionDelete(BaseModel):
     """管理员删除任意用户的区域"""
     username: str
-    region_name: str
+    created_at: str
 
 
 class AdminRegionResponse(BaseModel):
