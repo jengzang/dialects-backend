@@ -492,32 +492,43 @@ def get_analytics(
         heatmap[weekday_adjusted][hour] += 1
 
     # 2. DAU/WAU/MAU 计算
-    # 数据源：Session 表（不会自动清理，数据完整）
+    # DAU & WAU: 使用 ApiUsageLog（准确反映 API 使用情况，保留7天）
+    # MAU: 使用 Session.created_at（ApiUsageLog 只保留7天，无法计算30天数据）
 
-    # DAU: 每日登录用户数（基于 created_at）
+    from app.auth.models import ApiUsageLog
+
+    # DAU: 每日活跃用户数（基于 API 调用）
     dau_dict = defaultdict(set)
-    for session in sessions:
-        date_str = session.created_at.date().isoformat()
-        dau_dict[date_str].add(session.user_id)
+
+    # 查询最近30天的 API 调用记录（实际只有7天数据）
+    api_logs = db.query(ApiUsageLog).filter(
+        ApiUsageLog.user_id.isnot(None),
+        ApiUsageLog.called_at >= start_date
+    ).all()
+
+    for log in api_logs:
+        date_str = log.called_at.date().isoformat()
+        dau_dict[date_str].add(log.user_id)
 
     dau_list = [
         {"date": date, "count": len(users)}
         for date, users in sorted(dau_dict.items())
     ]
 
-    # WAU: 最近7天有活动的唯一用户数（基于 last_activity_at）
-    # last_activity_at 在每次 token 刷新时更新
+    # WAU: 最近7天有 API 调用的唯一用户数
     wau_start_date = now - timedelta(days=7)
-    wau_sessions = db.query(Session.user_id).filter(
-        Session.last_activity_at >= wau_start_date
+    wau_users = db.query(ApiUsageLog.user_id).filter(
+        ApiUsageLog.user_id.isnot(None),
+        ApiUsageLog.called_at >= wau_start_date
     ).distinct().all()
-    wau = len(wau_sessions)
+    wau = len(wau_users)
 
-    # MAU: 最近30天登录过的唯一用户数（基于 created_at）
-    all_active_users = set()
-    for users in dau_dict.values():
-        all_active_users.update(users)
-    mau = len(all_active_users)
+    # MAU: 最近30天登录过的唯一用户数（基于 Session.created_at）
+    # 注意：这里统计的是"登录用户"而非"活跃用户"，因为 ApiUsageLog 只保留7天
+    mau_users = set()
+    for session in sessions:
+        mau_users.add(session.user_id)
+    mau = len(mau_users)
 
     # 3. 设备类型分布
     device_counts = {
