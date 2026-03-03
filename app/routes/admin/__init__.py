@@ -12,6 +12,8 @@ from .custom_regions_edit import router as custom_regions_edit_router
 from .sessions import router as sessions_router
 from .user_sessions import router as user_sessions_router  # ✅ 新增：基于 Session 模型的管理 API
 from .cache_manager import router as cache_manager_router
+from .leaderboard import router as leaderboard_router
+from .analytics import router as analytics_router
 from ...auth.dependencies import get_current_admin_user
 from ..admin.get_ip import router as get_ip
 
@@ -42,4 +44,8 @@ router.include_router(user_sessions_router, prefix="/user-sessions", tags=["admi
 router.include_router(get_ip, prefix="/ip", tags=["admin api usage"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(cache_manager_router, prefix="/cache", tags=["admin cache"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(leaderboard_router, prefix="/leaderboard", tags=["admin leaderboard"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(analytics_router, prefix="/analytics", tags=["admin analytics"],
                       dependencies=[Depends(get_current_admin_user)])

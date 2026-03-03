@@ -408,180 +408,8 @@ def get_user_session_history(
     )
 
 
-# ⚠️ IMPORTANT: Put wildcard routes AFTER all specific routes
-# This ensures /stats, /list, etc. are matched before /{session_id}
-
-@router.get("/{session_id}", response_model=SessionDetailResponse)
-def get_session_detail(
-    session_id: int,
-    db: DBSession = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    获取会话详情
-
-    返回完整的会话信息，包括所有元数据和统计数据
-    """
-    session = db.query(Session).filter(Session.id == session_id).first()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    return build_session_detail(db, session)
-
-
-@router.get("/{session_id}/activity", response_model=SessionActivityResponse)
-def get_session_activity(
-    session_id: int,
-    db: DBSession = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    获取会话活动时间线
-
-    重建会话的完整活动历史，包括创建、刷新、IP/设备变更、标记、撤销等事件
-    """
-    session = db.query(Session).filter(Session.id == session_id).first()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    events: List[SessionActivityItem] = []
-
-    # 1. 会话创建事件
-    events.append(SessionActivityItem(
-        timestamp=session.created_at,
-        event_type="created",
-        details=f"Session created from {session.first_ip}"
-    ))
-
-    # 2. Token 刷新事件
-    tokens = db.query(RefreshToken).filter(
-        RefreshToken.session_id == session.id
-    ).order_by(RefreshToken.created_at).all()
-
-    for token in tokens:
-        events.append(SessionActivityItem(
-            timestamp=token.created_at,
-            event_type="refreshed",
-            details=f"Token refreshed from {token.ip_address or 'unknown'}"
-        ))
-
-    # 3. IP 变更事件
-    ip_history = parse_ip_history(session.ip_history)
-    for i, ip_item in enumerate(ip_history):
-        if i > 0:  # 跳过第一个 IP（已在创建事件中显示）
-            try:
-                timestamp = datetime.fromisoformat(ip_item.timestamp.replace('Z', '+00:00'))
-                events.append(SessionActivityItem(
-                    timestamp=timestamp,
-                    event_type="ip_changed",
-                    details=f"IP changed to {ip_item.ip}"
-                ))
-            except Exception:
-                pass
-
-    # 4. 设备变更事件
-    if session.device_changed and session.device_change_count > 0:
-        # 使用 last_activity_at 作为设备变更时间的近似值
-        events.append(SessionActivityItem(
-            timestamp=session.last_activity_at,
-            event_type="device_changed",
-            details=f"Device changed {session.device_change_count} time(s)"
-        ))
-
-    # 5. 可疑标记事件
-    if session.is_suspicious:
-        events.append(SessionActivityItem(
-            timestamp=session.last_activity_at,
-            event_type="flagged_suspicious",
-            details=session.suspicious_reason or "Marked as suspicious"
-        ))
-
-    # 6. 撤销事件
-    if session.revoked and session.revoked_at:
-        events.append(SessionActivityItem(
-            timestamp=session.revoked_at,
-            event_type="revoked",
-            details=f"Reason: {session.revoked_reason or 'unknown'}"
-        ))
-
-    # 按时间戳排序
-    events.sort(key=lambda e: e.timestamp)
-
-    return SessionActivityResponse(
-        session_id=session.session_id,
-        user_id=session.user_id,
-        username=session.username,
-        events=events
-    )
-
-
-@router.post("/{session_id}/revoke", response_model=RevokeSessionResponse)
-def revoke_session(
-    session_id: int,
-    reason: str = Query("admin_action", max_length=100),
-    db: DBSession = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    撤销单个会话
-
-    撤销会话及其所有关联的 refresh token
-    """
-    session = db.query(Session).filter(Session.id == session_id).first()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    if session.revoked:
-        raise HTTPException(status_code=400, detail="Session already revoked")
-
-    # 计算将要撤销的 token 数量
-    token_count = db.query(RefreshToken).filter(
-        RefreshToken.session_id == session_id,
-        RefreshToken.revoked == False
-    ).count()
-
-    # 调用服务层撤销会话
-    session_service.revoke_session(db, session_id, reason)
-
-    return RevokeSessionResponse(
-        message="Session revoked successfully",
-        revoked_tokens=token_count
-    )
-
-
-@router.post("/{session_id}/flag", response_model=SessionDetailResponse)
-def flag_session(
-    session_id: int,
-    request: FlagSessionRequest,
-    db: DBSession = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    标记/取消标记可疑会话
-
-    手动标记会话为可疑或正常
-    """
-    session = db.query(Session).filter(Session.id == session_id).first()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session.is_suspicious = request.is_suspicious
-    if request.is_suspicious and request.reason:
-        session.suspicious_reason = request.reason
-    elif not request.is_suspicious:
-        session.suspicious_reason = None
-
-    db.commit()
-    db.refresh(session)
-
-    return build_session_detail(db, session)
-
-
 # ===== Analytics Endpoints =====
+# IMPORTANT: These must be defined BEFORE the wildcard /{session_id} route
 
 @router.get("/online-users", response_model=OnlineUsersResponse)
 def get_online_users(
@@ -759,3 +587,176 @@ def get_analytics(
         geo_distribution=geo_distribution,
         session_duration_distribution=duration_counts
     )
+
+
+# ⚠️ IMPORTANT: Put wildcard routes AFTER all specific routes
+# This ensures /stats, /list, /analytics, /online-users, etc. are matched before /{session_id}
+
+@router.get("/{session_id}", response_model=SessionDetailResponse)
+def get_session_detail(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    获取会话详情
+
+    返回完整的会话信息，包括所有元数据和统计数据
+    """
+    session = db.query(Session).filter(Session.id == session_id).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return build_session_detail(db, session)
+
+
+@router.get("/{session_id}/activity", response_model=SessionActivityResponse)
+def get_session_activity(
+    session_id: int,
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    获取会话活动时间线
+
+    重建会话的完整活动历史，包括创建、刷新、IP/设备变更、标记、撤销等事件
+    """
+    session = db.query(Session).filter(Session.id == session_id).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    events: List[SessionActivityItem] = []
+
+    # 1. 会话创建事件
+    events.append(SessionActivityItem(
+        timestamp=session.created_at,
+        event_type="created",
+        details=f"Session created from {session.first_ip}"
+    ))
+
+    # 2. Token 刷新事件
+    tokens = db.query(RefreshToken).filter(
+        RefreshToken.session_id == session.id
+    ).order_by(RefreshToken.created_at).all()
+
+    for token in tokens:
+        events.append(SessionActivityItem(
+            timestamp=token.created_at,
+            event_type="refreshed",
+            details=f"Token refreshed from {token.ip_address or 'unknown'}"
+        ))
+
+    # 3. IP 变更事件
+    ip_history = parse_ip_history(session.ip_history)
+    for i, ip_item in enumerate(ip_history):
+        if i > 0:  # 跳过第一个 IP（已在创建事件中显示）
+            try:
+                timestamp = datetime.fromisoformat(ip_item.timestamp.replace('Z', '+00:00'))
+                events.append(SessionActivityItem(
+                    timestamp=timestamp,
+                    event_type="ip_changed",
+                    details=f"IP changed to {ip_item.ip}"
+                ))
+            except Exception:
+                pass
+
+    # 4. 设备变更事件
+    if session.device_changed and session.device_change_count > 0:
+        # 使用 last_activity_at 作为设备变更时间的近似值
+        events.append(SessionActivityItem(
+            timestamp=session.last_activity_at,
+            event_type="device_changed",
+            details=f"Device changed {session.device_change_count} time(s)"
+        ))
+
+    # 5. 可疑标记事件
+    if session.is_suspicious:
+        events.append(SessionActivityItem(
+            timestamp=session.last_activity_at,
+            event_type="flagged_suspicious",
+            details=session.suspicious_reason or "Marked as suspicious"
+        ))
+
+    # 6. 撤销事件
+    if session.revoked and session.revoked_at:
+        events.append(SessionActivityItem(
+            timestamp=session.revoked_at,
+            event_type="revoked",
+            details=f"Reason: {session.revoked_reason or 'unknown'}"
+        ))
+
+    # 按时间戳排序
+    events.sort(key=lambda e: e.timestamp)
+
+    return SessionActivityResponse(
+        session_id=session.session_id,
+        user_id=session.user_id,
+        username=session.username,
+        events=events
+    )
+
+
+@router.post("/{session_id}/revoke", response_model=RevokeSessionResponse)
+def revoke_session(
+    session_id: int,
+    reason: str = Query("admin_action", max_length=100),
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    撤销单个会话
+
+    撤销会话及其所有关联的 refresh token
+    """
+    session = db.query(Session).filter(Session.id == session_id).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.revoked:
+        raise HTTPException(status_code=400, detail="Session already revoked")
+
+    # 计算将要撤销的 token 数量
+    token_count = db.query(RefreshToken).filter(
+        RefreshToken.session_id == session_id,
+        RefreshToken.revoked == False
+    ).count()
+
+    # 调用服务层撤销会话
+    session_service.revoke_session(db, session_id, reason)
+
+    return RevokeSessionResponse(
+        message="Session revoked successfully",
+        revoked_tokens=token_count
+    )
+
+
+@router.post("/{session_id}/flag", response_model=SessionDetailResponse)
+def flag_session(
+    session_id: int,
+    request: FlagSessionRequest,
+    db: DBSession = Depends(get_db),
+    admin: User = Depends(get_current_admin_user)
+):
+    """
+    标记/取消标记可疑会话
+
+    手动标记会话为可疑或正常
+    """
+    session = db.query(Session).filter(Session.id == session_id).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.is_suspicious = request.is_suspicious
+    if request.is_suspicious and request.reason:
+        session.suspicious_reason = request.reason
+    elif not request.is_suspicious:
+        session.suspicious_reason = None
+
+    db.commit()
+    db.refresh(session)
+
+    return build_session_detail(db, session)

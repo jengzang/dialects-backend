@@ -201,3 +201,54 @@ class UserRegionCount(BaseModel):
     """用户区域数量统计"""
     username: str
     region_count: int
+
+
+# ===== Leaderboard Schemas =====
+
+class LeaderboardQueryParams(BaseModel):
+    """排行榜查询参数"""
+    ranking_type: str  # "user_global", "user_by_api", "api", "online_time"
+    metric: Optional[str] = None  # "count", "duration", "upload", "download"
+    api_path: Optional[str] = None
+    page: int = Field(1, ge=1)
+    page_size: int = Field(20, ge=1, le=100)
+
+
+class UserRankingItem(BaseModel):
+    """用户排名项"""
+    rank: int
+    user_id: int
+    username: str
+    value: float
+    percentage: float
+    gap_to_prev: Optional[float] = None
+    first_place_value: float
+
+
+class ApiRankingItem(BaseModel):
+    """API排名项"""
+    rank: int
+    path: str
+    value: float
+    percentage: float
+    unique_users: int
+    gap_to_prev: Optional[float] = None
+    first_place_value: float
+
+
+class LeaderboardResponse(BaseModel):
+    """排行榜响应"""
+    ranking_type: str
+    metric: Optional[str]
+    api_path: Optional[str]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    rankings: list
+    total_value: Optional[float] = Field(None, description="所有排名项目的累计总量（不受分页限制）")
+
+
+class AvailableApisResponse(BaseModel):
+    """可用API列表响应"""
+    apis: list[str]
