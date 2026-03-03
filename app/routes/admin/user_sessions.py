@@ -585,7 +585,7 @@ def flag_session(
 
 @router.get("/online-users", response_model=OnlineUsersResponse)
 def get_online_users(
-    threshold_minutes: int = Query(5, ge=1, le=60, description="在线判断阈值（分钟）"),
+    threshold_minutes: int = Query(30, ge=1, le=120, description="在线判断阈值（分钟），默认30分钟"),
     db: DBSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):
@@ -593,6 +593,11 @@ def get_online_users(
     获取实时在线用户列表
 
     判断标准：last_seen < threshold_minutes 分钟前
+
+    说明：
+    - last_seen 在 token 刷新时更新（约每 25-30 分钟）
+    - 默认阈值 30 分钟，确保正常使用的用户都能被识别为在线
+    - 可根据需要调整阈值（1-120 分钟）
     """
     from datetime import timedelta
 
