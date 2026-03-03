@@ -181,7 +181,7 @@ def get_all_api_usage(
             func.sum(models.ApiUsageLog.response_size).label('total_download')
         ).first()
 
-        # 用户统计（Top 10）
+        # 用户统计
         user_stats = stats_query.with_entities(
             models.User.username,
             func.count(models.ApiUsageLog.id).label('call_count'),
@@ -194,9 +194,9 @@ def get_all_api_usage(
             models.User.username
         ).order_by(
             desc('total_duration')
-        ).limit(10).all()
+        ).all()
 
-        # IP 统计（Top 10）
+        # IP 统计
         ip_stats = stats_query.with_entities(
             models.ApiUsageLog.ip,
             func.count(models.ApiUsageLog.id).label('call_count'),
@@ -207,9 +207,9 @@ def get_all_api_usage(
             models.ApiUsageLog.ip
         ).order_by(
             desc('total_duration')
-        ).limit(10).all()
+        ).all()
 
-        # 路径统计（Top 10）
+        # 路径统计
         path_stats = stats_query.with_entities(
             models.ApiUsageLog.path,
             func.count(models.ApiUsageLog.id).label('call_count'),
@@ -220,7 +220,7 @@ def get_all_api_usage(
             models.ApiUsageLog.path
         ).order_by(
             desc('call_count')
-        ).limit(10).all()
+        ).all()
 
         # 组装统计信息
         response["statistics"] = {
