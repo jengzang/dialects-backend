@@ -8,7 +8,7 @@ from app.auth.database import get_db
 from app.auth.dependencies import get_current_user, check_api_usage_limit
 from app.auth.models import User
 from app.logs.service.route_matcher import match_route_config, should_skip_route
-from common.config import REQUIRE_LOGIN
+from app.common.config import REQUIRE_LOGIN
 
 
 async def api_limiter_dependency(

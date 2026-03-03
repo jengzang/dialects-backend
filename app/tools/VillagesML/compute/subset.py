@@ -189,11 +189,12 @@ async def cluster_subset(
 
             # 2. 构建特征矩阵
             feature_cols = []
-            if 'semantic' in params.clustering.features:
+            clustering_features = params.clustering.get('features', [])
+            if 'semantic' in clustering_features:
                 semantic_cols = [col for col in df.columns if col.startswith('sem_')]
                 feature_cols.extend(semantic_cols)
 
-            if 'morphology' in params.clustering.features:
+            if 'morphology' in clustering_features:
                 feature_cols.append('name_length')
 
             X = df[feature_cols].values
@@ -203,8 +204,8 @@ async def cluster_subset(
             X = StandardScaler().fit_transform(X)
 
             # 4. 聚类
-            algorithm = params.clustering.algorithm
-            k = params.clustering.k
+            algorithm = params.clustering.get('algorithm', 'kmeans')
+            k = params.clustering.get('k', 3)
 
             if algorithm == 'kmeans':
                 model = KMeans(n_clusters=k, random_state=42, n_init=10)
@@ -296,11 +297,14 @@ async def compare_subsets(
         # 执行对比分析（带超时控制）
         with timeout(5):  # 5秒超时
             start_time = time.time()
+            timings = {}  # 性能监控
 
             db_path = get_db_path()
             conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
 
             # 1. 获取两组村庄数据（支持 village_ids 或 filter 两种模式）
+            t0 = time.time()
             if params.group_a.village_ids is not None:
                 df_a = get_villages_by_ids(conn, params.group_a.village_ids)
             else:
@@ -310,6 +314,7 @@ async def compare_subsets(
                 df_b = get_villages_by_ids(conn, params.group_b.village_ids)
             else:
                 df_b = filter_villages(conn, params.group_b.filter.dict())
+            timings['data_loading'] = int((time.time() - t0) * 1000)
 
             group_a_size = len(df_a)
             group_b_size = len(df_b)
@@ -321,6 +326,7 @@ async def compare_subsets(
             significant_differences = []
 
             # 2. 语义分布对比
+            t0 = time.time()
             if params.analysis.get('semantic_distribution', True):
                 semantic_cols = [col for col in df_a.columns if col.startswith('sem_')]
 
@@ -358,7 +364,11 @@ async def compare_subsets(
                         except Exception as e:
                             logger.warning(f"Chi-square test failed for {col}: {e}")
 
+            if params.analysis.get('semantic_distribution', True):
+                timings['semantic'] = int((time.time() - t0) * 1000)
+
             # 3. 形态学对比（扩展）
+            t0 = time.time()
             if params.analysis.get('morphology_patterns', True):
                 # 平均名称长度
                 avg_len_a = df_a['name_length'].mean() if 'name_length' in df_a.columns else 0
@@ -405,19 +415,21 @@ async def compare_subsets(
                                 'difference': float(pct_a - pct_b)
                             })
 
-            # 4. 字符特征对比
+            if params.analysis.get('morphology_patterns', True):
+                timings['morphology'] = int((time.time() - t0) * 1000)
+
+            # 4. 字符特征对比（优化版）
+            t0 = time.time()
             if params.analysis.get('character_distribution', False):
                 if 'village_name' in df_a.columns and 'village_name' in df_b.columns:
-                    # 提取所有字符
                     from collections import Counter
 
-                    chars_a = Counter()
-                    for name in df_a['village_name'].dropna():
-                        chars_a.update(str(name))
+                    # 优化：使用 join 一次性处理所有字符
+                    all_names_a = ''.join(df_a['village_name'].dropna().astype(str))
+                    all_names_b = ''.join(df_b['village_name'].dropna().astype(str))
 
-                    chars_b = Counter()
-                    for name in df_b['village_name'].dropna():
-                        chars_b.update(str(name))
+                    chars_a = Counter(all_names_a)
+                    chars_b = Counter(all_names_b)
 
                     # 计算频率（Top 20）
                     total_chars_a = sum(chars_a.values())
@@ -442,50 +454,64 @@ async def compare_subsets(
                     # 按差异排序
                     character_comparison.sort(key=lambda x: abs(x['difference']), reverse=True)
 
-            # 5. 空间特征对比
+            if params.analysis.get('character_distribution', False):
+                timings['character'] = int((time.time() - t0) * 1000)
+
+            # 5. 空间特征对比（优化版）
+            t0 = time.time()
             if params.analysis.get('spatial_distribution', False):
-                # 需要从预处理表获取经纬度
                 if group_a_size > 0 and group_b_size > 0:
                     # 获取村庄ID列表
                     village_ids_a = df_a['village_id'].tolist()
                     village_ids_b = df_b['village_id'].tolist()
 
-                    # 批量查询坐标
-                    def get_spatial_stats(village_ids):
-                        batch_size = 500
-                        all_coords = []
-                        for i in range(0, len(village_ids), batch_size):
-                            batch = village_ids[i:i + batch_size]
+                    # 优化：合并查询，一次性获取两组数据
+                    def get_spatial_stats_batch(village_ids_list):
+                        """批量获取多组村庄的空间统计"""
+                        all_village_ids = []
+                        for ids in village_ids_list:
+                            all_village_ids.extend(ids)
+
+                        # 一次性查询所有坐标
+                        batch_size = 1000  # 增大批次
+                        all_coords = {}
+                        for i in range(0, len(all_village_ids), batch_size):
+                            batch = all_village_ids[i:i + batch_size]
                             placeholders = ','.join(['?' for _ in batch])
                             query = f"""
-                            SELECT longitude, latitude
+                            SELECT village_id, longitude, latitude
                             FROM 广东省自然村_预处理
                             WHERE village_id IN ({placeholders})
                             AND longitude IS NOT NULL AND latitude IS NOT NULL
                             """
                             cursor.execute(query, batch)
-                            all_coords.extend(cursor.fetchall())
+                            for row in cursor.fetchall():
+                                all_coords[row[0]] = (row[1], row[2])
 
-                        if not all_coords:
-                            return None
+                        # 分组统计
+                        results = []
+                        for ids in village_ids_list:
+                            coords = [all_coords[vid] for vid in ids if vid in all_coords]
+                            if coords:
+                                lons = [c[0] for c in coords]
+                                lats = [c[1] for c in coords]
+                                results.append({
+                                    'count': len(coords),
+                                    'lon_min': min(lons),
+                                    'lon_max': max(lons),
+                                    'lon_mean': sum(lons) / len(lons),
+                                    'lat_min': min(lats),
+                                    'lat_max': max(lats),
+                                    'lat_mean': sum(lats) / len(lats),
+                                    'lon_range': max(lons) - min(lons),
+                                    'lat_range': max(lats) - min(lats)
+                                })
+                            else:
+                                results.append(None)
+                        return results
 
-                        lons = [c[0] for c in all_coords]
-                        lats = [c[1] for c in all_coords]
-
-                        return {
-                            'count': len(all_coords),
-                            'lon_min': min(lons),
-                            'lon_max': max(lons),
-                            'lon_mean': sum(lons) / len(lons),
-                            'lat_min': min(lats),
-                            'lat_max': max(lats),
-                            'lat_mean': sum(lats) / len(lats),
-                            'lon_range': max(lons) - min(lons),
-                            'lat_range': max(lats) - min(lats)
-                        }
-
-                    stats_a = get_spatial_stats(village_ids_a)
-                    stats_b = get_spatial_stats(village_ids_b)
+                    stats_list = get_spatial_stats_batch([village_ids_a, village_ids_b])
+                    stats_a, stats_b = stats_list[0], stats_list[1]
 
                     if stats_a and stats_b:
                         spatial_comparison = {
@@ -497,6 +523,9 @@ async def compare_subsets(
                             )
                         }
 
+            if params.analysis.get('spatial_distribution', False):
+                timings['spatial'] = int((time.time() - t0) * 1000)
+
             conn.close()
 
             execution_time = int((time.time() - start_time) * 1000)
@@ -506,6 +535,7 @@ async def compare_subsets(
                 'group_a_size': group_a_size,
                 'group_b_size': group_b_size,
                 'execution_time_ms': execution_time,
+                'timings': timings,  # 性能监控
                 'semantic_comparison': semantic_comparison,
                 'morphology_comparison': morphology_comparison,
                 'character_comparison': character_comparison,

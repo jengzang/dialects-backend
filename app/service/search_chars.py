@@ -1,9 +1,9 @@
 import numpy as np
 from fastapi import HTTPException
 
-from common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
+from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 
-from common.s2t import s2t_pro
+from app.common.s2t import s2t_pro
 from app.service.getloc_by_name_region import query_dialect_abbreviations
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool

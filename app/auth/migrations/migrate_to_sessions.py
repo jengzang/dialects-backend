@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from app.auth.database import engine, SessionLocal
 from app.auth.models import Base, Session, RefreshToken, User
-from common.config import REFRESH_TOKEN_EXPIRE_DAYS
+from app.common.config import REFRESH_TOKEN_EXPIRE_DAYS
 
 
 def run_migration():

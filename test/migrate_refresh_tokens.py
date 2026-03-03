@@ -7,7 +7,7 @@ Run this script once to add refresh token support to existing database.
 
 import sqlite3
 import sys
-from common.path import USER_DATABASE_PATH
+from app.common.path import USER_DATABASE_PATH
 
 # Set UTF-8 encoding for Windows console
 if sys.platform == "win32":

@@ -2,8 +2,8 @@ import re
 from itertools import product
 from typing import Tuple, Union, List, Optional
 
-from common.constants import HIERARCHY_COLUMNS, COLUMN_VALUES, S2T_T2S_MAPPING, default_priority, s2t_column
-from common.s2t import s2t_pro
+from app.common.constants import HIERARCHY_COLUMNS, COLUMN_VALUES, S2T_T2S_MAPPING, default_priority
+from app.common.s2t import s2t_pro
 
 
 def auto_convert_single(user_input: str) -> Union[Tuple[str, int], Tuple[bool, int]]:

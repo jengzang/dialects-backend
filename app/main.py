@@ -14,7 +14,7 @@ from app.logs.service.api_logger import start_api_logger_workers, stop_api_logge
 from app.logs.service.api_limit_keyword import ApiLoggingMiddleware
 from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
-from common.config import _RUN_TYPE
+from app.common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
 
 # [OK] 导入日志迁移模块
@@ -25,7 +25,7 @@ from app.logs.scheduler import start_scheduler, stop_scheduler
 from app.sql.index_manager import initialize_all_indexes
 # [NEW] 导入数据库连接池管理模块
 from app.sql.db_pool import close_all_pools, get_db_pool
-from common.path import (
+from app.common.path import (
     QUERY_DB_ADMIN, QUERY_DB_USER,
     DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
     CHARACTERS_DB_PATH
@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
     #
     #     # ✅ 刷新 SECRET_KEY（迁移可能创建了新密钥）
     #     try:
-    #         from common.config import get_secret_key
+    #         from app.common.config import get_secret_key
     #         key = get_secret_key()
     #         print(f"[STARTUP] ✅ SECRET_KEY loaded: {key[:20]}...")
     #     except Exception as e:
@@ -104,9 +104,9 @@ async def lifespan(app: FastAPI):
             t = threading.Thread(target=_periodic_printer, daemon=True)
             t.start()
 
-    # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
-    if _RUN_TYPE in [ 'MINE']:
-        initialize_all_indexes()
+    # # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
+    # if _RUN_TYPE in [ 'MINE']:
+    #     initialize_all_indexes()
     # initialize_all_indexes()
 
     # [NEW] 初始化数据库连接池

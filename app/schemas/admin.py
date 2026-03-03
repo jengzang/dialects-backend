@@ -96,6 +96,7 @@ class LetAdmin(BaseModel):
 
 class UserListItem(BaseModel):
     """轻量级用户列表项（仅包含基本信息）"""
+    id: int
     username: str
     email: EmailStr
     role: str
@@ -148,3 +149,55 @@ class UserWithPermissions(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ===== Custom Region Admin Schemas =====
+
+class AdminRegionCreate(BaseModel):
+    """管理员为任意用户创建区域"""
+    username: str
+    region_name: str = Field(..., min_length=1, max_length=200)
+    locations: list[str] = Field(..., min_items=1)
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AdminRegionUpdate(BaseModel):
+    """管理员更新任意用户的区域"""
+    username: str
+    region_name: str  # 当前区域名
+    new_region_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    locations: Optional[list[str]] = Field(None, min_items=1)
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AdminRegionDelete(BaseModel):
+    """管理员删除任意用户的区域"""
+    username: str
+    region_name: str
+
+
+class AdminRegionResponse(BaseModel):
+    """管理员视图的区域响应"""
+    id: int
+    user_id: int
+    username: str
+    region_name: str
+    locations: list[str]
+    location_count: int
+    description: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminRegionListResponse(BaseModel):
+    """分页区域列表响应"""
+    total: int
+    skip: int
+    limit: int
+    data: list[AdminRegionResponse]
+
+
+class UserRegionCount(BaseModel):
+    """用户区域数量统计"""
+    username: str
+    region_count: int

@@ -257,6 +257,14 @@ API_ROUTE_CONFIG = {
         "log_body": True,  # 记录请求体（用于分析用户创建的区域）
     },
 
+    # ===== Admin Custom Regions API =====
+    "/admin/custom-regions/*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": True,
+    },
+
     # ===== VillagesML 自然村分析 API =====
     "/api/villages/*": {
         "rate_limit": True,  # 启用限流（防止滥用）

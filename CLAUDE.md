@@ -350,12 +350,16 @@ The Praat acoustic analysis tool MUST follow specifications in the existing `cla
 - `app/auth/`: Authentication, authorization, session management
 - `app/logs/`: Logging system (multi-process queues, schedulers)
 - `app/sql/`: Database connection pools, query interfaces, permissions
-- `app/tools/`: Modular tools (Praat, Check, Merge, Jyut2IPA)
+- `app/tools/`: Modular tools (Praat, Check, Merge, Jyut2IPA, VillagesML)
 - `common/`: Shared configuration, constants, utilities
 - `data/`: SQLite database files (not in version control)
-- `docs/`: Documentation files (implementation guides, specifications, etc.)
+- `docs/`: Documentation files (organized by category - see docs/README.md)
+- `test/`: Test scripts and utilities
 
-**Documentation Guidelines**: All documentation files should be placed in the `docs/` directory to keep the project root clean and organized.
+**File Organization Guidelines**:
+- **All documentation** should be placed in the `docs/` directory (organized by category)
+- **All test scripts** should be placed in the `test/` directory
+- Keep the project root clean - only essential config files and entry points
 
 ## Additional Resources
 

@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.custom.models import Information
 from app.service.getloc_by_name_region import query_dialect_abbreviations_orm
-from common.path import QUERY_DB_ADMIN
-from common.s2t import s2t_pro
+from app.common.path import QUERY_DB_ADMIN
+from app.common.s2t import s2t_pro
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool
 

@@ -13,7 +13,7 @@ from app.auth.session_service import create_session, refresh_session  # ✅ 导�
 from app.schemas import auth as schemas
 from app.auth import service, utils, models
 from app.auth.database import get_db
-from common.config import REQUIRE_EMAIL_VERIFICATION
+from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl

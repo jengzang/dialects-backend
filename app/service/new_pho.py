@@ -1,10 +1,10 @@
 import itertools
 
 from app.redis_client import redis_client
-from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
+from app.service.match_input_tip import match_locations_batch_exact
 from app.service.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
-from common.path import QUERY_DB_USER, DIALECTS_DB_USER
-from common.constants import COLUMN_VALUES
+from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER
+from app.common.constants import COLUMN_VALUES
 
 import json
 import hashlib

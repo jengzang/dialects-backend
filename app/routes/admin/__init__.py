@@ -7,6 +7,8 @@ from .api_usage import router as api_usage_router
 from .login_logs import router as login_logs_router
 from .custom import router as custom_router
 from .custom_edit import router as custom_edit_router
+from .custom_regions import router as custom_regions_router
+from .custom_regions_edit import router as custom_regions_edit_router
 from .sessions import router as sessions_router
 from .user_sessions import router as user_sessions_router  # ✅ 新增：基于 Session 模型的管理 API
 from .cache_manager import router as cache_manager_router
@@ -27,6 +29,10 @@ router.include_router(login_logs_router, prefix="/login-logs", tags=["admin stat
 router.include_router(custom_router, prefix="/custom", tags=["admin custom"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(custom_edit_router, prefix="/custom", tags=["admin custom"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(custom_regions_router, prefix="/custom-regions", tags=["admin custom-regions"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(custom_regions_edit_router, prefix="/custom-regions", tags=["admin custom-regions"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(sessions_router, prefix="/sessions", tags=["admin sessions (legacy)"],
                       dependencies=[Depends(get_current_admin_user)])

@@ -3,7 +3,7 @@
 """
 import fnmatch
 from typing import Dict, Any
-from common.api_config import API_ROUTE_CONFIG, API_DEFAULT_CONFIG, API_WHITELIST, API_BLACKLIST
+from app.common.api_config import API_ROUTE_CONFIG, API_DEFAULT_CONFIG, API_WHITELIST, API_BLACKLIST
 
 
 def match_route_config(path: str) -> Dict[str, Any]:

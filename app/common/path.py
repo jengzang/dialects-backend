@@ -2,7 +2,7 @@
 # 計算專案根目錄路徑
 import os
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # HTML_PATH = os.path.join(BASE_DIR, "index.html")
 # JS_PATH = os.path.join(BASE_DIR, "app", "js")

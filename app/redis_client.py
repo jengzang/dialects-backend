@@ -1,6 +1,6 @@
 # redis_client.py
 import os
-from common.config import _RUN_TYPE
+from app.common.config import _RUN_TYPE
 
 # ============ 空的 Redis 模拟类（用于非 WEB 模式） ============
 class DummyRedis:
