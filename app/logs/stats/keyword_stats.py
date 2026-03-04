@@ -52,10 +52,10 @@ def get_top_keywords(
 
     # 查询关键词统计
     query = f"""
-        SELECT keyword, COUNT(*) as count
-        FROM keyword_logs
+        SELECT value, COUNT(*) as count
+        FROM api_keyword_log
         {where_clause}
-        GROUP BY keyword
+        GROUP BY value
         ORDER BY count DESC
         LIMIT ?
     """
@@ -67,7 +67,7 @@ def get_top_keywords(
     # 计算总数用于百分比
     total_query = f"""
         SELECT COUNT(*)
-        FROM keyword_logs
+        FROM api_keyword_log
         {where_clause}
     """
     cursor.execute(total_query, params[:-1])  # 不包含limit参数
@@ -138,7 +138,7 @@ def search_keyword_logs(
     # 查询总数
     count_query = f"""
         SELECT COUNT(*)
-        FROM keyword_logs
+        FROM api_keyword_log
         {where_clause}
     """
     cursor.execute(count_query, params)
@@ -147,8 +147,8 @@ def search_keyword_logs(
     # 查询分页数据
     offset = (page - 1) * page_size
     data_query = f"""
-        SELECT id, keyword, user_id, timestamp, ip_address
-        FROM keyword_logs
+        SELECT id, value, field, timestamp, path
+        FROM api_keyword_log
         {where_clause}
         ORDER BY timestamp DESC
         LIMIT ? OFFSET ?

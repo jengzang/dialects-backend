@@ -81,11 +81,11 @@ def get_stats_summary() -> Dict[str, Any]:
     total_api_calls = cursor.fetchone()[0]
 
     # 关键词搜索总数
-    cursor.execute("SELECT COUNT(*) FROM keyword_logs")
+    cursor.execute("SELECT COUNT(*) FROM api_keyword_log")
     total_keyword_searches = cursor.fetchone()[0]
 
     # 页面访问总数
-    cursor.execute("SELECT SUM(visit_count) FROM html_visits")
+    cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
     result = cursor.fetchone()
     total_page_visits = result[0] if result and result[0] else 0
 

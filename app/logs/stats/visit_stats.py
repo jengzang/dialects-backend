@@ -21,7 +21,8 @@ def get_total_visits() -> int:
     db = sqlite3.connect(LOGS_DATABASE_PATH)
     cursor = db.cursor()
 
-    cursor.execute("SELECT SUM(visit_count) FROM html_visits")
+    # 查询 date=NULL 的记录（总计）
+    cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
     result = cursor.fetchone()
 
     db.close()
@@ -41,7 +42,7 @@ def get_today_visits() -> int:
 
     today = date.today()
     cursor.execute(
-        "SELECT SUM(visit_count) FROM html_visits WHERE date = ?",
+        "SELECT SUM(count) FROM api_visit_log WHERE date(date) = ?",
         (today,)
     )
     result = cursor.fetchone()
@@ -66,11 +67,11 @@ def get_visit_history(days: int = 30) -> List[Dict[str, Any]]:
 
     cursor.execute(
         """
-        SELECT date, SUM(visit_count) as total_visits
-        FROM html_visits
-        WHERE date >= date('now', '-' || ? || ' days')
-        GROUP BY date
-        ORDER BY date DESC
+        SELECT date(date) as visit_date, SUM(count) as total_visits
+        FROM api_visit_log
+        WHERE date IS NOT NULL AND date >= date('now', '-' || ? || ' days')
+        GROUP BY date(date)
+        ORDER BY visit_date DESC
         """,
         (days,)
     )
@@ -107,19 +108,20 @@ def get_visits_by_path(
     # 构建查询
     if days:
         query = """
-            SELECT path, SUM(visit_count) as total_visits
-            FROM html_visits
-            WHERE date >= date('now', '-' || ? || ' days')
+            SELECT path, SUM(count) as total_visits
+            FROM api_visit_log
+            WHERE date IS NOT NULL AND date >= date('now', '-' || ? || ' days')
             GROUP BY path
             ORDER BY total_visits DESC
             LIMIT ?
         """
         params = (days, limit)
     else:
+        # 查询总计（date IS NULL）
         query = """
-            SELECT path, SUM(visit_count) as total_visits
-            FROM html_visits
-            GROUP BY path
+            SELECT path, count as total_visits
+            FROM api_visit_log
+            WHERE date IS NULL
             ORDER BY total_visits DESC
             LIMIT ?
         """
@@ -132,14 +134,14 @@ def get_visits_by_path(
     if days:
         cursor.execute(
             """
-            SELECT SUM(visit_count)
-            FROM html_visits
-            WHERE date >= date('now', '-' || ? || ' days')
+            SELECT SUM(count)
+            FROM api_visit_log
+            WHERE date IS NOT NULL AND date >= date('now', '-' || ? || ' days')
             """,
             (days,)
         )
     else:
-        cursor.execute("SELECT SUM(visit_count) FROM html_visits")
+        cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
 
     total = cursor.fetchone()[0] or 0
 
@@ -153,3 +155,4 @@ def get_visits_by_path(
         }
         for row in rows
     ]
+
