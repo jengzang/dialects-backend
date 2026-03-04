@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..dependencies import get_db, execute_query
 
-router = APIRouter(prefix="/semantic/subcategory", tags=["semantic"])
+router = APIRouter(prefix="/semantic/subcategory")
 
 # 加载 v4_hybrid 词典
 LEXICON_PATH = Path(__file__).parent.parent.parent.parent.parent / "data" / "semantic_lexicon_v4_hybrid.json"

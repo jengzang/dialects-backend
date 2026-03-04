@@ -12,7 +12,7 @@ import json
 
 from ..dependencies import get_db, execute_query, execute_single
 
-router = APIRouter(prefix="/regions", tags=["regions"])
+router = APIRouter(prefix="/regions")
 
 
 @router.get("/similarity/search")

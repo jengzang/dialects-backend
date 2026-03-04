@@ -27,6 +27,9 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 
+# GeoLite2 database files
+data/dependency/*.mmdb
+
 # Logs
 *.log
 logs/
