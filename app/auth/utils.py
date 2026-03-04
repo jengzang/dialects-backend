@@ -8,7 +8,7 @@ from jose import jwt, JWTError
 from passlib.context import CryptContext
 from fastapi import Request
 
-from common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, get_secret_key, ALGORITHM, AUDIENCE, ISSUER
+from app.common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, get_secret_key, ALGORITHM, AUDIENCE, ISSUER
 
 # 可选：SMTP 配置（留空则退化为控制台打印）
 SMTP_HOST: Optional[str] = None      # 如 "smtp.gmail.com"

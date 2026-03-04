@@ -20,7 +20,7 @@ from app.service.feature_stats import get_feature_counts, get_feature_statistics
 from app.service.phonology2status import pho2sta, get_all_phonology_matrices
 from app.service.status_arrange_pho import sta2pho
 from app.service.phonology_classification_matrix import build_phonology_classification_matrix
-from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
+from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 from app.redis_client import redis_client
 
 router = APIRouter()

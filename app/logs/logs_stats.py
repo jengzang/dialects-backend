@@ -600,7 +600,7 @@ async def get_database_size(
     获取数据库大小和统计信息（管理员）
     """
     import os
-    from common.path import LOGS_DATABASE_PATH
+    from app.common.path import LOGS_DATABASE_PATH
 
     # 文件大小
     db_size = os.path.getsize(LOGS_DATABASE_PATH) if os.path.exists(LOGS_DATABASE_PATH) else 0

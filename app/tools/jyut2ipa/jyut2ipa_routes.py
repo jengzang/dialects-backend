@@ -17,7 +17,7 @@ import threading
 
 from starlette.responses import StreamingResponse
 
-from common.constants import replace_data
+from app.common.constants import replace_data
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))

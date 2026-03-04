@@ -43,7 +43,7 @@ def get_all_valid_keys() -> List[str]:
 
 def _generate_new_secret_key(db) -> SecretKey:
     """生成新的SECRET_KEY（内部函数）"""
-    from common.config import ACCESS_TOKEN_EXPIRE_MINUTES
+    from app.common.config import ACCESS_TOKEN_EXPIRE_MINUTES
 
     print(f"[KEY-MANAGER] 🔑 Generating new SECRET_KEY...")
     new_key = secrets.token_urlsafe(64)
@@ -78,7 +78,7 @@ def rotate_secret_key(reason: str = "manual") -> str:
     轮换SECRET_KEY（手动命令）
     返回: 新密钥的值
     """
-    from common.config import ACCESS_TOKEN_EXPIRE_MINUTES
+    from app.common.config import ACCESS_TOKEN_EXPIRE_MINUTES
 
     db = SessionLocal()
 

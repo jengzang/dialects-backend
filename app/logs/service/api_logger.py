@@ -23,9 +23,9 @@ from app.auth.dependencies import get_current_user, get_current_user_for_middlew
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logs.database import SessionLocal as LogsSessionLocal
 from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
-from common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, BATCH_SIZE, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, \
+from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, BATCH_SIZE, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE, \
     SIZE_THRESHOLD
-from common.path import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_FILE, API_DETAILED_JSON
+from app.common.path import KEYWORD_LOG_FILE, SUMMARY_FILE, API_USAGE_FILE, API_DETAILED_FILE, API_DETAILED_JSON
 
 # === 队列（跨进程） ===
 # [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程

@@ -10,8 +10,8 @@ from collections import defaultdict
 from fastapi import HTTPException
 
 from app.sql.db_pool import get_db_pool
-from common.path import CHARACTERS_DB_PATH
-from common.constants import HIERARCHY_COLUMNS
+from app.common.path import CHARACTERS_DB_PATH
+from app.common.constants import HIERARCHY_COLUMNS
 from app.service.phonology2status import custom_phonology_sort
 
 

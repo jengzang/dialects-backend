@@ -19,7 +19,7 @@ IP_HISTORY_LIMIT = 50  # IP历史记录保留数量
 # 注意：Session表不需要清理（每个用户最多10个session，不会膨胀）
 
 # === Token配置（从common/config.py导入，保持兼容性）===
-from common.config import (
+from app.common.config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
     SECRET_KEY,

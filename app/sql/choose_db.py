@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.sql.db_pool import get_db_pool
-from common.path import ADMIN_ONLY_DBS, DB_MAPPING
+from app.common.path import ADMIN_ONLY_DBS, DB_MAPPING
 
 
 def get_db_connection(

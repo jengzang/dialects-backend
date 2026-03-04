@@ -7,7 +7,7 @@ import os
 
 # 数据库路径常量 - 使用项目统一路径管理
 # Database path constant - using project's centralized path management
-from common.path import GD_VILLAGE_DB_PATH
+from app.common.path import GD_VILLAGE_DB_PATH
 DB_PATH = os.getenv("VILLAGES_DB_PATH", GD_VILLAGE_DB_PATH)
 
 # 查询策略配置

@@ -16,7 +16,7 @@ import re
 
 from starlette.responses import StreamingResponse
 
-from common.constants import col_map
+from app.common.constants import col_map
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))

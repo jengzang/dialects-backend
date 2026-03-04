@@ -16,7 +16,7 @@ PERMISSION_CACHE_PREFIX = "permission:"  # 缓存键前缀
 # 创建同步Redis客户端（用于同步函数）
 try:
     import os
-    from common.config import _RUN_TYPE
+    from app.common.config import _RUN_TYPE
 
     if _RUN_TYPE == 'WEB':
         REDIS_HOST = os.getenv("REDIS_HOST", "172.28.199.1")

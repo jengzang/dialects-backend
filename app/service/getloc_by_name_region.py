@@ -9,7 +9,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.custom.database import get_db
 from app.custom.models import Information
-from common.path import QUERY_DB_ADMIN
+from app.common.path import QUERY_DB_ADMIN
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool
 

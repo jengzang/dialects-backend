@@ -20,9 +20,9 @@ from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 from xlrd import open_workbook
 
-from common.path import WRITE_ERROR_LOG
-from common.constants import col_map, vowel_pattern
-from common.s2t import s2t_pro
+from app.common.path import WRITE_ERROR_LOG
+from app.common.constants import col_map, vowel_pattern
+from app.common.s2t import s2t_pro
 
 # 预编译正则表达式 - 性能优化
 RE_SYMBOLS = re.compile(r'[？?＊*]')

@@ -4,7 +4,7 @@ import pandas as pd
 from fastapi import HTTPException
 
 from app.service.getloc_by_name_region import query_dialect_abbreviations
-from common.path import QUERY_DB_ADMIN
+from app.common.path import QUERY_DB_ADMIN
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool
 
