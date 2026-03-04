@@ -266,8 +266,10 @@ def get_analytics(
     for session in sessions_with_ip:
         location = lookup_ip_location(session.current_ip)
         if location:
-            country = location.get("country", "Unknown")
-            city = location.get("city", "Unknown")
+            # location 是字符串格式 "国家 - 城市" 或 "国家"
+            parts = location.split(" - ", 1)
+            country = parts[0] if parts else "Unknown"
+            city = parts[1] if len(parts) > 1 else "Unknown"
 
             country_stats[country] = country_stats.get(country, 0) + 1
             city_key = f"{city}, {country}"
