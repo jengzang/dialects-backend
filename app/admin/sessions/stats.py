@@ -312,6 +312,44 @@ def get_analytics(
         for k, v in sorted(device_stats.items(), key=lambda x: x[1], reverse=True)
     ]
 
+    # 6. 会话时长分布
+    duration_distribution = {
+        "0-5min": 0,
+        "5-30min": 0,
+        "30-60min": 0,
+        "1-2h": 0,
+        "2h+": 0
+    }
+
+    for session in db.query(Session).filter(Session.created_at >= start_date).all():
+        if session.total_online_seconds:
+            minutes = session.total_online_seconds / 60
+            if minutes < 5:
+                duration_distribution["0-5min"] += 1
+            elif minutes < 30:
+                duration_distribution["5-30min"] += 1
+            elif minutes < 60:
+                duration_distribution["30-60min"] += 1
+            elif minutes < 120:
+                duration_distribution["1-2h"] += 1
+            else:
+                duration_distribution["2h+"] += 1
+
+    # 7. 登录热力图（7x24）
+    login_heatmap = [[0 for _ in range(24)] for _ in range(7)]
+    for session in db.query(Session).filter(Session.created_at >= start_date).all():
+        weekday = session.created_at.weekday()  # 0=周一, 6=周日
+        # 转换为 0=周日, 1=周一, ..., 6=周六
+        weekday = (weekday + 1) % 7
+        hour = session.created_at.hour
+        login_heatmap[weekday][hour] += 1
+
+    # 8. 用户活跃度数据
+    total_sessions = db.query(Session).filter(Session.created_at >= start_date).count()
+    active_users = db.query(Session.user_id).filter(
+        Session.created_at >= start_date
+    ).distinct().count()
+
     return {
         "period_days": days,
         "start_date": start_date.isoformat(),
@@ -319,7 +357,20 @@ def get_analytics(
             {"date": str(d[0]), "count": d[1]}
             for d in daily_sessions
         ],
-        "country_distribution": country_distribution,
-        "city_distribution": city_distribution,
-        "device_distribution": device_distribution
+        "login_heatmap": login_heatmap,
+        "user_activity": {
+            "total_sessions": total_sessions,
+            "active_users": active_users,
+            "avg_sessions_per_user": round(total_sessions / active_users, 2) if active_users > 0 else 0
+        },
+        "device_distribution": {
+            "distribution": device_distribution
+        },
+        "geo_distribution": country_distribution,
+        "session_duration_distribution": {
+            "distribution": [
+                {"range": k, "count": v}
+                for k, v in duration_distribution.items()
+            ]
+        }
     }
