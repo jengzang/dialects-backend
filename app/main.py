@@ -135,6 +135,21 @@ async def lifespan(app: FastAPI):
         print(f"⚠️  supplements.db 迁移失败: {str(e)}")
     print("=" * 60)
 
+    # [新增] 迁移 logs.db - 创建 API 统计表
+    from app.logs.migrations.add_hourly_daily_stats import migrate_hourly_daily_stats
+    import sqlite3
+    from app.common.path import LOGS_DATABASE_PATH
+    print("=" * 60)
+    print("[DB] 检查 logs.db API 统计表结构...")
+    try:
+        logs_db = sqlite3.connect(LOGS_DATABASE_PATH)
+        migrate_hourly_daily_stats(logs_db)
+        logs_db.close()
+        print("[OK] logs.db API 统计表结构检查完成")
+    except Exception as e:
+        print(f"⚠️  logs.db 迁移失败: {str(e)}")
+    print("=" * 60)
+
     # [新增] 启动时清理旧的临时文件（12小时前的）
     from app.tools.file_manager import file_manager
     print("=" * 60)

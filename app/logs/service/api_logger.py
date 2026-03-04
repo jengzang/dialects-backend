@@ -150,6 +150,8 @@ def statistics_writer():
 
 def _process_statistics_batch(batch: list):
     """批量处理统计更新"""
+    from sqlalchemy import text
+
     db = LogsSessionLocal()
     try:
         for path, date_obj in batch:
@@ -159,6 +161,46 @@ def _process_statistics_batch(batch: list):
             # 更新每日统计
             if date_obj:
                 update_statistic(db, "usage_daily", date_obj, "path", path)
+
+            # 新增：更新 api_usage_hourly 表（小时级总调用统计）
+            # 使用请求到达时的时间（date_obj），而不是写入时的时间
+            request_hour = date_obj.replace(minute=0, second=0, microsecond=0)
+            result = db.execute(
+                text("""
+                    UPDATE api_usage_hourly
+                    SET total_calls = total_calls + 1, updated_at = datetime('now')
+                    WHERE hour = :hour
+                """),
+                {"hour": request_hour}
+            )
+            if result.rowcount == 0:
+                db.execute(
+                    text("""
+                        INSERT OR IGNORE INTO api_usage_hourly (hour, total_calls)
+                        VALUES (:hour, 1)
+                    """),
+                    {"hour": request_hour}
+                )
+
+            # 新增：更新 api_usage_daily 表（每日每API调用统计）
+            # 使用请求到达时的日期（date_obj），而不是写入时的日期
+            request_date = date_obj.date()
+            result = db.execute(
+                text("""
+                    UPDATE api_usage_daily
+                    SET call_count = call_count + 1, updated_at = datetime('now')
+                    WHERE date = :date AND path = :path
+                """),
+                {"date": request_date, "path": path}
+            )
+            if result.rowcount == 0:
+                db.execute(
+                    text("""
+                        INSERT OR IGNORE INTO api_usage_daily (date, path, call_count)
+                        VALUES (:date, :path, 1)
+                    """),
+                    {"date": request_date, "path": path}
+                )
 
         db.commit()
         # print(f"[OK] 批量更新 {len(batch)} 条统计")

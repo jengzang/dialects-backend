@@ -1,3 +1,14 @@
+"""
+Custom Regions编辑API端点（路由层）
+
+职责：
+- HTTP请求处理
+- 参数验证
+- 响应格式化
+- 权限检查
+
+业务逻辑在 app.custom.region_service 中实现（已包含管理员功能）
+"""
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 class IPHistoryItem(BaseModel):
     """IP 历史记录项"""
     ip: str
+    location: Optional[str] = None
     timestamp: str
 
     @field_validator('timestamp')
@@ -43,7 +44,9 @@ class SessionDetailResponse(BaseModel):
 
     # 网络跟踪
     current_ip: str
+    current_ip_location: Optional[str] = None
     first_ip: str
+    first_ip_location: Optional[str] = None
     ip_change_count: int
     ip_history: List[IPHistoryItem] = Field(default_factory=list)
 
@@ -75,6 +78,7 @@ class SessionSummaryResponse(BaseModel):
     last_activity_at: datetime
     revoked: bool
     current_ip: str
+    current_ip_location: Optional[str] = None
     device_info: Optional[str] = None
     is_suspicious: bool
     refresh_count: int
@@ -206,6 +210,7 @@ class OnlineUserItem(BaseModel):
     username: str
     last_seen: datetime
     current_ip: str
+    current_ip_location: Optional[str] = None
     device_info: Optional[str] = None
 
 

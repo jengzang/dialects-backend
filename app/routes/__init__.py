@@ -48,3 +48,4 @@ def setup_routes(app: FastAPI):
     setup_tools_routes(app)
     setup_sql_routes(app)
     setup_logs_routes(app)
+

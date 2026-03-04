@@ -128,3 +128,36 @@ def get_geo_distribution(
         "distribution": distribution,
         "total_locations": len(distribution)
     }
+
+
+def lookup_ip_location(ip: str, level: str = "city") -> Optional[str]:
+    """
+    查询单个 IP 地址的地理位置
+
+    Args:
+        ip: IP 地址
+        level: 'country' 或 'city'
+
+    Returns:
+        地理位置字符串（如 "中国 - 北京"），查询失败返回 None
+    """
+    if not ip or ip == "0.0.0.0":
+        return None
+
+    try:
+        reader = get_geo_reader(level)
+
+        if level == "country":
+            response = reader.country(ip)
+            location = response.country.names.get('zh-CN') or response.country.names.get('en', 'Unknown')
+        else:  # city
+            response = reader.city(ip)
+            country = response.country.names.get('zh-CN') or response.country.names.get('en', 'Unknown')
+            city = response.city.names.get('zh-CN') or response.city.names.get('en', '')
+            location = f"{country} - {city}" if city else country
+
+        reader.close()
+        return location
+
+    except (geoip2.errors.AddressNotFoundError, ValueError, FileNotFoundError):
+        return None

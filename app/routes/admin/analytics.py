@@ -10,7 +10,7 @@ from typing import Optional, List
 
 from app.auth.dependencies import get_current_admin_user
 from app.auth.models import User
-from app.sql.db_pool import get_db_pool
+from app.auth.database import get_db
 from app.schemas.analytics import (
     UserSegmentsResponse,
     RFMAnalysisResponse,
@@ -42,18 +42,11 @@ from app.admin.analytics import (
 router = APIRouter()
 
 
-def get_auth_db():
-    """Get auth database session."""
-    pool = get_db_pool("data/auth.db")
-    with pool.connect() as conn:
-        yield conn
-
-
 @router.get("/user-segments", response_model=UserSegmentsResponse)
 async def api_user_segments(
     include_users: bool = Query(False, description="Include user details"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Get user activity segmentation.
@@ -67,7 +60,7 @@ async def api_user_segments(
 async def api_rfm_analysis(
     include_users: bool = Query(False, description="Include user details"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Perform RFM (Recency, Frequency, Monetary) user value analysis.
@@ -81,7 +74,7 @@ async def api_rfm_analysis(
 async def api_anomaly_detection(
     detection_type: str = Query("all", description="Type: all, high_frequency, high_traffic, single_api, new_user_spike"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Detect anomalous user behavior patterns.
@@ -100,7 +93,7 @@ async def api_anomaly_detection(
 async def api_diversity_analysis(
     sort_by: str = Query("diversity", description="Sort by: diversity or calls"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze API usage diversity for each user.
@@ -114,7 +107,7 @@ async def api_diversity_analysis(
 async def api_user_preferences(
     user_ids: Optional[str] = Query(None, description="Comma-separated user IDs"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze user preferences based on API usage patterns.
@@ -132,7 +125,7 @@ async def api_user_preferences(
 async def api_user_growth(
     months: int = Query(12, description="Number of recent months to analyze"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze user growth statistics by month.
@@ -145,7 +138,7 @@ async def api_user_growth(
 @router.get("/dashboard", response_model=DashboardResponse)
 async def api_dashboard(
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Get comprehensive system overview dashboard.
@@ -165,7 +158,7 @@ async def api_recent_trends(
     granularity: str = Query("day", description="Granularity: day or hour"),
     days: int = Query(7, description="Number of days to analyze (max 7)"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze recent API usage trends (last 7 days).
@@ -179,7 +172,7 @@ async def api_recent_trends(
 async def api_performance_analysis(
     api_path: Optional[str] = Query(None, description="Specific API path to analyze"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze API performance metrics.
@@ -193,7 +186,7 @@ async def api_performance_analysis(
 async def api_geo_distribution(
     level: str = Query("country", description="Level: country or city"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze geographic distribution of users.
@@ -206,7 +199,7 @@ async def api_geo_distribution(
 @router.get("/device-distribution", response_model=DeviceDistributionResponse)
 async def api_device_distribution(
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Analyze user device distribution.
@@ -223,7 +216,7 @@ async def api_export_data(
     flatten: bool = Query(False, description="Flatten nested structures for CSV/Excel"),
     include_users: bool = Query(False, description="Include user details (where applicable)"),
     admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_auth_db)
+    db: Session = Depends(get_db)
 ):
     """
     Export analytics data in various formats.

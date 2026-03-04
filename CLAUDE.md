@@ -198,7 +198,7 @@ Auto-managed by `app/sql/index_manager.py`:
 # Use connection pool
 from app.sql.db_pool import get_db_pool
 pool = get_db_pool(db_path)
-with pool.connect() as conn:
+with pool.get_connection() as conn:
     result = conn.execute(query)
 
 # Check permissions

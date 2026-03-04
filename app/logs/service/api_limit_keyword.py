@@ -4,7 +4,7 @@ API 日志记录中间件：自动记录 API 调用参数
 import json
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request
-from app.logs.service.api_logger import log_all_fields
+from app.logs.service.api_logger import log_all_fields, update_count
 from app.logs.service.route_matcher import match_route_config, should_skip_route
 
 
@@ -72,6 +72,12 @@ class ApiLoggingMiddleware(BaseHTTPMiddleware):
             except Exception as e:
                 print(f"[ERROR] 记录日志失败: {e}")
 
-        # 4. 继续处理请求
+        # 4. 更新 API 调用统计（用于小时级和每日统计）
+        try:
+            update_count(path)
+        except Exception as e:
+            print(f"[ERROR] 更新统计失败: {e}")
+
+        # 5. 继续处理请求
         response = await call_next(request)
         return response

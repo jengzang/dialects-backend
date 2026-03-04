@@ -31,6 +31,7 @@ class ApiUsageLog(BaseModel):
     duration: float
     status_code: int
     ip: Optional[str]
+    ip_location: Optional[str] = None
     user_agent: Optional[str]
     referer: Optional[str]
     called_at: datetime
