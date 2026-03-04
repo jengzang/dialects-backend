@@ -42,6 +42,7 @@ RECORD_API = [
     "get_coordinates",  # 可以匹配 "/api/get_coordinates"
     "search_tones",  # 可以匹配 "/api/search_tones/"
     "search_chars",  # 可以匹配 "/api/search_chars/"
+    "compare",  # 可以匹配 "/api/compare/chars"
     "submit_form",
     "delete_form",
     "ZhongGu",
@@ -158,6 +159,16 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": False,
+    }, "/api/compare/chars": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,  # GET 请求无 body
+    }, "/api/compare/tones": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,  # GET 请求无 body
     }, "/sql/*": {
         "rate_limit": True,
         "require_login": False,
