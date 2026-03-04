@@ -106,11 +106,25 @@ async def get_today_visits_route():
 
 @router.get("/visits/history")
 async def get_visit_history_route(
-    days: int = Query(30, ge=1, le=365)
+    path: Optional[str] = Query(None, description="筛选特定路径，如 '/', '/admin'"),
+    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
+    limit: int = Query(100, ge=1, le=10000, description="返回数量"),
+    offset: int = Query(0, ge=0, description="分页偏移")
 ):
-    """获取访问历史"""
-    history = visit_stats.get_visit_history(days=days)
-    return {"history": history, "days": days}
+    """
+    获取历史访问记录（按日期聚合）
+
+    返回每日的访问统计数据，支持分页和筛选
+    """
+    result = visit_stats.get_visit_history(
+        path=path,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset
+    )
+    return result
 
 
 @router.get("/visits/by-path")
