@@ -51,7 +51,22 @@ def _load_variant_data():
     return _variant_cache
 
 # ========== 繁體轉換函數 ==========
-def s2t_pro(字組, level=1):
+def s2t_pro(字組, level=1, keep_all_layers=False):
+    """
+    简繁转换函数，支持三层转换：正字表 → OpenCC → 新旧字形(n2o)
+
+    Args:
+        字組: 输入字符列表或字符串
+        level: 转换级别 (1=仅正字表, 2=正字表+OpenCC)
+        keep_all_layers: 是否保留各层转换结果
+            - False: 只保留最终结果（默认，保持向后兼容）
+            - True: 保留各层转换的中间结果（不含原始输入）
+
+    Returns:
+        (clean_str, mapping)
+        - clean_str: 所有候选字拼接的字符串
+        - mapping: [(原字, [候选字列表]), ...]
+    """
     # 使用缓存的数据
     stVariants_all, n2o_dict = _load_variant_data()
 
@@ -73,21 +88,50 @@ def s2t_pro(字組, level=1):
 
     for 字 in 字組:
         原字 = 字
-        對應字串 = stVariants.get(字, None)
 
+        if keep_all_layers:
+            candidates_set = set()
+
+        # 第1层：正字表
+        對應字串_1 = stVariants.get(字, None)
+        if 對應字串_1 is not None:
+            if keep_all_layers:
+                # 保留第1层的结果
+                if " " in 對應字串_1:
+                    candidates_set.update(對應字串_1.split())
+                else:
+                    candidates_set.add(對應字串_1)
+            對應字串 = 對應字串_1
+        else:
+            對應字串 = None
+
+        # 第2层：OpenCC
         if 對應字串 is None and level == 2:
-            對應字串 = opencc_s2t.convert(原字)
+            對應字串_2 = opencc_s2t.convert(原字)
+            if keep_all_layers:
+                candidates_set.add(對應字串_2)
+            對應字串 = 對應字串_2
             # print(f"【OpenCC】{原字} → {對應字串}")  # Debug 用
         elif 對應字串 is None:
             對應字串 = 原字
 
-        對應字串 = n2o(對應字串)
+        # 第3层：n2o 新旧字形转换
+        對應字串_3 = n2o(對應字串)
 
-        # 保留候選字列表
-        if " " in 對應字串:
-            候選 = 對應字串.split()
+        if keep_all_layers:
+            # 保留第3层的结果
+            if " " in 對應字串_3:
+                candidates_set.update(對應字串_3.split())
+            else:
+                candidates_set.add(對應字串_3)
+            候選 = list(candidates_set)
         else:
-            候選 = [對應字串]
+            # 默认行为：只保留最终结果
+            if " " in 對應字串_3:
+                候選 = 對應字串_3.split()
+            else:
+                候選 = [對應字串_3]
+
         mapping.append((原字, 候選))
         result_chars.extend(候選)
 

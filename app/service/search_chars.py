@@ -25,7 +25,20 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
         chars = [char for sublist in chars for char in
                  (sublist if isinstance(sublist, (list, np.ndarray)) else [sublist])]
 
-    clean_str, _ = s2t_pro(chars, level=2)
+    # 使用 keep_all_layers=True 保留各层转换结果
+    clean_str, mapping = s2t_pro(chars, level=2, keep_all_layers=True)
+
+    # 构建每个原字的候选列表（原字 + 转换结果）
+    char2candidates = {}
+    for 原字, 候選 in mapping:
+        candidates = [原字] + [c for c in 候選 if c != 原字]
+        char2candidates[原字] = candidates
+
+    # 收集所有候选字用于批量查询
+    all_candidate_chars = []
+    for 原字 in chars:
+        all_candidate_chars.extend(char2candidates.get(原字, [原字]))
+    clean_str = ''.join(dict.fromkeys(all_candidate_chars))  # 去重
 
     result = []
 
@@ -128,46 +141,67 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                         char2all_syllables[char] = []
                     char2all_syllables[char].append(row)
 
-            # [OK] 构建最终结果（在内存中组装，不再查询数据库）
-            for char in clean_str:
-                for location in all_locations:
-                    # 获取该字符在该地点的方言数据
-                    dialect_results = char2loc2data.get(char, {}).get(location, [])
+            # [OK] 构建最终结果（按原字分组，过滤空数据候选字）
+            for 原字 in chars:
+                candidates = char2candidates.get(原字, [原字])
 
-                    syllable2notes = {}
-                    is_polyphonic = False
+                # 第一步：检查每个候选字是否在所有地点都为空
+                candidate_has_data = {}
+                for candidate in candidates:
+                    has_data = False
+                    for location in all_locations:
+                        dialect_results = char2loc2data.get(candidate, {}).get(location, [])
+                        if dialect_results:  # 如果有任何数据
+                            has_data = True
+                            break
+                    candidate_has_data[candidate] = has_data
 
-                    for r in dialect_results:
-                        syl = r['音節']
-                        note = (r['註釋'] or '').strip()
-                        if r['多音字'] == 1:
-                            is_polyphonic = True
-                        if syl not in syllable2notes:
-                            syllable2notes[syl] = set()
-                        if note:
-                            syllable2notes[syl].add(note)
+                # 第二步：过滤候选字（至少保留一个）
+                valid_candidates = [c for c in candidates if candidate_has_data.get(c, False)]
+                if not valid_candidates:
+                    # 如果所有候选都为空，保留第一个
+                    valid_candidates = [candidates[0]]
 
-                    # 如果是多音字但只有一个或零个音节，补充全部音节
-                    if is_polyphonic and len(syllable2notes) <= 1:
-                        for rr in char2all_syllables.get(char, []):
-                            syl = rr['音節']
-                            note = (rr['註釋'] or '').strip()
+                # 第三步：为每个有效候选字构建结果
+                for candidate in valid_candidates:
+                    for location in all_locations:
+                        # 获取该候选字在该地点的方言数据
+                        dialect_results = char2loc2data.get(candidate, {}).get(location, [])
+
+                        syllable2notes = {}
+                        is_polyphonic = False
+
+                        for r in dialect_results:
+                            syl = r['音節']
+                            note = (r['註釋'] or '').strip()
+                            if r['多音字'] == 1:
+                                is_polyphonic = True
                             if syl not in syllable2notes:
                                 syllable2notes[syl] = set()
                             if note:
                                 syllable2notes[syl].add(note)
 
-                    syllables = list(syllable2notes.keys())
-                    notes = ['; '.join(sorted(syllable2notes[syl])) if syllable2notes[syl] else '_'
-                             for syl in syllables]
+                        # 如果是多音字但只有一个或零个音节，补充全部音节
+                        if is_polyphonic and len(syllable2notes) <= 1:
+                            for rr in char2all_syllables.get(candidate, []):
+                                syl = rr['音節']
+                                note = (rr['註釋'] or '').strip()
+                                if syl not in syllable2notes:
+                                    syllable2notes[syl] = set()
+                                if note:
+                                    syllable2notes[syl].add(note)
 
-                    result.append({
-                        'char': char,
-                        '音节': syllables,
-                        'location': location,
-                        'positions': char2positions.get(char, []),
-                        'notes': notes
-                    })
+                        syllables = list(syllable2notes.keys())
+                        notes = ['; '.join(sorted(syllable2notes[syl])) if syllable2notes[syl] else '_'
+                                 for syl in syllables]
+
+                        result.append({
+                            'char': candidate,  # 返回候选字（不是原字）
+                            '音节': syllables,
+                            'location': location,
+                            'positions': char2positions.get(candidate, []),
+                            'notes': notes
+                        })
 
         finally:
             pass  # 连接池会自动管理连接
