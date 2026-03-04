@@ -4,80 +4,51 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+dist/
+build/
 
 # Virtual Environment
+.venv/
 venv/
 ENV/
-env/
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
-*~
-.DS_Store
 
-# Claude
-.claude/
-
-# Logs (exclude log files in /logs/ directory but allow app/logs module)
-/logs/
-*.log
-
-# Database
+# Database files
 *.db
-*.db-journal
-*.sqlite
-*.sqlite3
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# GeoLite2 database files
+data/dependency/*.mmdb
+
+# Logs (只忽略根目录的 logs/，不影响 app/logs/ 等代码目录)
+*.log
+/logs/
+*.sql-shm
+*.sql-wal
+
+# Frontend static files (整个目录)
+app/statics/
 
 # Temporary files
 *.tmp
-*.bak
-*.backup
-*~
+*.temp
+*.tar
+*.tar.gz
+nul
 
-# Environment variables
-.env
-.env.local
+# OS
+.DS_Store
+Thumbs.db
 
-# PyInstaller
-*.spec
-
-# Distribution / packaging
-*.manifest
-*.spec
-
-# Unit test / coverage
-.coverage
-.pytest_cache/
-htmlcov/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Backup files
-*.py~
-*.pyc~
-
-# Static files (frontend assets)
-app/statics/
-
+# Claude
+.claude/
