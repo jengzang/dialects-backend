@@ -5,7 +5,7 @@ import asyncio
 # import os
 import threading
 import multiprocessing  # [FIX] 改用跨进程队列
-# import re
+import re
 import time
 from datetime import datetime, timedelta
 # from collections import defaultdict
@@ -24,6 +24,101 @@ from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logs.database import SessionLocal as LogsSessionLocal
 from app.logs.models import ApiKeywordLog, ApiVisitLog
 from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
+
+
+# === 路径规范化函数 ===
+def normalize_api_path(path: str) -> str:
+    """
+    规范化 API 路径，将路径参数替换为占位符
+
+    根据完整路径前缀精确匹配，避免误判
+
+    示例：
+        /admin/sessions/user/123 -> /admin/sessions/user/{user_id}
+        /api/tools/check/download/abc-123 -> /api/tools/check/download/{task_id}
+        /api/villages/village/features/12345 -> /api/villages/village/features/{village_id}
+
+    Args:
+        path: 原始 API 路径
+
+    Returns:
+        规范化后的路径
+    """
+    # 精确的路径模板映射（根据实际路由定义）
+    # 格式：(前缀, 参数名)
+    path_templates = [
+        # Admin - Sessions
+        ('/admin/sessions/user/', '{user_id}'),
+        ('/admin/sessions/revoke-user/', '{user_id}'),
+        ('/admin/sessions/revoke/', '{token_id}'),
+
+        # Admin - User Sessions
+        ('/admin/user-sessions/user/', '{user_id}'),
+        ('/admin/user-sessions/revoke-user/', '{user_id}'),
+        ('/admin/user-sessions/', '{session_id}'),  # 注意：这个要放在最后，避免误匹配
+
+        # Admin - IP
+        ('/admin/ip/', '{api_name}/{ip}'),  # 特殊：两个参数
+
+        # API - Tools (Check)
+        ('/api/tools/check/download/', '{task_id}'),
+
+        # API - Tools (Jyut2IPA)
+        ('/api/tools/jyut2ipa/download/', '{task_id}'),
+        ('/api/tools/jyut2ipa/progress/', '{task_id}'),
+
+        # API - Tools (Merge)
+        ('/api/tools/merge/download/', '{task_id}'),
+        ('/api/tools/merge/progress/', '{task_id}'),
+
+        # API - Tools (Praat)
+        ('/api/tools/praat/jobs/progress/', '{job_id}'),
+        ('/api/tools/praat/uploads/progress/', '{task_id}'),
+
+        # API - Villages (Admin)
+        ('/api/villages/admin/run-ids/active/', '{analysis_type}'),
+        ('/api/villages/admin/run-ids/available/', '{analysis_type}'),
+        ('/api/villages/admin/run-ids/metadata/', '{run_id}'),
+
+        # API - Villages (Village)
+        ('/api/villages/village/complete/', '{village_id}'),
+        ('/api/villages/village/features/', '{village_id}'),
+        ('/api/villages/village/ngrams/', '{village_id}'),
+        ('/api/villages/village/semantic-structure/', '{village_id}'),
+        ('/api/villages/village/spatial-features/', '{village_id}'),
+
+        # API - Villages (Semantic)
+        ('/api/villages/semantic/subcategory/chars/', '{subcategory}'),
+
+        # API - Villages (Spatial)
+        ('/api/villages/spatial/hotspots/', '{hotspot_id}'),
+        ('/api/villages/spatial/integration/by-character/', '{character}'),
+        ('/api/villages/spatial/integration/by-cluster/', '{cluster_id}'),
+
+        # SQL
+        ('/sql/distinct/', '{db_key}/{table_name}/{column}'),  # 特殊：三个参数
+    ]
+
+    # 按前缀长度降序排序，确保更具体的路径先匹配
+    path_templates.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for prefix, param_name in path_templates:
+        if path.startswith(prefix):
+            # 提取前缀后的部分
+            suffix = path[len(prefix):]
+
+            # 如果后面还有路径（如 /activity, /revoke），保留
+            if '/' in suffix:
+                # 只替换第一段
+                parts = suffix.split('/', 1)
+                return f"{prefix}{param_name}/{parts[1]}"
+            else:
+                # 整个后缀都是参数
+                return f"{prefix}{param_name}"
+
+    # 没有匹配到，返回原路径
+    return path
+
 
 # === 队列（跨进程） ===
 # [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
@@ -155,12 +250,15 @@ def _process_statistics_batch(batch: list):
     db = LogsSessionLocal()
     try:
         for path, date_obj in batch:
+            # 规范化路径（替换路径参数为占位符）
+            normalized_path = normalize_api_path(path)
+
             # 更新总计
-            update_statistic(db, "usage_total", None, "path", path)
+            update_statistic(db, "usage_total", None, "path", normalized_path)
 
             # 更新每日统计
             if date_obj:
-                update_statistic(db, "usage_daily", date_obj, "path", path)
+                update_statistic(db, "usage_daily", date_obj, "path", normalized_path)
 
             # 新增：更新 api_usage_hourly 表（小时级总调用统计）
             # 使用请求到达时的时间（date_obj），而不是写入时的时间
@@ -191,7 +289,7 @@ def _process_statistics_batch(batch: list):
                     SET call_count = call_count + 1, updated_at = datetime('now')
                     WHERE date = :date AND path = :path
                 """),
-                {"date": request_date, "path": path}
+                {"date": request_date, "path": normalized_path}
             )
             if result.rowcount == 0:
                 db.execute(
