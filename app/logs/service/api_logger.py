@@ -96,7 +96,7 @@ def normalize_api_path(path: str) -> str:
         ('/api/villages/spatial/integration/by-cluster/', '{cluster_id}'),
 
         # SQL
-        ('/sql/distinct/', '{db_key}/{table_name}/{column}'),  # 特殊：三个参数
+        # ('/sql/distinct/', '{db_key}/{table_name}/{column}'),  # 特殊：三个参数
     ]
 
     # 按前缀长度降序排序，确保更具体的路径先匹配

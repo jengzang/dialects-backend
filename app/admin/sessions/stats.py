@@ -241,79 +241,104 @@ def get_analytics(
         分析数据字典
     """
     from app.admin.analytics.geo import lookup_ip_location
+    from app.auth.models import ApiUsageLog
+    from collections import defaultdict
 
-    start_date = datetime.utcnow() - timedelta(days=days)
+    now = datetime.utcnow()
+    start_date = now - timedelta(days=days)
 
-    # 时间序列：每日新建会话数
-    daily_sessions = db.query(
-        func.date(Session.created_at).label('date'),
-        func.count(Session.id).label('count')
-    ).filter(
+    # 查询时间范围内的所有会话
+    sessions = db.query(Session).filter(
         Session.created_at >= start_date
-    ).group_by(
-        func.date(Session.created_at)
-    ).order_by('date').all()
-
-    # 地理分布：按国家/地区统计
-    sessions_with_ip = db.query(Session).filter(
-        Session.created_at >= start_date,
-        Session.current_ip.isnot(None)
     ).all()
 
+    # 1. 登录热力图（7x24）
+    login_heatmap = [[0 for _ in range(24)] for _ in range(7)]
+    for session in sessions:
+        weekday = session.created_at.weekday()  # 0=周一, 6=周日
+        # 转换为 0=周日, 1=周一, ..., 6=周六
+        weekday = (weekday + 1) % 7
+        hour = session.created_at.hour
+        login_heatmap[weekday][hour] += 1
+
+    # 2. DAU/WAU/MAU 计算
+    # DAU & WAU: 使用 ApiUsageLog（准确反映 API 使用情况，保留7天）
+    # MAU: 使用 Session.created_at（ApiUsageLog 只保留7天，无法计算30天数据）
+
+    # DAU: 每日活跃用户数（基于 API 调用）
+    dau_dict = defaultdict(set)
+
+    # 查询最近30天的 API 调用记录（实际只有7天数据）
+    api_logs = db.query(ApiUsageLog).filter(
+        ApiUsageLog.user_id.isnot(None),
+        ApiUsageLog.called_at >= start_date
+    ).all()
+
+    for log in api_logs:
+        date_str = log.called_at.date().isoformat()
+        dau_dict[date_str].add(log.user_id)
+
+    dau_list = [
+        {"date": date, "count": len(users)}
+        for date, users in sorted(dau_dict.items())
+    ]
+
+    # WAU: 最近7天有 API 调用的唯一用户数
+    wau_start_date = now - timedelta(days=7)
+    wau_users = db.query(ApiUsageLog.user_id).filter(
+        ApiUsageLog.user_id.isnot(None),
+        ApiUsageLog.called_at >= wau_start_date
+    ).distinct().all()
+    wau = len(wau_users)
+
+    # MAU: 最近30天登录过的唯一用户数（基于 Session.created_at）
+    mau_users = set()
+    for session in sessions:
+        mau_users.add(session.user_id)
+    mau = len(mau_users)
+
+    # 3. 设备类型分布
+    device_counts = {
+        "desktop": 0,
+        "mobile": 0,
+        "tablet": 0,
+        "unknown": 0
+    }
+
+    for session in sessions:
+        if not session.device_info:
+            device_counts["unknown"] += 1
+            continue
+
+        device_lower = session.device_info.lower()
+        if any(keyword in device_lower for keyword in ["mobile", "android", "iphone", "ipad"]):
+            if "ipad" in device_lower or "tablet" in device_lower:
+                device_counts["tablet"] += 1
+            else:
+                device_counts["mobile"] += 1
+        else:
+            device_counts["desktop"] += 1
+
+    # 4. 地理分布：按国家/地区统计
     country_stats = {}
-    city_stats = {}
 
-    for session in sessions_with_ip:
-        location = lookup_ip_location(session.current_ip)
-        if location:
-            # location 是字符串格式 "国家 - 城市" 或 "国家"
-            parts = location.split(" - ", 1)
-            country = parts[0] if parts else "Unknown"
-            city = parts[1] if len(parts) > 1 else "Unknown"
-
-            country_stats[country] = country_stats.get(country, 0) + 1
-            city_key = f"{city}, {country}"
-            city_stats[city_key] = city_stats.get(city_key, 0) + 1
+    for session in sessions:
+        if session.current_ip:
+            location = lookup_ip_location(session.current_ip)
+            if location:
+                # location 是字符串格式 "国家 - 城市" 或 "国家"
+                parts = location.split(" - ", 1)
+                country = parts[0] if parts else "Unknown"
+                country_stats[country] = country_stats.get(country, 0) + 1
 
     # 转换为列表并排序
-    country_distribution = [
+    geo_distribution = [
         {"country": k, "count": v}
         for k, v in sorted(country_stats.items(), key=lambda x: x[1], reverse=True)
     ][:20]  # Top 20
 
-    city_distribution = [
-        {"city": k, "count": v}
-        for k, v in sorted(city_stats.items(), key=lambda x: x[1], reverse=True)
-    ][:20]  # Top 20
-
-    # 设备分布：从 device_info 提取
-    device_stats = {}
-    for session in db.query(Session).filter(Session.created_at >= start_date).all():
-        if session.device_info:
-            # 简单提取操作系统
-            device_info = session.device_info.lower()
-            if "windows" in device_info:
-                os = "Windows"
-            elif "mac" in device_info or "darwin" in device_info:
-                os = "macOS"
-            elif "linux" in device_info:
-                os = "Linux"
-            elif "android" in device_info:
-                os = "Android"
-            elif "ios" in device_info or "iphone" in device_info or "ipad" in device_info:
-                os = "iOS"
-            else:
-                os = "Other"
-
-            device_stats[os] = device_stats.get(os, 0) + 1
-
-    device_distribution = [
-        {"device": k, "count": v}
-        for k, v in sorted(device_stats.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    # 6. 会话时长分布
-    duration_distribution = {
+    # 5. 会话时长分布
+    duration_counts = {
         "0-5min": 0,
         "5-30min": 0,
         "30-60min": 0,
@@ -321,56 +346,28 @@ def get_analytics(
         "2h+": 0
     }
 
-    for session in db.query(Session).filter(Session.created_at >= start_date).all():
-        if session.total_online_seconds:
-            minutes = session.total_online_seconds / 60
-            if minutes < 5:
-                duration_distribution["0-5min"] += 1
-            elif minutes < 30:
-                duration_distribution["5-30min"] += 1
-            elif minutes < 60:
-                duration_distribution["30-60min"] += 1
-            elif minutes < 120:
-                duration_distribution["1-2h"] += 1
-            else:
-                duration_distribution["2h+"] += 1
+    for session in sessions:
+        minutes = session.total_online_seconds / 60
+        if minutes < 5:
+            duration_counts["0-5min"] += 1
+        elif minutes < 30:
+            duration_counts["5-30min"] += 1
+        elif minutes < 60:
+            duration_counts["30-60min"] += 1
+        elif minutes < 120:
+            duration_counts["1-2h"] += 1
+        else:
+            duration_counts["2h+"] += 1
 
-    # 7. 登录热力图（7x24）
-    login_heatmap = [[0 for _ in range(24)] for _ in range(7)]
-    for session in db.query(Session).filter(Session.created_at >= start_date).all():
-        weekday = session.created_at.weekday()  # 0=周一, 6=周日
-        # 转换为 0=周日, 1=周一, ..., 6=周六
-        weekday = (weekday + 1) % 7
-        hour = session.created_at.hour
-        login_heatmap[weekday][hour] += 1
-
-    # 8. 用户活跃度数据
-    total_sessions = db.query(Session).filter(Session.created_at >= start_date).count()
-    active_users = db.query(Session.user_id).filter(
-        Session.created_at >= start_date
-    ).distinct().count()
-
+    # 构建响应
     return {
-        "period_days": days,
-        "start_date": start_date.isoformat(),
-        "daily_sessions": [
-            {"date": str(d[0]), "count": d[1]}
-            for d in daily_sessions
-        ],
         "login_heatmap": login_heatmap,
         "user_activity": {
-            "total_sessions": total_sessions,
-            "active_users": active_users,
-            "avg_sessions_per_user": round(total_sessions / active_users, 2) if active_users > 0 else 0
+            "dau": dau_list,
+            "wau": wau,
+            "mau": mau
         },
-        "device_distribution": {
-            "distribution": device_distribution
-        },
-        "geo_distribution": country_distribution,
-        "session_duration_distribution": {
-            "distribution": [
-                {"range": k, "count": v}
-                for k, v in duration_distribution.items()
-            ]
-        }
+        "device_distribution": device_counts,
+        "geo_distribution": geo_distribution,
+        "session_duration_distribution": duration_counts
     }
