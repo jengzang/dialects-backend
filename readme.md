@@ -25,6 +25,8 @@
 - 💾 **自定义数据管理** - 用户可添加和管理自己的方言数据
 - 📈 **三层缓存架构** - Redis 缓存（用户、权限）+ 内存缓存（方言数据）
 - 🔐 **安全可靠** - bcrypt 密码加密、Token 刷新、API 限流、权限控制
+- 🏘️ **VillagesML 机器学习系统** ⭐ - 广东省 285,860 条自然村地名分析，7 大模块（字符、语义、空间、模式、区域、ML 计算），50+ API 端点，100% 数据库覆盖
+- 📊 **管理员分析系统** ⭐ - 用户行为分析、RFM 分析、异常检测、排行榜系统、会话监控、设备追踪
 
 ---
 
@@ -32,14 +34,14 @@
 
 | 指标 | 数值 |
 |------|------|
-| **代码总行数** | ~24,000 行 |
-| **Python 文件数** | 125 个 |
-| **API 端点数量** | 115 个（公开 23 + 用户 53 + 管理员 39）|
+| **代码总行数** | ~40,600 行 |
+| **Python 文件数** | 231 个 |
+| **API 端点数量** | 234 个（公开 23 + 用户 53 + 管理员 39 + VillagesML 107 + 其他 12）|
 | **依赖包数量** | 64 个 |
-| **数据库数量** | 8 个 SQLite 数据库 |
-| **数据库表数** | 20+ 个表 |
+| **数据库数量** | 9 个 SQLite 数据库 |
+| **数据库表数** | 65+ 个表（含 VillagesML 45 张预计算表）|
 | **当前版本** | 2.0.1 |
-| **最后更新** | 2026-02-10 |
+| **最后更新** | 2026-03-04 |
 
 ---
 
@@ -137,8 +139,9 @@ gunicorn -c gunicorn_config.py app.main:app
 │ JWT + bcrypt │  │  - 音韵查询 (phonology)              │
 │ Token 刷新   │  │  - 地理信息 (geo)                    │
 │ 权限管理     │  │  - 自定义数据 (custom)               │
-└──────────────┘  │  - 工具模块 (tools)                  │
-                  │  - 管理员功能 (admin)                │
+│ 会话追踪 ⭐  │  │  - 工具模块 (tools)                  │
+└──────────────┘  │  - 管理员功能 (admin)                │
+                  │  - VillagesML 机器学习 ⭐            │
                   └─────────────────────────────────────┘
     │
     V
@@ -155,10 +158,11 @@ gunicorn -c gunicorn_config.py app.main:app
     V                  V
 ┌──────────────┐  ┌─────────────────────────────────────┐
 │ SQLite 数据库 │  │         Redis 缓存层                 │
-│ (8个数据库)   │  │  - 用户信息缓存 (1小时)              │
+│ (9个数据库)⭐ │  │  - 用户信息缓存 (1小时)              │
 │ - auth.db    │  │  - 权限缓存 (10分钟)                 │
 │ - logs.db    │  │  - 方言数据缓存 (内存)               │
 │ - dialects.db│  │  - 会话管理                          │
+│ - villages.db⭐│  │  - 设备追踪 ⭐                      │
 │ - ...        │  └─────────────────────────────────────┘
 └──────────────┘
     │
@@ -167,6 +171,7 @@ gunicorn -c gunicorn_config.py app.main:app
 │              后台异步处理系统                            │
 │  - 6 个日志队列（批量写入）                              │
 │  - APScheduler 定时任务（统计聚合、日志清理）            │
+│  - 分析数据聚合（用户行为、RFM、异常检测）⭐             │
 │  - 文件清理线程（临时文件、过期数据）                     │
 │  - 连接池管理（5-10个连接）                              │
 └─────────────────────────────────────────────────────────┘
@@ -626,6 +631,208 @@ GET /api/get_custom?locations=广州,北京,上海&regions=粤语,官话&need_fe
 
 ---
 
+## 🏘️ VillagesML 机器学习系统 ⭐
+
+**VillagesML** 是一个专门针对广东省自然村地名的大规模机器学习分析系统，提供字符、语义、空间、模式、区域和 ML 计算等多维度分析能力。
+
+### 系统概述
+
+- **数据规模**：285,860 条自然村地名
+- **覆盖范围**：广东省 21 个地级市、121 个县级行政区、1,500+ 乡镇
+- **系统定位**：预计算架构，提供轻量级查询服务
+- **API 端点**：107 个端点（50+ 预计算查询 + 实时计算）
+- **数据库覆盖**：100%（45/45 表全部有 API 端点）
+- **查询性能**：预计算查询响应 < 100ms
+
+### 核心功能模块
+
+#### 1. 搜索探索（Module 1）
+
+提供关键词搜索入口，支持三级行政区（市/县/镇）逐层过滤，搜索结果分页展示。
+
+**主要功能**：
+- 关键词搜索（支持汉字/拼音）
+- 三级行政区（市/县/镇）逐层过滤
+- 分页浏览（默认每页 20 条）
+- 单个自然村完整多维分析
+
+**使用场景**：快速定位特定村庄，查看村庄的字符组成、语义特征、空间位置、N-gram 分解等多维度信息。
+
+#### 2. 字符分析（Module 2）
+
+分析地名中字符的使用频率、区域分布、语义相似性和统计显著性。
+
+**主要功能**：
+- **全局字符频率统计**（12 个端点）- 统计所有字符在全省的使用频率
+- **区域字符频率分布** - 按市/县/镇统计字符使用情况
+- **字符倾向性分析** - 使用 Z-score、lift、log-odds 衡量字符在特定区域的偏好程度
+- **字符显著性检测** - 卡方检验判断字符分布是否统计显著
+- **字符嵌入向量** - Word2Vec（100 维）训练的字符语义向量
+- **字符相似度计算** - 基于 Cosine 相似度的字符语义关联分析
+
+**使用场景**：分析"水"、"沙"、"石"等地理特征字的区域分布，识别不同地区的命名偏好。
+
+#### 3. 语义分析（Module 3）
+
+基于 9 大语义类别（地理特征、植物、建筑、姓氏、数字方位等）进行语义标注和分析。
+
+**主要功能**：
+- **9 大语义类别统计**（13 个端点）- 地理特征、植物、建筑、姓氏、数字方位、动物、颜色、材料、其他
+- **40+ 精细子类别分类** - 更细粒度的语义分类
+- **语义共现模式分析** - Bigrams、Trigrams 语义组合模式
+- **PMI 分析** - Pointwise Mutual Information 衡量语义关联强度
+- **VTF 分析** - Virtual Term Frequency 加权语义频率
+- **语义类别倾向性** - 各地区对不同语义类别的偏好分析
+
+**使用场景**：识别村庄命名的文化特征和地理特征，如"水系村庄"、"植物村庄"、"姓氏村庄"等。
+
+#### 4. 空间分析（Module 4）
+
+基于地理坐标进行空间聚类、热点检测和密度分析。
+
+**主要功能**：
+- **空间热点检测**（8 个端点）- KDE（核密度估计）分析
+- **空间密度聚类** - DBSCAN 算法识别空间聚集区域
+- **地理分布可视化** - MapLibre GL 地图渲染
+- **空间-倾向性整合分析** - 结合字符倾向性和空间分布
+
+**使用场景**：识别特定字符的空间聚集区域，如"沙"字在珠江三角洲的密集分布。
+
+#### 5. 模式分析（Module 5）
+
+挖掘地名的命名模式和结构规律。
+
+**主要功能**：
+- **N-gram 模式挖掘**（7 个端点）- 2-gram、3-gram、4-gram 频率统计
+- **位置感知分析** - 前缀、中缀、后缀模式识别
+- **结构命名模式**（4 个端点）- 识别"XX村"、"上XX"、"下XX"等结构
+- **模式频率和倾向性** - 统计各模式的使用频率和区域偏好
+- **模式显著性检验** - 判断模式是否统计显著
+
+**使用场景**：发现常见命名模式，如"XX围"、"XX坊"、"XX岗"等地域特色命名。
+
+#### 6. 区域分析（Module 6）
+
+比较不同区域的命名特征相似性。
+
+**主要功能**：
+- **三级聚合**（6 个端点）- 市/县/镇三级统计聚合
+- **区域相似度分析** - Cosine/Jaccard 相似度计算
+- **区域特征向量** - 提取区域的字符/语义特征向量
+- **区域空间聚合** - 按地理区域聚合统计
+- **跨层级区域比较** - 比较不同行政层级的命名特征
+- **共同特征和差异特征识别** - 识别区域间的相似性和差异性
+
+**使用场景**：比较不同区域的命名特征相似性，如珠三角与粤东地区的命名差异。
+
+#### 7. ML 计算（Module 7）
+
+提供实时机器学习计算能力，支持聚类、降维、层次分析等。
+
+**主要功能**：
+- **聚类分析**（8+ 个端点）- K-means、DBSCAN、GMM（高斯混合模型）
+- **降维可视化** - PCA、t-SNE 降维投影
+- **层次聚类** - 树状图展示聚类层次结构
+- **自定义特征提取** - 用户自定义特征组合
+- **子集专项分析** - 对特定区域或村庄子集进行深度分析
+- **语义共现网络** - 构建字符/语义共现网络图
+
+**使用场景**：对特定区域或村庄子集进行深度分析，发现隐藏的命名规律。
+
+### 技术特点
+
+- **预计算架构** - 45 张预计算结果表，查询响应 < 100ms
+- **大规模数据** - 支持 285,860 条村庄高效查询
+- **灵活过滤** - 支持市/县/镇三级行政区划过滤
+- **实时计算** - 提供按需的 ML 计算功能
+- **批量操作** - 支持批量查询和批量计算
+- **100% 数据库覆盖** - 45/45 表全部有 API 端点
+
+### 前端技术栈
+
+- **UI 框架**：Vue 3.5 + Composition API
+- **构建工具**：Vite 7.1 (MPA 多入口点构建)
+- **地图渲染**：MapLibre GL 5.16（GPU 加速）
+- **图表库**：ECharts 5.6（热图、柱状图、网络图）
+- **API 中心**：14 个子模块统一管理
+
+### 数据库结构
+
+- **数据库**：villages.db
+- **数据表**：45 张预计算结果表
+- **索引优化**：多字段复合索引、全文搜索索引、空间索引
+- **数据来源**：广东省自然村地名数据（285,860 条）
+
+### 相关文档
+
+- **docs/FEATURE_OVERVIEW.md** - VillagesML 功能总览（93.4KB，非常详细）
+- **docs/API.md** - 完整 API 接口文档
+
+---
+
+## 📊 管理员分析系统 ⭐
+
+**管理员分析系统** 提供全面的用户行为分析、异常检测、排行榜和会话监控功能，帮助管理员深入了解用户使用情况。
+
+### 1. 用户行为分析
+
+深度分析用户的使用模式和行为特征。
+
+**主要功能**：
+- **用户分段**（5 个级别）- 根据活跃度将用户分为 5 个等级
+- **RFM 分析**（5 种用户类型）- Recency（最近访问）、Frequency（访问频率）、Monetary（使用量）三维分析
+  - 冠军用户（Champions）- 高频高活跃
+  - 忠诚用户（Loyal）- 长期稳定使用
+  - 潜力用户（Potential）- 有增长潜力
+  - 需要关注（At Risk）- 活跃度下降
+  - 流失用户（Churned）- 长期未使用
+- **异常检测**（4 种异常类型）
+  - 流量异常 - 短时间内大量请求
+  - 错误率异常 - 高错误率用户
+  - 使用模式异常 - 不寻常的 API 调用模式
+  - 时间异常 - 异常时段访问
+- **用户偏好分析** - 分析用户最常使用的 API 端点和功能模块
+
+**使用场景**：识别高价值用户、发现潜在问题用户、优化产品功能。
+
+### 2. 排行榜系统
+
+多维度的用户和 API 排行榜。
+
+**主要功能**：
+- **用户全局排行** - 按调用次数、使用时长、流量等指标排名
+- **单 API 用户排行** - 查看特定 API 的使用排行
+- **API 端点排行** - 最受欢迎的 API 端点统计
+- **在线时长排行** - 用户在线时长统计
+
+**使用场景**：了解最活跃用户、最受欢迎的功能、用户使用习惯。
+
+### 3. 会话管理增强
+
+全面的会话追踪和监控。
+
+**主要功能**：
+- **设备信息追踪** - 记录用户设备类型、操作系统、浏览器
+- **IP 地址和地理位置追踪** - 记录用户访问来源
+- **可疑活动检测** - 识别异常登录、多设备登录等可疑行为
+- **会话时长统计** - 统计用户每次会话的时长
+- **在线状态实时监控** - 实时查看当前在线用户
+
+**使用场景**：安全监控、用户行为分析、异常检测。
+
+### 4. 自定义区域管理
+
+用户可以创建和管理自己的方言区域。
+
+**主要功能**：
+- **用户自定义方言区域** - 创建自定义的方言区域分类
+- **区域 CRUD 操作** - 创建、读取、更新、删除区域
+- **区域地点管理** - 为区域添加和管理方言点
+
+**使用场景**：研究人员创建自定义的方言区域分类，进行专项研究。
+
+---
+
 ## 🛠️ 工具模块
 
 ### 1. Check 工具 - 数据校验
@@ -1046,282 +1253,55 @@ ffmpeg -i input.mp3 -ar 16000 -ac 1 -f wav output.wav
 
 ---
 
-## 📡 完整接口文档
+## 📡 API 接口文档
 
-系统共有 **115 个 API 端点**，按权限分为三类：
+系统共有 **234 个 API 端点**，按权限和功能分类：
 
 - 🔓 **公开接口**：23 个（无需登录）
 - 🔑 **用户接口**：53 个（需要登录）
-- 👑 **管理员接口**：39 个（需要管理员权限）
+- 👑 **管理员接口**：51 个（需要管理员权限）
+- 🏘️ **VillagesML 接口**：107 个（机器学习分析）
 
----
+### 接口分类概览
 
-### 公开接口（24 个）
+#### 核心功能接口
+- **认证接口** - 用户注册、登录、Token 管理
+- **方言查询接口** - 查中古、查音位、查字、查调、音韵矩阵
+- **地理信息接口** - 地点查询、坐标获取、区域划分、批量匹配
+- **自定义数据接口** - 用户自定义方言数据管理
 
-#### HTML 页面路由（9 个）
+#### 工具接口
+- **Praat 声学分析** - 音频上传、声学参数提取、音高分析、共鸣峰检测
+- **Check 工具** - 数据校验、格式检查、错误报告
+- **Jyut2IPA 工具** - 粤拼转国际音标
+- **Merge 工具** - 数据合并、冲突处理
 
-| 端点         | 方法 | 功能                 | 文件 |
-|------------|------|--------------------|------|
-| `/`        | GET | 首页                 | routes/index.py |
-| `/explore` | GET | 工具页面               | routes/index.py |
-| `/menu`    | GET | 菜单页面               | routes/index.py |
-| `/detail`  | GET | 旧版网站页面             | routes/index.py |
-| `/intro`   | GET | 介绍页面（已废，向后兼容）      | routes/index.py |
-| `/auth`    | GET | 登录界面               | routes/index.py |
-| `/admin`   | GET | 管理员界面              | routes/index.py |
-| `/docs`    | GET | API 文档（Swagger UI） | FastAPI 内置 |
-| `/redoc`   | GET | API 文档（ReDoc）      | FastAPI 内置 |
+#### VillagesML 机器学习接口
+- **搜索探索** - 关键词搜索、三级行政区过滤、村庄详情
+- **字符分析** - 频率统计、倾向性分析、嵌入向量、相似度计算
+- **语义分析** - 语义类别统计、VTF 分析、PMI 分析、共现模式
+- **空间分析** - 热点检测、密度聚类、地理分布可视化
+- **模式分析** - N-gram 挖掘、结构模式识别、位置感知分析
+- **区域分析** - 三级聚合、相似度计算、特征向量提取
+- **ML 计算** - 聚类分析、降维可视化、层次聚类
 
-#### 认证接口（2 个）
+#### 管理员接口
+- **用户管理** - 用户 CRUD、封禁/解封、角色管理
+- **用户行为分析** - 用户分段、RFM 分析、异常检测
+- **排行榜系统** - 用户排行、API 排行、在线时长排行
+- **会话管理** - 活跃会话、设备追踪、可疑活动检测
+- **缓存管理** - 缓存清理、缓存统计、状态检查
+- **日志统计** - API 使用统计、关键词统计、趋势分析
 
-| 端点 | 方法 | 功能 | 参数 | 文件 |
-|------|------|------|------|------|
-| `/auth/register` | POST | 用户注册 | username, password, email | routes/auth.py |
-| `/auth/login` | POST | 用户登录 | username, password | routes/auth.py |
+### 完整 API 文档
 
-**注册限制：**
-- 同一 IP 10 分钟内最多注册 3 次
-- 用户名 3-20 字符，仅限字母数字下划线
-- 密码最少 6 字符
+详细的 API 接口文档（包含请求参数、响应格式、使用示例）请查看：
 
-**登录限制：**
-- 同一 IP 每分钟最多登录 10 次
-- 失败 5 次后锁定账户 15 分钟
+📄 **[docs/API.md](docs/API.md)** - 完整 API 接口文档
 
-#### 数据查询接口（13 个）
-
-| 端点 | 方法 | 功能 | 主要参数 | 文件 |
-|------|------|------|----------|------|
-| `/api/search_chars/` | GET | 查字 | char, locations, need_features | routes/search.py |
-| `/api/search_tones/` | GET | 查调 | tone, locations, category | routes/search.py |
-| `/api/phonology` | POST | 传统音韵查询 | characters, locations, mode | routes/phonology.py |
-| `/api/new_pho/ZhongGu` | POST | 查中古 | zhonggu_filters, locations | routes/new_pho.py |
-| `/api/new_pho/YinWei` | POST | 查音位 | phonology_filters, locations | routes/new_pho.py |
-| `/api/phonology_matrix` | POST | 音韵矩阵 | location, tone_filter | routes/new_pho.py |
-| `/api/phonology_classification_matrix` | POST | 音素分类 | location, classification | routes/new_pho.py |
-| `/api/get_locs/` | GET | 获取地点列表 | region, limit, offset | routes/get_locs.py |
-| `/api/get_coordinates` | GET | 获取坐标 | location, char | routes/get_coordinates.py |
-| `/api/get_regions` | GET | 获取区域列表 | - | routes/get_regions.py |
-| `/api/get_partitions` | GET | 获取分区 | partition_type | routes/get_partitions.py |
-| `/api/batch_match` | POST | 批量匹配 | names[] | routes/batch_match.py |
-| `/api/get_custom` | GET | 自定义查询 | locations, regions, need_features | routes/custom_query.py |
-
----
-
-### 用户接口（53 个）
-
-#### 认证管理（6 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/auth/me` | GET | 获取当前用户信息 | routes/auth.py |
-| `/auth/logout` | POST | 用户登出 | routes/auth.py |
-| `/auth/refresh` | POST | 刷新 Token | routes/auth.py |
-| `/auth/password` | PUT | 修改密码 | routes/auth.py |
-| `/auth/sessions` | GET | 查看活跃会话 | routes/auth.py |
-| `/auth/sessions/{token_id}` | DELETE | 删除指定会话 | routes/auth.py |
-
-#### 用户数据管理（4 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/user/profile` | GET | 获取用户资料 | routes/user.py |
-| `/user/profile` | PUT | 更新用户资料 | routes/user.py |
-| `/user/activity` | GET | 查看活动记录 | routes/user.py |
-| `/user/stats` | GET | 用户统计数据 | routes/user.py |
-
-#### 表单管理（2 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/api/form_submit` | POST | 提交自定义数据 | routes/form_submit.py |
-| `/api/custom_query` | GET | 查询自己的数据 | routes/custom_query.py |
-
-#### Praat 声学分析（9 个）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/tools/praat/capabilities` | GET | 获取后端能力 |
-| `/api/tools/praat/uploads` | POST | 上传音频文件 |
-| `/api/tools/praat/uploads/progress/{task_id}` | GET | 获取上传进度 |
-| `/api/tools/praat/uploads/progress/{task_id}/audio` | GET | 下载标准化音频 |
-| `/api/tools/praat/uploads/progress/{task_id}` | DELETE | 删除上传任务 |
-| `/api/tools/praat/jobs` | POST | 创建分析任务 |
-| `/api/tools/praat/jobs/progress/{job_id}` | GET | 获取分析进度 |
-| `/api/tools/praat/jobs/progress/{job_id}/result` | GET | 获取分析结果 |
-| `/api/tools/praat/jobs/progress/{job_id}` | DELETE | 取消分析任务 |
-
-#### Check 工具（9 个）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/tools/check/upload` | POST | 上传待检查文件 |
-| `/api/tools/check/validate` | POST | 执行数据验证 |
-| `/api/tools/check/report` | GET | 获取校验报告 |
-| `/api/tools/check/errors` | GET | 获取错误列表 |
-| `/api/tools/check/warnings` | GET | 获取警告列表 |
-| `/api/tools/check/statistics` | GET | 获取数据统计 |
-| `/api/tools/check/export` | GET | 导出校验结果 |
-| `/api/tools/check/history` | GET | 查看历史记录 |
-| `/api/tools/check/delete/{task_id}` | DELETE | 删除校验任务 |
-
-#### Jyut2IPA 工具（4 个）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/tools/jyut2ipa/convert` | POST | 单个转换 |
-| `/api/tools/jyut2ipa/batch` | POST | 批量转换 |
-| `/api/tools/jyut2ipa/export` | GET | 导出转换结果 |
-| `/api/tools/jyut2ipa/history` | GET | 查看转换历史 |
-
-#### Merge 工具（5 个）
-
-| 端点 | 方法 | 功能 |
-|------|------|------|
-| `/api/tools/merge/upload` | POST | 上传待合并文件 |
-| `/api/tools/merge/preview` | POST | 预览合并结果 |
-| `/api/tools/merge/execute` | POST | 执行合并操作 |
-| `/api/tools/merge/conflicts` | GET | 查看冲突列表 |
-| `/api/tools/merge/download` | GET | 下载合并文件 |
-
-#### 日志统计（9 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/api/logs/keyword/top` | GET | Top 关键词统计 | logs/logs_stats.py |
-| `/api/logs/keyword/search` | GET | 关键词搜索 | logs/logs_stats.py |
-| `/api/logs/api/usage` | GET | API 调用统计 | logs/logs_stats.py |
-| `/api/logs/stats/summary` | GET | 统计概览 | logs/logs_stats.py |
-| `/api/logs/stats/fields` | GET | 字段分布统计 | logs/logs_stats.py |
-| `/api/logs/user/history` | GET | 个人历史记录 | logs/logs_stats.py |
-| `/api/logs/user/summary` | GET | 个人使用摘要 | logs/logs_stats.py |
-| `/api/logs/trending` | GET | 趋势数据 | logs/logs_stats.py |
-| `/api/logs/export` | GET | 导出日志数据 | logs/logs_stats.py |
-
-#### SQL 查询（6 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/sql/databases` | GET | 获取数据库列表 | sql/sql_routes.py |
-| `/sql/query` | POST | 执行 SQL 查询 | sql/sql_routes.py |
-| `/sql/tree` | GET | 获取数据库结构树 | sql/sql_tree_routes.py |
-| `/sql/tables/{table}` | GET | 获取表结构 | sql/sql_routes.py |
-| `/sql/export` | POST | 导出查询结果 | sql/sql_routes.py |
-| `/sql/history` | GET | 查看查询历史 | sql/sql_routes.py |
-
----
-
-### 管理员接口（39 个）
-
-#### 用户管理（7 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/users/all` | GET | 获取所有用户 | routes/admin.py |
-| `/admin/users/{user_id}` | GET | 获取用户详情 | routes/admin.py |
-| `/admin/users/{user_id}` | PUT | 更新用户信息 | routes/admin.py |
-| `/admin/users/{user_id}` | DELETE | 删除用户 | routes/admin.py |
-| `/admin/users/{user_id}/ban` | POST | 封禁用户 | routes/admin.py |
-| `/admin/users/{user_id}/unban` | POST | 解封用户 | routes/admin.py |
-| `/admin/users/{user_id}/role` | PUT | 修改用户角色 | routes/admin.py |
-
-#### 用户统计（2 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/user_stats` | GET | 用户统计概览 | routes/admin.py |
-| `/admin/user_activity/{user_id}` | GET | 用户活动详情 | routes/admin.py |
-
-#### API 统计（3 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/api-usage/api-summary` | GET | API 使用概览 | routes/admin.py |
-| `/admin/api-usage/endpoint-stats` | GET | 端点统计 | routes/admin.py |
-| `/admin/api-usage/user-ranking` | GET | 用户使用排行 | routes/admin.py |
-
-#### 登录日志（2 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/login_logs` | GET | 获取登录日志 | routes/admin.py |
-| `/admin/login_logs/failed` | GET | 获取失败登录 | routes/admin.py |
-
-#### 会话管理（6 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/sessions/active` | GET | 查看活跃会话 | routes/admin.py |
-| `/admin/sessions/all` | GET | 查看所有会话 | routes/admin.py |
-| `/admin/sessions/{token_id}` | DELETE | 删除指定会话 | routes/admin.py |
-| `/admin/sessions/user/{user_id}` | GET | 查看用户会话 | routes/admin.py |
-| `/admin/sessions/user/{user_id}/revoke` | POST | 撤销用户所有会话 | routes/admin.py |
-| `/admin/sessions/cleanup` | POST | 清理过期会话 | routes/admin.py |
-
-#### 自定义数据管理（6 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/custom_data/all` | GET | 获取所有自定义数据 | routes/admin/custom_data.py |
-| `/admin/custom_data/{data_id}` | GET | 获取数据详情 | routes/admin/custom_data.py |
-| `/admin/custom_data/{data_id}` | PUT | 更新数据 | routes/admin/custom_data.py |
-| `/admin/custom_data/{data_id}` | DELETE | 删除数据 | routes/admin/custom_data.py |
-| `/admin/custom_data/approve/{data_id}` | POST | 审批数据 | routes/admin/custom_data.py |
-| `/admin/custom_data/export` | GET | 导出所有数据 | routes/admin/custom_data.py |
-
-#### 缓存管理（5 个）⭐ 新增
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/cache_manager/clear_dialect_cache` | POST | 清理方言缓存 | routes/admin/cache_manager.py |
-| `/admin/cache_manager/clear_redis_cache` | POST | 清理 Redis 缓存 | routes/admin/cache_manager.py |
-| `/admin/cache_manager/clear_all_cache` | POST | 清理所有缓存 | routes/admin/cache_manager.py |
-| `/admin/cache_manager/cache_stats` | GET | 缓存统计信息 | routes/admin/cache_manager.py |
-| `/admin/cache_manager/cache_status` | GET | 缓存状态检查 | routes/admin/cache_manager.py |
-
-**缓存类型：**
-- **方言数据缓存**（内存）：常用方言点数据
-- **用户信息缓存**（Redis，TTL: 1 小时）
-- **权限缓存**（Redis，TTL: 10 分钟）
-
-#### 权限管理（2 个）⭐ 新增
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/permissions` | GET | 获取所有权限记录 | routes/admin/permissions.py |
-| `/admin/permissions/user/{user_id}` | GET | 获取用户权限 | routes/admin/permissions.py |
-
-**权限结构（user_db_permissions 表）：**
-```sql
-CREATE TABLE user_db_permissions (
-    user_id INTEGER NOT NULL,
-    username TEXT NOT NULL,
-    db_key TEXT NOT NULL,
-    can_write BOOLEAN DEFAULT 0,
-    UNIQUE(user_id, db_key)
-);
-```
-
-#### IP 查询（1 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/ip_info/{ip}` | GET | 查询 IP 信息 | routes/admin.py |
-
-#### SQL 数据库操作（4 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/admin/sql/optimize` | POST | 优化数据库 | routes/admin.py |
-| `/admin/sql/vacuum` | POST | 执行 VACUUM | routes/admin.py |
-| `/admin/sql/backup` | POST | 备份数据库 | routes/admin.py |
-| `/admin/sql/stats` | GET | 数据库统计 | routes/admin.py |
-
-#### 日志数据库（1 个）
-
-| 端点 | 方法 | 功能 | 文件 |
-|------|------|------|------|
-| `/api/logs/database/size` | GET | 数据库大小监控 | logs/logs_stats.py |
+或访问在线 API 文档：
+- **Swagger UI**：http://localhost:5000/docs
+- **ReDoc**：http://localhost:5000/redoc
 
 ---
 
@@ -1329,7 +1309,7 @@ CREATE TABLE user_db_permissions (
 
 ### 数据库文件说明
 
-系统使用 **8 个 SQLite 数据库**，分为管理员数据库和用户数据库。
+系统使用 **9 个 SQLite 数据库**，分为管理员数据库、用户数据库和机器学习数据库。
 
 | 数据库文件 | 用途 | 访问权限 | 主要表 |
 |-----------|------|----------|--------|
@@ -1341,6 +1321,7 @@ CREATE TABLE user_db_permissions (
 | `characters.db` | 字符数据库（用户） | 用户 | characters, pronunciations |
 | `custom_admin.db` | 自定义数据（管理员） | 管理员 | custom_data, metadata |
 | `custom.db` | 自定义数据（用户） | 用户 | user_queries, custom_data |
+| `villages.db` ⭐ | VillagesML 机器学习 | 用户 | 45 张预计算表（字符、语义、空间、模式等） |
 
 ### 核心表结构
 
