@@ -12,7 +12,7 @@ from ..run_id_manager import run_id_manager
 
 # 导入身份验证依赖
 from app.auth.dependencies import get_current_admin_user
-from app.logs.service.api_limiter import ApiLimiter
+from app.logging.dependencies.limiter import ApiLimiter
 from app.auth.models import User
 
 

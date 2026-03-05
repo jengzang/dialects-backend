@@ -276,7 +276,7 @@ def report_online_time(
         raise HTTPException(status_code=404, detail="User not found")
 
     # ✅ Put in queue instead of direct write (non-blocking)
-    from app.logs.service.api_logger import online_time_queue
+    from app.logging.middleware.traffic_logging import online_time_queue
     online_time_queue.put({
         'user_id': user.id,
         'session_id': session_id,

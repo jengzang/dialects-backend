@@ -14,8 +14,8 @@ from app.service.locs_regions import get_coordinates_from_db
 from app.service.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
 from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 
 router = APIRouter()
 

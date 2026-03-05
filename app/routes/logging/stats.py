@@ -10,7 +10,7 @@ from typing import Optional
 
 from app.auth.dependencies import get_current_admin_user
 from app.auth.models import User
-from app.logs.stats import (
+from app.logging.stats import (
     keyword_stats,
     api_stats,
     visit_stats,

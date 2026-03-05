@@ -10,17 +10,17 @@ from fastapi.middleware.gzip import GZipMiddleware
 from app.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
-from app.logs.service.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
-from app.logs.service.api_limit_keyword import ApiLoggingMiddleware
+from app.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
+from app.logging.middleware.params_logging import ApiLoggingMiddleware
 from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from app.common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
 
 # [OK] 导入日志迁移模块
-# from app.logs.migrate_from_txt import run_migration
+# from app.logging.migrate_from_txt import run_migration
 # [OK] 导入定时任务模块
-from app.logs.scheduler import start_scheduler, stop_scheduler
+from app.logging.tasks.scheduler import start_scheduler, stop_scheduler
 # [OK] 导入数据库索引管理模块
 from app.sql.index_manager import initialize_all_indexes
 # [NEW] 导入数据库连接池管理模块
@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # [新增] 迁移 logs.db - 创建 API 统计表
-    from app.logs.migrations.add_hourly_daily_stats import migrate_hourly_daily_stats
+    from app.logging.migrations.add_hourly_daily_stats import migrate_hourly_daily_stats
     import sqlite3
     from app.common.path import LOGS_DATABASE_PATH
     print("=" * 60)

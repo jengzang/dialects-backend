@@ -14,8 +14,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import and_, text
 
-from app.logs.database import SessionLocal
-from app.logs.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
+from app.logging.core.database import SessionLocal
+from app.logging.core.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 from app.auth.session_cleanup import (  # ✅ 导入session清理函数
     cleanup_revoked_tokens,
     cleanup_expired_sessions,
@@ -257,5 +257,5 @@ if __name__ == "__main__":
         run_task_now(task)
     else:
         print("用法:")
-        print("  python -m app.logs.scheduler cleanup    # 清理旧日志")
-        print("  python -m app.logs.scheduler aggregate  # 聚合统计")
+        print("  python -m app.logging.scheduler cleanup    # 清理旧日志")
+        print("  python -m app.logging.scheduler aggregate  # 聚合统计")

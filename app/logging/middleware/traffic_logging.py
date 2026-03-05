@@ -21,8 +21,8 @@ from queue import Empty  # 只引入這個異常類，不引入 Queue 類
 from app.auth.database import get_db
 from app.auth.dependencies import get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
-from app.logs.database import SessionLocal as LogsSessionLocal
-from app.logs.models import ApiKeywordLog, ApiVisitLog
+from app.logging.core.database import SessionLocal as LogsSessionLocal
+from app.logging.core.models import ApiKeywordLog, ApiVisitLog
 from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 
 

@@ -9,8 +9,8 @@ from fastapi import APIRouter, Query, Request, Depends
 from sqlalchemy.orm import Session
 
 from app.custom.database import get_db as get_db_custom
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 

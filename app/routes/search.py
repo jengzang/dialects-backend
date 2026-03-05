@@ -7,8 +7,8 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
 from app.service.search_chars import search_characters
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER

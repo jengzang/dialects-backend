@@ -18,7 +18,7 @@ from .timeout import timeout, TimeoutException
 from ..config import get_db_path
 
 # 导入身份验证依赖
-from app.logs.service.api_limiter import ApiLimiter
+from app.logging.dependencies.limiter import ApiLimiter
 from app.auth.models import User
 
 logger = logging.getLogger(__name__)

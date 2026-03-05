@@ -11,9 +11,9 @@ from typing import Optional, List
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.dependencies import get_current_user
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.auth.dependencies import get_current_user
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest, FeatureStatsRequest
 
 from app.service.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key

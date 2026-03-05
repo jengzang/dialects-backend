@@ -4,8 +4,8 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \

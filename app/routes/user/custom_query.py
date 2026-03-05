@@ -11,8 +11,8 @@ from app.custom.database import get_db as get_db_custom
 from app.schemas import QueryParams, FeatureQueryParams
 from app.custom.read_custom import get_from_submission
 from app.service.match_input_tip import match_custom_feature
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 
 router = APIRouter()
 

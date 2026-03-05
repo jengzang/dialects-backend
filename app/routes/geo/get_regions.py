@@ -5,10 +5,10 @@ from typing import List, Union, Optional
 
 from sqlalchemy.orm import Session
 
-from app.auth.models import User
+# from app.auth.models import User
 from app.custom.database import get_db
 from app.service.locs_regions import fetch_dialect_region
-from app.logs.service.api_limiter import ApiLimiter
+# from app.logging.dependencies.limiter import ApiLimiter
 
 router = APIRouter()
 

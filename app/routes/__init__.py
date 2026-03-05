@@ -20,11 +20,11 @@ from .auth import router as auth_router
 from app.routes.geo.get_locs import router as locs_router
 from .admin import router as admin_router
 from .user import router as user_router
-from ..logs import setup_logs_routes
+from ..logging import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
 from app.tools.praat.routes import router as praat_router
-from app.logs.service.api_limiter import ApiLimiter
+from app.logging.dependencies import ApiLimiter
 
 
 def setup_routes(app: FastAPI):

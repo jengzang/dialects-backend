@@ -10,7 +10,7 @@ from app.sql.sql_schemas import (
     BatchMutationParams, BatchReplacePreviewParams, BatchReplaceExecuteParams
 )
 from app.auth.dependencies import get_current_admin_user, get_current_user
-from app.logs.service.api_limiter import ApiLimiter
+from app.logging.dependencies.limiter import ApiLimiter
 from app.auth.database import get_db as get_auth_db
 from app.auth.models import User
 

@@ -4,8 +4,8 @@ API 日志记录中间件：自动记录 API 调用参数
 import json
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request
-from app.logs.service.api_logger import log_all_fields, update_count
-from app.logs.service.route_matcher import match_route_config, should_skip_route
+from app.logging.middleware.traffic_logging import log_all_fields, update_count
+from app.logging.utils.route_matcher import match_route_config, should_skip_route
 
 
 class ApiLoggingMiddleware(BaseHTTPMiddleware):

@@ -14,8 +14,8 @@ from app.schemas.custom_region import (
     CustomRegionResponse,
     CustomRegionList
 )
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+# from app.logging.dependencies.limiter import ApiLimiter
+# from app.auth.models import User
 
 router = APIRouter()
 
