@@ -128,24 +128,45 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
                 match_list = []
                 for name in name_list:
                     matched_t = set()  # 使用 set 来去重
+
+                    # 提取所有连续的词（窗口大小 2-4）
+                    continuous_words = set()
+                    for window_size in range(2, min(len(name) + 1, 5)):  # 窗口 2-4
+                        for j in range(len(name) - window_size + 1):
+                            continuous_words.add(name[j:j + window_size])
+
+                    # 用连续词精确匹配 match_table
                     for t, names in match_table.items():
-                        if any(matching_name in name for matching_name in names):  # 部分匹配
+                        if any(matching_name in continuous_words for matching_name in names):
                             matched_t.add(t)
 
                     match_list.extend(list(matched_t))  # 将 set 转回 list，直接扩展到 match_list
-                    # 如果 T5 没有被匹配到，则使用备用规则 ['去'] 来匹配 T5
+
+                    # 备用规则：检查连续的 2 字词
                     if 'T1' not in match_list:
-                        if '平' in name and not re.search(r'^(陽|阳)', name):
-                            match_list.append('T1')
+                        for j in range(len(name) - 1):
+                            word = name[j:j+2]
+                            if word.endswith('平') and not word.startswith('陽') and not word.startswith('阳'):
+                                match_list.append('T1')
+                                break
                     if 'T3' not in match_list:
-                        if '上' in name and not re.search(r'^(陽|阳)', name):
-                            match_list.append('T3')
+                        for j in range(len(name) - 1):
+                            word = name[j:j+2]
+                            if word.endswith('上') and not word.startswith('陽') and not word.startswith('阳'):
+                                match_list.append('T3')
+                                break
                     if 'T5' not in match_list:
-                        if '去' in name and not re.search(r'^(陽|阳)', name):
-                            match_list.append('T5')
+                        for j in range(len(name) - 1):
+                            word = name[j:j+2]
+                            if word.endswith('去') and not word.startswith('陽') and not word.startswith('阳'):
+                                match_list.append('T5')
+                                break
                     if 'T7' not in match_list:
-                        if '入' in name and not re.search(r'^(陽|阳)', name):
-                            match_list.append('T7')
+                        for j in range(len(name) - 1):
+                            word = name[j:j+2]
+                            if word.endswith('入') and not word.startswith('陽') and not word.startswith('阳'):
+                                match_list.append('T7')
+                                break
 
                 # 去重 match_list
                 match_list = list(set(match_list))
@@ -205,8 +226,16 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
                 match_list = []
                 for name in name_list:
                     matched_t = set()  # 使用 set 来去重
+
+                    # 提取所有连续的词（窗口大小 2-4）
+                    continuous_words = set()
+                    for window_size in range(2, min(len(name) + 1, 5)):  # 窗口 2-4
+                        for j in range(len(name) - window_size + 1):
+                            continuous_words.add(name[j:j + window_size])
+
+                    # 用连续词精确匹配 match_table
                     for t, names in match_table.items():
-                        if any(matching_name in name for matching_name in names):  # 部分匹配
+                        if any(matching_name in continuous_words for matching_name in names):
                             matched_t.add(t)
 
                     match_list.extend(list(matched_t))  # 将 set 转回 list，直接扩展到 match_list
@@ -264,7 +293,7 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
         # 添加到 result 和 new_result 中
         if get_raw:
             result.append(row_data)
-            return result
-        new_result.append(new_row)
+        else:
+            new_result.append(new_row)
 
-    return new_result
+    return result if get_raw else new_result

@@ -13,8 +13,7 @@ from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
 from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
-from app.service.compare import compare_characters
-from app.service.compare_tones import compare_tones
+from app.service.compare import compare_characters, compare_tones
 from app.schemas.phonology import CompareZhongGuAnalysis
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 
