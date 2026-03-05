@@ -9,9 +9,10 @@ from fastapi import APIRouter, Query, Request, Depends
 from sqlalchemy.orm import Session
 
 from app.custom.database import get_db as get_db_custom
-from app.auth.dependencies import get_current_user
+from app.sql.db_selector import get_query_db
+# from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+# from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 
@@ -24,7 +25,7 @@ async def batch_match(
         input_string: str = Query(..., description="用戶輸入的字符串，用於後端匹配正確的地點"),
         filter_valid_abbrs_only: bool = Query(True, description="是否過濾沒有字表的簡稱（若為真則過濾）"),
         db: Session = Depends(get_db_custom),
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+        query_db: str = Depends(get_query_db)
 ):
     """
     用于 /api/batch_match 路由，匹配用戶輸入的地點，並提示正確的地點。
@@ -42,12 +43,12 @@ async def batch_match(
             print(f"[WARN] 客户端已断开连接，跳过处理: {input_string[:50]}")
             return []
 
-        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+        # 数据库路径已通过依赖注入自动选择
         input_string = input_string.strip()
         if not input_string:
             return []
         results = match_locations_batch(input_string, filter_valid_abbrs_only, False,
-                                        query_db=query_db, db=db, user=user)
+                                        query_db=query_db, db=db, user=None)
         responses = []
         for idx, res in enumerate(results):
             # 定期检查客户端连接状态

@@ -4,9 +4,10 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
-from app.auth.dependencies import get_current_user
+from app.sql.db_selector import get_dialects_db, get_query_db
+# from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+# from app.auth.models import User
 from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
@@ -52,7 +53,8 @@ async def generate_combinations_and_query(
 @router.post("/ZhongGu")
 async def analyze_zhonggu(
         payload: ZhongGuAnalysis,
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+        dialects_db: str = Depends(get_dialects_db),
+        query_db: str = Depends(get_query_db)
 ):
     """
     全新的接口：
@@ -69,8 +71,7 @@ async def analyze_zhonggu(
         exclude_columns=payload.exclude_columns
     )
     cached_char_result = await generate_combinations_and_query(
-        payload=char_request_payload,
-        user=user,
+        payload=char_request_payload
     )
 
     if not cached_char_result:
@@ -81,8 +82,7 @@ async def analyze_zhonggu(
     locations = payload.locations
     regions = payload.regions
     features = payload.features
-    db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-    query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+    # 数据库路径已通过依赖注入自动选择
     analysis_results = await run_in_threadpool(
         _run_dialect_analysis_sync,
         char_data_list=cached_char_result,
@@ -90,7 +90,7 @@ async def analyze_zhonggu(
         regions=regions,
         features=features,
         region_mode=payload.region_mode,  # 如果需要的話
-        db_path_dialect=db_path,
+        db_path_dialect=dialects_db,
         db_path_query=query_db  # 新增：传入查询数据库
     )
 
@@ -103,7 +103,8 @@ async def analyze_zhonggu(
 @router.post("/YinWei")
 async def analyze_yinwei(
         payload: YinWeiAnalysis,
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+        dialects_db: str = Depends(get_dialects_db),
+        query_db: str = Depends(get_query_db)
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
 
@@ -111,8 +112,7 @@ async def analyze_yinwei(
         locations = payload.locations
         regions = payload.regions
         features = payload.features
-        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+        # 数据库路径已通过依赖注入自动选择
         analysis_results = await run_in_threadpool(
             pho2sta,
             locations=locations,
@@ -121,7 +121,7 @@ async def analyze_yinwei(
             status_inputs=payload.group_inputs,
             pho_values=payload.pho_values,
             region_mode=payload.region_mode,  # 如果需要的話
-            dialect_db_path=db_path,
+            dialect_db_path=dialects_db,
             exclude_columns=payload.exclude_columns,
             query_db_path=query_db  # 新增：传入查询数据库
         )
