@@ -16,9 +16,7 @@ router = APIRouter()
 
 
 @router.get("/all")
-async def get_all_own_custom_data(
-    current_user: Optional[User] = Depends(get_current_user)
-):
+async def get_all_own_custom_data():
     """獲取用戶自己的所有 custom 數據"""
     if current_user is None:
         raise HTTPException(status_code=401, detail="請先登錄")
@@ -44,8 +42,7 @@ async def get_all_own_custom_data(
 
 @router.post("/batch-create")
 async def batch_create_custom_data(
-    infos: List[InformationBase],
-    current_user: Optional[User] = Depends(get_current_user)
+    infos: List[InformationBase]
 ):
     """批量創建 custom 數據"""
     if current_user is None:
@@ -136,8 +133,7 @@ async def batch_create_custom_data(
 
 @router.put("/edit")
 async def edit_custom_data(
-    edit_request: CustomDataEdit,
-    current_user: Optional[User] = Depends(get_current_user)
+    edit_request: CustomDataEdit
 ):
     """編輯已有的 custom 數據"""
     if current_user is None:
@@ -193,8 +189,7 @@ async def edit_custom_data(
 
 @router.delete("/batch-delete")
 async def batch_delete_custom_data(
-    delete_request: BatchDeleteRequest,
-    current_user: Optional[User] = Depends(get_current_user)
+    delete_request: BatchDeleteRequest
 ):
     """批量刪除 custom 數據"""
     if current_user is None:

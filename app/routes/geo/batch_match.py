@@ -22,8 +22,7 @@ async def batch_match(
         request: Request,
         input_string: str = Query(..., description="用戶輸入的字符串，用於後端匹配正確的地點"),
         filter_valid_abbrs_only: bool = Query(True, description="是否過濾沒有字表的簡稱（若為真則過濾）"),
-        db: Session = Depends(get_db_custom),
-        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+        db: Session = Depends(get_db_custom),  # 自动限流和日志记录
 ):
     """
     用于 /api/batch_match 路由，匹配用戶輸入的地點，並提示正確的地點。

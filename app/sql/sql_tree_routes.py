@@ -229,7 +229,6 @@ def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: L
 @router.post("/tree/full")
 async def get_full_tree(
     params: FullTreeParams,
-    user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
@@ -314,7 +313,6 @@ async def get_full_tree(
 @router.post("/tree/lazy")
 async def get_tree_children(
     params: LazyTreeParams,
-    user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """

@@ -13,8 +13,7 @@ router = APIRouter()
 
 @router.get("/partitions")
 async def api_get_partitions(
-        parent: Optional[str] = Query(None),
-        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+        parent: Optional[str] = Query(None)  # 自动限流和日志记录
 ):
     """
     - 獲取下一級的音典分區。

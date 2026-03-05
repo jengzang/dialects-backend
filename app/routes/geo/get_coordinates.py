@@ -23,8 +23,7 @@ router = APIRouter()
 async def get_coordinates(
         query: CoordinatesQuery = Depends(),
         db: Session = Depends(get_db_custom),
-        db_user: Session = Depends(get_db_user),
-        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+        db_user: Session = Depends(get_db_user)  # 自动限流和日志记录
 ):
     """
     獲取坐標

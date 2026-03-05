@@ -24,8 +24,7 @@ async def compare_chars(
     locations: Optional[List[str]] = Query(None, description="要查的地点，可多个"),
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
-    db: Session = Depends(get_db),
-    user: Optional[User] = Depends(ApiLimiter)
+    db: Session = Depends(get_db)
 ):
     """
     比较多个汉字在不同地点的音韵特征差异
@@ -87,8 +86,7 @@ async def compare_tones_route(
     locations: Optional[List[str]] = Query(None, description="要查的地点，可多个"),
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
-    db: Session = Depends(get_db),
-    user: Optional[User] = Depends(ApiLimiter)
+    db: Session = Depends(get_db)
 ):
     """
     比较同一地点内不同调类的合并关系

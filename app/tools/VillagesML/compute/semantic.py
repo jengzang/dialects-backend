@@ -32,8 +32,7 @@ def get_semantic_engine():
 
 @router.post("/cooccurrence")
 async def analyze_cooccurrence(
-    params: SemanticAnalysisParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: SemanticAnalysisParams,  # 添加身份验证
     engine: SemanticEngine = Depends(get_semantic_engine)
 ) -> Dict[str, Any]:
     """
@@ -79,8 +78,7 @@ async def analyze_cooccurrence(
 
 @router.post("/network")
 async def build_semantic_network(
-    params: SemanticNetworkParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: SemanticNetworkParams,  # 添加身份验证
     engine: SemanticEngine = Depends(get_semantic_engine)
 ) -> Dict[str, Any]:
     """

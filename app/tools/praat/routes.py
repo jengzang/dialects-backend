@@ -74,8 +74,7 @@ async def get_capabilities():
 @router.post("/uploads")
 async def create_upload(
         file: UploadFile = File(...),
-        retain_original: bool = Form(False),
-        user: Optional[User] = Depends(ApiLimiter)
+        retain_original: bool = Form(False)
 ):
     """
     Upload and normalize audio file.
@@ -207,8 +206,7 @@ async def create_upload(
 
 @router.get("/uploads/progress/{task_id}")
 async def get_upload(
-        task_id: str,
-        user: Optional[User] = Depends(ApiLimiter)
+        task_id: str
 ):
     """Get upload information."""
     task = task_manager.get_task(task_id)
@@ -234,8 +232,7 @@ async def get_upload(
 
 @router.get("/uploads/progress/{task_id}/audio")
 async def get_upload_audio(
-        task_id: str,
-        user: Optional[User] = Depends(ApiLimiter)
+        task_id: str
 ):
     """Download normalized audio file."""
     task = task_manager.get_task(task_id)
@@ -264,8 +261,7 @@ async def get_upload_audio(
 
 @router.delete("/uploads/progress/{task_id}")
 async def delete_upload(
-        task_id: str,
-        user: Optional[User] = Depends(ApiLimiter)
+        task_id: str
 ):
     """Delete task and associated files."""
     task = task_manager.get_task(task_id)
@@ -285,8 +281,7 @@ async def delete_upload(
 @router.post("/jobs", response_model=JobCreateResponse)
 async def create_job(
         request: JobCreateRequest,
-        background_tasks: BackgroundTasks,
-        user: Optional[User] = Depends(ApiLimiter)
+        background_tasks: BackgroundTasks
 ):
     """
     Create analysis job.
@@ -360,8 +355,7 @@ async def create_job(
 
 @router.get("/jobs/progress/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
-        job_id: str,
-        user: Optional[User] = Depends(ApiLimiter)
+        job_id: str
 ):
     """Get job status."""
     # Extract task_id from job_id
@@ -399,8 +393,7 @@ async def get_job_status(
 @router.get("/jobs/progress/{job_id}/result")
 async def get_job_result(
         job_id: str,
-        view: Literal["full", "summary", "timeseries"] = Query("full"),
-        user: Optional[User] = Depends(ApiLimiter)
+        view: Literal["full", "summary", "timeseries"] = Query("full")
 ):
     """
     Get job result.
@@ -474,8 +467,7 @@ async def get_job_result(
 
 @router.delete("/jobs/progress/{job_id}")
 async def cancel_job(
-        job_id: str,
-        user: Optional[User] = Depends(ApiLimiter)
+        job_id: str
 ):
     """
     Cancel job (best-effort).

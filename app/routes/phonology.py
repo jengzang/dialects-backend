@@ -28,8 +28,7 @@ router = APIRouter()
 
 @router.post("/phonology")
 async def api_run_phonology_analysis(
-        payload: AnalysisPayload,
-        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+        payload: AnalysisPayload,  # 自动限流和日志记录
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -134,8 +133,7 @@ def run_phonology_analysis(
 
 @router.get("/feature_counts")
 async def feature_counts(
-    locations: List[str] = Query(...),
-    user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
+    locations: List[str] = Query(...)  # 获取当前用户，如果未登录则为None
 ):
     try:
         # 根據用戶身分決定資料庫
@@ -153,8 +151,7 @@ async def feature_counts(
 
 @router.post("/phonology_matrix")
 async def phonology_matrix(
-    payload: PhonologyMatrixRequest,
-    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+    payload: PhonologyMatrixRequest  # 自动限流和日志记录
 ):
     """
     获取指定地点的声母-韵母-汉字交叉表数据
@@ -231,8 +228,7 @@ async def phonology_matrix(
 
 @router.post("/phonology_classification_matrix")
 async def api_phonology_classification_matrix(
-    payload: PhonologyClassificationMatrixRequest,
-    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+    payload: PhonologyClassificationMatrixRequest  # 自动限流和日志记录
 ):
     """
     創建音韻特徵分類矩陣
@@ -271,8 +267,7 @@ async def api_phonology_classification_matrix(
 
 @router.post("/feature_stats")
 async def feature_stats(
-    payload: FeatureStatsRequest,
-    user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+    payload: FeatureStatsRequest  # 自动限流和日志记录
 ):
     """
     獲取指定地點的音韻特徵統計數據（索引優化格式）

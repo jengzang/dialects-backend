@@ -297,7 +297,7 @@ def _process_statistics_batch(batch: list):
                         INSERT OR IGNORE INTO api_usage_daily (date, path, call_count)
                         VALUES (:date, :path, 1)
                     """),
-                    {"date": request_date, "path": path}
+                    {"date": request_date, "path": normalized_path}  # 修复：使用 normalized_path
                 )
 
         db.commit()

@@ -20,8 +20,7 @@ router = APIRouter()
 @router.post("/submit_form")
 async def submit_form(
     payload: FormData,
-    db: Session = Depends(get_db_custom),
-    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    db: Session = Depends(get_db_custom),  # 自动限流和日志记录
 ):
     """
     用于 /api/submit_form 的用戶自定表單提交，寫入數據庫supplements.db。
@@ -54,8 +53,7 @@ async def submit_form(
 @router.delete("/delete_form")
 async def delete_form(
     payload: FormData,
-    db: Session = Depends(get_db_custom),
-    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    db: Session = Depends(get_db_custom),  # 自动限流和日志记录
 ):
     """
     用于 /api/delete_form 的用戶自定表單刪除。

@@ -25,8 +25,7 @@ router = APIRouter()
 
 @router.delete("/delete", response_model=List[InformationBase])
 async def delete_custom_by_admin(
-    requests: List[EditRequest],
-    current_user: Optional[User] = Depends(get_current_user)
+    requests: List[EditRequest]
 ):
     """管理员删除custom数据"""
     session_info = SessionLocal_info()

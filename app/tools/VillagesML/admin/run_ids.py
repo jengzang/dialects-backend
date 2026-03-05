@@ -27,9 +27,7 @@ class SetActiveRunIDRequest(BaseModel):
 
 
 @router.get("/run-ids/active")
-def get_all_active_run_ids(
-    user: Optional[User] = Depends(ApiLimiter)  # 添加速率限制，但允许匿名访问
-):
+def get_all_active_run_ids():
     """
     获取所有分析类型的活跃 run_id（公开端点）
 
@@ -49,8 +47,7 @@ def get_all_active_run_ids(
 
 @router.get("/run-ids/active/{analysis_type}")
 def get_active_run_id(
-    analysis_type: str,
-    user: Optional[User] = Depends(ApiLimiter)  # 添加速率限制，但允许匿名访问
+    analysis_type: str  # 添加速率限制，但允许匿名访问
 ):
     """
     获取指定分析类型的活跃 run_id（公开端点）
@@ -100,8 +97,7 @@ def list_available_run_ids(analysis_type: str):
 @router.put("/run-ids/active/{analysis_type}")
 def set_active_run_id(
     analysis_type: str,
-    request: SetActiveRunIDRequest,
-    admin: User = Depends(get_current_admin_user)  # 需要 admin 权限
+    request: SetActiveRunIDRequest  # 需要 admin 权限
 ):
     """
     设置活跃 run_id（需要管理员权限）

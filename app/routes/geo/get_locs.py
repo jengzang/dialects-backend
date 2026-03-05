@@ -18,8 +18,7 @@ router = APIRouter()
 async def get_all_locs(
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，yindian 或 map"),  # [OK] 加上這行
-        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+        region_mode: str = Query("yindian", description="分區模式，yindian 或 map")  # [OK] 加上這行
 ):
     """
     - 用于 /api/get_locs 查匹配的地點（分區+地點），返回地點序列。

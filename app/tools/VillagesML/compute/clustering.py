@@ -34,8 +34,7 @@ def get_clustering_engine():
 
 @router.post("/run")
 async def run_clustering(
-    params: ClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: ClusteringParams,  # 添加身份验证
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -86,8 +85,7 @@ async def run_clustering(
 
 @router.post("/scan")
 async def scan_clustering_params(
-    params: ClusteringScanParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: ClusteringScanParams,  # 添加身份验证
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -197,7 +195,6 @@ async def clear_cache() -> Dict[str, str]:
 @router.post("/character-tendency")
 async def run_character_tendency_clustering(
     params: CharacterTendencyClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter),
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -249,7 +246,6 @@ async def run_character_tendency_clustering(
 @router.post("/sampled-villages")
 async def run_sampled_village_clustering(
     params: SampledVillageClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter),
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -301,7 +297,6 @@ async def run_sampled_village_clustering(
 @router.post("/spatial-aware")
 async def run_spatial_aware_clustering(
     params: SpatialAwareClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter),
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -353,7 +348,6 @@ async def run_spatial_aware_clustering(
 @router.post("/hierarchical")
 async def run_hierarchical_clustering(
     params: HierarchicalClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter),
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """

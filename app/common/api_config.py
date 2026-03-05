@@ -244,37 +244,29 @@ API_ROUTE_CONFIG = {
         "log_body": False,
     },
 
-    # ===== Admin 会话管理 API =====
-    "/admin/user-sessions/*": {
-        "rate_limit": True,  # 启用限流（防止管理员滥用）
-        "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
-        "log_params": True,  # 记录参数（用于审计）
-        "log_body": True,  # 记录请求体（用于审计）
-    },
+    # # ===== Admin 会话管理 API =====
+    # "/admin/user-sessions/*": {
+    #     "rate_limit": True,  # 启用限流（防止管理员滥用）
+    #     "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
+    #     "log_params": True,  # 记录参数（用于审计）
+    #     "log_body": True,  # 记录请求体（用于审计）
+    # },
 
-    # ===== 用户排行榜 API =====
-    "/auth/leaderboard": {
-        "rate_limit": True,  # 启用限流（防止频繁查询）
-        "require_login": True,  # 要求登录（只有登录用户才能查看排行）
-        "log_params": False,  # 不记录参数（GET 请求无参数）
-        "log_body": False,  # 不记录请求体（GET 请求无 body）
-    },
+    # # ===== 用户排行榜 API =====
+    # "/auth/leaderboard": {
+    #     "rate_limit": True,  # 启用限流（防止频繁查询）
+    #     "require_login": True,  # 要求登录（只有登录用户才能查看排行）
+    #     "log_params": False,  # 不记录参数（GET 请求无参数）
+    #     "log_body": False,  # 不记录请求体（GET 请求无 body）
+    # },
 
-    # ===== 用户自定义区域 API =====
-    "/api/custom_regions": {
-        "rate_limit": True,  # 启用限流（防止滥用）
-        "require_login": True,  # 要求登录（需要用户身份）
-        "log_params": True,  # 记录参数（用于分析用户使用习惯）
-        "log_body": True,  # 记录请求体（用于分析用户创建的区域）
-    },
-
-    # ===== Admin Custom Regions API =====
-    "/admin/custom-regions/*": {
-        "rate_limit": True,
-        "require_login": True,
-        "log_params": True,
-        "log_body": True,
-    },
+    # # ===== 用户自定义区域 API =====
+    # "/api/custom_regions": {
+    #     "rate_limit": False,  # 启用限流（防止滥用）
+    #     "require_login": True,  # 要求登录（需要用户身份）
+    #     "log_params": True,  # 记录参数（用于分析用户使用习惯）
+    #     "log_body": True,  # 记录请求体（用于分析用户创建的区域）
+    # },
 
     # ===== VillagesML 自然村分析 API =====
     "/api/villages/*": {
@@ -289,12 +281,12 @@ API_ROUTE_CONFIG = {
         "log_params": True,  # 记录参数
         "log_body": True,  # 记录请求体（分析参数配置）
     },
-    "/api/villages/admin/*": {
-        "rate_limit": True,  # 启用限流
-        "require_login": True,  # 要求登录（管理员功能）
-        "log_params": True,  # 记录参数（审计）
-        "log_body": True,  # 记录请求体（审计）
-    },
+    # "/api/villages/admin/*": {
+    #     "rate_limit": True,  # 启用限流
+    #     "require_login": True,  # 要求登录（管理员功能）
+    #     "log_params": True,  # 记录参数（审计）
+    #     "log_body": True,  # 记录请求体（审计）
+    # },
 }
 
 # ===== 默认配置 =====
@@ -325,7 +317,7 @@ API_WHITELIST = [
 # 这些路由强制启用所有检查（限流、登录、日志）
 # 用于敏感的管理员 API
 API_BLACKLIST = [
-    "/admin/api/*",  # 管理员 API（强制所有检查）
+    # "/admin/*",  # 管理员 API（强制所有检查）
 ]
 
 # ========== 中间件工作流程说明 =============

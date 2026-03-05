@@ -33,8 +33,7 @@ def get_feature_engine():
 
 @router.post("/extract")
 async def extract_features(
-    params: FeatureExtractionParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: FeatureExtractionParams,  # 添加身份验证
     engine: FeatureEngine = Depends(get_feature_engine)
 ) -> Dict[str, Any]:
     """
@@ -85,8 +84,7 @@ async def extract_features(
 
 @router.post("/aggregate")
 async def aggregate_features(
-    params: FeatureAggregationParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 添加身份验证
+    params: FeatureAggregationParams,  # 添加身份验证
     engine: FeatureEngine = Depends(get_feature_engine)
 ) -> Dict[str, Any]:
     """

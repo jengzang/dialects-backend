@@ -23,8 +23,7 @@ async def search_chars(
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
         region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+        db: Session = Depends(get_db)  # 自动限流和日志记录
 ):
     """
     - 用于 /api/search_chars 查字，返回中古地位、對應地點的讀音及注釋。
@@ -92,8 +91,7 @@ async def search_tones_o(
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
         region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),
-        db: Session = Depends(get_db),
-        user: Optional[User] = Depends(ApiLimiter)  # 自动限流和日志记录
+        db: Session = Depends(get_db)  # 自动限流和日志记录
 ):
     """
     - 用于 /api/search_tones 查調，返回調值、調類。

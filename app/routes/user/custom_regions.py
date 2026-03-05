@@ -23,7 +23,6 @@ router = APIRouter()
 @router.post("/api/custom_regions", response_model=dict)
 async def create_or_update_custom_region(
     data: CustomRegionCreate,
-    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_db)
 ):
     """
@@ -69,7 +68,6 @@ async def create_or_update_custom_region(
 @router.delete("/api/custom_regions", response_model=dict)
 async def delete_custom_region(
     region_name: str,
-    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_db)
 ):
     """
@@ -107,7 +105,6 @@ async def delete_custom_region(
 @router.get("/api/custom_regions", response_model=CustomRegionList)
 async def get_custom_regions(
     region_name: Optional[str] = None,
-    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_db)
 ):
     """

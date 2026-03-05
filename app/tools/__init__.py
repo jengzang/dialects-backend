@@ -3,7 +3,7 @@
 工具路由模块：将check、jyut2ipa、merge三个工具的Web界面路由挂载到FastAPI app。
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 
 
 def setup_tools_routes(app: FastAPI):
@@ -14,8 +14,9 @@ def setup_tools_routes(app: FastAPI):
     from app.tools.jyut2ipa.jyut2ipa_routes import router as jyut2ipa_router
     from app.tools.merge.merge_routes import router as merge_router
     from app.tools.VillagesML import setup_villages_routes
+    from app.logs.service.api_limiter import ApiLimiter
 
-    app.include_router(check_router, prefix="/api/tools/check", tags=["工具-Check"])
-    app.include_router(jyut2ipa_router, prefix="/api/tools/jyut2ipa", tags=["工具-Jyut2IPA"])
-    app.include_router(merge_router, prefix="/api/tools/merge", tags=["工具-Merge"])
+    app.include_router(check_router, prefix="/api/tools/check", tags=["工具-Check"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(jyut2ipa_router, prefix="/api/tools/jyut2ipa", tags=["工具-Jyut2IPA"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(merge_router, prefix="/api/tools/merge", tags=["工具-Merge"], dependencies=[Depends(ApiLimiter)])
     setup_villages_routes(app)

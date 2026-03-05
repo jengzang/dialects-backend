@@ -2,7 +2,7 @@
 VillagesML Integration Module
 广东省自然村分析系统集成模块
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 
 
 def setup_villages_routes(app: FastAPI):
@@ -35,30 +35,31 @@ def setup_villages_routes(app: FastAPI):
     from .compute import clustering, semantic, features, subset
     from .admin import run_ids as admin_run_ids
     from .statistics import router as statistics_router  # NEW: Statistics endpoints
+    from app.logs.service.api_limiter import ApiLimiter
 
     # Register all routers with /api/villages prefix
     # Tags are defined here to avoid duplication (routers should not define their own tags)
-    app.include_router(char_frequency.router, prefix="/api/villages", tags=["VillagesML-Character"])
-    app.include_router(char_tendency.router, prefix="/api/villages", tags=["VillagesML-Character"])
-    app.include_router(char_embeddings.router, prefix="/api/villages", tags=["VillagesML-Character"])
-    app.include_router(char_significance.router, prefix="/api/villages", tags=["VillagesML-Character"])
-    app.include_router(village_search.router, prefix="/api/villages", tags=["VillagesML-Village"])
-    app.include_router(village_data.router, prefix="/api/villages", tags=["VillagesML-Village"])
-    app.include_router(metadata_stats.router, prefix="/api/villages", tags=["VillagesML-Metadata"])
-    app.include_router(semantic_category.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
-    app.include_router(semantic_labels.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
-    app.include_router(semantic_composition.router, prefix="/api/villages", tags=["VillagesML-Semantic"])
-    app.include_router(semantic_subcategories.router, prefix="/api/villages", tags=["VillagesML-Semantic"])  # NEW: Phase 17
-    app.include_router(cluster_assignments.router, prefix="/api/villages", tags=["VillagesML-Clustering"])
-    app.include_router(spatial_hotspots.router, prefix="/api/villages", tags=["VillagesML-Spatial"])
-    app.include_router(spatial_integration.router, prefix="/api/villages", tags=["VillagesML-Spatial"])  # Phase 16
-    app.include_router(ngram_frequency.router, prefix="/api/villages", tags=["VillagesML-Ngrams"])
-    app.include_router(patterns_router, prefix="/api/villages", tags=["VillagesML-Patterns"])
-    app.include_router(regional_aggregates.router, prefix="/api/villages", tags=["VillagesML-Regional"])
-    app.include_router(regional_similarity.router, prefix="/api/villages", tags=["VillagesML-Regional"])  # NEW: Phase 15
-    app.include_router(clustering.router, prefix="/api/villages", tags=["VillagesML-Compute"])
-    app.include_router(semantic.router, prefix="/api/villages", tags=["VillagesML-Compute"])
-    app.include_router(features.router, prefix="/api/villages", tags=["VillagesML-Compute"])
-    app.include_router(subset.router, prefix="/api/villages", tags=["VillagesML-Compute"])
-    app.include_router(admin_run_ids.router, prefix="/api/villages/admin", tags=["VillagesML-Admin"])
-    app.include_router(statistics_router, prefix="/api/villages", tags=["VillagesML-Statistics"])  # NEW
+    app.include_router(char_frequency.router, prefix="/api/villages", tags=["VillagesML-Character"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(char_tendency.router, prefix="/api/villages", tags=["VillagesML-Character"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(char_embeddings.router, prefix="/api/villages", tags=["VillagesML-Character"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(char_significance.router, prefix="/api/villages", tags=["VillagesML-Character"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(village_search.router, prefix="/api/villages", tags=["VillagesML-Village"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(village_data.router, prefix="/api/villages", tags=["VillagesML-Village"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(metadata_stats.router, prefix="/api/villages", tags=["VillagesML-Metadata"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(semantic_category.router, prefix="/api/villages", tags=["VillagesML-Semantic"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(semantic_labels.router, prefix="/api/villages", tags=["VillagesML-Semantic"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(semantic_composition.router, prefix="/api/villages", tags=["VillagesML-Semantic"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(semantic_subcategories.router, prefix="/api/villages", tags=["VillagesML-Semantic"], dependencies=[Depends(ApiLimiter)])  # NEW: Phase 17
+    app.include_router(cluster_assignments.router, prefix="/api/villages", tags=["VillagesML-Clustering"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(spatial_hotspots.router, prefix="/api/villages", tags=["VillagesML-Spatial"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(spatial_integration.router, prefix="/api/villages", tags=["VillagesML-Spatial"], dependencies=[Depends(ApiLimiter)])  # Phase 16
+    app.include_router(ngram_frequency.router, prefix="/api/villages", tags=["VillagesML-Ngrams"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(patterns_router, prefix="/api/villages", tags=["VillagesML-Patterns"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(regional_aggregates.router, prefix="/api/villages", tags=["VillagesML-Regional"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(regional_similarity.router, prefix="/api/villages", tags=["VillagesML-Regional"], dependencies=[Depends(ApiLimiter)])  # NEW: Phase 15
+    app.include_router(clustering.router, prefix="/api/villages", tags=["VillagesML-Compute"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(semantic.router, prefix="/api/villages", tags=["VillagesML-Compute"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(features.router, prefix="/api/villages", tags=["VillagesML-Compute"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(subset.router, prefix="/api/villages", tags=["VillagesML-Compute"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(admin_run_ids.router, prefix="/api/villages/admin", tags=["VillagesML-Admin"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(statistics_router, prefix="/api/villages", tags=["VillagesML-Statistics"], dependencies=[Depends(ApiLimiter)])  # NEW

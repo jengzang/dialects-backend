@@ -134,8 +134,7 @@ def get_villages_by_ids(conn: sqlite3.Connection, village_ids: List[int]) -> pd.
 
 @router.post("/cluster")
 async def cluster_subset(
-    params: SubsetClusteringParams,
-    user: Optional[User] = Depends(ApiLimiter)  # 添加身份验证
+    params: SubsetClusteringParams  # 添加身份验证
 ) -> Dict[str, Any]:
     """
     对自定义子集进行聚类（需要登录）
@@ -264,8 +263,7 @@ async def cluster_subset(
 
 @router.post("/compare")
 async def compare_subsets(
-    params: SubsetComparisonParams,
-    user: Optional[User] = Depends(ApiLimiter)  # 添加身份验证
+    params: SubsetComparisonParams  # 添加身份验证
 ) -> Dict[str, Any]:
     """
     对比两个子集（需要登录）

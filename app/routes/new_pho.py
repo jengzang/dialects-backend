@@ -18,8 +18,7 @@ router = APIRouter()
 
 @router.post("/charlist")
 async def generate_combinations_and_query(
-        payload: CharListRequest,
-        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+        payload: CharListRequest,  # 自动限流和日志记录
 ) -> List[Dict]:
     path_strings = payload.path_strings
     column = payload.column
@@ -51,8 +50,7 @@ async def generate_combinations_and_query(
 
 @router.post("/ZhongGu")
 async def analyze_zhonggu(
-        payload: ZhongGuAnalysis,
-        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+        payload: ZhongGuAnalysis,  # 自动限流和日志记录
 ):
     """
     全新的接口：
@@ -102,8 +100,7 @@ async def analyze_zhonggu(
 
 @router.post("/YinWei")
 async def analyze_yinwei(
-        payload: YinWeiAnalysis,
-        user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+        payload: YinWeiAnalysis,  # 自动限流和日志记录
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
 
