@@ -5,7 +5,8 @@ from typing import List, Union, Optional
 
 from sqlalchemy.orm import Session
 
-# from app.auth.models import User
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from app.custom.database import get_db
 from app.service.locs_regions import fetch_dialect_region
 # from app.logging.dependencies.limiter import ApiLimiter
@@ -15,7 +16,8 @@ router = APIRouter()
 @router.get("/get_regions")
 async def get_regions(
     input_data: Union[str, List[str]] = Query(..., alias="input_data"),
-    db: Session = Depends(get_db)  # 自动限流和日志记录
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     - :param input_data:地點簡稱

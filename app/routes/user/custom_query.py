@@ -11,8 +11,9 @@ from app.custom.database import get_db as get_db_custom
 from app.schemas import QueryParams, FeatureQueryParams
 from app.custom.read_custom import get_from_submission
 from app.service.match_input_tip import match_custom_feature
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 
 router = APIRouter()
 
@@ -22,7 +23,8 @@ async def query_location_data(
         locations: List[str] = Query(..., description="要查的地點，可多個"),
         regions: List[str] = Query(..., description="要查的分區，可多個"),
         need_features: str = Query(..., description="要查的特徵，用逗號分隔（例如：流,深）"),
-        db: Session = Depends(get_db_custom)  # 自动限流和日志记录
+        db: Session = Depends(get_db_custom),
+        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     用于 /api/get_custom 查詢用戶自定義填入的地點的相關信息用於繪圖。
@@ -50,7 +52,8 @@ async def get_custom_feature(
         locations: List[str] = Query(..., description="要查的地點，可多個"),
         regions: List[str] = Query(..., description="要查的音典分區，可多個"),
         word: str = Query(..., description="用戶輸入，待匹配特徵"),
-        db: Session = Depends(get_db_custom)  # 自动限流和日志记录
+        db: Session = Depends(get_db_custom),
+        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     用于 /api/get_custom_feature 查詢用戶自定義填入的地點所含的特徵。

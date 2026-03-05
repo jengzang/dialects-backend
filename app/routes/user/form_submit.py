@@ -11,16 +11,17 @@ from app.custom.database import get_db as get_db_custom
 from app.custom.delete import handle_form_deletion
 from app.schemas import FormData
 from app.custom.write_submit import handle_form_submission
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.dependencies import get_current_user
-# from app.auth.models import User
+from app.auth.models import User
 
 router = APIRouter()
 
 @router.post("/submit_form")
 async def submit_form(
     payload: FormData,
-    db: Session = Depends(get_db_custom),  # 自动限流和日志记录
+    db: Session = Depends(get_db_custom),
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     用于 /api/submit_form 的用戶自定表單提交，寫入數據庫supplements.db。
@@ -53,7 +54,8 @@ async def submit_form(
 @router.delete("/delete_form")
 async def delete_form(
     payload: FormData,
-    db: Session = Depends(get_db_custom),  # 自动限流和日志记录
+    db: Session = Depends(get_db_custom),
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     用于 /api/delete_form 的用戶自定表單刪除。

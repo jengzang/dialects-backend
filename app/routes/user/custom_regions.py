@@ -14,8 +14,9 @@ from app.schemas.custom_region import (
     CustomRegionResponse,
     CustomRegionList
 )
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 
 router = APIRouter()
 
@@ -23,7 +24,8 @@ router = APIRouter()
 @router.post("/api/custom_regions", response_model=dict)
 async def create_or_update_custom_region(
     data: CustomRegionCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     创建或更新自定义区域
@@ -68,7 +70,8 @@ async def create_or_update_custom_region(
 @router.delete("/api/custom_regions", response_model=dict)
 async def delete_custom_region(
     region_name: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     删除自定义区域
@@ -105,7 +108,8 @@ async def delete_custom_region(
 @router.get("/api/custom_regions", response_model=CustomRegionList)
 async def get_custom_regions(
     region_name: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     获取用户的自定义区域列表
