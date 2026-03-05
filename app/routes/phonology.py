@@ -11,9 +11,9 @@ from typing import Optional, List
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-# from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest, FeatureStatsRequest
 
 from app.service.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key
@@ -28,7 +28,8 @@ router = APIRouter()
 
 @router.post("/phonology")
 async def api_run_phonology_analysis(
-        payload: AnalysisPayload,  # 自动限流和日志记录
+        payload: AnalysisPayload,
+        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -133,7 +134,8 @@ def run_phonology_analysis(
 
 @router.get("/feature_counts")
 async def feature_counts(
-    locations: List[str] = Query(...)  # 获取当前用户，如果未登录则为None
+    locations: List[str] = Query(...),
+    user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
 ):
     try:
         # 根據用戶身分決定資料庫
@@ -151,7 +153,8 @@ async def feature_counts(
 
 @router.post("/phonology_matrix")
 async def phonology_matrix(
-    payload: PhonologyMatrixRequest  # 自动限流和日志记录
+    payload: PhonologyMatrixRequest,
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     获取指定地点的声母-韵母-汉字交叉表数据
@@ -228,7 +231,8 @@ async def phonology_matrix(
 
 @router.post("/phonology_classification_matrix")
 async def api_phonology_classification_matrix(
-    payload: PhonologyClassificationMatrixRequest  # 自动限流和日志记录
+    payload: PhonologyClassificationMatrixRequest,
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     創建音韻特徵分類矩陣
@@ -267,7 +271,8 @@ async def api_phonology_classification_matrix(
 
 @router.post("/feature_stats")
 async def feature_stats(
-    payload: FeatureStatsRequest  # 自动限流和日志记录
+    payload: FeatureStatsRequest,
+    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     獲取指定地點的音韻特徵統計數據（索引優化格式）
