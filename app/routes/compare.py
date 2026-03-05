@@ -5,6 +5,7 @@
 from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.database import get_db
 from app.sql.db_selector import get_dialects_db, get_query_db
@@ -14,6 +15,7 @@ from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
 from app.service.compare import compare_characters
 from app.service.compare_tones import compare_tones
+from app.schemas.phonology import CompareZhongGuAnalysis
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
 
 router = APIRouter()
@@ -147,3 +149,161 @@ async def compare_tones_route(
 
     finally:
         print("compare_tones")
+
+
+@router.post("/compare/ZhongGu")
+async def compare_zhonggu(
+    payload: CompareZhongGuAnalysis,
+    dialects_db: str = Depends(get_dialects_db),
+    query_db: str = Depends(get_query_db)
+):
+    """
+    比较两组中古音条件在方言中的读音差异
+
+    性能优化：
+    - 使用轻量级统计查询（不处理多音字详情）
+    - 只返回值和占比，不返回具体汉字
+    - 预计比标准 ZhongGu API 快 3-5 倍
+    """
+    from app.service.new_pho import process_chars_status, generate_cache_key, get_cache, set_cache
+    from app.service.status_arrange_pho import query_by_status_stats_only
+    from app.service.getloc_by_name_region import query_dialect_abbreviations
+
+    try:
+        # === Step 1: 查询第一组汉字（含缓存） ===
+        cache_key1 = generate_cache_key(
+            payload.path_strings1,
+            payload.column1,
+            payload.combine_query1,
+            exclude_columns=payload.exclude_columns1
+        )
+        cached_char_result1 = await get_cache(cache_key1)
+
+        if cached_char_result1 is None:
+            char_result1 = await run_in_threadpool(
+                process_chars_status,
+                payload.path_strings1,
+                payload.column1,
+                payload.combine_query1,
+                exclude_columns=payload.exclude_columns1
+            )
+            if char_result1:
+                await set_cache(cache_key1, char_result1, expire_seconds=600)
+            cached_char_result1 = char_result1
+
+        if not cached_char_result1:
+            return {
+                "status": "empty",
+                "message": "第一组无符合条件的汉字",
+                "data": []
+            }
+
+        # === Step 2: 查询第二组汉字（含缓存） ===
+        cache_key2 = generate_cache_key(
+            payload.path_strings2,
+            payload.column2,
+            payload.combine_query2,
+            exclude_columns=payload.exclude_columns2
+        )
+        cached_char_result2 = await get_cache(cache_key2)
+
+        if cached_char_result2 is None:
+            char_result2 = await run_in_threadpool(
+                process_chars_status,
+                payload.path_strings2,
+                payload.column2,
+                payload.combine_query2,
+                exclude_columns=payload.exclude_columns2
+            )
+            if char_result2:
+                await set_cache(cache_key2, char_result2, expire_seconds=600)
+            cached_char_result2 = char_result2
+
+        if not cached_char_result2:
+            return {
+                "status": "empty",
+                "message": "第二组无符合条件的汉字",
+                "data": []
+            }
+
+        # === Step 3: 处理地点 ===
+        locations_processed = await run_in_threadpool(
+            query_dialect_abbreviations,
+            payload.regions,
+            payload.locations,
+            db_path=query_db,
+            region_mode=payload.region_mode
+        )
+
+        if not locations_processed:
+            return {
+                "status": "error",
+                "message": "无效的地点或分区",
+                "data": []
+            }
+
+        # === Step 4: 收集所有汉字 ===
+        chars1 = []
+        for item in cached_char_result1:
+            chars1.extend(item.get('汉字', []))
+
+        chars2 = []
+        for item in cached_char_result2:
+            chars2.extend(item.get('汉字', []))
+
+        # === Step 5: 轻量级统计查询（第一组） ===
+        stats1 = await run_in_threadpool(
+            query_by_status_stats_only,
+            char_list=chars1,
+            locations=locations_processed,
+            features=payload.features,
+            db_path=dialects_db
+        )
+
+        # === Step 6: 轻量级统计查询（第二组） ===
+        stats2 = await run_in_threadpool(
+            query_by_status_stats_only,
+            char_list=chars2,
+            locations=locations_processed,
+            features=payload.features,
+            db_path=dialects_db
+        )
+
+        # === Step 7: 组织响应数据 ===
+        comparison = []
+        for loc in locations_processed:
+            location_data = {
+                "location": loc,
+                "features": {}
+            }
+
+            for feature in payload.features:
+                location_data["features"][feature] = {
+                    "group1": stats1.get(loc, {}).get(feature, {"values": [], "total": 0}),
+                    "group2": stats2.get(loc, {}).get(feature, {"values": [], "total": 0})
+                }
+
+            comparison.append(location_data)
+
+        return {
+            "status": "success",
+            "group1": {
+                "conditions": payload.path_strings1,
+                "total_chars": len(set(chars1))
+            },
+            "group2": {
+                "conditions": payload.path_strings2,
+                "total_chars": len(set(chars2))
+            },
+            "comparison": comparison
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "data": []
+        }
+    finally:
+        print("compare_zhonggu")
+
