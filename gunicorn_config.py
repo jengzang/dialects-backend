@@ -22,9 +22,9 @@ def on_starting(server):
 
     # 导入必要的模块
     from app.auth.database import get_db
-    from app.logs.service.api_logger import start_api_logger_workers
+    from app.logging.service.api_logger import start_api_logger_workers
     from app.auth.service import start_user_activity_writer
-    from app.logs.scheduler import start_scheduler
+    from app.logging.scheduler import start_scheduler
 
     # 获取数据库连接
     db = next(get_db())
@@ -57,9 +57,9 @@ def on_exit(server):
     print("=" * 60)
 
     try:
-        from app.logs.service.api_logger import stop_api_logger_workers
+        from app.logging.service.api_logger import stop_api_logger_workers
         from app.auth.service import stop_user_activity_writer
-        from app.logs.scheduler import stop_scheduler
+        from app.logging.scheduler import stop_scheduler
 
         stop_api_logger_workers()
         stop_user_activity_writer()

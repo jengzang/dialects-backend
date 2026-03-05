@@ -10,7 +10,7 @@ from app.sql.sql_schemas import (
     BatchMutationParams, BatchReplacePreviewParams, BatchReplaceExecuteParams
 )
 from app.auth.dependencies import get_current_admin_user, get_current_user
-from app.logging.dependencies.limiter import ApiLimiter
+from app.logging.dependencies import ApiLimiter
 from app.auth.database import get_db as get_auth_db
 from app.auth.models import User
 
@@ -19,7 +19,8 @@ router = APIRouter()
 
 @router.post("/query")
 async def query_table(
-    params: QueryParams,  # 自动限流和日志记录
+    params: QueryParams,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
     auth_db: Session = Depends(get_auth_db)
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
@@ -106,7 +107,8 @@ async def query_table(
 @router.get("/query/columns")
 async def get_column_info(
     db_key: str,
-    table_name: str,  # 自动限流和日志记录
+    table_name: str,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
     auth_db: Session = Depends(get_auth_db)
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
@@ -144,11 +146,41 @@ async def get_column_info(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
+
+@router.get("/query/count")
+async def get_table_count(
+    db_key: str,
+    table_name: str,
+    user: Optional[User] = Depends(ApiLimiter),
+    auth_db: Session = Depends(get_auth_db)
+):
+    """
+    获取指定表的总行数 - 轻量级接口
+
+    参数:
+    - db_key: 数据库标识
+    - table_name: 表名
+
+    返回:
+    - count: 总行数
+    """
+    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            count = cursor.fetchone()[0]
+
+            return {"count": count}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
+
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(
     db_key: str,
     table_name: str,
     column: str,
+    user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """用于前端表头筛选弹窗，获取该列所有不重复的值"""
@@ -162,6 +194,7 @@ async def get_distinct_values(
 @router.post("/distinct-query")
 async def get_distinct_values(
     req: DistinctQueryRequest,
+    user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     with get_db_connection(req.db_key, user=user, operation="read", auth_db=auth_db) as conn:
@@ -257,6 +290,7 @@ async def get_distinct_values(
 @router.post("/mutate")
 async def mutate_table(
     params: MutationParams,
+    current_user: User = Depends(get_current_admin_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
@@ -300,6 +334,7 @@ async def mutate_table(
 @router.post("/batch-mutate")
 async def batch_mutate_table(
     params: BatchMutationParams,
+    current_user: User = Depends(get_current_admin_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
@@ -459,6 +494,7 @@ async def batch_mutate_table(
 @router.post("/batch-replace-preview")
 async def batch_replace_preview(
     params: BatchReplacePreviewParams,
+    current_user: User = Depends(get_current_admin_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
@@ -558,6 +594,7 @@ async def batch_replace_preview(
 @router.post("/batch-replace-execute")
 async def batch_replace_execute(
     params: BatchReplaceExecuteParams,
+    current_user: User = Depends(get_current_admin_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
