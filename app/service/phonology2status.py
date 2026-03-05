@@ -276,6 +276,103 @@ def analyze_characters_from_db(
     return pd.DataFrame(grouped_result)
 
 
+def analyze_characters_from_cached_df(
+        char_df,
+        char_list,
+        feature_type,
+        feature_value,
+        loc,
+        sub_df,
+        group_fields=None
+):
+    """
+    使用缓存的 characters DataFrame 进行分析（性能优化版本）
+
+    与 analyze_characters_from_db 功能相同，但不查询数据库，直接使用传入的 DataFrame
+
+    Args:
+        char_df: 已经查询好的 characters DataFrame（包含所有需要的汉字）
+        char_list: 当前需要分析的汉字列表
+        其他参数同 analyze_characters_from_db
+    """
+    default_grouping = {
+        "聲母": ["母"],
+        "韻母": ["攝"],
+        "聲調": ["清濁", "調"]
+    }
+
+    if not group_fields:
+        group_fields = default_grouping.get(feature_type)
+        if not group_fields:
+            raise ValueError(f"[X] 未定義的 feature_type：{feature_type}")
+
+    # 从缓存的 DataFrame 中过滤出当前需要的汉字
+    df = char_df[char_df["漢字"].isin(char_list)].copy()
+
+    if df.empty:
+        return []
+
+    # 确保所有必需的列存在
+    for col in ["攝", "韻", "等", "呼", "入", "清濁", "系", "組", "母", "調", "部位", "方式", "多地位標記"]:
+        if col not in df.columns:
+            df[col] = None
+
+    total_chars = len(set(sub_df["漢字"]))
+    grouped_result = []
+
+    df = df.dropna(subset=group_fields)
+    grouped = df.groupby(group_fields)
+
+    for group_keys, group_df in grouped:
+        suffix_map = {
+            "系": "系",
+            "組": "組",
+            "母": "母",
+            "攝": "攝",
+            "韻": "韻"
+        }
+
+        _, sample_row = next(group_df.iterrows())
+
+        value_parts = []
+        for field, val in zip(group_fields, group_keys):
+            if val in AMBIG_VALUES:
+                suffix = suffix_map.get(field)
+                if suffix:
+                    val = f"{val}{suffix}"
+            value_parts.append(val)
+        group_value = "·".join(value_parts)
+
+        group_values = {feature_value: group_value}
+
+        unique_chars = group_df["漢字"].unique().tolist()
+        count = len(unique_chars)
+
+        poly_details = []
+        poly_chars = group_df[group_df["多地位標記"] == "1"]["漢字"].unique()
+        for hz in poly_chars:
+            sub = df[(df["漢字"] == hz) & (df["多地位標記"] == "1")]
+            summary = []
+            for _, row in sub.iterrows():
+                parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
+                meta = f"{row['部位']}·{row['方式']}·{row['母']}"
+                summary.append(f"{parts},{meta}")
+            poly_details.append(f"{hz}: {' | '.join(summary)}")
+
+        grouped_result.append({
+            "地點": loc,
+            "特徵類別": feature_type,
+            "特徵值": feature_value,
+            "分組值": group_values,
+            "字數": count,
+            "佔比": round(count / total_chars, 4) if total_chars else 0,
+            "對應字": unique_chars,
+            "多地位詳情": "; ".join(poly_details)
+        })
+
+    return pd.DataFrame(grouped_result)
+
+
 def pho2sta(locations, regions, features, status_inputs,
             pho_values=None,
             dialect_db_path=DIALECTS_DB_USER,
@@ -314,8 +411,37 @@ def pho2sta(locations, regions, features, status_inputs,
     unique_abbrs = list({abbr for res in match_results for abbr in res[0]})
     # print(f"\n📍 確認匹配地點：{unique_abbrs}")
 
-    results = []
+    # 【性能优化】批量查询 characters.db（一次查询代替 N 次查询）
     dialect_output = query_dialect_features(unique_abbrs, features, db_path=dialect_db_path)
+
+    # 收集所有需要查询的汉字
+    all_chars = set()
+    for feature in features:
+        for feature_value, data in dialect_output[feature].items():
+            chars = data["漢字"]
+            all_chars.update(chars)
+
+    # 批量查询 characters.db（只查询一次）
+    pool = get_db_pool(character_db_path)
+    with pool.get_connection() as conn:
+        if all_chars:
+            placeholders = ','.join(['?'] * len(all_chars))
+            query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
+            all_chars_df = pd.read_sql_query(query, conn, params=list(all_chars))
+            print(f"[OK] 批量查询 characters.db 完成，共 {len(all_chars_df)} 条记录")
+        else:
+            all_chars_df = pd.DataFrame()
+
+    # 应用过滤逻辑（exclude_columns）
+    if exclude_columns and not all_chars_df.empty:
+        for col_name in exclude_columns:
+            if col_name in all_chars_df.columns:
+                all_chars_df = all_chars_df[
+                    (all_chars_df[col_name] != 1) &
+                    (all_chars_df[col_name] != "1")
+                ]
+
+    results = []
 
     for loc in unique_abbrs:
         # print(f"\n🔷 開始處理地點：{loc}")
@@ -361,15 +487,15 @@ def pho2sta(locations, regions, features, status_inputs,
                     # print("        [!] 該特徵值在此地點無資料，略過")
                     continue
 
-                result = analyze_characters_from_db(
+                # 【性能优化】使用缓存的 DataFrame，不再查询数据库
+                result = analyze_characters_from_cached_df(
+                    char_df=all_chars_df,
                     char_list=loc_chars,
                     feature_type=feature,
                     feature_value=feature_value,
                     loc=loc,
                     sub_df=sub_df[sub_df["簡稱"] == loc],
-                    char_db_path=character_db_path,
-                    group_fields=group_fields,
-                    exclude_columns=exclude_columns
+                    group_fields=group_fields
                 )
 
                 results.extend(result if isinstance(result, list) else [result])
