@@ -18,7 +18,7 @@ from app.logging.stats import (
 )
 
 
-router = APIRouter(prefix="/logs", tags=["日志统计"])
+router = APIRouter(tags=["日志统计"])
 
 
 # === 关键词统计 ===
