@@ -7,9 +7,10 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
-from app.auth.dependencies import get_current_user
+from app.sql.db_selector import get_dialects_db, get_query_db
+# from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+# from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
 from app.service.compare import compare_characters
 from app.service.compare_tones import compare_tones
@@ -26,7 +27,8 @@ async def compare_chars(
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
     db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user)
+    dialects_db: str = Depends(get_dialects_db),
+    query_db: str = Depends(get_query_db)
 ):
     """
     比较多个汉字在不同地点的音韵特征差异
@@ -52,18 +54,16 @@ async def compare_chars(
           - values: 当 status=diff/partial/unknown 时各字的值
     """
     try:
+        # 数据库路径已通过依赖注入自动选择
         # 处理地点输入（逻辑与 search_chars 完全一致）
-        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         locations_processed = match_locations_batch_all(
             locations or [],
             filter_valid_abbrs_only=True,
             exact_only=True,
             query_db=query_db,
             db=db,
-            user=user
+            user=None  # 不再需要 user 对象
         )
-
-        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
 
         # 执行比较
         result = compare_characters(
@@ -71,7 +71,7 @@ async def compare_chars(
             features=features,
             locations=locations_processed,
             regions=regions,
-            db_path=db_path,
+            db_path=dialects_db,
             region_mode=region_mode,
             query_db_path=query_db
         )
@@ -89,7 +89,7 @@ async def compare_tones_route(
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
     db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user)
+    query_db: str = Depends(get_query_db)
 ):
     """
     比较同一地点内不同调类的合并关系
@@ -121,15 +121,15 @@ async def compare_tones_route(
           - reason: 当 status=maybe 时的原因说明
     """
     try:
+        # 数据库路径已通过依赖注入自动选择
         # 处理地点输入（逻辑与 search_tones 完全一致）
-        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
         locations_processed = match_locations_batch_all(
             locations or [],
             filter_valid_abbrs_only=True,
             exact_only=True,
             query_db=query_db,
             db=db,
-            user=user
+            user=None  # 不再需要 user 对象
         )
 
         # 执行比较

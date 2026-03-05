@@ -11,9 +11,10 @@ from typing import Optional, List
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth.dependencies import get_current_user
+from app.sql.db_selector import get_dialects_db, get_query_db
+# from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+# from app.auth.models import User
 from app.schemas import AnalysisPayload, PhonologyClassificationMatrixRequest, PhonologyMatrixRequest, FeatureStatsRequest
 
 from app.service.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key
@@ -29,7 +30,8 @@ router = APIRouter()
 @router.post("/phonology")
 async def api_run_phonology_analysis(
         payload: AnalysisPayload,
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+        dialects_db: str = Depends(get_dialects_db),
+        query_db: str = Depends(get_query_db)
 ):
     """
      - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
@@ -52,10 +54,8 @@ async def api_run_phonology_analysis(
 
     # start = time.time()
     try:
-        # 根據用戶身分決定資料庫
-        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-        query_db = QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
-        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=db_path, query_db=query_db)
+        # 数据库路径已通过依赖注入自动选择
+        result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=dialects_db, query_db=query_db)
         if not result:
             raise HTTPException(status_code=400, detail="[X] 輸入的中古地位不存在")
         status = 200
@@ -135,14 +135,11 @@ def run_phonology_analysis(
 @router.get("/feature_counts")
 async def feature_counts(
     locations: List[str] = Query(...),
-    user: Optional[User] = Depends(get_current_user)  # 获取当前用户，如果未登录则为None
+    dialects_db: str = Depends(get_dialects_db)
 ):
     try:
-        # 根據用戶身分決定資料庫
-        db_path = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
-        # print(db_path)
-        # print(locations)
-        result = get_feature_counts(locations, db_path)
+        # 数据库路径已通过依赖注入自动选择
+        result = get_feature_counts(locations, dialects_db)
         # 如果结果为空，可以抛出 HTTP 404 错误
         if not result:
             raise HTTPException(status_code=404, detail="No data found for the given locations.")
@@ -154,7 +151,7 @@ async def feature_counts(
 @router.post("/phonology_matrix")
 async def phonology_matrix(
     payload: PhonologyMatrixRequest,
-    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+    dialects_db: str = Depends(get_dialects_db)
 ):
     """
     获取指定地点的声母-韵母-汉字交叉表数据
@@ -172,9 +169,9 @@ async def phonology_matrix(
     # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
-        # 根据用户身份决定数据库
-        db_type = "admin" if user and user.role == "admin" else "user"
-        db_path = DIALECTS_DB_ADMIN if db_type == "admin" else DIALECTS_DB_USER
+        # 数据库路径已通过依赖注入自动选择
+        # 根据数据库路径判断类型（用于缓存键）
+        db_type = "admin" if dialects_db == DIALECTS_DB_ADMIN else "user"
 
         locations = payload.locations
 
@@ -200,7 +197,7 @@ async def phonology_matrix(
         result = await asyncio.to_thread(
             get_all_phonology_matrices,
             locations=locations,
-            db_path=db_path
+            db_path=dialects_db
         )
 
         if not result or not result.get("data"):
@@ -232,7 +229,7 @@ async def phonology_matrix(
 @router.post("/phonology_classification_matrix")
 async def api_phonology_classification_matrix(
     payload: PhonologyClassificationMatrixRequest,
-    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+    dialects_db: str = Depends(get_dialects_db)
 ):
     """
     創建音韻特徵分類矩陣
@@ -243,8 +240,7 @@ async def api_phonology_classification_matrix(
     # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
-        # 根據用戶角色選擇數據庫
-        dialect_db = DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+        # 数据库路径已通过依赖注入自动选择
 
         # 在線程池中運行（避免阻塞）
         result = await asyncio.to_thread(
@@ -254,7 +250,7 @@ async def api_phonology_classification_matrix(
             horizontal_column=payload.horizontal_column,
             vertical_column=payload.vertical_column,
             cell_row_column=payload.cell_row_column,
-            dialect_db_path=dialect_db
+            dialect_db_path=dialects_db
         )
 
         return result
@@ -272,7 +268,7 @@ async def api_phonology_classification_matrix(
 @router.post("/feature_stats")
 async def feature_stats(
     payload: FeatureStatsRequest,
-    user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+    dialects_db: str = Depends(get_dialects_db)
 ):
     """
     獲取指定地點的音韻特徵統計數據（索引優化格式）
@@ -321,9 +317,9 @@ async def feature_stats(
     # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
-        # 根据用户身份决定数据库
-        db_type = "admin" if user and user.role == "admin" else "user"
-        db_path = DIALECTS_DB_ADMIN if db_type == "admin" else DIALECTS_DB_USER
+        # 数据库路径已通过依赖注入自动选择
+        # 根据数据库路径判断类型（用于缓存键）
+        db_type = "admin" if dialects_db == DIALECTS_DB_ADMIN else "user"
 
         # 生成緩存鍵
         cache_key = generate_cache_key(
@@ -349,7 +345,7 @@ async def feature_stats(
             chars=payload.chars,
             features=payload.features,
             filters=payload.filters,
-            db_path=db_path
+            db_path=dialects_db
         )
 
         if not result or not result.get("data"):
