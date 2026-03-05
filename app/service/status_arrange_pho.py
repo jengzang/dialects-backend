@@ -164,31 +164,35 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         except Exception as e:
             print(f"[X] 查詢失敗：{e}")
 
-    # 2. 为每个地点分别查询多音字资料，并构建多音字字典
+    # 2. 批量查询所有地点的多音字资料（优化：一次查询代替 N 次查询）
     poly_dicts = {}  # 存儲每個地點的多音字字典
-    for loc in locations:
-        # 針對每個地點進行查詢
-        # print(f"[SEARCH] 查詢地點：{loc}")
-        pool_poly = get_db_pool(db_path)
-        with pool_poly.get_connection() as conn_poly:
-            try:
-                # 查詢該地點的多音字資料
-                query = f"""
-                SELECT 漢字, 音節
-                FROM {table}
-                WHERE 多音字 = '1'
-                AND 簡稱 = '{loc}'
-                AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
-                """
-                poly_data = pd.read_sql_query(query, conn_poly)
-                # print(f"[OK] 地點 {loc} 的多音字資料載入完成，共 {len(poly_data)} 條")
-            except Exception as e:
-                print(f"[X] 查詢地點 {loc} 的多音字資料失敗：{e}")
+    pool_poly = get_db_pool(db_path)
+    with pool_poly.get_connection() as conn_poly:
+        try:
+            # 一次性查询所有地点的多音字资料
+            query = f"""
+            SELECT 簡稱, 漢字, 音節
+            FROM {table}
+            WHERE 多音字 = '1'
+            AND 簡稱 IN ({','.join(f"'{loc}'" for loc in locations)})
+            AND 漢字 IN ({','.join(f"'{char}'" for char in char_list)})
+            """
+            poly_data = pd.read_sql_query(query, conn_poly)
+            # print(f"[OK] 批量查询多音字资料完成，共 {len(poly_data)} 条")
+        except Exception as e:
+            print(f"[X] 批量查询多音字资料失败：{e}")
+            poly_data = pd.DataFrame()  # 查询失败时使用空 DataFrame
 
-        # 構建該地點的多音字字典
-        poly_dict = poly_data.groupby("漢字")["音節"].apply(lambda x: '|'.join(x)).to_dict()
+    # 按地点分组构建多音字字典
+    for loc in locations:
+        loc_poly = poly_data[poly_data['簡稱'] == loc] if not poly_data.empty else pd.DataFrame()
+        if not loc_poly.empty:
+            poly_dict = loc_poly.groupby("漢字")["音節"].apply(lambda x: '|'.join(x)).to_dict()
+        else:
+            poly_dict = {}
         poly_dicts[loc] = poly_dict
-        # print(f"[OK] 地點 {loc} 的多音字字典建構完成，共 {len(poly_dict)} 條")
+        # print(f"[OK] 地点 {loc} 的多音字字典建构完成，共 {len(poly_dict)} 条")
+
 
     # 3. 開始處理資料
     results = []
