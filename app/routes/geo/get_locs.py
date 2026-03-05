@@ -8,8 +8,9 @@ from typing import List, Optional
 from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
 from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
 from app.service.getloc_by_name_region import query_dialect_abbreviations
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 
 router = APIRouter()
 
@@ -18,7 +19,8 @@ router = APIRouter()
 async def get_all_locs(
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，yindian 或 map")  # [OK] 加上這行
+        region_mode: str = Query("yindian", description="分區模式，yindian 或 map"),
+        user: Optional[User] = Depends(get_current_user)  # [OK] 加上這行
 ):
     """
     - 用于 /api/get_locs 查匹配的地點（分區+地點），返回地點序列。

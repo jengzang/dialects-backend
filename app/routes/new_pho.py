@@ -4,8 +4,9 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
 from app.service.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
@@ -50,7 +51,8 @@ async def generate_combinations_and_query(
 
 @router.post("/ZhongGu")
 async def analyze_zhonggu(
-        payload: ZhongGuAnalysis,  # 自动限流和日志记录
+        payload: ZhongGuAnalysis,
+        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     """
     全新的接口：
@@ -100,7 +102,8 @@ async def analyze_zhonggu(
 
 @router.post("/YinWei")
 async def analyze_yinwei(
-        payload: YinWeiAnalysis,  # 自动限流和日志记录
+        payload: YinWeiAnalysis,
+        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
 

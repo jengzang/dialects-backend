@@ -7,8 +7,9 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.auth.database import get_db
+from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-# from app.auth.models import User
+from app.auth.models import User
 from app.service.match_input_tip import match_locations_batch_all
 from app.service.compare import compare_characters
 from app.service.compare_tones import compare_tones
@@ -24,7 +25,8 @@ async def compare_chars(
     locations: Optional[List[str]] = Query(None, description="要查的地点，可多个"),
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     比较多个汉字在不同地点的音韵特征差异
@@ -86,7 +88,8 @@ async def compare_tones_route(
     locations: Optional[List[str]] = Query(None, description="要查的地点，可多个"),
     regions: Optional[List[str]] = Query(None, description="要查的分区，可多个"),
     region_mode: str = Query("yindian", description="分区模式，可选 'yindian' 或 'map'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     比较同一地点内不同调类的合并关系
