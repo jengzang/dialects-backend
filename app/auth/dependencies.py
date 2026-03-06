@@ -5,8 +5,9 @@ from fastapi import Depends, HTTPException, Request
 from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from app.auth import models
-from app.auth.database import get_db
+from app.auth.database import get_db, SessionLocal
 from app.auth.models import User, ApiUsageLog
 from app.auth.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
 from app.redis_client import redis_client
@@ -22,6 +23,16 @@ def user_to_dict(user: models.User) -> dict:
         if isinstance(value, datetime):
             user_dict[key] = value.isoformat()  # 转换为 ISO 8601 字符串格式
     return user_dict
+
+
+def _get_user_by_username_sync(username: str) -> Optional[models.User]:
+    db = SessionLocal()
+    try:
+        return db.query(models.User).filter(models.User.username == username).first()
+    finally:
+        db.close()
+
+
 async def get_current_user(
         request: Request,
         db: Session = Depends(get_db),
@@ -60,7 +71,7 @@ async def get_current_user(
 
     # 2. 如果缓存中没有，查询数据库
     # print("啥都没存,我还是查库")
-    user = db.query(models.User).filter(models.User.username == username).first()
+    user = await run_in_threadpool(_get_user_by_username_sync, username)
     # print(user)
     if not user:
         return None  # 用户不存在
@@ -85,7 +96,7 @@ async def get_current_user(
 
 
 # [OK] 1. 改為 async def
-async def get_current_user_for_middleware(request: Request, db: Session):
+async def get_current_user_for_middleware(request: Request, db: Session | None = None):
     # --- 前半部分邏輯不變 ---
     auth_header = request.headers.get("Authorization")
     # 打印调试信息，查看 token
@@ -125,7 +136,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
 
     # --- 數據庫部分 (保持同步阻塞) ---
     # [!] 注意：這裡 sql.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
-    user = db.query(models.User).filter(models.User.username == username).first()
+    user = await run_in_threadpool(_get_user_by_username_sync, username)
 
     if not user:
         return None
@@ -173,7 +184,7 @@ async def get_current_admin_user(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     # ✅ 从数据库验证role（最终权威）
-    user = db.query(User).filter(User.username == username).first()
+    user = await run_in_threadpool(_get_user_by_username_sync, username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
