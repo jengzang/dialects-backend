@@ -3,6 +3,7 @@ Praat acoustic analysis API routes (task_manager version).
 """
 from fastapi import APIRouter, UploadFile, File, Form, Depends, BackgroundTasks, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 from typing import Optional, Literal
 import shutil
@@ -28,9 +29,17 @@ from .utils.validators import (
 )
 from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id
 from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
 
-router = APIRouter(prefix="/api/tools/praat", tags=["Praat Acoustic Analysis"])
+router = APIRouter(
+    prefix="/api/tools/praat",
+    tags=["Praat Acoustic Analysis"],
+    dependencies=[Depends(ApiLimiter)]
+)
+
+
+def _save_upload_file(src_file, dst_path: Path) -> None:
+    with open(dst_path, "wb") as f:
+        shutil.copyfileobj(src_file, f)
 
 
 @router.get("/capabilities")
@@ -115,20 +124,20 @@ async def create_upload(
     original_ext = Path(original_filename).suffix.lower()
     original_path = task_dir / f"original{original_ext}"
 
-    with open(original_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    await run_in_threadpool(_save_upload_file, file.file, original_path)
 
     # Get file size and validate
     original_size = original_path.stat().st_size
     validate_upload_file(original_size)
 
     # Detect format
-    detected_mime = detect_audio_format(original_path)
+    detected_mime = await run_in_threadpool(detect_audio_format, original_path)
 
     # Normalize audio (mandatory)
     normalized_path = task_dir / "normalized.wav"
     try:
-        normalize_audio(
+        await run_in_threadpool(
+            normalize_audio,
             input_path=original_path,
             output_path=normalized_path,
             target_sr=16000,
@@ -136,7 +145,7 @@ async def create_upload(
         )
 
         # Validate normalized audio
-        audio_meta = detect_audio_format(normalized_path)
+        audio_meta = await run_in_threadpool(detect_audio_format, normalized_path)
         normalized_meta = {
             "format": "wav",
             "sample_rate": audio_meta["sample_rate"],
