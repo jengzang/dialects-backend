@@ -1,83 +1,71 @@
 """
-API 日志记录中间件：自动记录 API 调用参数
+Request parameter logging middleware.
 """
 import json
-from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request
-from app.logging.middleware.traffic_logging import log_all_fields, update_count
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.logging.middleware.traffic_logging import (
+    log_all_fields,
+    update_hourly_daily_stats,
+    _capture_request_body,
+)
 from app.logging.utils.route_matcher import match_route_config, should_skip_route
 
 
 class ApiLoggingMiddleware(BaseHTTPMiddleware):
-    """
-    API 日志记录中间件
-
-    功能：
-    1. 根据配置自动记录 API 参数
-    2. 支持记录查询参数、请求体
-    3. 不阻塞请求处理
-    """
-
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        max_logged_body_size = 64 * 1024
 
-        # 跳过白名单路由
         if should_skip_route(path):
             return await call_next(request)
 
-        # 获取路由配置
-        config = match_route_config(path)
+        try:
+            update_hourly_daily_stats(path)
+        except Exception as e:
+            print(f"[ERROR] update_hourly_daily_stats failed: {e}")
 
-        # 如果不需要记录日志，直接放行
+        config = match_route_config(path)
         if not config.get("log_params") and not config.get("log_body"):
             return await call_next(request)
 
-        # print(f"[ApiLoggingMiddleware] 开始记录日志: {path}")
-
-        # 收集要记录的参数
         params_to_log = {}
 
-        # 1. 记录查询参数
         if config.get("log_params") and request.query_params:
             params_to_log.update(dict(request.query_params))
-            # print(f"[ApiLoggingMiddleware] 记录查询参数: {len(request.query_params)} 个")
 
-        # 2. 记录请求体
         if config.get("log_body") and request.method in ["POST", "PUT", "PATCH"]:
             try:
-                # 读取请求体
-                body = await request.body()
-                if body:
-                    try:
-                        body_data = json.loads(body)
-                        params_to_log.update(body_data)
-                        print(f"[ApiLoggingMiddleware] 记录请求体: {len(body_data)} 个字段")
-                    except json.JSONDecodeError:
-                        params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
-                        print(f"[ApiLoggingMiddleware] 记录原始请求体")
+                content_type = (request.headers.get("Content-Type") or "").lower()
+                content_length = request.headers.get("Content-Length")
+                body_len = int(content_length) if content_length and content_length.isdigit() else None
 
-                # 重新构造请求以便后续处理
-                async def receive():
-                    return {"type": "http.request", "body": body}
+                should_log_body = (
+                    "application/json" in content_type
+                    and (body_len is None or body_len <= max_logged_body_size)
+                )
 
-                request._receive = receive
+                if should_log_body:
+                    body = await _capture_request_body(request)
+                    if body and len(body) <= max_logged_body_size:
+                        try:
+                            body_data = json.loads(body)
+                            if isinstance(body_data, dict):
+                                params_to_log.update(body_data)
+                            else:
+                                params_to_log["_body_type"] = type(body_data).__name__
+                        except json.JSONDecodeError:
+                            params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
             except Exception as e:
-                print(f"[WARN] 读取请求体失败: {e}")
+                print(f"[WARN] request body logging failed: {e}")
 
-        # 3. 异步记录日志（不阻塞请求）
         if params_to_log:
             try:
                 log_all_fields(path, params_to_log)
-                # print(f"[ApiLoggingMiddleware] ✅ 已放入日志队列: {len(params_to_log)} 个参数")
             except Exception as e:
-                print(f"[ERROR] 记录日志失败: {e}")
+                print(f"[ERROR] log_all_fields failed: {e}")
 
-        # 4. 更新 API 调用统计（用于小时级和每日统计）
-        try:
-            update_count(path)
-        except Exception as e:
-            print(f"[ERROR] 更新统计失败: {e}")
 
-        # 5. 继续处理请求
         response = await call_next(request)
         return response
