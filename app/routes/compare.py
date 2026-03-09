@@ -2,7 +2,11 @@
 [PKG] 路由模块：字音比较 API
 """
 
-from fastapi import APIRouter, Query, Depends
+import asyncio
+import hashlib
+import json
+
+from fastapi import APIRouter, Query, Depends, HTTPException
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -58,17 +62,19 @@ async def compare_chars(
     try:
         # 数据库路径已通过依赖注入自动选择
         # 处理地点输入（逻辑与 search_chars 完全一致）
-        locations_processed = match_locations_batch_all(
+        locations_processed = await run_in_threadpool(
+            match_locations_batch_all,
             locations or [],
             filter_valid_abbrs_only=True,
             exact_only=True,
             query_db=query_db,
             db=db,
-            user=user  # 传递 user 对象以支持自定义地点
+            user=user
         )
 
         # 执行比较
-        result = compare_characters(
+        result = await run_in_threadpool(
+            compare_characters,
             chars=chars,
             features=features,
             locations=locations_processed,
@@ -126,17 +132,19 @@ async def compare_tones_route(
     try:
         # 数据库路径已通过依赖注入自动选择
         # 处理地点输入（逻辑与 search_tones 完全一致）
-        locations_processed = match_locations_batch_all(
+        locations_processed = await run_in_threadpool(
+            match_locations_batch_all,
             locations or [],
             filter_valid_abbrs_only=True,
             exact_only=True,
             query_db=query_db,
             db=db,
-            user=user  # 传递 user 对象以支持自定义地点
+            user=user
         )
 
         # 执行比较
-        result = compare_tones(
+        result = await run_in_threadpool(
+            compare_tones,
             tone_classes=tone_classes,
             locations=locations_processed,
             regions=regions,
@@ -169,26 +177,92 @@ async def compare_zhonggu(
     from app.service.getloc_by_name_region import query_dialect_abbreviations
 
     try:
-        # === Step 1: 查询第一组汉字（含缓存） ===
-        cache_key1 = generate_cache_key(
-            payload.path_strings1,
-            payload.column1,
-            payload.combine_query1,
-            exclude_columns=payload.exclude_columns1
-        )
-        cached_char_result1 = await get_cache(cache_key1)
-
-        if cached_char_result1 is None:
-            char_result1 = await run_in_threadpool(
+        async def _resolve_chars(path_strings, column, combine_query, exclude_columns):
+            cache_key = generate_cache_key(
+                path_strings,
+                column,
+                combine_query,
+                exclude_columns=exclude_columns
+            )
+            cached_result = await get_cache(cache_key)
+            if cached_result is not None:
+                return cached_result
+            fresh_result = await run_in_threadpool(
                 process_chars_status,
+                path_strings,
+                column,
+                combine_query,
+                exclude_columns=exclude_columns
+            )
+            if fresh_result:
+                await set_cache(cache_key, fresh_result, expire_seconds=600)
+            return fresh_result
+
+        async def _resolve_stats(chars_unique, locations, features):
+            stats_payload = {
+                "chars": chars_unique,
+                "locations": list(dict.fromkeys(locations)),
+                "features": list(dict.fromkeys(features)),
+                "db_path": dialects_db
+            }
+            stats_key = "compare_zhonggu_stats:" + hashlib.sha256(
+                json.dumps(stats_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            cached_stats = await get_cache(stats_key)
+            if isinstance(cached_stats, dict):
+                return cached_stats
+
+            fresh_stats = await run_in_threadpool(
+                query_by_status_stats_only,
+                char_list=chars_unique,
+                locations=locations,
+                features=features,
+                db_path=dialects_db
+            )
+            if fresh_stats:
+                await set_cache(stats_key, fresh_stats, expire_seconds=120)
+            return fresh_stats or {}
+
+        async def _resolve_locations():
+            location_payload = {
+                "regions": payload.regions,
+                "locations": payload.locations,
+                "region_mode": payload.region_mode,
+                "query_db": query_db
+            }
+            location_key = "compare_zhonggu_locations:" + hashlib.sha256(
+                json.dumps(location_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            cached_locations = await get_cache(location_key)
+            if isinstance(cached_locations, list):
+                return cached_locations
+
+            fresh_locations = await run_in_threadpool(
+                query_dialect_abbreviations,
+                payload.regions,
+                payload.locations,
+                db_path=query_db,
+                region_mode=payload.region_mode
+            )
+            if fresh_locations:
+                await set_cache(location_key, fresh_locations, expire_seconds=60)
+            return fresh_locations or []
+
+        # === Step 1 & 2: 并行查询两组汉字（含缓存） ===
+        cached_char_result1, cached_char_result2 = await asyncio.gather(
+            _resolve_chars(
                 payload.path_strings1,
                 payload.column1,
                 payload.combine_query1,
-                exclude_columns=payload.exclude_columns1
+                payload.exclude_columns1
+            ),
+            _resolve_chars(
+                payload.path_strings2,
+                payload.column2,
+                payload.combine_query2,
+                payload.exclude_columns2
             )
-            if char_result1:
-                await set_cache(cache_key1, char_result1, expire_seconds=600)
-            cached_char_result1 = char_result1
+        )
 
         if not cached_char_result1:
             return {
@@ -196,27 +270,6 @@ async def compare_zhonggu(
                 "message": "第一组无符合条件的汉字",
                 "data": []
             }
-
-        # === Step 2: 查询第二组汉字（含缓存） ===
-        cache_key2 = generate_cache_key(
-            payload.path_strings2,
-            payload.column2,
-            payload.combine_query2,
-            exclude_columns=payload.exclude_columns2
-        )
-        cached_char_result2 = await get_cache(cache_key2)
-
-        if cached_char_result2 is None:
-            char_result2 = await run_in_threadpool(
-                process_chars_status,
-                payload.path_strings2,
-                payload.column2,
-                payload.combine_query2,
-                exclude_columns=payload.exclude_columns2
-            )
-            if char_result2:
-                await set_cache(cache_key2, char_result2, expire_seconds=600)
-            cached_char_result2 = char_result2
 
         if not cached_char_result2:
             return {
@@ -226,13 +279,7 @@ async def compare_zhonggu(
             }
 
         # === Step 3: 处理地点 ===
-        locations_processed = await run_in_threadpool(
-            query_dialect_abbreviations,
-            payload.regions,
-            payload.locations,
-            db_path=query_db,
-            region_mode=payload.region_mode
-        )
+        locations_processed = await _resolve_locations()
 
         if not locations_processed:
             return {
@@ -250,22 +297,13 @@ async def compare_zhonggu(
         for item in cached_char_result2:
             chars2.extend(item.get('汉字', []))
 
-        # === Step 5: 轻量级统计查询（第一组） ===
-        stats1 = await run_in_threadpool(
-            query_by_status_stats_only,
-            char_list=chars1,
-            locations=locations_processed,
-            features=payload.features,
-            db_path=dialects_db
-        )
+        chars1_unique = list(dict.fromkeys(chars1))
+        chars2_unique = list(dict.fromkeys(chars2))
 
-        # === Step 6: 轻量级统计查询（第二组） ===
-        stats2 = await run_in_threadpool(
-            query_by_status_stats_only,
-            char_list=chars2,
-            locations=locations_processed,
-            features=payload.features,
-            db_path=dialects_db
+        # === Step 5 & 6: 轻量级统计查询（含短TTL缓存） ===
+        stats1, stats2 = await asyncio.gather(
+            _resolve_stats(chars1_unique, locations_processed, payload.features),
+            _resolve_stats(chars2_unique, locations_processed, payload.features)
         )
 
         # === Step 7: 组织响应数据 ===
@@ -298,11 +336,9 @@ async def compare_zhonggu(
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "data": []
-        }
+        raise HTTPException(status_code=500, detail=f"compare_zhonggu failed: {e}")
     finally:
         print("compare_zhonggu")
+
+
 

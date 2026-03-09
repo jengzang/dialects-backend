@@ -136,6 +136,12 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
 
 
 def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS_DB_USER, table="dialects"):
+    if not char_list or not locations or not features:
+        return pd.DataFrame()
+    allowed_features = {"\u8072\u6bcd", "\u97fb\u6bcd", "\u8072\u8abf"}
+    features = [f for f in features if f in allowed_features]
+    if not features:
+        return pd.DataFrame()
     """
     📌 根據提供的漢字名單，查詢其在不同地點與語音特徵（如聲母/韻母）下的分佈情況。
 
@@ -609,75 +615,66 @@ def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
 
 def query_by_status_stats_only(char_list, locations, features, db_path=DIALECTS_DB_USER, table="dialects"):
     """
-    轻量级统计查询：只返回值和占比，不处理多音字详情
-
-    专为 Compare API 优化，性能提升 3-5 倍：
-    1. 不查询多音字、音节字段
-    2. 不做多音字的额外查询
-    3. 直接在 SQL 层面做聚合统计
-
-    Args:
-        char_list: 汉字列表
-        locations: 地点列表
-        features: 特征列表（聲母/韻母/聲調）
-        db_path: 数据库路径
-        table: 表名
-
-    Returns:
-        dict: {
-            "location": {
-                "feature": {
-                    "values": [{"value": "ts", "count": 30, "percentage": 60.0}, ...],
-                    "total": 50
-                }
-            }
-        }
+    Compare API stats-only fast path.
+    Returns nested structure by location -> feature with values/total.
     """
+    if not char_list or not locations or not features:
+        return {}
+    allowed_features = {"\u8072\u6bcd", "\u97fb\u6bcd", "\u8072\u8abf"}
+    features = [f for f in features if f in allowed_features]
+    if not features:
+        return {}
+
     pool = get_db_pool(db_path)
-    results = {}
+    locations = list(dict.fromkeys(locations))
+    features = list(dict.fromkeys(features))
+    results = {
+        loc: {feature: {"values": [], "total": 0} for feature in features}
+        for loc in locations
+    }
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
+        loc_placeholders = ','.join('?' for _ in locations)
+        char_placeholders = ','.join('?' for _ in char_list)
 
-        for loc in locations:
-            results[loc] = {}
+        for feature in features:
+            # Reduce query fan-out from locations x features to features-only queries.
+            query = f"""
+            SELECT
+                \u7c21\u7a31 as loc,
+                {feature} as value,
+                COUNT(DISTINCT \u6f22\u5b57) as count
+            FROM {table}
+            WHERE \u7c21\u7a31 IN ({loc_placeholders})
+            AND \u6f22\u5b57 IN ({char_placeholders})
+            AND {feature} IS NOT NULL
+            AND {feature} != ''
+            GROUP BY \u7c21\u7a31, {feature}
+            """
+            params = locations + char_list
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
 
-            for feature in features:
-                # 直接在 SQL 层面做聚合统计
-                query = f"""
-                SELECT
-                    {feature} as value,
-                    COUNT(DISTINCT 漢字) as count
-                FROM {table}
-                WHERE 簡稱 = ?
-                AND 漢字 IN ({','.join('?' * len(char_list))})
-                AND {feature} IS NOT NULL
-                AND {feature} != ''
-                GROUP BY {feature}
-                ORDER BY count DESC
-                """
+            grouped = {}
+            for loc, value, count in rows:
+                grouped.setdefault(loc, []).append((value, count))
 
-                params = [loc] + char_list
-                cursor.execute(query, params)
-                rows = cursor.fetchall()
-
-                # 计算总数和占比
-                total = sum(row[1] for row in rows)
-
-                values = []
-                for value, count in rows:
-                    percentage = round(count / total * 100, 2) if total > 0 else 0
-                    values.append({
+            for loc in locations:
+                loc_rows = grouped.get(loc, [])
+                total = sum(count for _, count in loc_rows)
+                values = [
+                    {
                         "value": value,
                         "count": count,
-                        "percentage": percentage
-                    })
-
+                        "percentage": round(count / total * 100, 2) if total > 0 else 0
+                    }
+                    for value, count in sorted(loc_rows, key=lambda x: x[1], reverse=True)
+                ]
                 results[loc][feature] = {
                     "values": values,
                     "total": total
                 }
 
     return results
-
 

@@ -84,6 +84,12 @@ def custom_phonology_sort(items):
 
 
 def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table="dialects"):
+    if not locations or not features:
+        return {}
+    allowed_features = {"\u8072\u6bcd", "\u97fb\u6bcd", "\u8072\u8abf"}
+    features = [f for f in features if f in allowed_features]
+    if not features:
+        return {}
     """
     從 dialects 數據庫中查出指定地點與特徵（如聲母、韻母等）對應的漢字。
 

@@ -41,7 +41,13 @@ async def generate_combinations_and_query(
     # 這裡的 process_chars_status 依然是同步函數，沒關係，計算完再異步存緩存
     # 注意：如果 process_chars_status 裡有數據庫操作，建議確保它是高效的
     # 或者是用 run_in_executor 放到線程池裡跑，防止阻塞 async loop
-    result = process_chars_status(path_strings, column, combine_query, exclude_columns=payload.exclude_columns)
+    result = await run_in_threadpool(
+        process_chars_status,
+        path_strings,
+        column,
+        combine_query,
+        payload.exclude_columns
+    )
 
     if result:
         # [OK] 加上 await
@@ -128,6 +134,8 @@ async def analyze_yinwei(
         if isinstance(analysis_results, pd.DataFrame):
             return {"success": True, "results": analysis_results.to_dict(orient="records")}
         if isinstance(analysis_results, list) and all(isinstance(df, pd.DataFrame) for df in analysis_results):
+            if not analysis_results:
+                return {"success": True, "results": []}
             merged = pd.concat(analysis_results, ignore_index=True)
             return {"success": True, "results": merged.to_dict(orient="records")}
         return {"success": False, "error": "未識別的分析結果格式"}

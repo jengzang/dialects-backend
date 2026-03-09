@@ -106,6 +106,18 @@ class YinWeiAnalysis(BaseModel):
     )
 
 
+    @field_validator('features')
+    @classmethod
+    def validate_features(cls, v):
+        valid_features = {"\u8072\u6bcd", "\u97fb\u6bcd", "\u8072\u8abf"}
+        invalid = set(v) - valid_features
+        if invalid:
+            raise ValueError(f"invalid features: {invalid}; allowed: {valid_features}")
+        if not v:
+            raise ValueError("features cannot be empty")
+        return v
+
+
 class CompareZhongGuAnalysis(BaseModel):
     """
     比较两组中古音条件在方言中的读音差异
