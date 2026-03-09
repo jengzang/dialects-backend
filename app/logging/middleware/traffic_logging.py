@@ -942,17 +942,23 @@ class StreamingResponseWrapper:
 # 杩欓噷鏄腑闂翠欢锛岃礋璐ｈ褰曡姹傚拰鍝嶅簲鐨勬祦閲忓ぇ灏?
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Guard against accidental duplicate middleware registration.
+        if getattr(request.state, "_request_log_processed", False):
+            return await call_next(request)
+        request.state._request_log_processed = True
+
         start_time = time.time()  # 璁板綍寮€濮嬫椂闂?
 
         # 1. 蹇€熻繃婊?
         path = request.url.path
+        if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
+            return await call_next(request)
+
         try:
             update_hourly_daily_stats(path)
         except Exception as e:
             print(f"[ERROR] update_hourly_daily_stats failed: {e}")
         await _log_request_params_if_needed(request, path)
-        if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
-            return await call_next(request)
 
         # 2. 鐛插彇 DB Session
         # [!] 璀﹀憡锛氱洿鎺ョ敤 next(get_db()) 鏈冨皫鑷撮€ｆ帴娲╂紡锛佸繀闋堟墜鍕曢棞闁夈€?

@@ -280,6 +280,8 @@ async def compare_zhonggu(
 
         # === Step 3: 处理地点 ===
         locations_processed = await _resolve_locations()
+        locations_processed = list(dict.fromkeys(locations_processed))
+        features_processed = list(dict.fromkeys(payload.features))
 
         if not locations_processed:
             return {
@@ -302,22 +304,24 @@ async def compare_zhonggu(
 
         # === Step 5 & 6: 轻量级统计查询（含短TTL缓存） ===
         stats1, stats2 = await asyncio.gather(
-            _resolve_stats(chars1_unique, locations_processed, payload.features),
-            _resolve_stats(chars2_unique, locations_processed, payload.features)
+            _resolve_stats(chars1_unique, locations_processed, features_processed),
+            _resolve_stats(chars2_unique, locations_processed, features_processed)
         )
 
         # === Step 7: 组织响应数据 ===
         comparison = []
         for loc in locations_processed:
+            loc_stats1 = stats1.get(loc, {})
+            loc_stats2 = stats2.get(loc, {})
             location_data = {
                 "location": loc,
                 "features": {}
             }
 
-            for feature in payload.features:
+            for feature in features_processed:
                 location_data["features"][feature] = {
-                    "group1": stats1.get(loc, {}).get(feature, {"values": [], "total": 0}),
-                    "group2": stats2.get(loc, {}).get(feature, {"values": [], "total": 0})
+                    "group1": loc_stats1.get(feature, {"values": [], "total": 0}),
+                    "group2": loc_stats2.get(feature, {"values": [], "total": 0})
                 }
 
             comparison.append(location_data)
