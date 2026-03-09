@@ -1,14 +1,14 @@
 import asyncio
 # import gzip
 # import io
-import json
+# import json
 # import os
 import threading
-import queue  # [FIX] 鏀圭敤璺ㄨ繘绋嬮槦鍒?
+import multiprocessing  # [FIX] 改用跨进程队列
 import re
 import time
-from collections import defaultdict
 from datetime import datetime, timedelta
+# from collections import defaultdict
 # import ast
 from decimal import Decimal
 # from typing import AsyncIterable, Optional
@@ -17,35 +17,35 @@ from fastapi import HTTPException, Request, Depends
 from sqlalchemy.orm import Session
 # from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
-from queue import Empty, Full  # 鍙紩鍏ラ€欏€嬬暟甯搁锛屼笉寮曞叆 Queue 椤?
+from queue import Empty  # 只引入這個異常類，不引入 Queue 類
+from app.auth.database import get_db
 from app.auth.dependencies import get_current_user_for_middleware
 from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logging.core.database import SessionLocal as LogsSessionLocal
 from app.logging.core.models import ApiKeywordLog, ApiVisitLog
 from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
-from app.logging.utils.route_matcher import match_route_config, should_skip_route
 
 
-# === 璺緞瑙勮寖鍖栧嚱鏁?===
+# === 路径规范化函数 ===
 def normalize_api_path(path: str) -> str:
     """
-    瑙勮寖鍖?API 璺緞锛屽皢璺緞鍙傛暟鏇挎崲涓哄崰浣嶇
+    规范化 API 路径，将路径参数替换为占位符
 
-    鏍规嵁瀹屾暣璺緞鍓嶇紑绮剧‘鍖归厤锛岄伩鍏嶈鍒?
+    根据完整路径前缀精确匹配，避免误判
 
-    绀轰緥锛?
+    示例：
         /admin/sessions/user/123 -> /admin/sessions/user/{user_id}
         /api/tools/check/download/abc-123 -> /api/tools/check/download/{task_id}
         /api/villages/village/features/12345 -> /api/villages/village/features/{village_id}
 
     Args:
-        path: 鍘熷 API 璺緞
+        path: 原始 API 路径
 
     Returns:
-        瑙勮寖鍖栧悗鐨勮矾寰?
+        规范化后的路径
     """
-    # 绮剧‘鐨勮矾寰勬ā鏉挎槧灏勶紙鏍规嵁瀹為檯璺敱瀹氫箟锛?
-    # 鏍煎紡锛?鍓嶇紑, 鍙傛暟鍚?
+    # 精确的路径模板映射（根据实际路由定义）
+    # 格式：(前缀, 参数名)
     path_templates = [
         # Admin - Sessions
         ('/admin/sessions/user/', '{user_id}'),
@@ -55,10 +55,10 @@ def normalize_api_path(path: str) -> str:
         # Admin - User Sessions
         ('/admin/user-sessions/user/', '{user_id}'),
         ('/admin/user-sessions/revoke-user/', '{user_id}'),
-        ('/admin/user-sessions/', '{session_id}'),  # 娉ㄦ剰锛氳繖涓鏀惧湪鏈€鍚庯紝閬垮厤璇尮閰?
+        ('/admin/user-sessions/', '{session_id}'),  # 注意：这个要放在最后，避免误匹配
 
         # Admin - IP
-        ('/admin/ip/', '{api_name}/{ip}'),  # 鐗规畩锛氫袱涓弬鏁?
+        ('/admin/ip/', '{api_name}/{ip}'),  # 特殊：两个参数
 
         # API - Tools (Check)
         ('/api/tools/check/download/', '{task_id}'),
@@ -96,112 +96,44 @@ def normalize_api_path(path: str) -> str:
         ('/api/villages/spatial/integration/by-cluster/', '{cluster_id}'),
 
         # SQL
-        # ('/sql/distinct/', '{db_key}/{table_name}/{column}'),  # 鐗规畩锛氫笁涓弬鏁?
+        # ('/sql/distinct/', '{db_key}/{table_name}/{column}'),  # 特殊：三个参数
     ]
 
-    # 鎸夊墠缂€闀垮害闄嶅簭鎺掑簭锛岀‘淇濇洿鍏蜂綋鐨勮矾寰勫厛鍖归厤
+    # 按前缀长度降序排序，确保更具体的路径先匹配
     path_templates.sort(key=lambda x: len(x[0]), reverse=True)
 
     for prefix, param_name in path_templates:
         if path.startswith(prefix):
-            # 鎻愬彇鍓嶇紑鍚庣殑閮ㄥ垎
+            # 提取前缀后的部分
             suffix = path[len(prefix):]
 
-            # 濡傛灉鍚庨潰杩樻湁璺緞锛堝 /activity, /revoke锛夛紝淇濈暀
+            # 如果后面还有路径（如 /activity, /revoke），保留
             if '/' in suffix:
-                # 鍙浛鎹㈢涓€娈?
+                # 只替换第一段
                 parts = suffix.split('/', 1)
                 return f"{prefix}{param_name}/{parts[1]}"
             else:
-                # 鏁翠釜鍚庣紑閮芥槸鍙傛暟
+                # 整个后缀都是参数
                 return f"{prefix}{param_name}"
 
-    # 娌℃湁鍖归厤鍒帮紝杩斿洖鍘熻矾寰?
+    # 没有匹配到，返回原路径
     return path
 
 
-# === 闃熷垪锛堣法杩涚▼锛?===
-# [FIX] 鏀圭敤 multiprocessing.Queue 浠ユ敮鎸佷富杩涚▼涓殑鍚庡彴绾跨▼
-# keyword_queue = queue.Queue()  # [X] 涓嶅啀浣跨敤 txt鏂囦欢闃熷垪
-log_queue = queue.Queue(maxsize=2000)  # [OK] ApiUsageLog 闃熷垪锛坅uth.db锛? 闄愬埗 2000 鏉?
-keyword_log_queue = queue.Queue(maxsize=5000)  # [OK] ApiKeywordLog 闃熷垪锛坙ogs.db锛? 闄愬埗 5000 鏉?
-statistics_queue = queue.Queue(maxsize=1000)  # [OK] ApiStatistics 闃熷垪锛坙ogs.db锛? 闄愬埗 1000 鏉?
-html_visit_queue = queue.Queue(maxsize=500)  # [OK] HTML 椤甸潰璁块棶缁熻闃熷垪锛坙ogs.db锛? 闄愬埗 500 鏉?
-summary_queue = queue.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 闃熷垪锛坅uth.db锛? 闄愬埗 1000 鏉?
-online_time_queue = queue.Queue(maxsize=1000)  # [NEW] Online time reports queue
-
-_DROP_COUNTERS = defaultdict(int)
+# === 队列（跨进程） ===
+# [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
+# keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
+log_queue = multiprocessing.Queue(maxsize=2000)  # [OK] ApiUsageLog 队列（auth.db）- 限制 2000 条
+keyword_log_queue = multiprocessing.Queue(maxsize=5000)  # [OK] ApiKeywordLog 队列（logs.db）- 限制 5000 条
+statistics_queue = multiprocessing.Queue(maxsize=1000)  # [OK] ApiStatistics 队列（logs.db）- 限制 1000 条
+html_visit_queue = multiprocessing.Queue(maxsize=500)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 500 条
+summary_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 队列（auth.db）- 限制 1000 条
+online_time_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] Online time reports 队列（auth.db）- 限制 1000 条
 
 
-def _record_queue_drop(queue_name: str):
-    _DROP_COUNTERS[queue_name] += 1
-    dropped = _DROP_COUNTERS[queue_name]
-    if dropped <= 3 or dropped % 100 == 0:
-        print(f"[WARN] queue full, drop log: {queue_name}, dropped={dropped}")
-
-
-async def _capture_request_body(request: Request) -> bytes:
-    cached = getattr(request.state, "_cached_request_body_for_logging", None)
-    if cached is not None:
-        return cached
-
-    body = await request.body()
-    request.state._cached_request_body_for_logging = body
-
-    async def receive():
-        return {"type": "http.request", "body": body, "more_body": False}
-
-    request._receive = receive
-    return body
-
-
-async def _log_request_params_if_needed(request: Request, path: str):
-    """Sink 1: parameter/body logging for keyword analytics."""
-    if should_skip_route(path):
-        return
-
-    config = match_route_config(path)
-    if not config.get("log_params") and not config.get("log_body"):
-        return
-
-    params_to_log = {}
-    if config.get("log_params") and request.query_params:
-        params_to_log.update(dict(request.query_params))
-
-    if config.get("log_body") and request.method in ["POST", "PUT", "PATCH"]:
-        try:
-            content_type = (request.headers.get("Content-Type") or "").lower()
-            content_length = request.headers.get("Content-Length")
-            body_len = int(content_length) if content_length and content_length.isdigit() else None
-            max_logged_body_size = 64 * 1024
-
-            should_log_body = (
-                "application/json" in content_type
-                and (body_len is None or body_len <= max_logged_body_size)
-            )
-            if should_log_body:
-                body = await _capture_request_body(request)
-                if body and len(body) <= max_logged_body_size:
-                    try:
-                        body_data = json.loads(body)
-                        if isinstance(body_data, dict):
-                            params_to_log.update(body_data)
-                        else:
-                            params_to_log["_body_type"] = type(body_data).__name__
-                    except json.JSONDecodeError:
-                        params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
-        except Exception as e:
-            print(f"[WARN] request body logging failed: {e}")
-
-    if params_to_log:
-        try:
-            log_all_fields(path, params_to_log)
-        except Exception as e:
-            print(f"[ERROR] log_all_fields failed: {e}")
-
-# === 鍏抽敭璇嶆棩蹇楋紙鍐欏叆logs.db锛?===
+# === 关键词日志（写入logs.db） ===
 def log_keyword(path: str, field: str, value):
-    """璁板綍 API 鍙傛暟瀛楁鍜屽€?"""
+    """记录 API 调用的参数关键词到数据库"""
     timestamp = datetime.now()
     log = ApiKeywordLog(
         timestamp=timestamp,
@@ -209,78 +141,78 @@ def log_keyword(path: str, field: str, value):
         field=field,
         value=str(value)
     )
-    try:
-        keyword_log_queue.put_nowait(log)
-    except Full:
-        _record_queue_drop("keyword_log_queue")
+    keyword_log_queue.put(log)
+
 
 def log_all_fields(path: str, param_dict: dict):
-    """Log all request fields for keyword stats."""
+    """记录 API 调用的所有参数"""
     for field, value in param_dict.items():
         if value is not None and value != [] and value != "":
             log_keyword(path, field, value)
 
 
-# ===鍏抽敭璇嶆棩蹇楀啓鍏ョ嚎绋嬶紙logs.db锛?==
+# ===关键词日志写入线程（logs.db）===
 def keyword_log_writer():
-    """Background writer thread for ApiKeywordLog."""
+    """后台线程：批量写入 ApiKeywordLog 到 logs.db"""
     batch = []
-    batch_size = 50  # 姣?50 鏉℃壒閲忓啓鍏ヤ竴娆?
+    batch_size = 50  # 每 50 条批量写入一次
 
     while True:
         try:
-            # 绛夊緟闃熷垪涓殑鏁版嵁锛岃秴鏃?绉?
+            # 等待队列中的数据，超时1秒
             item = keyword_log_queue.get(timeout=1)
-            if item is None:  # 鍋滄淇″彿
+            if item is None:  # 停止信号
                 break
 
             batch.append(item)
 
-            # 鎵归噺鍐欏叆
+            # 批量写入
             if len(batch) >= batch_size:
                 db = LogsSessionLocal()
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
-                    # print(f"[KeywordLogWriter] 鉁?鎵归噺鍐欏叆 {len(batch)} 鏉″叧閿瘝鏃ュ織鍒版暟鎹簱")
+                    # print(f"[KeywordLogWriter] ✅ 批量写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
-                    print(f"[X] 鍐欏叆鍏抽敭璇嶆棩蹇楀け璐? {e}")
+                    print(f"[X] 写入关键词日志失败: {e}")
                     db.rollback()
                 finally:
                     db.close()
 
         except Empty:
-            # 闃熷垪绌烘椂锛屽啓鍏ュ墿浣欐暟鎹?
+            # 队列空时，写入剩余数据
             if batch:
                 db = LogsSessionLocal()
                 try:
                     db.bulk_save_objects(batch)
                     db.commit()
-                    # print(f"[KeywordLogWriter] 鉁?瓒呮椂鍐欏叆 {len(batch)} 鏉″叧閿瘝鏃ュ織鍒版暟鎹簱")
+                    # print(f"[KeywordLogWriter] ✅ 超时写入 {len(batch)} 条关键词日志到数据库")
                     batch = []
                 except Exception as e:
-                    print(f"[X] 鍐欏叆鍏抽敭璇嶆棩蹇楀け璐? {e}")
+                    print(f"[X] 写入关键词日志失败: {e}")
                     db.rollback()
                 finally:
                     db.close()
         except Exception as e:
-            print(f"[X] 鍏抽敭璇嶆棩蹇楃嚎绋嬮敊璇? {e}")
+            print(f"[X] 关键词日志线程错误: {e}")
 
-    # 绾跨▼缁撴潫鍓嶏紝鍐欏叆鍓╀綑鏁版嵁
+    # 线程结束前，写入剩余数据
     if batch:
         db = LogsSessionLocal()
         try:
             db.bulk_save_objects(batch)
             db.commit()
         except Exception as e:
-            print(f"[X] 鍐欏叆鍏抽敭璇嶆棩蹇楀け璐? {e}")
+            print(f"[X] 写入关键词日志失败: {e}")
             db.rollback()
+        finally:
+            db.close()
 
 
-# === API缁熻鏇存柊绾跨▼锛坙ogs.db锛?==
+# === API统计更新线程（logs.db）===
 def statistics_writer():
-    """鍚庡彴绾跨▼锛氭壒閲忔洿鏂?ApiStatistics"""
+    """后台线程：批量更新 ApiStatistics"""
     batch = []
     batch_size = 50
     batch_timeout = 120.0
@@ -288,48 +220,48 @@ def statistics_writer():
     while True:
         try:
             item = statistics_queue.get(timeout=batch_timeout)
-            if item is None:  # 鍋滄淇″彿
+            if item is None:  # 停止信号
                 break
 
             batch.append(item)
 
-            # 鎵规婊℃椂鍐欏叆
+            # 批次满时写入
             if len(batch) >= batch_size:
                 _process_statistics_batch(batch)
                 batch = []
 
         except Empty:
-            # 瓒呮椂鏃跺啓鍏ュ墿浣欓」
+            # 超时时写入剩余项
             if batch:
                 _process_statistics_batch(batch)
                 batch = []
         except Exception as e:
-            print(f"[X] statistics_writer 閿欒: {e}")
+            print(f"[X] statistics_writer 错误: {e}")
 
-    # 绾跨▼缁撴潫鍓嶅啓鍏ュ墿浣欐暟鎹?
+    # 线程结束前写入剩余数据
     if batch:
         _process_statistics_batch(batch)
 
 
 def _process_statistics_batch(batch: list):
-    """鎵归噺澶勭悊缁熻鏇存柊"""
+    """批量处理统计更新"""
     from sqlalchemy import text
 
     db = LogsSessionLocal()
     try:
         for path, date_obj in batch:
-            # 瑙勮寖鍖栬矾寰勶紙鏇挎崲璺緞鍙傛暟涓哄崰浣嶇锛?
+            # 规范化路径（替换路径参数为占位符）
             normalized_path = normalize_api_path(path)
 
-            # 鏇存柊鎬昏
+            # 更新总计
             update_statistic(db, "usage_total", None, "path", normalized_path)
 
-            # 鏇存柊姣忔棩缁熻
+            # 更新每日统计
             if date_obj:
                 update_statistic(db, "usage_daily", date_obj, "path", normalized_path)
 
-            # 鏂板锛氭洿鏂?api_usage_hourly 琛紙灏忔椂绾ф€昏皟鐢ㄧ粺璁★級
-            # 浣跨敤璇锋眰鍒拌揪鏃剁殑鏃堕棿锛坉ate_obj锛夛紝鑰屼笉鏄啓鍏ユ椂鐨勬椂闂?
+            # 新增：更新 api_usage_hourly 表（小时级总调用统计）
+            # 使用请求到达时的时间（date_obj），而不是写入时的时间
             request_hour = date_obj.replace(minute=0, second=0, microsecond=0)
             result = db.execute(
                 text("""
@@ -348,8 +280,8 @@ def _process_statistics_batch(batch: list):
                     {"hour": request_hour}
                 )
 
-            # 鏂板锛氭洿鏂?api_usage_daily 琛紙姣忔棩姣廇PI璋冪敤缁熻锛?
-            # 浣跨敤璇锋眰鍒拌揪鏃剁殑鏃ユ湡锛坉ate_obj锛夛紝鑰屼笉鏄啓鍏ユ椂鐨勬棩鏈?
+            # 新增：更新 api_usage_daily 表（每日每API调用统计）
+            # 使用请求到达时的日期（date_obj），而不是写入时的日期
             request_date = date_obj.date()
             result = db.execute(
                 text("""
@@ -365,25 +297,25 @@ def _process_statistics_batch(batch: list):
                         INSERT OR IGNORE INTO api_usage_daily (date, path, call_count)
                         VALUES (:date, :path, 1)
                     """),
-                    {"date": request_date, "path": normalized_path}  # 淇锛氫娇鐢?normalized_path
+                    {"date": request_date, "path": normalized_path}  # 修复：使用 normalized_path
                 )
 
         db.commit()
-        # print(f"[OK] 鎵归噺鏇存柊 {len(batch)} 鏉＄粺璁?)
+        # print(f"[OK] 批量更新 {len(batch)} 条统计")
     except Exception as e:
-        print(f"[X] 缁熻鎵规澶辫触: {e}")
+        print(f"[X] 统计批次失败: {e}")
         db.rollback()
     finally:
         db.close()
 
 
 def update_statistic(db: Session, stat_type: str, date: datetime, category: str, item: str):
-    """鏇存柊鎴栧垱寤虹粺璁¤褰曪紙浣跨敤 UPSERT 閬垮厤骞跺彂闂锛?"""
+    """更新或创建统计记录（使用 UPSERT 避免并发问题）"""
     from sqlalchemy import text
 
-    # 浣跨敤 SQLite 鐨?INSERT OR IGNORE + UPDATE 绛栫暐
+    # 使用 SQLite 的 INSERT OR IGNORE + UPDATE 策略
     try:
-        # 鍏堝皾璇曟洿鏂?
+        # 先尝试更新
         result = db.execute(
             text("""
                 UPDATE api_statistics
@@ -404,7 +336,7 @@ def update_statistic(db: Session, stat_type: str, date: datetime, category: str,
             }
         )
 
-        # 濡傛灉娌℃湁鏇存柊浠讳綍琛岋紙璁板綍涓嶅瓨鍦級锛屽垯鎻掑叆鏂拌褰?
+        # 如果没有更新任何行（记录不存在），则插入新记录
         if result.rowcount == 0:
             db.execute(
                 text("""
@@ -419,37 +351,27 @@ def update_statistic(db: Session, stat_type: str, date: datetime, category: str,
                 }
             )
     except Exception as e:
-        print(f"[X] 鏇存柊缁熻澶辫触: stat_type={stat_type}, category={category}, item={item}, error={e}")
+        print(f"[X] 更新统计失败: stat_type={stat_type}, category={category}, item={item}, error={e}")
         raise
 
 
 
-# === API璋冪敤缁熻锛堝啓鍏ogs.db锛?==
+# === API调用统计（写入logs.db）===
 def update_count(path: str):
-    """鏇存柊 API 璋冪敤鎬绘暟缁熻"""
+    """更新 API 调用次数统计"""
     today = datetime.now()
-    try:
-        statistics_queue.put_nowait((path, today))
-    except Full:
-        _record_queue_drop("statistics_queue")
+    statistics_queue.put((path, today))
+
 
 def update_html_visit(path: str):
-    """鏇存柊 HTML 椤甸潰璁块棶缁熻"""
+    """更新 HTML 页面访问次数统计"""
     today = datetime.now()
-    try:
-        html_visit_queue.put_nowait((path, today))
-    except Full:
-        _record_queue_drop("html_visit_queue")
+    html_visit_queue.put((path, today))
 
 
-def update_hourly_daily_stats(path: str):
-    """淇濇寔涓庢棫璋冪敤鏂瑰吋瀹癸細鍚屾椂鏇存柊 API 缁熻涓庨〉闈㈣闂粺璁°€?"""
-    update_count(path)
-    update_html_visit(path)
-
-# === HTML 椤甸潰璁块棶缁熻鍐欏叆绾跨▼锛坙ogs.db锛?==
+# === HTML 页面访问统计写入线程（logs.db）===
 def html_visit_writer():
-    """鍚庡彴绾跨▼锛氭壒閲忔洿鏂?HTML 椤甸潰璁块棶缁熻"""
+    """后台线程：批量更新 HTML 页面访问统计"""
     batch = []
     batch_size = 3
     batch_timeout = 5.0
@@ -457,57 +379,57 @@ def html_visit_writer():
     while True:
         try:
             item = html_visit_queue.get(timeout=batch_timeout)
-            if item is None:  # 鍋滄淇″彿
+            if item is None:  # 停止信号
                 break
 
             batch.append(item)
 
-            # 鎵规婊℃椂鍐欏叆
+            # 批次满时写入
             if len(batch) >= batch_size:
                 _process_html_visit_batch(batch)
                 batch = []
 
         except Empty:
-            # 瓒呮椂鏃跺啓鍏ュ墿浣欓」
+            # 超时时写入剩余项
             if batch:
                 _process_html_visit_batch(batch)
                 batch = []
         except Exception as e:
-            print(f"[X] html_visit_writer 閿欒: {e}")
+            print(f"[X] html_visit_writer 错误: {e}")
 
-    # 绾跨▼缁撴潫鍓嶅啓鍏ュ墿浣欐暟鎹?
+    # 线程结束前写入剩余数据
     if batch:
         _process_html_visit_batch(batch)
 
 
 def _process_html_visit_batch(batch: list):
-    """鎵归噺澶勭悊 HTML 璁块棶缁熻"""
+    """批量处理 HTML 访问统计"""
     db = LogsSessionLocal()
     try:
         for path, date_obj in batch:
-            # 鏇存柊鎬昏
+            # 更新总计
             update_html_visit_stat(db, path, None)
 
-            # 鏇存柊姣忔棩缁熻
+            # 更新每日统计
             update_html_visit_stat(db, path, date_obj.date())
 
         db.commit()
-        print(f"[OK] 鎵归噺鏇存柊 {len(batch)} 鏉?HTML 璁块棶缁熻")
+        print(f"[OK] 批量更新 {len(batch)} 条 HTML 访问统计")
     except Exception as e:
-        print(f"[X] HTML 璁块棶缁熻鎵规澶辫触: {e}")
+        print(f"[X] HTML 访问统计批次失败: {e}")
         db.rollback()
     finally:
         db.close()
 
 
 def update_html_visit_stat(db: Session, path: str, date):
-    """鏇存柊鎴栧垱寤?HTML 椤甸潰璁块棶缁熻璁板綍锛堜娇鐢?UPSERT 閬垮厤骞跺彂闂锛?"""
+    """更新或创建 HTML 页面访问统计记录（使用 UPSERT 避免并发问题）"""
     from sqlalchemy import text
 
-    # 浣跨敤 SQLite 鐨?INSERT OR REPLACE 璇硶锛圲PSERT锛?
-    # 杩欐牱鍙互閬垮厤 rollback 褰卞搷鏁翠釜 session
+    # 使用 SQLite 的 INSERT OR REPLACE 语法（UPSERT）
+    # 这样可以避免 rollback 影响整个 session
     try:
-        # 鍏堝皾璇曟洿鏂?
+        # 先尝试更新
         result = db.execute(
             text("""
                 UPDATE api_visit_log
@@ -520,7 +442,7 @@ def update_html_visit_stat(db: Session, path: str, date):
             {"path": path, "date": date}
         )
 
-        # 濡傛灉娌℃湁鏇存柊浠讳綍琛岋紙璁板綍涓嶅瓨鍦級锛屽垯鎻掑叆鏂拌褰?
+        # 如果没有更新任何行（记录不存在），则插入新记录
         if result.rowcount == 0:
             db.execute(
                 text("""
@@ -530,63 +452,59 @@ def update_html_visit_stat(db: Session, path: str, date):
                 {"path": path, "date": date}
             )
     except Exception as e:
-        print(f"[X] 鏇存柊 HTML 璁块棶缁熻澶辫触: path={path}, date={date}, error={e}")
+        print(f"[X] 更新 HTML 访问统计失败: path={path}, date={date}, error={e}")
         raise
 
 
 
-def log_writer_thread():
-    """鎵归噺鍐欏叆 ApiUsageLog 鍒?auth.db"""
+def log_writer_thread(db: Session):
+    """批量写入 ApiUsageLog 到 auth.db"""
     batch = []
     batch_size = 50
     batch_timeout = 120.0
 
     while True:
         try:
-            # 浣跨敤瓒呮椂绛夊緟锛岃€岄潪 sleep
+            # 使用超时等待，而非 sleep
             item = log_queue.get(timeout=batch_timeout)
 
-            if item is None:  # 鍋滄淇″彿
+            if item is None:  # 停止信号
                 break
 
             batch.append(item)
 
-            # 鎵规婊℃椂鍐欏叆
+            # 批次满时写入
             if len(batch) >= batch_size:
-                _write_log_batch(batch)
+                _write_log_batch(db, batch)
                 batch = []
 
         except Empty:
-            # 瓒呮椂鏃跺啓鍏ュ墿浣欓」
+            # 超时时写入剩余项
             if batch:
-                _write_log_batch(batch)
+                _write_log_batch(db, batch)
                 batch = []
         except Exception as e:
-            print(f"[X] log_writer_thread 閿欒: {e}")
+            print(f"[X] log_writer_thread 错误: {e}")
 
-    # 绾跨▼缁撴潫鍓嶅啓鍏ュ墿浣欐暟鎹?
+    # 线程结束前写入剩余数据
     if batch:
-        _write_log_batch(batch)
+        _write_log_batch(db, batch)
 
 
-def _write_log_batch(batch: list):
-    """鎵归噺鍐欏叆鏃ュ織"""
-    from app.auth.database import SessionLocal as AuthSessionLocal
-    db = AuthSessionLocal()
+def _write_log_batch(db: Session, batch: list):
+    """批量写入日志"""
     try:
         db.bulk_save_objects(batch)
         db.commit()
-        print(f"[OK] batch inserted: {len(batch)}")
+        print(f"[OK] 批量写入 {len(batch)} 条日志")
     except Exception as e:
-        print(f"[X] 鎵归噺鍐欏叆澶辫触: {e}")
+        print(f"[X] 批量写入失败: {e}")
         db.rollback()
-    finally:
-        db.close()
 
 
-# 寮傛鍐欏叆鏃ュ織鐨勫嚱鏁?
+# 异步写入日志的函数
 def log_detailed_api_to_db(
-        db: Session | None,
+        db: Session,
         path: str,
         duration: float,
         status_code: int,
@@ -597,11 +515,15 @@ def log_detailed_api_to_db(
         clear_old: bool = False,
         request_size: int = 0,
         response_size: int = 0,
-        start_time: float = None
+        start_time: float = None  # start_time 参数保持可选
 ):
-    # clear_old kept for compatibility; cleanup should be handled by scheduler.
-    _ = (db, clear_old)
+    # Step 1: Optional cleanup of old logs
+    if clear_old:
+        one_week_ago = datetime.utcnow() - timedelta(weeks=1)
+        db.query(ApiUsageLog).filter(ApiUsageLog.called_at < one_week_ago).delete()
+        db.commit()
 
+    # Step 2: Insert detailed log (short-term log)
     log = ApiUsageLog(
         path=path,
         duration=duration,
@@ -612,28 +534,26 @@ def log_detailed_api_to_db(
         user_id=user_id,
         request_size=request_size,
         response_size=response_size,
-        called_at=datetime.utcfromtimestamp(start_time) if start_time else None
+        # 如果传入了 start_time，使用它；否则，使用数据库默认时间
+        called_at=datetime.utcfromtimestamp(start_time) if start_time else None  # 直接在创建时处理
     )
 
-    try:
-        log_queue.put_nowait(log)
-    except Full:
-        _record_queue_drop("log_queue")
+    # 将日志添加到队列
+    log_queue.put(log)
 
+    # Step 3: 将 ApiUsageSummary 更新移至队列
     if user_id:
-        try:
-            summary_queue.put_nowait({
-                "user_id": user_id,
-                "path": path,
-                "duration": duration,
-                "request_size": request_size,
-                "response_size": response_size
-            })
-        except Full:
-            _record_queue_drop("summary_queue")
+        summary_queue.put({
+            'user_id': user_id,
+            'path': path,
+            'duration': duration,
+            'request_size': request_size,
+            'response_size': response_size
+        })
+
 
 def summary_writer():
-    """鎵归噺鏇存柊 ApiUsageSummary"""
+    """批量更新 ApiUsageSummary"""
     batch = []
     batch_size = 50
     batch_timeout = 60.0
@@ -656,19 +576,19 @@ def summary_writer():
                 _process_summary_batch(batch)
                 batch = []
         except Exception as e:
-            print(f"[X] summary_writer 閿欒: {e}")
+            print(f"[X] summary_writer 错误: {e}")
 
     if batch:
         _process_summary_batch(batch)
 
 
 def _process_summary_batch(batch: list):
-    """鎵归噺澶勭悊 ApiUsageSummary 鏇存柊"""
+    """批量处理 ApiUsageSummary 更新"""
     from app.auth.database import SessionLocal as AuthSessionLocal
     db = AuthSessionLocal()
 
     try:
-        # 鎸?(user_id, path) 鍒嗙粍鑱氬悎
+        # 按 (user_id, path) 分组聚合
         aggregated = {}
         for item in batch:
             key = (item['user_id'], item['path'])
@@ -685,7 +605,7 @@ def _process_summary_batch(batch: list):
             aggregated[key]['total_upload'] += item['request_size'] / 1024
             aggregated[key]['total_download'] += item['response_size'] / 1024
 
-        # 鎵归噺鏇存柊
+        # 批量更新
         for (user_id, path), stats in aggregated.items():
             summary = db.query(ApiUsageSummary).filter_by(
                 user_id=user_id, path=path
@@ -710,9 +630,9 @@ def _process_summary_batch(batch: list):
                 db.add(summary)
 
         db.commit()
-        print(f"[OK] 鎵归噺鏇存柊 {len(aggregated)} 鏉?ApiUsageSummary")
+        print(f"[OK] 批量更新 {len(aggregated)} 条 ApiUsageSummary")
     except Exception as e:
-        print(f"[X] ApiUsageSummary 鎵规澶辫触: {e}")
+        print(f"[X] ApiUsageSummary 批次失败: {e}")
         db.rollback()
     finally:
         db.close()
@@ -793,7 +713,7 @@ def _write_online_time_batch(batch: dict):
                     session.last_seen = datetime.utcnow()
 
         db.commit()
-        print(f"[OnlineTimeWriter] 鉁?Batch wrote {len(batch)} online time updates")
+        print(f"[OnlineTimeWriter] ✅ Batch wrote {len(batch)} online time updates")
     except Exception as e:
         print(f"[X] Failed to write online time batch: {e}")
         db.rollback()
@@ -802,7 +722,7 @@ def _write_online_time_batch(batch: dict):
 
 
 async def log_detailed_api_to_db_async(
-        db: Session | None,
+        db: Session,
         path: str,
         duration: float,
         status_code: int,
@@ -815,7 +735,7 @@ async def log_detailed_api_to_db_async(
         response_size: int = 0,
         start_time: float = None
 ):
-    """寮傛鍖呰鍣細灏嗗悓姝ョ殑鏁版嵁搴撴搷浣滃紓姝ュ寲"""
+    """异步包装器：将同步的数据库操作异步化"""
     await asyncio.to_thread(
         log_detailed_api_to_db,
         db,
@@ -838,72 +758,72 @@ _workers_started = False
 _start_lock = threading.Lock()
 
 
-def start_api_logger_workers():
-    """鍚姩鎵€鏈夋棩蹇楀悗鍙扮嚎绋?"""
+def start_api_logger_workers(db: Session):
+    """启动所有日志后台线程"""
     global _workers_started
     with _start_lock:
         if _workers_started:
             return
 
-        # [OK] 鍚姩鍏抽敭璇嶆棩蹇楀啓鍏ョ嚎绋嬶紙logs.db锛?
+        # [OK] 启动关键词日志写入线程（logs.db）
         threading.Thread(target=keyword_log_writer, daemon=True).start()
 
-        # [OK] 鍚姩API缁熻鏇存柊绾跨▼锛坙ogs.db锛?
+        # [OK] 启动API统计更新线程（logs.db）
         threading.Thread(target=statistics_writer, daemon=True).start()
 
-        # [OK] 鍚姩HTML椤甸潰璁块棶缁熻绾跨▼锛坙ogs.db锛?
+        # [OK] 启动HTML页面访问统计线程（logs.db）
         threading.Thread(target=html_visit_writer, daemon=True).start()
 
-        # [OK] 鍚姩 ApiUsageLog 鍐欏叆绾跨▼锛坅uth.db锛?
-        threading.Thread(target=log_writer_thread, daemon=True).start()
+        # [OK] 启动 ApiUsageLog 写入线程（auth.db）
+        threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()
 
-        # [NEW] 鍚姩 ApiUsageSummary 鏇存柊绾跨▼锛坅uth.db锛?
+        # [NEW] 启动 ApiUsageSummary 更新线程（auth.db）
         threading.Thread(target=summary_writer, daemon=True).start()
 
-        # [NEW] 鍚姩 Online Time 鏇存柊绾跨▼锛坅uth.db锛?
+        # [NEW] 启动 Online Time 更新线程（auth.db）
         threading.Thread(target=online_time_writer, daemon=True).start()
 
         _workers_started = True
-        print("[OK] API logger workers started")
+        print("[OK] API 日志后台线程已启动")
 
 
 def stop_api_logger_workers():
-    """鍋滄鎵€鏈夋棩蹇楀悗鍙扮嚎绋?"""
+    """停止所有日志后台线程"""
     try:
-        keyword_log_queue.put_nowait(None)  # [OK] 鍋滄鍏抽敭璇嶆棩蹇楃嚎绋?
+        keyword_log_queue.put_nowait(None)  # [OK] 停止关键词日志线程
     except:
         pass
 
     try:
-        statistics_queue.put_nowait(None)  # [OK] 鍋滄缁熻绾跨▼
+        statistics_queue.put_nowait(None)  # [OK] 停止统计线程
     except:
         pass
 
     try:
-        html_visit_queue.put_nowait(None)  # [OK] 鍋滄HTML璁块棶缁熻绾跨▼
+        html_visit_queue.put_nowait(None)  # [OK] 停止HTML访问统计线程
     except:
         pass
 
     try:
-        log_queue.put_nowait(None)  # 鍋滄 ApiUsageLog 绾跨▼
+        log_queue.put_nowait(None)  # 停止 ApiUsageLog 线程
     except:
         pass
 
     try:
-        summary_queue.put_nowait(None)  # [NEW] 鍋滄 ApiUsageSummary 绾跨▼
+        summary_queue.put_nowait(None)  # [NEW] 停止 ApiUsageSummary 线程
     except:
         pass
 
     try:
-        online_time_queue.put_nowait(None)  # [NEW] 鍋滄 Online Time 绾跨▼
+        online_time_queue.put_nowait(None)  # [NEW] 停止 Online Time 线程
     except:
         pass
 
-    print("[OK] API logger workers stopped")
+    print("🛑 API 日志后台线程已停止")
 
 
 class StreamingResponseWrapper:
-    """娴佸紡鍝嶅簲鍖呰鍣?- 杈逛紶杈撹竟缁熻锛屼笉缂撳啿鏁翠釜鍝嶅簲"""
+    """流式响应包装器 - 边传输边统计，不缓冲整个响应"""
 
     def __init__(self, iterator, content_type, user_role, max_size, response, on_complete_callback=None):
         self.iterator = iterator
@@ -915,102 +835,90 @@ class StreamingResponseWrapper:
         self.on_complete_callback = on_complete_callback
 
     async def __aiter__(self):
-        """寮傛杩唬鍣?- 娴佸紡浼犺緭鍝嶅簲"""
+        """异步迭代器 - 流式传输响应"""
         try:
             async for chunk in self.iterator:
                 chunk_size = len(chunk)
                 self.total_size += chunk_size
 
-                # 娓愯繘寮忓ぇ灏忔鏌?- 瓒呴檺绔嬪嵆涓柇
+                # 渐进式大小检查 - 超限立即中断
                 if self.total_size > self.max_size:
                     raise HTTPException(
                         status_code=413,
-                        detail="馃毇 鐢辨柤鏈嶅嫏鍣ㄩ檺鍒讹紝鎮ㄧ殑杩斿洖鏁告摎瓒呴亷闄愬埗锛岃珛娓涘皯璜嬫眰绡勫湇 馃洃"
+                        detail="🚫 由於服務器限制，您的返回數據超過限制，請減少請求範圍 🛑"
                     )
 
-                # 鐩存帴杞彂鏁版嵁锛屼笉鍋氫换浣曚慨鏀?
+                # 直接转发数据，不做任何修改
                 yield chunk
 
-            # 娴佸紡浼犺緭瀹屾垚鍚庤皟鐢ㄥ洖璋?
+        finally:
+            # 流式传输完成后调用回调
             if self.on_complete_callback:
                 await self.on_complete_callback(self)
 
-        except Exception as e:
-            print(f"[X] streaming response wrapper failed: {e}")
-            raise
 
-# 杩欓噷鏄腑闂翠欢锛岃礋璐ｈ褰曡姹傚拰鍝嶅簲鐨勬祦閲忓ぇ灏?
-class RequestLogMiddleware(BaseHTTPMiddleware):
+# 这里是中间件，负责记录请求和响应的流量大小
+class TrafficLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Guard against accidental duplicate middleware registration.
-        if getattr(request.state, "_request_log_processed", False):
-            return await call_next(request)
-        request.state._request_log_processed = True
+        start_time = time.time()  # 记录开始时间
 
-        start_time = time.time()  # 璁板綍寮€濮嬫椂闂?
-
-        # 1. 蹇€熻繃婊?
+        # 1. 快速过滤
         path = request.url.path
         if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
             return await call_next(request)
 
-        try:
-            update_hourly_daily_stats(path)
-        except Exception as e:
-            print(f"[ERROR] update_hourly_daily_stats failed: {e}")
-        await _log_request_params_if_needed(request, path)
-
-        # 2. 鐛插彇 DB Session
-        # [!] 璀﹀憡锛氱洿鎺ョ敤 next(get_db()) 鏈冨皫鑷撮€ｆ帴娲╂紡锛佸繀闋堟墜鍕曢棞闁夈€?
+        # 2. 獲取 DB Session
+        # [!] 警告：直接用 next(get_db()) 會導致連接洩漏！必須手動關閉。
+        db = next(get_db())
         user = None
-        auth_header = request.headers.get("Authorization")
-        has_bearer = bool(auth_header and auth_header.startswith("Bearer "))
         try:
-            # 3. [OK] 浣跨敤 await 瑾跨敤鐣版鍑芥暩
-            if has_bearer:
-                user = await get_current_user_for_middleware(request)
+            # 3. [OK] 使用 await 調用異步函數
+            user = await get_current_user_for_middleware(request, db=db)
         except Exception as e:
             print(f"Middleware Auth Error: {e}")
-            # 瑾嶈瓑鍑洪尟涓嶆噳褰遍熆璜嬫眰绻肩簩锛岃鐐哄尶鍚嶇敤鎴?
+            # 認證出錯不應影響請求繼續，視為匿名用戶
             user = None
+        finally:
+            # 4. [OK] 必須關閉數據庫連接！這非常重要！
+            db.close()
 
-        # 5. 璁＄畻璇锋眰澶у皬
+        # 5. 计算请求大小
         cl = request.headers.get("Content-Length")
 
         if cl is not None and cl.isdigit():
             request_size = int(cl)
         else:
-            # 濡傛灉鏄?GET 璇锋眰锛岃绠?URL 鍜屾煡璇㈠弬鏁扮殑澶у皬
+            # 如果是 GET 请求，计算 URL 和查询参数的大小
             if request.method == "GET":
                 url_size = len(request.url.path) + len(request.url.query)
                 request_size = url_size
             else:
-                # 鑾峰彇璇锋眰浣撳ぇ灏?
-                cached_body = getattr(request.state, "_cached_request_body_for_logging", None)
-                request_size = len(cached_body) if cached_body is not None else 0
+                # 获取请求体大小
+                request_body = await request.body()
+                request_size = len(request_body)
 
-        # 6. 璋冪敤涓嬫父搴旂敤锛堣鍥惧嚱鏁帮級
+        # 6. 调用下游应用（视图函数）
         response = await call_next(request)
 
-        # 7. 纭畾鐢ㄦ埛鐨勫搷搴斿ぇ灏忛檺鍒?
+        # 7. 确定用户的响应大小限制
         max_size = MAX_ANONYMOUS_SIZE if user is None else (
             float('inf') if user.role == "admin" else MAX_USER_SIZE
         )
 
-        # 8. 瀹氫箟娴佸紡浼犺緭瀹屾垚鍚庣殑鍥炶皟鍑芥暟
+        # 8. 定义流式传输完成后的回调函数
         async def on_streaming_complete(wrapper):
-            """娴佸紡浼犺緭瀹屾垚鍚庤褰曟棩蹇?"""
-            # 璁＄畻澶勭悊鏃堕棿
+            """流式传输完成后记录日志"""
+            # 计算处理时间
             duration = time.time() - start_time
 
-            # 鑾峰彇鏈€缁堢殑鍝嶅簲澶у皬
-            # 娉ㄦ剰锛氬缁堣褰曞帇缂╁墠鐨勫ぇ灏忥紝浠ヤ繚璇佺粺璁′竴鑷存€?
-            # 鍘嬬缉鏄湇鍔″櫒浼樺寲鎵嬫锛屽鐢ㄦ埛搴旇鏄€忔槑鐨?
-            response_size = wrapper.total_size  # 鍘嬬缉鍓嶇殑鍘熷澶у皬
+            # 获取最终的响应大小
+            # 注意：始终记录压缩前的大小，以保证统计一致性
+            # 压缩是服务器优化手段，对用户应该是透明的
+            response_size = wrapper.total_size  # 压缩前的原始大小
 
-            # 寮傛璁板綍鏃ュ織
+            # 异步记录日志
             await log_detailed_api_to_db_async(
-                db=None,
+                db=db,
                 path=request.url.path,
                 duration=duration,
                 status_code=response.status_code,
@@ -1024,7 +932,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                 start_time=start_time
             )
 
-        # 9. 浣跨敤娴佸紡鍖呰鍣紙涓嶇紦鍐叉暣涓搷搴旓級
+        # 9. 使用流式包装器（不缓冲整个响应）
         wrapper = StreamingResponseWrapper(
             iterator=response.body_iterator,
             content_type=response.headers.get("Content-Type", ""),
@@ -1034,31 +942,27 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             on_complete_callback=on_streaming_complete
         )
 
-        # 10. 鏇挎崲鍝嶅簲杩唬鍣?
+        # 10. 替换响应迭代器
         response.body_iterator = wrapper
 
         return response
 
-# Backward-compatible alias.
-TrafficLoggingMiddleware = RequestLogMiddleware
-
-
-# 浠ヤ笅浠ｇ爜宸插簾寮?
-# === 璇︾粏鍝嶅簲璁板綍鍏ラ槦 ===
+# 以下代码已废弃
+# === 详细响应记录入队 ===
 # def log_detailed_api(path, duration, status_code, ip, user_agent, referer):
 #     today = datetime.now().strftime("%Y-%m-%d")
 #     detailed_queue.put((path, duration, status_code, ip, user_agent, referer, today))
 #
-# # === 鍚庡彴绾跨▼鍐欏叆璇︾粏鍝嶅簲 ===
+# # === 后台线程写入详细响应 ===
 # def detailed_writer():
-#     # 鍒濆鍖栨暟鎹粨鏋?
+#     # 初始化数据结构
 #     def init_stats():
 #         return {
 #             "count": 0, "total_time": 0.0, "status_codes": defaultdict(int),
 #             "ips": set(), "agents": set(), "referers": set()
 #         }
 #
-#     # 浠?JSON 鍔犺浇鏃ф暟鎹?
+#     # 从 JSON 加载旧数据
 #     if os.path.exists(API_DETAILED_JSON):
 #         with open(API_DETAILED_JSON, "r", encoding="utf-8") as f:
 #             raw = json.load(f)
@@ -1111,7 +1015,7 @@ TrafficLoggingMiddleware = RequestLogMiddleware
 #         if referer:
 #             d_day["referers"].add(referer)
 #
-#         # 鍐欏叆缁撴瀯鍖?JSON 鏂囦欢锛堟寔涔呭寲锛?
+#         # 写入结构化 JSON 文件（持久化）
 #         with open(API_DETAILED_JSON, "w", encoding="utf-8") as f:
 #             json.dump({
 #                 "detailed_stats": {
@@ -1138,7 +1042,7 @@ TrafficLoggingMiddleware = RequestLogMiddleware
 #                 }
 #             }, f, ensure_ascii=False, indent=2)
 #
-#         # 鍐欏叆鍙姹囨€伙紙鍜屽師鏉ヤ竴鏍凤級
+#         # 写入可读汇总（和原来一样）
 #         with open(API_DETAILED_FILE, "w", encoding="utf-8") as f:
 #             f.write("=== Total Summary ===\n")
 #             for path, d in detailed_stats.items():
@@ -1160,10 +1064,3 @@ TrafficLoggingMiddleware = RequestLogMiddleware
 #                     f.write("  User-Agents:\n" + ''.join(f"    - {ua}\n" for ua in sorted(d['agents'])))
 #                     f.write("  Referers:\n" + ''.join(f"    - {r}\n" for r in sorted(d['referers'])))
 #                 f.write("\n")
-
-
-
-
-
-
-
