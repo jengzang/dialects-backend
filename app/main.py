@@ -10,8 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from app.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
-from app.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
-from app.logging.middleware.params_logging import ApiLoggingMiddleware
+from app.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, RequestLogMiddleware
 from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from app.common.config import _RUN_TYPE
@@ -266,7 +265,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(ApiLoggingMiddleware)
 
 # api統計
-app.add_middleware(TrafficLoggingMiddleware)
+app.add_middleware(RequestLogMiddleware)
 
 if _RUN_TYPE == 'EXE':
     # === 活動請求統計中介層 ===

@@ -1,7 +1,7 @@
 import asyncio
 # import gzip
 # import io
-# import json
+import json
 # import os
 import threading
 import queue  # [FIX] 鏀圭敤璺ㄨ繘绋嬮槦鍒?
@@ -23,6 +23,7 @@ from app.auth.models import ApiUsageLog, ApiUsageSummary, User
 from app.logging.core.database import SessionLocal as LogsSessionLocal
 from app.logging.core.models import ApiKeywordLog, ApiVisitLog
 from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
+from app.logging.utils.route_matcher import match_route_config, should_skip_route
 
 
 # === 璺緞瑙勮寖鍖栧嚱鏁?===
@@ -152,6 +153,51 @@ async def _capture_request_body(request: Request) -> bytes:
 
     request._receive = receive
     return body
+
+
+async def _log_request_params_if_needed(request: Request, path: str):
+    """Sink 1: parameter/body logging for keyword analytics."""
+    if should_skip_route(path):
+        return
+
+    config = match_route_config(path)
+    if not config.get("log_params") and not config.get("log_body"):
+        return
+
+    params_to_log = {}
+    if config.get("log_params") and request.query_params:
+        params_to_log.update(dict(request.query_params))
+
+    if config.get("log_body") and request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            content_type = (request.headers.get("Content-Type") or "").lower()
+            content_length = request.headers.get("Content-Length")
+            body_len = int(content_length) if content_length and content_length.isdigit() else None
+            max_logged_body_size = 64 * 1024
+
+            should_log_body = (
+                "application/json" in content_type
+                and (body_len is None or body_len <= max_logged_body_size)
+            )
+            if should_log_body:
+                body = await _capture_request_body(request)
+                if body and len(body) <= max_logged_body_size:
+                    try:
+                        body_data = json.loads(body)
+                        if isinstance(body_data, dict):
+                            params_to_log.update(body_data)
+                        else:
+                            params_to_log["_body_type"] = type(body_data).__name__
+                    except json.JSONDecodeError:
+                        params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
+        except Exception as e:
+            print(f"[WARN] request body logging failed: {e}")
+
+    if params_to_log:
+        try:
+            log_all_fields(path, params_to_log)
+        except Exception as e:
+            print(f"[ERROR] log_all_fields failed: {e}")
 
 # === 鍏抽敭璇嶆棩蹇楋紙鍐欏叆logs.db锛?===
 def log_keyword(path: str, field: str, value):
@@ -894,12 +940,17 @@ class StreamingResponseWrapper:
             raise
 
 # 杩欓噷鏄腑闂翠欢锛岃礋璐ｈ褰曡姹傚拰鍝嶅簲鐨勬祦閲忓ぇ灏?
-class TrafficLoggingMiddleware(BaseHTTPMiddleware):
+class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()  # 璁板綍寮€濮嬫椂闂?
 
         # 1. 蹇€熻繃婊?
         path = request.url.path
+        try:
+            update_hourly_daily_stats(path)
+        except Exception as e:
+            print(f"[ERROR] update_hourly_daily_stats failed: {e}")
+        await _log_request_params_if_needed(request, path)
         if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
             return await call_next(request)
 
@@ -981,6 +1032,10 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
         response.body_iterator = wrapper
 
         return response
+
+# Backward-compatible alias.
+TrafficLoggingMiddleware = RequestLogMiddleware
+
 
 # 浠ヤ笅浠ｇ爜宸插簾寮?
 # === 璇︾粏鍝嶅簲璁板綍鍏ラ槦 ===
