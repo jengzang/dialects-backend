@@ -457,38 +457,46 @@ def update_html_visit_stat(db: Session, path: str, date):
 
 
 
-def log_writer_thread(db: Session):
-    """批量写入 ApiUsageLog 到 auth.db"""
-    batch = []
-    batch_size = 50
-    batch_timeout = 120.0
+def log_writer_thread():
+    """批量写入 ApiUsageLog 到 auth.db（在线程内创建数据库连接）"""
+    from app.auth.database import SessionLocal as AuthSessionLocal
 
-    while True:
-        try:
-            # 使用超时等待，而非 sleep
-            item = log_queue.get(timeout=batch_timeout)
+    # 在线程内创建数据库连接（避免跨进程传递）
+    db = AuthSessionLocal()
 
-            if item is None:  # 停止信号
-                break
+    try:
+        batch = []
+        batch_size = 50
+        batch_timeout = 120.0
 
-            batch.append(item)
+        while True:
+            try:
+                # 使用超时等待，而非 sleep
+                item = log_queue.get(timeout=batch_timeout)
 
-            # 批次满时写入
-            if len(batch) >= batch_size:
-                _write_log_batch(db, batch)
-                batch = []
+                if item is None:  # 停止信号
+                    break
 
-        except Empty:
-            # 超时时写入剩余项
-            if batch:
-                _write_log_batch(db, batch)
-                batch = []
-        except Exception as e:
-            print(f"[X] log_writer_thread 错误: {e}")
+                batch.append(item)
 
-    # 线程结束前写入剩余数据
-    if batch:
-        _write_log_batch(db, batch)
+                # 批次满时写入
+                if len(batch) >= batch_size:
+                    _write_log_batch(db, batch)
+                    batch = []
+
+            except Empty:
+                # 超时时写入剩余项
+                if batch:
+                    _write_log_batch(db, batch)
+                    batch = []
+            except Exception as e:
+                print(f"[X] log_writer_thread 错误: {e}")
+
+        # 线程结束前写入剩余数据
+        if batch:
+            _write_log_batch(db, batch)
+    finally:
+        db.close()
 
 
 def _write_log_batch(db: Session, batch: list):
@@ -758,8 +766,8 @@ _workers_started = False
 _start_lock = threading.Lock()
 
 
-def start_api_logger_workers(db: Session):
-    """启动所有日志后台线程"""
+def start_api_logger_workers():
+    """启动所有日志后台线程（在主进程中）"""
     global _workers_started
     with _start_lock:
         if _workers_started:
@@ -775,7 +783,8 @@ def start_api_logger_workers(db: Session):
         threading.Thread(target=html_visit_writer, daemon=True).start()
 
         # [OK] 启动 ApiUsageLog 写入线程（auth.db）
-        threading.Thread(target=log_writer_thread, args=(db,), daemon=True).start()
+        # 注意：不传递db参数，让线程内部创建连接
+        threading.Thread(target=log_writer_thread, daemon=True).start()
 
         # [NEW] 启动 ApiUsageSummary 更新线程（auth.db）
         threading.Thread(target=summary_writer, daemon=True).start()
@@ -784,7 +793,7 @@ def start_api_logger_workers(db: Session):
         threading.Thread(target=online_time_writer, daemon=True).start()
 
         _workers_started = True
-        print("[OK] API 日志后台线程已启动")
+        print("[OK] API 日志后台线程已启动（主进程，使用 multiprocessing.Queue）")
 
 
 def stop_api_logger_workers():

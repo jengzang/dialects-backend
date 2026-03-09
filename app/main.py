@@ -184,7 +184,6 @@ async def lifespan(app: FastAPI):
     # 获取数据库连接，并启动日志线程
     # [FIX] 只在非 gunicorn 环境下启动后台线程
     # 在 gunicorn 环境下，后台线程由主进程启动（见 gunicorn_config.py）
-    db = next(get_db())
 
     # 检测是否在 gunicorn worker 进程中
     is_gunicorn_worker = os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn')
