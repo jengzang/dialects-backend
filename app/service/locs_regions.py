@@ -1,4 +1,4 @@
-from typing import Union, List
+﻿from typing import Union, List
 import sqlite3
 import math
 import re
@@ -44,19 +44,27 @@ def fetch_dialect_region(input_data: Union[str, List[str]], query_db=QUERY_DB_AD
 
 def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=None,
                             db_path=QUERY_DB_ADMIN, use_supplementary_db=False, user=None,
-                            db: Session = None, region_mode='yindian' ):
-    # print("即將處理經緯度")
-    print(user)
+                            db: Session = None, region_mode='yindian'):
+    def _quote_ident(name: str) -> str:
+        return '"' + str(name).replace('"', '""') + '"'
+
+    def _parse_lat_lon(value: str):
+        if not value:
+            return None, None
+        parts = [p for p in re.split(r'[,，;；\\s]+', str(value).strip()) if p]
+        if len(parts) < 2:
+            raise ValueError(f'invalid lat/lon: {value}')
+        return float(parts[0]), float(parts[1])
 
     def haversine(lat1, lon1, lat2, lon2):
-        R = 6371
+        r = 6371
         phi1 = math.radians(lat1)
         phi2 = math.radians(lat2)
         delta_phi = math.radians(lat2 - lat1)
         delta_lambda = math.radians(lon2 - lon1)
         a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
+        return r * c
 
     def get_optimal_zoom(lat_diff, lon_diff):
         max_diff = max(lat_diff, lon_diff)
@@ -72,86 +80,80 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
                 return zoom
         return 10
 
-    if supplementary_abbreviation_list:
-        supplementary_abbreviation_list = [abbr for abbr in supplementary_abbreviation_list if
-                                           abbr not in abbreviation_list]
-    abbreviation_list = [abbreviation for abbreviation in abbreviation_list if abbreviation]
+    abbreviation_list = [abbr for abbr in (abbreviation_list or []) if abbr]
+    ordered_main_abbrs = list(dict.fromkeys(abbreviation_list))
+
+    supplementary_abbreviation_list = [
+        abbr for abbr in (supplementary_abbreviation_list or [])
+        if abbr and abbr not in abbreviation_list
+    ]
+
+    result = []
+    latitudes = []
+    longitudes = []
+    abbreviation_lat_lon_pairs = []
+    abbreviation_region_pairs = {}
 
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        result = []
-        latitudes = []
-        longitudes = []
-        abbreviation_lat_lon_pairs = []
-        abbreviation_region_pairs = {}  # 新增：簡稱對應音典分區
-        partition_column = "地圖集二分區" if region_mode == "map" else "音典分區"
-        # 查主數據庫
-        for abbreviation in abbreviation_list:
-            # print(abbreviation)
-            cursor.execute(
-                f"SELECT 經緯度, {partition_column} FROM dialects WHERE 簡稱=?",
-                (abbreviation,)
-            )
-            row = cursor.fetchone()
-            if row:
-                lat_lon_str, region = row
-                try:
-                    if lat_lon_str:
-                        latitude, longitude = map(float, re.split(r'[,，\s;]+', lat_lon_str))
-                    else:
-                        print(f"錯誤：{abbreviation} 的經緯度為空！")
-                        latitude, longitude = None, None
-                    result.append((latitude, longitude))
-                    latitudes.append(latitude)
-                    longitudes.append(longitude)
-                    abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
-                    abbreviation_region_pairs[abbreviation] = region  # 加入音典分區
-                except ValueError:
-                    print(f"無法解析經緯度：{lat_lon_str}")
-            else:
-                # 调试：查看数据库中实际有什么
-                # cursor.execute(f"SELECT 簡稱 FROM dialects")
-                # all_abbrs = [r[0] for r in cursor.fetchall()]
-                print(f"未找到簡稱2：{abbreviation}")
-                # print(f"  查询值的长度: {len(abbreviation)}")
-                # print(f"  查询值的 repr: {repr(abbreviation)}")
-                # print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
-                #                               a or a in abbreviation]}")
+        partition_column = '地圖集二分區' if region_mode == 'map' else '音典分區'
 
-    # 查補充數據庫（如需）
-    # print(use_supplementary_db)
-    # print(supplementary_abbreviation_list)
-    # print(user)
-    # print(db)
+        row_map = {}
+        if ordered_main_abbrs:
+            chunk_size = 500
+            for i in range(0, len(ordered_main_abbrs), chunk_size):
+                chunk = ordered_main_abbrs[i:i + chunk_size]
+                placeholders = ','.join(['?'] * len(chunk))
+                sql = (
+                    f'SELECT {_quote_ident("簡稱")}, {_quote_ident("經緯度")}, {_quote_ident(partition_column)} '
+                    f'FROM dialects WHERE {_quote_ident("簡稱")} IN ({placeholders})'
+                )
+                cursor.execute(sql, chunk)
+                for row in cursor.fetchall():
+                    if row[0] not in row_map:
+                        row_map[row[0]] = (row[1], row[2])
+
+        for abbreviation in ordered_main_abbrs:
+            row = row_map.get(abbreviation)
+            if not row:
+                continue
+            lat_lon_str, region = row
+            try:
+                latitude, longitude = _parse_lat_lon(lat_lon_str)
+            except ValueError:
+                continue
+            result.append((latitude, longitude))
+            latitudes.append(latitude)
+            longitudes.append(longitude)
+            abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
+            abbreviation_region_pairs[abbreviation] = region
+
     if use_supplementary_db and supplementary_abbreviation_list and user and db:
-        for abbreviation in supplementary_abbreviation_list:
-            # print(abbreviation)
-            # 使用 SQLAlchemy 查詢 informations 表，並根據 user 進行過濾
-            row = db.query(Information.經緯度, Information.音典分區).filter(
-                Information.簡稱 == abbreviation, Information.user_id == user.id).first()
-
-            if row:
-                lat_lon_str, region = row
-                try:
-                    latitude, longitude = map(float, re.split(r'[，,]', lat_lon_str))
-                    result.append((latitude, longitude))
-                    latitudes.append(latitude)
-                    longitudes.append(longitude)
-                    abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
-                    abbreviation_region_pairs[abbreviation] = region  # 加入音典分區
-                except ValueError:
-                    print(f"無法解析經緯度：{lat_lon_str}")
-            else:
-                # 调试：查看数据库中实际有什么
-                # cursor.execute(f"SELECT 簡稱 FROM dialects")
-                # all_abbrs = [r[0] for r in cursor.fetchall()]
-                print(f"未找到簡稱：{abbreviation}")
-                # print(f"  查询值的长度: {len(abbreviation)}")
-                # print(f"  查询值的 repr: {repr(abbreviation)}")
-                # print(f"  数据库中相似的值: {[a for a in all_abbrs if abbreviation in
-                                              # a or a in abbreviation]}")
+        info_table = Information.__table__
+        rows = (
+            db.query(
+                info_table.c['簡稱'],
+                info_table.c['經緯度'],
+                info_table.c['音典分區']
+            )
+            .filter(
+                info_table.c['簡稱'].in_(supplementary_abbreviation_list),
+                info_table.c['user_id'] == user.id
+            )
+            .all()
+        )
+        for abbreviation, lat_lon_str, region in rows:
+            try:
+                latitude, longitude = _parse_lat_lon(lat_lon_str)
+            except ValueError:
+                continue
+            result.append((latitude, longitude))
+            latitudes.append(latitude)
+            longitudes.append(longitude)
+            abbreviation_lat_lon_pairs.append((abbreviation, (latitude, longitude)))
+            abbreviation_region_pairs[abbreviation] = region
 
     valid_latitudes = [lat for lat in latitudes if lat is not None]
     valid_longitudes = [lon for lon in longitudes if lon is not None]
@@ -161,35 +163,33 @@ def get_coordinates_from_db(abbreviation_list, supplementary_abbreviation_list=N
         center_longitude = (max(valid_longitudes) + min(valid_longitudes)) / 2
         center_coordinate = [round(center_latitude, 6), round(center_longitude, 6)]
 
-        max_lon_distance = 0
-        max_lat_distance = 0
-        for i in range(len(valid_longitudes)):
-            for j in range(i + 1, len(valid_longitudes)):
-                max_lon_distance = max(max_lon_distance,
-                                       haversine(valid_latitudes[i], valid_longitudes[i], valid_latitudes[j],
-                                                 valid_longitudes[i]))
-        for i in range(len(valid_latitudes)):
-            for j in range(i + 1, len(valid_latitudes)):
-                max_lat_distance = max(max_lat_distance,
-                                       haversine(valid_latitudes[i], valid_longitudes[i], valid_latitudes[i],
-                                                 valid_longitudes[j]))
+        min_lat = min(valid_latitudes)
+        max_lat = max(valid_latitudes)
+        min_lon = min(valid_longitudes)
+        max_lon = max(valid_longitudes)
+
+        # O(1) bounding-box distance estimate to avoid O(n^2) pairwise loops.
+        max_lat_distance = haversine(min_lat, center_longitude, max_lat, center_longitude)
+        max_lon_distance = haversine(center_latitude, min_lon, center_latitude, max_lon)
         max_lat_distance = round(max_lat_distance, 2)
         max_lon_distance = round(max_lon_distance, 2)
         zoom_level = get_optimal_zoom(max_lat_distance, max_lon_distance)
     else:
         center_coordinate = None
-        max_lat_distance = max_lon_distance = 0
+        max_lat_distance = 0
+        max_lon_distance = 0
         zoom_level = None
 
     coordinates = {
-        "coordinates_locations": abbreviation_lat_lon_pairs,
-        "region_mappings": abbreviation_region_pairs,  # 新增：音典分區對應
-        "center_coordinate": center_coordinate,
-        "max_distances": {
-            "lat_km": max_lat_distance,
-            "lon_km": max_lon_distance,
+        'coordinates_locations': abbreviation_lat_lon_pairs,
+        'region_mappings': abbreviation_region_pairs,
+        'center_coordinate': center_coordinate,
+        'max_distances': {
+            'lat_km': max_lat_distance,
+            'lon_km': max_lon_distance,
         },
-        "zoom_level": zoom_level
+        'zoom_level': zoom_level
     }
 
     return coordinates
+

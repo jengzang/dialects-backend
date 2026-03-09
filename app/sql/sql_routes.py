@@ -1,5 +1,6 @@
 import sqlite3
-from typing import Optional
+import threading
+from typing import Optional, Iterable
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -13,8 +14,85 @@ from app.auth.dependencies import get_current_admin_user, get_current_user
 from app.logging.dependencies import ApiLimiter
 from app.auth.database import get_db as get_auth_db
 from app.auth.models import User
+from app.common.path import DB_MAPPING
 
 router = APIRouter()
+
+# Schema whitelist cache: {db_key: {table_name: {col1, col2, ...}}}
+_SCHEMA_CACHE = {}
+_SCHEMA_LOCK = threading.Lock()
+
+
+def _quote_identifier(name: str) -> str:
+    """Quote validated SQL identifiers for SQLite."""
+    return f'"{name}"'
+
+
+def _load_schema(db_key: str, refresh: bool = False) -> dict[str, set[str]]:
+    """Load table/column whitelist for a db_key."""
+    with _SCHEMA_LOCK:
+        if not refresh and db_key in _SCHEMA_CACHE:
+            return _SCHEMA_CACHE[db_key]
+
+        db_path = DB_MAPPING.get(db_key)
+        if not db_path:
+            raise HTTPException(status_code=400, detail=f"无效的数据库代号: {db_key}")
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            tables = [
+                row[0] for row in cur.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            schema = {}
+            for table in tables:
+                cols = [row[1] for row in cur.execute(f'PRAGMA table_info("{table}")').fetchall()]
+                schema[table] = set(cols)
+            conn.close()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"加载数据库白名单失败: {str(e)}")
+
+        _SCHEMA_CACHE[db_key] = schema
+        return schema
+
+
+def _validate_table(db_key: str, table_name: str) -> set[str]:
+    """Validate table name against whitelist; return allowed columns."""
+    schema = _load_schema(db_key)
+    if table_name not in schema:
+        # One refresh retry for recently changed schema.
+        schema = _load_schema(db_key, refresh=True)
+        if table_name not in schema:
+            raise HTTPException(status_code=400, detail=f"无效的表名: {table_name}")
+    return schema[table_name]
+
+
+def _validate_columns(
+    db_key: str,
+    table_name: str,
+    columns: Iterable[str],
+    field_name: str = "columns",
+    allow_rowid: bool = False
+) -> set[str]:
+    """Validate columns against table whitelist."""
+    allowed = _validate_table(db_key, table_name)
+    invalid = []
+    for col in columns:
+        if col is None:
+            continue
+        if allow_rowid and isinstance(col, str) and col.lower() == "rowid":
+            continue
+        if col not in allowed:
+            invalid.append(col)
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的{field_name}: {', '.join(map(str, invalid))}"
+        )
+    return allowed
 
 
 @router.post("/query")
@@ -26,11 +104,18 @@ async def query_table(
     # 限流和日志记录已由中间件和依赖注入自动处理
 
     # 从 params 中取出 db_key 传进去
+    _validate_table(params.db_key, params.table_name)
+    _validate_columns(params.db_key, params.table_name, params.filters.keys(), "filters字段")
+    _validate_columns(params.db_key, params.table_name, params.search_columns, "search_columns")
+    if params.sort_by:
+        _validate_columns(params.db_key, params.table_name, [params.sort_by], "sort_by")
+
     with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         # 1. 基础 SQL
-        sql = f"SELECT rowid, * FROM {params.table_name}"
+        table_q = _quote_identifier(params.table_name)
+        sql = f"SELECT rowid, * FROM {table_q}"
         where_clauses = []
         values = []
 
@@ -47,12 +132,13 @@ async def query_table(
             # 2. 构建普通值的查询: col IN (?, ?)
             if normal_values:
                 placeholders = ",".join(["?"] * len(normal_values))
-                conditions.append(f"{col} IN ({placeholders})")
+                conditions.append(f"{_quote_identifier(col)} IN ({placeholders})")
                 values.extend(normal_values)  # 把值加入参数列表
             # 3. 构建空值的查询: (col IS NULL OR col = '')
             # SQLite 中通常把 NULL 和空字符串都视为"没填"
             if has_empty:
-                conditions.append(f"({col} IS NULL OR {col} = '')")
+                col_q = _quote_identifier(col)
+                conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
             # 4. 组合: (IN (...) OR IS NULL)
             if conditions:
                 where_clauses.append(f"({' OR '.join(conditions)})")
@@ -63,7 +149,7 @@ async def query_table(
             search_clauses = []
             like_pattern = f"%{params.search_text}%"
             for col in params.search_columns:
-                search_clauses.append(f"{col} LIKE ?")
+                search_clauses.append(f"{_quote_identifier(col)} LIKE ?")
                 values.append(like_pattern)
             if search_clauses:
                 where_clauses.append(f"({' OR '.join(search_clauses)})")
@@ -75,8 +161,7 @@ async def query_table(
         # 4. 处理排序 (Sort) - Requirement 2
         if params.sort_by:
             direction = "DESC" if params.sort_desc else "ASC"
-            # 注意：这里直接拼字符串有注入风险，生产环境需校验 params.sort_by 是否在白名单中
-            sql += f" ORDER BY {params.sort_by} {direction}"
+            sql += f" ORDER BY {_quote_identifier(params.sort_by)} {direction}"
 
         # 5. 处理分页
         offset = (params.page - 1) * params.page_size
@@ -88,7 +173,7 @@ async def query_table(
             rows = [dict(row) for row in cursor.fetchall()]
 
             # 获取总条数（用于前端分页）
-            count_sql = f"SELECT COUNT(*) FROM {params.table_name}"
+            count_sql = f"SELECT COUNT(*) FROM {table_q}"
             if where_clauses:
                 # 重新构造不带 LIMIT 的 WHERE 参数
                 count_values = values[:-(2)]
@@ -113,13 +198,14 @@ async def get_column_info(
 ):
     # 限流和日志记录已由中间件和依赖注入自动处理
 
+    _validate_table(db_key, table_name)
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
         cursor = conn.cursor()
 
         try:
             # 获取表结构元数据
-            cursor.execute(f"PRAGMA table_info('{table_name}')")
+            cursor.execute(f'PRAGMA table_info("{table_name}")')
             columns = cursor.fetchall()
 
             # 如果没查到数据，可能是表名不存在
@@ -164,11 +250,12 @@ async def get_table_count(
     返回:
     - count: 总行数
     """
+    _validate_table(db_key, table_name)
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
         try:
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            cursor.execute(f"SELECT COUNT(*) FROM {_quote_identifier(table_name)}")
             count = cursor.fetchone()[0]
 
             return {"count": count}
@@ -184,9 +271,11 @@ async def get_distinct_values(
     auth_db: Session = Depends(get_auth_db)
 ):
     """用于前端表头筛选弹窗，获取该列所有不重复的值"""
+    _validate_columns(db_key, table_name, [column], "column")
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
-        # 注意安全校验 column 是否合法
-        cursor = conn.execute(f"SELECT DISTINCT {column} FROM {table_name} ORDER BY {column}")
+        table_q = _quote_identifier(table_name)
+        col_q = _quote_identifier(column)
+        cursor = conn.execute(f"SELECT DISTINCT {col_q} FROM {table_q} ORDER BY {col_q}")
         values = [row[0] for row in cursor.fetchall() if row[0] is not None]
         return {"values": values}
 
@@ -197,6 +286,10 @@ async def get_distinct_values(
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
+    _validate_columns(req.db_key, req.table_name, [req.target_column], "target_column")
+    _validate_columns(req.db_key, req.table_name, req.current_filters.keys(), "current_filters字段")
+    _validate_columns(req.db_key, req.table_name, req.search_columns, "search_columns")
+
     with get_db_connection(req.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
@@ -259,13 +352,15 @@ async def get_distinct_values(
             # Part C: 拼装最终 SQL
             # ==========================================
             # 注意：表名和列名使用双引号 "" 包裹以防止特殊字符报错，也是 SQLite 的标准引用方式
-            sql = f'SELECT DISTINCT "{req.target_column}" FROM "{req.table_name}"'
+            table_q = _quote_identifier(req.table_name)
+            target_col_q = _quote_identifier(req.target_column)
+            sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
 
             if where_parts:
                 sql += " WHERE " + " AND ".join(where_parts)
 
             # 排序与限制
-            sql += f' ORDER BY "{req.target_column}" LIMIT 1000'
+            sql += f" ORDER BY {target_col_q} LIMIT 1000"
 
             # ==========================================
             # Part D: 执行
@@ -303,25 +398,32 @@ async def mutate_table(
 
     权限要求：管理员
     """
+    _validate_table(params.db_key, params.table_name)
+    _validate_columns(params.db_key, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
+    _validate_columns(params.db_key, params.table_name, params.data.keys(), "data字段")
+
     # 从 params 中取出 db_key 传进去
     with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
         try:
+            table_q = _quote_identifier(params.table_name)
+            pk_q = _quote_identifier(params.pk_column)
             if params.action == "create":
                 cols = list(params.data.keys())
+                cols_q = ",".join([_quote_identifier(c) for c in cols])
                 placeholders = ",".join(["?"] * len(cols))
-                sql = f"INSERT INTO {params.table_name} ({','.join(cols)}) VALUES ({placeholders})"
+                sql = f"INSERT INTO {table_q} ({cols_q}) VALUES ({placeholders})"
                 cursor.execute(sql, list(params.data.values()))
 
             elif params.action == "update":
-                set_clause = ", ".join([f"{k} = ?" for k in params.data.keys()])
-                sql = f"UPDATE {params.table_name} SET {set_clause} WHERE {params.pk_column} = ?"
+                set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in params.data.keys()])
+                sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
                 vals = list(params.data.values())
                 vals.append(params.pk_value)
                 cursor.execute(sql, vals)
 
             elif params.action == "delete":
-                sql = f"DELETE FROM {params.table_name} WHERE {params.pk_column} = ?"
+                sql = f"DELETE FROM {table_q} WHERE {pk_q} = ?"
                 cursor.execute(sql, (params.pk_value,))
 
             conn.commit()
@@ -381,6 +483,10 @@ async def batch_mutate_table(
         "delete_ids": [1, 2, 3, 4, 5]
     }
     """
+    _validate_table(params.db_key, params.table_name)
+    _validate_columns(params.db_key, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
+    _validate_columns(params.db_key, params.table_name, params.create_data[0].keys() if params.create_data else [], "create_data字段")
+
     with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
@@ -389,6 +495,8 @@ async def batch_mutate_table(
         errors = []
 
         try:
+            table_q = _quote_identifier(params.table_name)
+            pk_q = _quote_identifier(params.pk_column)
             if params.action == "batch_create":
                 if not params.create_data:
                     raise HTTPException(status_code=400, detail="create_data 不能为空")
@@ -396,8 +504,10 @@ async def batch_mutate_table(
                 # 获取列名（假设所有记录的列相同）
                 first_record = params.create_data[0]
                 cols = list(first_record.keys())
+                _validate_columns(params.db_key, params.table_name, cols, "create_data字段")
                 placeholders = ",".join(["?"] * len(cols))
-                sql = f"INSERT INTO {params.table_name} ({','.join(cols)}) VALUES ({placeholders})"
+                cols_q = ",".join([_quote_identifier(c) for c in cols])
+                sql = f"INSERT INTO {table_q} ({cols_q}) VALUES ({placeholders})"
 
                 # 批量插入
                 for i, record in enumerate(params.create_data):
@@ -421,12 +531,13 @@ async def batch_mutate_table(
 
                         pk_value = record[params.pk_column]
                         update_fields = {k: v for k, v in record.items() if k != params.pk_column}
+                        _validate_columns(params.db_key, params.table_name, update_fields.keys(), "update_data字段")
 
                         if not update_fields:
                             raise ValueError("没有需要更新的字段")
 
-                        set_clause = ", ".join([f"{k} = ?" for k in update_fields.keys()])
-                        sql = f"UPDATE {params.table_name} SET {set_clause} WHERE {params.pk_column} = ?"
+                        set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in update_fields.keys()])
+                        sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
 
                         values = list(update_fields.values())
                         values.append(pk_value)
@@ -449,7 +560,7 @@ async def batch_mutate_table(
 
                 # 批量删除
                 placeholders = ",".join(["?"] * len(params.delete_ids))
-                sql = f"DELETE FROM {params.table_name} WHERE {params.pk_column} IN ({placeholders})"
+                sql = f"DELETE FROM {table_q} WHERE {pk_q} IN ({placeholders})"
 
                 try:
                     cursor.execute(sql, params.delete_ids)
@@ -505,6 +616,10 @@ async def batch_replace_preview(
 
     权限要求：管理员
     """
+    _validate_table(params.db_key, params.table_name)
+    _validate_columns(params.db_key, params.table_name, params.columns, "columns")
+    _validate_columns(params.db_key, params.table_name, params.filters.keys(), "filters字段")
+
     with get_db_connection(params.db_key, user=current_user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
@@ -527,12 +642,13 @@ async def batch_replace_preview(
                     # 处理普通值: col IN (?, ?)
                     if normal_values:
                         placeholders = ",".join(["?"] * len(normal_values))
-                        filter_conditions.append(f"{col} IN ({placeholders})")
+                        filter_conditions.append(f"{_quote_identifier(col)} IN ({placeholders})")
                         query_params.extend(normal_values)
 
                     # 处理空值: (col IS NULL OR col = '')
                     if has_empty:
-                        filter_conditions.append(f"({col} IS NULL OR {col} = '')")
+                        col_q = _quote_identifier(col)
+                        filter_conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
 
                     # 组合单列条件
                     if filter_conditions:
@@ -545,7 +661,7 @@ async def batch_replace_preview(
                 search_conditions = []
                 like_pattern = f"%{params.search_text}%"
                 for col in search_columns:
-                    search_conditions.append(f"{col} LIKE ?")
+                    search_conditions.append(f"{_quote_identifier(col)} LIKE ?")
                     query_params.append(like_pattern)
 
                 if search_conditions:
@@ -557,17 +673,18 @@ async def batch_replace_preview(
             if params.is_empty_search:
                 # 空值查找：col IS NULL OR col = ''
                 for col in params.columns:
-                    match_conditions.append(f"({col} IS NULL OR {col} = '')")
+                    col_q = _quote_identifier(col)
+                    match_conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
             else:
                 if params.match_mode == 'exact':
                     # 完全匹配
                     for col in params.columns:
-                        match_conditions.append(f"{col} = ?")
+                        match_conditions.append(f"{_quote_identifier(col)} = ?")
                         query_params.append(params.find_text)
                 else:
                     # 包含匹配
                     for col in params.columns:
-                        match_conditions.append(f"{col} LIKE ?")
+                        match_conditions.append(f"{_quote_identifier(col)} LIKE ?")
                         query_params.append(f"%{params.find_text}%")
 
             if match_conditions:
@@ -575,7 +692,7 @@ async def batch_replace_preview(
 
             # 4. 构建完整SQL
             where_clause = ' AND '.join(conditions) if conditions else '1=1'
-            sql = f"SELECT COUNT(*) FROM {params.table_name} WHERE {where_clause}"
+            sql = f"SELECT COUNT(*) FROM {_quote_identifier(params.table_name)} WHERE {where_clause}"
 
             # 5. 执行查询
             cursor.execute(sql, query_params)
@@ -604,6 +721,10 @@ async def batch_replace_execute(
 
     权限要求：管理员
     """
+    _validate_table(params.db_key, params.table_name)
+    _validate_columns(params.db_key, params.table_name, params.columns, "columns")
+    _validate_columns(params.db_key, params.table_name, params.filters.keys(), "filters字段")
+
     with get_db_connection(params.db_key, user=current_user, operation="write", auth_db=auth_db) as conn:
         cursor = conn.cursor()
 
@@ -629,12 +750,13 @@ async def batch_replace_execute(
                     # 处理普通值
                     if normal_values:
                         placeholders = ",".join(["?"] * len(normal_values))
-                        filter_conditions.append(f"{col} IN ({placeholders})")
+                        filter_conditions.append(f"{_quote_identifier(col)} IN ({placeholders})")
                         where_params.extend(normal_values)
 
                     # 处理空值
                     if has_empty:
-                        filter_conditions.append(f"({col} IS NULL OR {col} = '')")
+                        col_q = _quote_identifier(col)
+                        filter_conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
 
                     if filter_conditions:
                         conditions.append(f"({' OR '.join(filter_conditions)})")
@@ -646,7 +768,7 @@ async def batch_replace_execute(
                 search_conditions = []
                 like_pattern = f"%{params.search_text}%"
                 for col in search_columns:
-                    search_conditions.append(f"{col} LIKE ?")
+                    search_conditions.append(f"{_quote_identifier(col)} LIKE ?")
                     where_params.append(like_pattern)
 
                 if search_conditions:
@@ -658,17 +780,18 @@ async def batch_replace_execute(
             if params.is_empty_search:
                 # 空值查找
                 for col in params.columns:
-                    match_conditions.append(f"({col} IS NULL OR {col} = '')")
+                    col_q = _quote_identifier(col)
+                    match_conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
             else:
                 if params.match_mode == 'exact':
                     # 完全匹配
                     for col in params.columns:
-                        match_conditions.append(f"{col} = ?")
+                        match_conditions.append(f"{_quote_identifier(col)} = ?")
                         where_params.append(params.find_text)
                 else:
                     # 包含匹配
                     for col in params.columns:
-                        match_conditions.append(f"{col} LIKE ?")
+                        match_conditions.append(f"{_quote_identifier(col)} LIKE ?")
                         where_params.append(f"%{params.find_text}%")
 
             if match_conditions:
@@ -681,16 +804,18 @@ async def batch_replace_execute(
 
             if params.is_empty_search or params.match_mode == 'exact':
                 # 直接替换为新值
-                set_clause = ', '.join([f"{col} = ?" for col in params.columns])
+                set_clause = ', '.join([f"{_quote_identifier(col)} = ?" for col in params.columns])
                 update_params.extend([params.replace_text] * len(params.columns))
             else:
                 # 使用REPLACE()函数
-                set_clause = ', '.join([f"{col} = REPLACE({col}, ?, ?)" for col in params.columns])
+                set_clause = ', '.join([
+                    f"{_quote_identifier(col)} = REPLACE({_quote_identifier(col)}, ?, ?)" for col in params.columns
+                ])
                 for _ in params.columns:
                     update_params.extend([params.find_text, params.replace_text])
 
             # 5. 构建完整UPDATE语句
-            sql = f"UPDATE {params.table_name} SET {set_clause} WHERE {where_clause}"
+            sql = f"UPDATE {_quote_identifier(params.table_name)} SET {set_clause} WHERE {where_clause}"
             all_params = update_params + where_params
 
             # 6. 执行更新
