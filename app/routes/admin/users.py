@@ -75,7 +75,8 @@ def create_user(user: AdminCreate, db: Session = Depends(get_db)):
 def update_user(
     query: str,
     user: UserUpdateSchema,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
 ):
     """更新用户信息"""
     result = user_service.update_user_logic(
@@ -108,7 +109,8 @@ def delete_user(query: str, db: Session = Depends(get_db)):
 @router.put("/password", response_model=UserUpdateSchema)
 def update_password(
     user: UpdatePassword,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin_user)
 ):
     """更新用户密码"""
     result = user_service.update_password_logic(

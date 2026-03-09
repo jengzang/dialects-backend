@@ -275,9 +275,9 @@ def report_online_time(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # ✅ Put in queue instead of direct write (non-blocking)
-    from app.logging.middleware.traffic_logging import online_time_queue
-    online_time_queue.put({
+    # ✅ 非阻塞入队，队列满时后台兜底写入
+    from app.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
+    enqueue_online_time_non_blocking({
         'user_id': user.id,
         'session_id': session_id,
         'seconds': seconds,
@@ -295,21 +295,36 @@ def report_online_time(
 @router.put("/updateProfile")
 async def update_profile(
     username: str = Form(None),  # 使用 Form 获取数据
-    email: str = Form(...),
+    email: str = Form(None),
     password: str = Form(None),
     new_password: Optional[str] = Form(None),
+    token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-
     try:
+        payload = utils.decode_access_token(token)
+        token_username = payload.get("sub")
+        if not token_username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        current_user = db.query(models.User).filter(models.User.username == token_username).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # 防止通过表单 email 指向他人账号（兼容旧前端保留字段）
+        if email and email != current_user.email:
+            raise HTTPException(status_code=403, detail="只能修改自己的帳號資料")
+
         updated_user = update_user_profile(
             db=db,
-            email=email,
+            user_id=current_user.id,
             username=username,
             password=password,
             new_password=new_password
         )
         return {" message": "用戶資料更新成功!", "user": {"username": updated_user.username, "email": updated_user.email}}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

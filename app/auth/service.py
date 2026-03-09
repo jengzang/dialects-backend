@@ -338,13 +338,13 @@ def issue_token_for_user(user: models.User, minutes: int = utils.ACCESS_TOKEN_EX
 
 def update_user_profile(
         db: Session,
-        email: str,  # 邮箱为必填项
+        user_id: int,  # 仅允许更新当前登录用户
         username: Optional[str] = None,  # 用户名可选
         password: Optional[str] = None,  # 当前密码可选
         new_password: Optional[str] = None,  # 新密码可选
 ) -> models.User:
-    # 查询用户
-    user = db.query(models.User).filter(models.User.email == email).first()
+    # 查询当前登录用户
+    user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用戶未找到")
 
@@ -357,11 +357,15 @@ def update_user_profile(
 
     # 如果提供了新的用户名，则修改用户名
     if username:
-        # 验证用户名是否已存在
-        existing_user = db.query(models.User).filter(models.User.username == username).first()
-        if existing_user:
-            raise HTTPException(status_code=400, detail="用戶名已存在")
-        user.username = username  # 更新用户名
+        # 允许保持原用户名，只有变更时才检查唯一性
+        if username != user.username:
+            existing_user = db.query(models.User).filter(
+                models.User.username == username,
+                models.User.id != user.id
+            ).first()
+            if existing_user:
+                raise HTTPException(status_code=400, detail="用戶名已存在")
+            user.username = username  # 更新用户名
 
     # 如果提供了新密码，则修改密码
     if new_password:
