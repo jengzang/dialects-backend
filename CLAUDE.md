@@ -356,10 +356,19 @@ The Praat acoustic analysis tool MUST follow specifications in the existing `cla
 - `docs/`: Documentation files (organized by category - see docs/README.md)
 - `test/`: Test scripts and utilities
 
-**File Organization Guidelines**:
-- **All documentation** should be placed in the `docs/` directory (organized by category)
-- **All test scripts** should be placed in the `test/` directory
-- Keep the project root clean - only essential config files and entry points
+### Critical File Constraints
+
+1.  **No New Root Files:** Do not create new documentation or script files in the root directory.
+2.  **Documentation Placement:** Any file explaining "how-to" or "architecture" must go into `docs/`.
+3.  **Testing & Migration:** Any `.py` file intended for testing, environment setup, or database migration must go into `test/`.
+4.  **Module Rule:** A module should be EITHER a file OR a package, never both simultaneously.
+
+### File Organization Guidelines
+
+* **Documentation:** ALL documentation files (including `.md` guides, technical specs, and manuals) MUST be placed in the `docs/` directory.
+* **Scripts:** ALL test scripts (unit, integration, or setup tests) and data migration scripts MUST be placed in the `test/` directory.
+* **Root Cleanliness:** Keep the project root clean. Only essential configuration files (e.g., `.gitignore`, `requirements.txt`, `pyproject.toml`) and the main entry point should reside in the root.
+
 
 ## Additional Resources
 

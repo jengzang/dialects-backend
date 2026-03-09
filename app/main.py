@@ -261,9 +261,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # minimum_size=1024 表示只压缩大于 1KB 的响应
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-# API 日志记录中间件（在 TrafficLoggingMiddleware 之前）
-app.add_middleware(ApiLoggingMiddleware)
-
 # api統計
 app.add_middleware(RequestLogMiddleware)
 
