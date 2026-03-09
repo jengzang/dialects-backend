@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI):
     if not is_gunicorn_worker:
         # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
         print(" [单进程模式] 启动后台线程...")
-        start_api_logger_workers(db)
+        start_api_logger_workers()
         # [NEW] 启动用户活动更新后台线程
         start_user_activity_writer()
 

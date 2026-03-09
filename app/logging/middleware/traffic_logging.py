@@ -906,9 +906,12 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
         # 2. 鐛插彇 DB Session
         # [!] 璀﹀憡锛氱洿鎺ョ敤 next(get_db()) 鏈冨皫鑷撮€ｆ帴娲╂紡锛佸繀闋堟墜鍕曢棞闁夈€?
         user = None
+        auth_header = request.headers.get("Authorization")
+        has_bearer = bool(auth_header and auth_header.startswith("Bearer "))
         try:
             # 3. [OK] 浣跨敤 await 瑾跨敤鐣版鍑芥暩
-            user = await get_current_user_for_middleware(request)
+            if has_bearer:
+                user = await get_current_user_for_middleware(request)
         except Exception as e:
             print(f"Middleware Auth Error: {e}")
             # 瑾嶈瓑鍑洪尟涓嶆噳褰遍熆璜嬫眰绻肩簩锛岃鐐哄尶鍚嶇敤鎴?
@@ -926,8 +929,8 @@ class TrafficLoggingMiddleware(BaseHTTPMiddleware):
                 request_size = url_size
             else:
                 # 鑾峰彇璇锋眰浣撳ぇ灏?
-                request_body = await _capture_request_body(request)
-                request_size = len(request_body)
+                cached_body = getattr(request.state, "_cached_request_body_for_logging", None)
+                request_size = len(cached_body) if cached_body is not None else 0
 
         # 6. 璋冪敤涓嬫父搴旂敤锛堣鍥惧嚱鏁帮級
         response = await call_next(request)
