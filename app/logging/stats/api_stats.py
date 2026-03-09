@@ -47,8 +47,9 @@ def get_api_usage_stats(
     total_calls = cursor.fetchone()[0]
 
     # 独特用户数
+    user_where_clause = f"{where_clause} AND user_id IS NOT NULL" if where_clause else "WHERE user_id IS NOT NULL"
     cursor.execute(
-        f"SELECT COUNT(DISTINCT user_id) FROM api_usage_logs {where_clause} AND user_id IS NOT NULL",
+        f"SELECT COUNT(DISTINCT user_id) FROM api_usage_logs {user_where_clause}",
         params
     )
     unique_users = cursor.fetchone()[0]

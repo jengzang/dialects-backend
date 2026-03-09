@@ -16,6 +16,8 @@ from sqlalchemy import and_, text
 
 from app.logging.core.database import SessionLocal
 from app.logging.core.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
+from app.auth.database import SessionLocal as AuthSessionLocal
+from app.auth.models import ApiUsageLog
 from app.auth.session_cleanup import (  # ✅ 导入session清理函数
     cleanup_revoked_tokens,
     cleanup_expired_sessions,
@@ -74,6 +76,27 @@ def cleanup_old_logs():
 
     except Exception as e:
         logger.error(f"[X] 清理旧日志失败: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def cleanup_old_api_usage_logs():
+    """
+    清理 auth.db 中的 API 使用日志（ApiUsageLog）
+    保留最近 7 天，避免日志表持续膨胀。
+    """
+    logger.info("[DEL] 开始清理 auth.db 的 ApiUsageLog...")
+    db = AuthSessionLocal()
+    try:
+        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        deleted_count = db.query(ApiUsageLog).filter(
+            ApiUsageLog.called_at < cutoff_date
+        ).delete()
+        db.commit()
+        logger.info(f"[OK] ApiUsageLog 清理完成: 删除 {deleted_count} 条")
+    except Exception as e:
+        logger.error(f"[X] ApiUsageLog 清理失败: {e}")
         db.rollback()
     finally:
         db.close()
@@ -159,6 +182,15 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # 每天凌晨 3:30 清理 auth.db 的 ApiUsageLog（保留7天）
+    scheduler.add_job(
+        cleanup_old_api_usage_logs,
+        CronTrigger(hour=3, minute=30),
+        id='cleanup_old_api_usage_logs',
+        name='清理7天前的 ApiUsageLog',
+        replace_existing=True
+    )
+
     # 每小时的第 5 分钟聚合关键词统计
     scheduler.add_job(
         aggregate_keyword_statistics,
@@ -218,6 +250,7 @@ def start_scheduler():
     scheduler.start()
     logger.info("[OK] 定时任务调度器已启动")
     logger.info("   - 清理旧日志: 每周日 03:00")
+    logger.info("   - 清理 ApiUsageLog: 每天 03:30（保留7天）")
     logger.info("   - 聚合统计: 每小时第 5 分钟")
     logger.info("   - 清理已撤销Token: 每周日 03:00")
     logger.info("   - 撤销过期Session: 每天 02:00")
