@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.auth import models
 from app.auth.database import get_db
+from app.admin.analytics.geo import lookup_ip_location
 
 router = APIRouter()
 
@@ -46,5 +47,6 @@ def get_user_stats(query: str, db: Session = Depends(get_db)):
         "failed_attempts": user.failed_attempts,
         "total_online_seconds": user.total_online_seconds,
         "last_login": user.last_login,
-        "register_ip":user.register_ip,
+        "register_ip": user.register_ip,
+        "register_ip_location": lookup_ip_location(user.register_ip) if user.register_ip else None,
     }

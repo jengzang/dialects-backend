@@ -159,6 +159,7 @@ def get_online_users(
             "session_id": session.session_id,
             "device_info": session.device_info,
             "current_ip": session.current_ip,
+            "ip_location": lookup_ip_location(session.current_ip) if session.current_ip else None,
             "last_activity_at": session.last_activity_at
         })
 
