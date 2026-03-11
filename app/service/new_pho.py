@@ -19,6 +19,10 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
 
     Args:
         exclude_columns: List[str] or None, 要排除的列名列表
+
+    性能优化：
+    - 使用批量查询（UNION ALL）减少数据库连接开销
+    - 使用SQL层面的多地位字检查
     """
     result = []
 
@@ -26,35 +30,72 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
     if isinstance(path_strings, str):
         path_strings = [path_strings]
 
-    if path_strings:
-        for path_string in path_strings:
-            if combine_query:
-                # 如果 combine_query 为 True, 处理 path_string 和 column 组合叠加
-                value_combinations = []
-                for col in column:
-                    values = COLUMN_VALUES.get(col)
-                    if values:
-                        value_combinations.append(values)
+    if not path_strings:
+        return result
 
-                # 生成跨列组合，并叠加 path_string 中的查询条件
-                if value_combinations:
-                    for value_combination in itertools.product(*value_combinations):
-                        # 构建新的查询字符串：path_string + 每一列的值
-                        query_string = path_string
-                        for value, col in zip(value_combination, column):
-                            query_string += f"[{value}]{{{col}}}"
+    # 收集所有需要查询的query_string
+    all_query_strings = []
+    query_metadata = []  # 存储每个查询的元数据
 
-                        # 查询生成的组合
-                        characters, _ = query_characters_by_path(query_string, exclude_columns=exclude_columns)
-                        if characters:
-                            display_name = convert_path_str(query_string)
-                            result.append({'query': display_name, '字数': len(characters), '汉字': characters})
-            else:
-                # 如果直接传入了 query_string，則直接查詢並將結果附加到 result 中
-                characters, _ = query_characters_by_path(path_string, exclude_columns=exclude_columns)
-                if characters:
-                    display_name = convert_path_str(path_string)
-                    result.append({'query': display_name, '字数': len(characters), '汉字': characters})
+    for path_string in path_strings:
+        if combine_query:
+            # 如果 combine_query 为 True, 处理 path_string 和 column 组合叠加
+            value_combinations = []
+            for col in column:
+                values = COLUMN_VALUES.get(col)
+                if values:
+                    value_combinations.append(values)
+
+            # 生成跨列组合，并叠加 path_string 中的查询条件
+            if value_combinations:
+                for value_combination in itertools.product(*value_combinations):
+                    # 构建新的查询字符串：path_string + 每一列的值
+                    query_string = path_string
+                    for value, col in zip(value_combination, column):
+                        query_string += f"[{value}]{{{col}}}"
+
+                    all_query_strings.append(query_string)
+                    query_metadata.append({
+                        'query_string': query_string,
+                        'display_name': convert_path_str(query_string)
+                    })
+        else:
+            # 如果直接传入了 query_string，則直接查詢
+            all_query_strings.append(path_string)
+            query_metadata.append({
+                'query_string': path_string,
+                'display_name': convert_path_str(path_string)
+            })
+
+    # 【批量优化】使用批量查询函数
+    if len(all_query_strings) > 1:
+        # 多个查询：使用批量查询
+        from app.service.status_arrange_pho import query_characters_by_path_batch
+        batch_results = query_characters_by_path_batch(
+            all_query_strings,
+            exclude_columns=exclude_columns
+        )
+
+        for (query_string, characters, _), metadata in zip(batch_results, query_metadata):
+            if characters:
+                result.append({
+                    'query': metadata['display_name'],
+                    '字数': len(characters),
+                    '汉字': characters
+                })
+    else:
+        # 单个查询：使用原有函数
+        for metadata in query_metadata:
+            characters, _ = query_characters_by_path(
+                metadata['query_string'],
+                exclude_columns=exclude_columns
+            )
+            if characters:
+                result.append({
+                    'query': metadata['display_name'],
+                    '字数': len(characters),
+                    '汉字': characters
+                })
 
     return result
 
