@@ -55,8 +55,9 @@ async def api_user_segments(
 ```
 
 ### 修复后代码
+
 ```python
-from app.auth.database import get_db  # ✅ 使用标准依赖
+from app.service.auth.database import get_db  # ✅ 使用标准依赖
 
 @router.get("/user-segments")
 async def api_user_segments(
@@ -106,8 +107,9 @@ def get_user_segments(db: Session, include_users: bool = False):
 ## 数据库连接方式对比
 
 ### 方式 1: SQLAlchemy ORM (推荐用于复杂查询)
+
 ```python
-from app.auth.database import get_db
+from app.service.auth.database import get_db
 
 def my_route(db: Session = Depends(get_db)):
     # 使用 ORM

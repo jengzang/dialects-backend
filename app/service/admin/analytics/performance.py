@@ -9,7 +9,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 import statistics
 
-from app.service.auth.models import ApiUsageLog
+from app.service.auth.database.models import ApiUsageLog
 
 
 def calculate_percentile(values: List[float], percentile: float) -> float:

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session as DBSession
 from sqlalchemy import func
 from datetime import datetime, timedelta
 
-from app.service.auth.models import Session
+from app.service.auth.database.models import Session
 
 
 def get_session_stats(
@@ -196,7 +196,7 @@ def get_user_session_history(
     Returns:
         会话历史字典，如果用户不存在则返回None
     """
-    from app.service.auth.models import User
+    from app.service.auth.database.models import User
     from app.service.admin.sessions.core import build_session_summary
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -242,7 +242,7 @@ def get_analytics(
         分析数据字典
     """
     from app.service.admin.analytics.geo import lookup_ip_location
-    from app.service.auth.models import ApiUsageLog
+    from app.service.auth.database.models import ApiUsageLog
     from collections import defaultdict
 
     now = datetime.utcnow()

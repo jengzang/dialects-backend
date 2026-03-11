@@ -60,7 +60,7 @@ app/
 
 ```python
 from fastapi import APIRouter, Depends
-from app.admin.analytics import get_user_segments  # 导入业务逻辑
+from app.service.admin.analytics import get_user_segments  # 导入业务逻辑
 
 router = APIRouter()
 
@@ -87,7 +87,7 @@ async def api_user_segments(
 
 ```python
 from sqlalchemy.orm import Session
-from app.auth.models import User, ApiUsageSummary
+from app.service.auth import User, ApiUsageSummary
 
 def get_user_segments(db: Session, include_users: bool = False) -> dict:
     """
@@ -211,7 +211,7 @@ async def api_user_segments(db: Session = Depends(get_db)):
 
 ```python
 # app/routes/admin/analytics.py (路由层)
-from app.admin.analytics import get_user_segments
+from app.service.admin.analytics import get_user_segments
 
 @router.get("/user-segments")
 async def api_user_segments(db: Session = Depends(get_db)):

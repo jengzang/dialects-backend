@@ -8,8 +8,8 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from datetime import datetime
 from typing import Optional
 
-from app.service.auth.dependencies import get_current_admin_user
-from app.service.auth.models import User
+from app.service.auth.core.dependencies import get_current_admin_user
+from app.service.auth.database.models import User
 from app.service.logging.stats import (
     api_stats,
     visit_stats,

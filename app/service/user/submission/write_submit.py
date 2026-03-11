@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 import re
-from app.service.user.submission.models import Information
+from app.service.user.core.models import Information
 from sqlalchemy.orm import Session
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 
 
 def get_max_value(value: str):

@@ -7,7 +7,7 @@ Analyzes API usage trends from recent logs (7 days).
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import ApiUsageLog
+from app.service.auth.database.models import ApiUsageLog
 
 
 def get_recent_trends(

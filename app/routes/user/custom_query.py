@@ -7,13 +7,13 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.service.user.submission.database import get_db as get_db_custom
+from app.service.user.core.database import get_db as get_db_custom
 from app.schemas import QueryParams, FeatureQueryParams
 from app.service.user.submission.read_custom import get_from_submission
 from app.service.geo.match_input_tip import match_custom_feature
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 
 router = APIRouter()
 

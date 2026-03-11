@@ -7,11 +7,10 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.service.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
 from app.service.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, RequestLogMiddleware
-from app.service.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
+from app.service.auth.core.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from app.common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
@@ -21,7 +20,6 @@ from starlette.staticfiles import StaticFiles
 # [OK] 导入定时任务模块
 from app.service.logging.tasks import start_scheduler, stop_scheduler
 # [OK] 导入数据库索引管理模块
-from app.sql.index_manager import initialize_all_indexes
 # [NEW] 导入数据库连接池管理模块
 from app.sql.db_pool import close_all_pools, get_db_pool
 from app.common.path import (
@@ -124,7 +122,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # [新增] 迁移 supplements.db - 创建 user_regions 表
-    from app.service.user.submission.database import migrate_user_regions_table
+    from app.service.user.core.database import migrate_user_regions_table
     print("=" * 60)
     print("[DB] 检查 supplements.db 表结构...")
     try:
@@ -135,7 +133,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # [新增] 迁移 logs.db - 创建 API 统计表
-    from app.service.logging.migrations.add_hourly_daily_stats import migrate_hourly_daily_stats
+    from app.service.logging.core.database import migrate_hourly_daily_stats
     import sqlite3
     from app.common.path import LOGS_DATABASE_PATH
     print("=" * 60)

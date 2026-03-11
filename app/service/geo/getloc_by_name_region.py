@@ -2,8 +2,8 @@ import os
 
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User
-from app.service.user.submission.models import Information
+from app.service.auth.database.models import User
+from app.service.user.core.models import Information
 from app.common.path import QUERY_DB_ADMIN
 # [NEW] 导入连接池
 from app.sql.db_pool import get_db_pool

@@ -4,9 +4,9 @@ API 限流依赖注入：自动检查 API 使用限制
 from typing import Optional
 from fastapi import Depends, Request, HTTPException
 from sqlalchemy.orm import Session
-from app.service.auth.database import get_db
-from app.service.auth.dependencies import get_current_user, check_api_usage_limit
-from app.service.auth.models import User
+from app.service.auth.database.connection import get_db
+from app.service.auth.core.dependencies import get_current_user, check_api_usage_limit
+from app.service.auth.database.models import User
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
 from app.common.config import REQUIRE_LOGIN
 

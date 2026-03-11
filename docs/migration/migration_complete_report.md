@@ -220,10 +220,10 @@ If issues are discovered, rollback can be performed by:
 1. Restore database backup (if available)
 2. Revert code changes using git:
    ```bash
-   git checkout HEAD~1 app/tools/VillagesML/character/frequency.py
-   git checkout HEAD~1 app/tools/VillagesML/character/tendency.py
-   git checkout HEAD~1 app/tools/VillagesML/patterns/__init__.py
-   git checkout HEAD~1 app/tools/VillagesML/semantic/category.py
+   git checkout HEAD~1 app/tools/villagesML/character/frequency.py
+   git checkout HEAD~1 app/tools/villagesML/character/tendency.py
+   git checkout HEAD~1 app/tools/villagesML/patterns/__init__.py
+   git checkout HEAD~1 app/tools/villagesML/semantic/category.py
    ```
 
 ---

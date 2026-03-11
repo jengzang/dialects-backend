@@ -4,7 +4,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.service.user.submission.models import Information
+from app.service.user.core.models import Information
 from app.common.path import QUERY_DB_ADMIN
 from app.sql.db_pool import get_db_pool
 

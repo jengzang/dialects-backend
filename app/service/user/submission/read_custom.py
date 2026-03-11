@@ -3,8 +3,8 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User
-from app.service.user.submission.models import Information
+from app.service.auth.database.models import User
+from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
 
 

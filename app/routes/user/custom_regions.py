@@ -7,15 +7,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.service.user.submission.database import get_db
-from app.service.user.submission import region_service
+from app.service.user.core.database import get_db
+from app.service.user.submission import region
 from app.schemas.custom_region import (
     CustomRegionCreate,
     CustomRegionList
 )
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 
 router = APIRouter()
 
@@ -39,7 +39,7 @@ async def create_or_update_custom_region(
 
     try:
         # 创建或更新区域
-        region, action = region_service.create_or_update_region(
+        region, action = region.create_or_update_region(
             db=db,
             user_id=user.id,
             username=user.username,
@@ -84,7 +84,7 @@ async def delete_custom_region(
 
     try:
         # 删除区域
-        deleted = region_service.delete_region(
+        deleted = region.delete_region(
             db=db,
             user_id=user.id,
             region_name=region_name

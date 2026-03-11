@@ -88,7 +88,7 @@ from app.common.constants import PHONOLOGY_FEATURES
 from common.path import QUERY_DB_ADMIN
 
 # 修改后
-from app.common.config import _RUN_TYPE
+from app.common import _RUN_TYPE
 from app.common.api_config import API_ROUTE_CONFIG
 from app.common.constants import PHONOLOGY_FEATURES
 from app.common.path import QUERY_DB_ADMIN

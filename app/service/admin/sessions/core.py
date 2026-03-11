@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session as DBSession
 from datetime import datetime
 
-from app.service.auth.models import User, Session, RefreshToken
+from app.service.auth.database.models import User, Session, RefreshToken
 from app.service.admin.analytics.geo import lookup_ip_location
 from app.schemas.session import (
     SessionDetailResponse,

@@ -8,7 +8,7 @@ Returns detailed data for frontend to generate labels.
 from typing import List, Optional
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User, ApiUsageSummary
+from app.service.auth.database.models import User, ApiUsageSummary
 
 
 # API category mapping

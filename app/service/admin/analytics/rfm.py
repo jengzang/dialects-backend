@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User, ApiUsageSummary
+from app.service.auth.database.models import User, ApiUsageSummary
 
 
 def calculate_rfm_score(recency_days: int, frequency: int, monetary: float,

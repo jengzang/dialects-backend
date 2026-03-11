@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, class_mapper
 
-from app.service.auth.models import User
-from app.service.user.submission.models import Information
+from app.service.auth.database.models import User
+from app.service.user.core.models import Information
 
 
 def handle_form_deletion(form_data: dict, user: User, db: Session):

@@ -60,7 +60,7 @@ RECORD_API = [
     "feature_stats",  # 新增：特征统计接口
     "user/custom",
     "custom_regions",  # 新增：用户自定义区域接口
-    "villages",  # 新增：VillagesML 自然村分析接口
+    "villages",  # 新增：villagesML 自然村分析接口
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）
@@ -274,7 +274,7 @@ API_ROUTE_CONFIG = {
     #     "log_body": True,  # 记录请求体（用于分析用户创建的区域）
     # },
 
-    # ===== VillagesML 自然村分析 API =====
+    # ===== villagesML 自然村分析 API =====
     "/api/villages/*": {
         "rate_limit": True,  # 启用限流（防止滥用）
         "require_login": False,  # 不强制登录（公开查询 API）

@@ -7,7 +7,7 @@ Analyzes user growth trends over time.
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 
 
 def get_user_growth(

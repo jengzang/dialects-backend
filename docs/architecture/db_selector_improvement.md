@@ -12,20 +12,22 @@
 """
 from typing import Optional
 from fastapi import Depends
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 from app.common.path import (
-    DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
-    QUERY_DB_ADMIN, QUERY_DB_USER
+   DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
+   QUERY_DB_ADMIN, QUERY_DB_USER
 )
 
+
 def get_dialects_db(user: Optional[User] = Depends(get_current_user)) -> str:
-    """根据用户角色返回方言数据库路径"""
-    return DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+   """根据用户角色返回方言数据库路径"""
+   return DIALECTS_DB_ADMIN if user and user.role == "admin" else DIALECTS_DB_USER
+
 
 def get_query_db(user: Optional[User] = Depends(get_current_user)) -> str:
-    """根据用户角色返回查询数据库路径"""
-    return QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
+   """根据用户角色返回查询数据库路径"""
+   return QUERY_DB_ADMIN if user and user.role == "admin" else QUERY_DB_USER
 ```
 
 ### 使用方式
@@ -98,41 +100,43 @@ async def api_run_phonology_analysis(
 基础服务类，封装数据库选择逻辑
 """
 from typing import Optional
-from app.auth.models import User
+from app.service.auth import User
 from app.common.path import (
-    DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
-    QUERY_DB_ADMIN, QUERY_DB_USER
+   DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
+   QUERY_DB_ADMIN, QUERY_DB_USER
 )
 
+
 class BaseService:
-    """基础服务类，所有服务继承此类"""
+   """基础服务类，所有服务继承此类"""
 
-    def __init__(self, user: Optional[User] = None):
-        self.user = user
-        self.dialects_db = self._get_dialects_db()
-        self.query_db = self._get_query_db()
+   def __init__(self, user: Optional[User] = None):
+      self.user = user
+      self.dialects_db = self._get_dialects_db()
+      self.query_db = self._get_query_db()
 
-    def _get_dialects_db(self) -> str:
-        """根据用户角色返回方言数据库路径"""
-        return DIALECTS_DB_ADMIN if self.user and self.user.role == "admin" else DIALECTS_DB_USER
+   def _get_dialects_db(self) -> str:
+      """根据用户角色返回方言数据库路径"""
+      return DIALECTS_DB_ADMIN if self.user and self.user.role == "admin" else DIALECTS_DB_USER
 
-    def _get_query_db(self) -> str:
-        """根据用户角色返回查询数据库路径"""
-        return QUERY_DB_ADMIN if self.user and self.user.role == "admin" else QUERY_DB_USER
+   def _get_query_db(self) -> str:
+      """根据用户角色返回查询数据库路径"""
+      return QUERY_DB_ADMIN if self.user and self.user.role == "admin" else QUERY_DB_USER
+
 
 # app/service/phonology_service.py
 class PhonologyService(BaseService):
-    """音韵分析服务"""
+   """音韵分析服务"""
 
-    async def analyze(self, payload: AnalysisPayload):
-        """执行音韵分析"""
-        result = await asyncio.to_thread(
-            run_phonology_analysis,
-            **payload.dict(),
-            dialects_db=self.dialects_db,
-            query_db=self.query_db
-        )
-        return result
+   async def analyze(self, payload: AnalysisPayload):
+      """执行音韵分析"""
+      result = await asyncio.to_thread(
+         run_phonology_analysis,
+         **payload.dict(),
+         dialects_db=self.dialects_db,
+         query_db=self.query_db
+      )
+      return result
 ```
 
 ### 使用方式
@@ -171,8 +175,8 @@ async def api_run_phonology_analysis(
 """
 from typing import Optional
 from fastapi import Depends
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 def get_dialects_connection(user: Optional[User] = Depends(get_current_user)):
     """获取方言数据库连接"""

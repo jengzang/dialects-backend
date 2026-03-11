@@ -49,9 +49,10 @@
 對於每個受影響的文件：
 
 **1. 取消註釋必要的導入**
+
 ```python
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 ```
 
 **2. 為函數添加 user 參數**
@@ -94,14 +95,15 @@ db_type = "admin" if user and user.role == "admin" else "user"
 - ✅ 修復後：0 個問題
 
 ### 導入測試
+
 ```python
-from app.routes.compare import router
+from app.routes.core.compare import router
 from app.routes.geo.batch_match import router
 from app.routes.geo.get_locs import router
 from app.routes.geo.get_coordinates import router
-from app.routes.search import router
-from app.routes.new_pho import router
-from app.routes.phonology import router
+from app.routes.core.search import router
+from app.routes.core.new_pho import router
+from app.routes.core.phonology import router
 ```
 ✅ 所有文件導入成功，無語法錯誤
 

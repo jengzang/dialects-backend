@@ -11,7 +11,7 @@ This module provides comprehensive ranking calculations for:
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
-from app.service.auth import models
+from app.service.auth.database import models
 
 # Category definitions - exact path matching
 CATEGORY_PATHS = {

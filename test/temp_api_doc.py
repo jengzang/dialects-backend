@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate complete VillagesML API documentation"""
+"""Generate complete villagesML API documentation"""
 
-doc_content = """# VillagesML API Complete Reference
+doc_content = """# villagesML API Complete Reference
 
 **Version:** 1.0
 **Base URL:** `http://127.0.0.1:5000/api/villages`
@@ -9,7 +9,7 @@ doc_content = """# VillagesML API Complete Reference
 
 ## Overview
 
-This document provides a complete reference for all VillagesML (广东省自然村分析系统) API endpoints. The system provides linguistic analysis and visualization capabilities for 285,860+ Guangdong natural villages.
+This document provides a complete reference for all villagesML (广东省自然村分析系统) API endpoints. The system provides linguistic analysis and visualization capabilities for 285,860+ Guangdong natural villages.
 
 **Important Notes:**
 - All endpoints are prefixed with `/api/villages`

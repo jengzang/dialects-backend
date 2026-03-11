@@ -9,10 +9,10 @@ from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import (
     QueryParams, DistinctQueryRequest
 )
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 from app.service.logging.dependencies import ApiLimiter
-from app.service.auth.database import get_db as get_auth_db
-from app.service.auth.models import User
+from app.service.auth.database.connection import get_db as get_auth_db
+from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
 from app.redis_client import redis_client
 

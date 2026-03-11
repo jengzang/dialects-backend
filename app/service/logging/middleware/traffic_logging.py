@@ -17,9 +17,9 @@ from sqlalchemy.orm import Session
 # from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from queue import Empty  # 只引入這個異常類，不引入 Queue 類
-from app.service.auth.database import get_db
-from app.service.auth.dependencies import get_current_user_for_middleware
-from app.service.auth.models import ApiUsageLog, ApiUsageSummary
+from app.service.auth.database.connection import get_db
+from app.service.auth.core.dependencies import get_current_user_for_middleware
+from app.service.auth.database.models import ApiUsageLog, ApiUsageSummary
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.models import ApiKeywordLog
 from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
@@ -477,7 +477,7 @@ def update_html_visit_stat(db: Session, path: str, date):
 
 def log_writer_thread():
     """批量写入 ApiUsageLog 到 auth.db（在线程内创建数据库连接）"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
 
     # 在线程内创建数据库连接（避免跨进程传递）
     db = AuthSessionLocal()
@@ -610,7 +610,7 @@ def summary_writer():
 
 def _process_summary_batch(batch: list):
     """批量处理 ApiUsageSummary 更新"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
     db = AuthSessionLocal()
 
     try:
@@ -715,8 +715,8 @@ def online_time_writer():
 
 def _write_online_time_batch(batch: dict):
     """Write aggregated online time updates to database"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
-    from app.service.auth.models import User, Session
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.models import User, Session
 
     db = AuthSessionLocal()
     try:

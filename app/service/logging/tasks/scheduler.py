@@ -16,15 +16,15 @@ from sqlalchemy import and_, text
 
 from app.service.logging.core.database import SessionLocal
 from app.service.logging.core.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
-from app.service.auth.database import SessionLocal as AuthSessionLocal
-from app.service.auth.models import ApiUsageLog
-from app.service.auth.session_cleanup import (  # ✅ 导入session清理函数
+from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
+from app.service.auth.database.models import ApiUsageLog
+from app.service.auth.session.cleanup import (  # ✅ 导入session清理函数
     cleanup_revoked_tokens,
     cleanup_expired_sessions,
     cleanup_suspicious_sessions,
     cleanup_excess_tokens_per_session
 )
-from app.service.auth.key_manager import cleanup_expired_keys  # ✅ 导入key清理函数
+from app.service.auth.security.key_manager import cleanup_expired_keys  # ✅ 导入key清理函数
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)

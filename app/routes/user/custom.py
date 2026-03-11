@@ -3,10 +3,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.service.auth.dependencies import get_current_user
-from app.service.auth.models import User
-from app.service.user.submission.database import SessionLocal as SessionLocal_info
-from app.service.user.submission.models import Information
+from app.service.auth.core.dependencies import get_current_user
+from app.service.auth.database.models import User
+from app.service.user.core.database import SessionLocal as SessionLocal_info
+from app.service.user.core.models import Information
 from app.service.user.submission.write_submit import get_max_value
 from app.schemas.admin import InformationBase
 from app.schemas.user import CustomDataEdit, BatchDeleteRequest
