@@ -11,7 +11,7 @@ from typing import Optional
 from app.service.auth.core.dependencies import get_current_admin_user
 from app.service.auth.database.models import User
 from app.service.auth.database.connection import get_db
-from app.schemas.analytics import (
+from app.schemas.admin.analytics import (
     UserSegmentsResponse,
     RFMAnalysisResponse,
     AnomalyDetectionResponse,

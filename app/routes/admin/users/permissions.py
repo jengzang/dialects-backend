@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.service.auth.database.connection import get_db
 from app.service.auth.core.dependencies import get_current_admin_user
 from app.service.auth.database.models import User, UserDbPermission
-from app.schemas.admin import (
+from app.schemas.admin.permissions import (
     PermissionResponse
 )
 

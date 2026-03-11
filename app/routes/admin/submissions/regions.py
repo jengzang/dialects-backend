@@ -18,7 +18,7 @@ import json
 
 from app.service.user.core.database import get_db
 from app.service.user.submission import region
-from app.schemas.admin import (
+from app.schemas.admin.submissions import (
     AdminRegionListResponse,
     AdminRegionCreate,
     AdminRegionUpdate,

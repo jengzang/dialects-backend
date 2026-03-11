@@ -18,7 +18,7 @@ from datetime import datetime
 
 from app.service.auth.database.models import User, Session, RefreshToken
 from app.service.admin.analytics.geo import lookup_ip_location
-from app.schemas.session import (
+from app.schemas.auth.session import (
     SessionDetailResponse,
     SessionSummaryResponse,
     IPHistoryItem

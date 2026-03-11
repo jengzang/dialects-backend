@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Literal, Optional
 from app.service.auth.database.connection import get_db
-from app.schemas.admin import (
+from app.schemas.admin.analytics import (
     LeaderboardResponse,
     AvailableApisResponse
 )

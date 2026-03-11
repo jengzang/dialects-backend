@@ -21,7 +21,7 @@ from app.service.auth.database.models import User
 from app.service.auth.database.connection import get_db
 from app.service.admin.sessions import stats, activity
 from app.service.admin.sessions import core
-from app.schemas.session import (
+from app.schemas.auth.session import (
     SessionDetailResponse,
     SessionListResponse,
     SessionStatsResponse,

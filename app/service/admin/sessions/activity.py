@@ -14,7 +14,7 @@ from datetime import datetime
 from app.service.auth.database.models import Session, RefreshToken
 from app.service.admin.analytics.geo import lookup_ip_location
 from app.service.admin.sessions.core import parse_ip_history
-from app.schemas.session import SessionActivityItem
+from app.schemas.auth.session import SessionActivityItem
 
 
 def get_session_activity(

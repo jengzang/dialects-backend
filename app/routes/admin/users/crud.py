@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 from app.service.auth.database import models
 from app.service.auth.database.connection import get_db
 from app.service.auth.core.dependencies import get_current_admin_user
-from app.schemas.admin import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin, UserListItem
-from app.schemas.auth import UserResponse
+from app.schemas.admin.users import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin, UserListItem
+from app.schemas.auth.user import UserResponse
 from app.service.admin.users import management as user_service
 
 router = APIRouter()

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.service.user.core.database import get_db
 from app.service.user.submission import region
-from app.schemas.custom_region import (
+from app.schemas.user.submissions import (
     CustomRegionCreate,
     CustomRegionList
 )

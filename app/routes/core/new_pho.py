@@ -8,7 +8,7 @@ from app.sql.db_selector import get_dialects_db, get_query_db
 # from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
 # from app.auth.models import User
-from app.schemas.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
+from app.schemas.core.phonology import CharListRequest, ZhongGuAnalysis, YinWeiAnalysis
 
 from app.service.core.new_pho import process_chars_status, set_cache, get_cache, generate_cache_key, \
     _run_dialect_analysis_sync
