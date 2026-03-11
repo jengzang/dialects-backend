@@ -9,16 +9,15 @@
 
 业务逻辑在 app.admin.user_service 中实现
 """
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from app.auth import models
-from app.auth.database import get_db
-from app.auth.dependencies import get_current_user, get_current_admin_user
-from app.auth.models import User
+from app.service.auth import models
+from app.service.auth.database import get_db
+from app.service.auth.dependencies import get_current_admin_user
 from app.schemas.admin import UserUpdateSchema, AdminCreate, UpdatePassword, LetAdmin, UserListItem
 from app.schemas.auth import UserResponse
-from app.admin import user_service
+from app.service.admin import user_service
 
 router = APIRouter()
 

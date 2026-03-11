@@ -6,11 +6,11 @@ Admin-only endpoints for user behavior analytics.
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional
 
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
-from app.auth.database import get_db
+from app.service.auth.dependencies import get_current_admin_user
+from app.service.auth.models import User
+from app.service.auth.database import get_db
 from app.schemas.analytics import (
     UserSegmentsResponse,
     RFMAnalysisResponse,
@@ -24,7 +24,7 @@ from app.schemas.analytics import (
     GeoDistributionResponse,
     DeviceDistributionResponse,
 )
-from app.admin.analytics import (
+from app.service.admin.analytics import (
     get_user_segments,
     get_rfm_analysis,
     detect_anomalies,

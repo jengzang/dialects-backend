@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Request
 from starlette.responses import HTMLResponse
 from app.static_utils import get_resource_path
-from app.logging.middleware.traffic_logging import update_html_visit
+from app.service.logging.middleware.traffic_logging import update_html_visit
 # from app.common.config import HTML_PATH
 
 router = APIRouter()

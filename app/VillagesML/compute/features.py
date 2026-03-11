@@ -7,7 +7,7 @@
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 from .validators import FeatureExtractionParams, FeatureAggregationParams
@@ -17,8 +17,6 @@ from .timeout import timeout, TimeoutException
 from ..config import get_db_path
 
 # 导入身份验证依赖
-from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -133,4 +131,3 @@ async def aggregate_features(
         raise HTTPException(status_code=500, detail=f"Aggregation failed: {str(e)}")
 
 
-import time

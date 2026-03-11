@@ -14,7 +14,7 @@ from .user_sessions import router as user_sessions_router  # ✅ 新增：基于
 from .cache_manager import router as cache_manager_router
 from .leaderboard import router as leaderboard_router
 from .analytics import router as analytics_router
-from ...auth.dependencies import get_current_admin_user
+from app.service.auth.dependencies import get_current_admin_user
 from ..admin.get_ip import router as get_ip
 
 # 创建一个总的 admin 路由集合

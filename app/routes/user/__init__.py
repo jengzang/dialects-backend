@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from .custom import router as custom_router
-from app.logging.dependencies.limiter import ApiLimiter
+from app.service.logging.dependencies.limiter import ApiLimiter
 
 router = APIRouter()
 

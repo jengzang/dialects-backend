@@ -21,13 +21,11 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
-from datetime import datetime
 
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User, RefreshToken
-from app.auth.database import get_db
-from app.admin import token_service
+from app.service.auth.dependencies import get_current_admin_user
+from app.service.auth.models import User
+from app.service.auth.database import get_db
+from app.service.admin import token_service
 
 router = APIRouter()
 

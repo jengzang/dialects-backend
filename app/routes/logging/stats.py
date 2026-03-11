@@ -8,15 +8,14 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from datetime import datetime
 from typing import Optional
 
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
-from app.logging.stats import (
-    keyword_stats,
+from app.service.auth.dependencies import get_current_admin_user
+from app.service.auth.models import User
+from app.service.logging.stats import (
     api_stats,
     visit_stats,
     database_stats
 )
-
+from app.service.logging.stats import keyword_stats
 
 router = APIRouter(tags=["日志统计"])
 

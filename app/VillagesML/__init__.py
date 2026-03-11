@@ -35,7 +35,7 @@ def setup_villages_routes(app: FastAPI):
     from .compute import clustering, semantic, features, subset
     from .admin import run_ids as admin_run_ids
     from .statistics import router as statistics_router  # NEW: Statistics endpoints
-    from app.logging.dependencies.limiter import ApiLimiter
+    from app.service.logging.dependencies.limiter import ApiLimiter
 
     # Register all routers with /api/villages prefix
     # Tags are defined here to avoid duplication (routers should not define their own tags)

@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session as DBSession
 from typing import Optional
 from datetime import datetime
 
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
-from app.auth.database import get_db
-from app.admin.sessions import core, stats, activity
+from app.service.auth.dependencies import get_current_admin_user
+from app.service.auth.models import User
+from app.service.auth.database import get_db
+from app.service.admin.sessions import stats, activity
+from app.service.admin.sessions import core
 from app.schemas.session import (
     SessionDetailResponse,
     SessionListResponse,

@@ -6,13 +6,14 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth.dependencies import check_login_rate_limit
-from app.auth.models import ApiUsageLog
-from app.auth.service import update_user_profile
-from app.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
+from app.service.auth.dependencies import check_login_rate_limit
+from app.service.auth.models import ApiUsageLog
+from app.service.auth import utils
+from app.service.auth.service import update_user_profile, models
+from app.service.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
 from app.schemas import auth as schemas
-from app.auth import service, utils, models
-from app.auth.database import get_db
+from app.service.auth import service
+from app.service.auth.database import get_db
 from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
@@ -276,7 +277,7 @@ def report_online_time(
         raise HTTPException(status_code=404, detail="User not found")
 
     # ✅ 非阻塞入队，队列满时后台兜底写入
-    from app.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
+    from app.service.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
     enqueue_online_time_non_blocking({
         'user_id': user.id,
         'session_id': session_id,
@@ -366,5 +367,5 @@ def get_leaderboard(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Calculate all rankings
-    from app.auth.leaderboard_service import get_user_leaderboard
+    from app.service.user.leaderboard_service import get_user_leaderboard
     return get_user_leaderboard(db, user.id)

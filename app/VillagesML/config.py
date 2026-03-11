@@ -2,7 +2,6 @@
 API配置文件
 Configuration file for the Villages Analysis API
 """
-from pathlib import Path
 import os
 
 # 数据库路径常量 - 使用项目统一路径管理

@@ -7,16 +7,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.custom.database import get_db
-from app.custom import region_service
+from app.service.user.submission.database import get_db
+from app.service.user.submission import region_service
 from app.schemas.custom_region import (
     CustomRegionCreate,
-    CustomRegionResponse,
     CustomRegionList
 )
-from app.auth.dependencies import get_current_user
+from app.service.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth.models import User
 
 router = APIRouter()
 

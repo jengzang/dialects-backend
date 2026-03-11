@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 
-from app.logging.stats import hourly_daily_stats
+from app.service.logging.stats import hourly_daily_stats
 
 
 router = APIRouter(prefix="/logs/stats", tags=["日志统计"])

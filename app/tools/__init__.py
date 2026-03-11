@@ -13,7 +13,7 @@ def setup_tools_routes(app: FastAPI):
     from app.tools.check.check_routes import router as check_router
     from app.tools.jyut2ipa.jyut2ipa_routes import router as jyut2ipa_router
     from app.tools.merge.merge_routes import router as merge_router
-    from app.logging.dependencies.limiter import ApiLimiter
+    from app.service.logging.dependencies.limiter import ApiLimiter
 
     app.include_router(check_router, prefix="/api/tools/check", tags=["工具-Check"], dependencies=[Depends(ApiLimiter)])
     app.include_router(jyut2ipa_router, prefix="/api/tools/jyut2ipa", tags=["工具-Jyut2IPA"], dependencies=[Depends(ApiLimiter)])

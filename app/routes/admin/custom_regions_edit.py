@@ -13,8 +13,8 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from app.custom.database import get_db
-from app.custom import region_service
+from app.service.user.submission.database import get_db
+from app.service.user.submission import region_service
 from app.schemas.admin import AdminRegionCreate, AdminRegionUpdate, AdminRegionDelete
 import json
 

@@ -1,16 +1,12 @@
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 
-from app.auth.database import get_db
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User, UserDbPermission
+from app.service.auth.database import get_db
+from app.service.auth.dependencies import get_current_admin_user
+from app.service.auth.models import User, UserDbPermission
 from app.schemas.admin import (
-    PermissionCreate,
-    PermissionUpdate,
-    PermissionResponse,
-    UserWithPermissions
+    PermissionResponse
 )
 
 router = APIRouter()

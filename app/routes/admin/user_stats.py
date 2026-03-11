@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.auth import models
-from app.auth.database import get_db
-from app.admin.analytics.geo import lookup_ip_location
+from app.service.auth import models
+from app.service.auth.database import get_db
+from app.service.admin.analytics.geo import lookup_ip_location
 
 router = APIRouter()
 

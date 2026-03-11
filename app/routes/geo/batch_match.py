@@ -8,13 +8,12 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request, Depends
 from sqlalchemy.orm import Session
 
-from app.custom.database import get_db as get_db_custom
+from app.service.user.submission.database import get_db as get_db_custom
 from app.sql.db_selector import get_query_db
-from app.auth.dependencies import get_current_user
+from app.service.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
-from app.service.match_input_tip import match_locations_batch
-from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
+from app.service.auth.models import User
+from app.service.geo.match_input_tip import match_locations_batch
 
 router = APIRouter()
 

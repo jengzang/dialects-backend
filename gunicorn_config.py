@@ -21,9 +21,9 @@ def on_starting(server):
     在 Gunicorn 主进程启动时执行（只执行一次）
     在这里启动后台线程，所有 worker 进程将通过 multiprocessing.Queue 共享这些队列
     """
-    from app.logging.tasks.scheduler import start_scheduler
-    from app.logging.middleware.traffic_logging import start_api_logger_workers
-    from app.auth.service import start_user_activity_writer
+    from app.service.logging.tasks import start_scheduler
+    from app.service.logging.middleware.traffic_logging import start_api_logger_workers
+    from app.service.auth import start_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] starting background workers...")
@@ -67,9 +67,9 @@ def on_exit(server):
     在 Gunicorn 主进程退出时执行
     停止所有后台线程
     """
-    from app.logging.tasks.scheduler import stop_scheduler
-    from app.logging.middleware.traffic_logging import stop_api_logger_workers
-    from app.auth.service import stop_user_activity_writer
+    from app.service.logging.tasks import stop_scheduler
+    from app.service.logging.middleware.traffic_logging import stop_api_logger_workers
+    from app.service.auth import stop_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] stopping background workers...")
@@ -99,8 +99,8 @@ bind = "0.0.0.0:5000"
 workers = 3
 worker_class = "uvicorn.workers.UvicornWorker"
 timeout = 300
-max_requests = 1000
-max_requests_jitter = 50
+max_requests = 5000
+max_requests_jitter = 100
 graceful_timeout = 60
 keepalive = 5
 accesslog = "-"

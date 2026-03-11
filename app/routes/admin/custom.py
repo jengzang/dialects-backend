@@ -13,10 +13,10 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.custom.database import SessionLocal as SessionLocal_info
-from app.auth.database import SessionLocal as SessionLocal_user
+from app.service.user.submission.database import SessionLocal as SessionLocal_info
+from app.service.auth.database import SessionLocal as SessionLocal_user
 from app.schemas.admin import InformationBase
-from app.custom.admin import custom_service
+from app.service.admin import custom_service
 
 router = APIRouter()
 

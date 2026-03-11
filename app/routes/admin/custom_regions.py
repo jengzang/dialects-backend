@@ -13,9 +13,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.custom.database import get_db
-from app.custom import region_service
-from app.schemas.admin import AdminRegionListResponse, UserRegionCount
+from app.service.user.submission.database import get_db
+from app.service.user.submission import region_service
+from app.schemas.admin import AdminRegionListResponse
 from fastapi import Depends
 
 router = APIRouter()

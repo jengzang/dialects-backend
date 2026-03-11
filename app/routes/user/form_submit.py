@@ -7,13 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.custom.database import get_db as get_db_custom
-from app.custom.delete import handle_form_deletion
+from app.service.user.submission.database import get_db as get_db_custom
+from app.service.user.submission.delete import handle_form_deletion
 from app.schemas import FormData
-from app.custom.write_submit import handle_form_submission
-from app.auth.dependencies import get_current_user
+from app.service.user.submission.write_submit import handle_form_submission
+from app.service.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth.models import User
 
 router = APIRouter()
 

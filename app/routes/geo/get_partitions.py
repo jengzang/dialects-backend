@@ -4,8 +4,8 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Query, Depends
-from app.service.match_input_tip import read_partition_hierarchy
+from fastapi import APIRouter, Query
+from app.service.geo.match_input_tip import read_partition_hierarchy
 # from app.logging.dependencies.limiter import ApiLimiter
 # from app.auth.models import User
 

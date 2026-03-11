@@ -16,8 +16,8 @@
 from typing import Optional
 from fastapi import Depends
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth.dependencies import get_current_user
+from app.service.auth.models import User
 from app.common.path import (
     DIALECTS_DB_ADMIN,
     DIALECTS_DB_USER,

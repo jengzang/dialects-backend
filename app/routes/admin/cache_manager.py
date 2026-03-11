@@ -9,7 +9,7 @@
 业务逻辑在 app.admin.cache_service 中实现
 """
 from fastapi import APIRouter
-from app.admin import cache_service
+from app.service.admin import cache_service
 
 router = APIRouter()
 

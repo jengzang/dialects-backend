@@ -5,7 +5,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, BackgroundTasks,
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal
 import shutil
 from datetime import datetime
 
@@ -22,13 +22,12 @@ from .utils.validators import (
     validate_upload_file,
     raise_error,
     ErrorCode,
-    SUPPORTED_MODULES,
     SUPPORTED_MODES,
     MAX_UPLOAD_MB,
     MAX_DURATION_S
 )
 from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id
-from app.logging.dependencies.limiter import ApiLimiter
+from app.service.logging.dependencies.limiter import ApiLimiter
 
 router = APIRouter(
     prefix="/api/tools/praat",

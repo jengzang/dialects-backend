@@ -5,9 +5,8 @@
 from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 
-from app.service.match_input_tip import match_locations_batch, match_locations_batch_exact
-from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER
-from app.service.getloc_by_name_region import query_dialect_abbreviations
+from app.service.geo.match_input_tip import match_locations_batch_exact
+from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.sql.db_selector import get_query_db
 # from app.auth.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter

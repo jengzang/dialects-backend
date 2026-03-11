@@ -11,8 +11,8 @@ API使用统计API端点（路由层）
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.auth.database import get_db
-from app.admin import api_usage_service
+from app.service.auth.database import get_db
+from app.service.admin import api_usage_service
 from typing import Optional, Literal
 
 router = APIRouter()

@@ -9,16 +9,14 @@ Custom数据编辑API端点（路由层）
 
 业务逻辑在 app.custom.admin.custom_service 中实现
 """
-from typing import List, Optional
+from typing import List
 
-from fastapi import HTTPException, APIRouter, Depends
+from fastapi import HTTPException, APIRouter
 
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
-from app.custom.database import SessionLocal as SessionLocal_info
-from app.auth.database import SessionLocal as SessionLocal_user
+from app.service.user.submission.database import SessionLocal as SessionLocal_info
+from app.service.auth.database import SessionLocal as SessionLocal_user
 from app.schemas.admin import EditRequest, InformationBase
-from app.custom.admin import custom_service
+from app.service.admin import custom_service
 
 router = APIRouter()
 

@@ -19,7 +19,7 @@ def get_secret_key() -> str:
 
     # 尝试从数据库加载
     try:
-        from app.auth.key_manager import get_current_secret_key
+        from app.service.auth.key_manager import get_current_secret_key
         _SECRET_KEY_CACHE = get_current_secret_key()
         _SECRET_KEY_LOADED = True
         print(f"[CONFIG] ✅ Loaded SECRET_KEY from database: {_SECRET_KEY_CACHE[:20]}...")
@@ -36,7 +36,7 @@ def get_secret_key() -> str:
 def get_old_secret_keys():
     """获取旧的有效密钥（延迟加载）"""
     try:
-        from app.auth.key_manager import get_all_valid_keys
+        from app.service.auth.key_manager import get_all_valid_keys
         current = get_secret_key()
         return [k for k in get_all_valid_keys() if k != current]
     except:

@@ -11,12 +11,12 @@ Provides endpoints for:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Literal, Optional
-from app.auth.database import get_db
+from app.service.auth.database import get_db
 from app.schemas.admin import (
     LeaderboardResponse,
     AvailableApisResponse
 )
-from app.admin import leaderboard_service
+from app.service.admin import leaderboard_service
 
 router = APIRouter()
 

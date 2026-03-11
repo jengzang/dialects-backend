@@ -4,16 +4,13 @@ Run_ID 管理 API 端点
 提供 HTTP 接口管理 run_id 配置。
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, List
+from typing import Optional
 
 from ..run_id_manager import run_id_manager
 
 # 导入身份验证依赖
-from app.auth.dependencies import get_current_admin_user
-from app.logging.dependencies.limiter import ApiLimiter
-from app.auth.models import User
 
 
 router = APIRouter()
