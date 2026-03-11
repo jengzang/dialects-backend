@@ -15,6 +15,7 @@ from app.logging.dependencies import ApiLimiter
 from app.auth.database import get_db as get_auth_db
 from app.auth.models import User
 from app.common.path import DB_MAPPING
+from app.redis_client import redis_client
 
 router = APIRouter()
 
@@ -173,16 +174,38 @@ async def query_table(
             rows = [dict(row) for row in cursor.fetchall()]
 
             # 获取总条数（用于前端分页）
-            count_sql = f"SELECT COUNT(*) FROM {table_q}"
-            if where_clauses:
-                # 重新构造不带 LIMIT 的 WHERE 参数
+            # 优化：如果没有 WHERE 条件，尝试从 Redis 缓存获取总数
+            if not where_clauses:
+                # 无条件查询，尝试使用缓存
+                cache_key = f"sql_query_count:{params.db_key}:{params.table_name}"
+                total = None
+
+                try:
+                    cached_total = await redis_client.get(cache_key)
+                    if cached_total is not None:
+                        total = int(cached_total)
+                except Exception:
+                    # Redis 失败，继续执行查询
+                    pass
+
+                if total is None:
+                    # 缓存未命中或 Redis 不可用，执行 COUNT 查询
+                    count_sql = f"SELECT COUNT(*) FROM {table_q}"
+                    cursor.execute(count_sql)
+                    total = cursor.fetchone()[0]
+
+                    # 尝试缓存结果（1 小时过期）
+                    try:
+                        await redis_client.setex(cache_key, 3600, str(total))
+                    except Exception:
+                        pass
+            else:
+                # 有 WHERE 条件，直接执行 COUNT 查询
+                count_sql = f"SELECT COUNT(*) FROM {table_q}"
                 count_values = values[:-(2)]
                 count_sql += " WHERE " + " AND ".join(where_clauses)
                 cursor.execute(count_sql, count_values)
-            else:
-                cursor.execute(count_sql)
-
-            total = cursor.fetchone()[0]
+                total = cursor.fetchone()[0]
 
             return {"data": rows, "total": total, "page": params.page}
         except Exception as e:

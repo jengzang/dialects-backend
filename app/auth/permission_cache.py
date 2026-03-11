@@ -5,37 +5,12 @@
 避免每次请求都查询 user_db_permissions 表
 """
 from typing import Optional
-from app.redis_client import redis_client
-import redis
+from app.redis_client import redis_client, sync_redis_client
 
 
 # 缓存配置
 PERMISSION_CACHE_TTL = 600  # 权限缓存过期时间（秒），默认10分钟
 PERMISSION_CACHE_PREFIX = "permission:"  # 缓存键前缀
-
-# 创建同步Redis客户端（用于同步函数）
-try:
-    import os
-    from app.common.config import _RUN_TYPE
-
-    if _RUN_TYPE == 'WEB':
-        REDIS_HOST = os.getenv("REDIS_HOST", "172.28.199.1")
-        REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-        REDIS_DB = int(os.getenv("REDIS_DB", 0))
-
-        sync_redis_client = redis.Redis(
-            host=REDIS_HOST,
-            port=REDIS_PORT,
-            db=REDIS_DB,
-            decode_responses=True,
-            socket_timeout=1,  # 短超时，避免阻塞
-            socket_connect_timeout=1
-        )
-    else:
-        sync_redis_client = None
-except Exception as e:
-    print(f"[PermCache] Failed to create sync Redis client: {e}")
-    sync_redis_client = None
 
 
 def generate_permission_cache_key(user_id: int, db_key: str) -> str:
