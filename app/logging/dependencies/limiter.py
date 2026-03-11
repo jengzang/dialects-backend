@@ -56,7 +56,7 @@ async def api_limiter_dependency(
     # print(f"[ApiLimiter] {user_info}, IP: {ip_address}, 需要登录: {require_login}")
 
     try:
-        check_api_usage_limit(db, user, require_login, ip_address=ip_address)
+        await check_api_usage_limit(db, user, require_login, ip_address=ip_address)
         # print(f"[ApiLimiter] ✅ 限流检查通过")
     except HTTPException as e:
         print(f"[ApiLimiter] ❌ 限流检查失败: {e.detail}")

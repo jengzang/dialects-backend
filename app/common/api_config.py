@@ -21,9 +21,15 @@ API 配置文件
       跳过记录
 用途：性能监控、用量统计、用户行为分析
 """
-# 一小時內用戶使用api時長
-MAX_USER_USAGE_PER_HOUR = 2000  # 1000秒
-MAX_IP_USAGE_PER_HOUR = 300
+
+# ========== API 限流配置（基于请求次数）==========
+# 使用 Redis 计数器实现，性能极高（<1ms）
+MAX_USER_REQUESTS_PER_HOUR = 1000  # 认证用户：1000次/小时（平均每分钟16次）
+MAX_IP_REQUESTS_PER_HOUR = 100     # 游客：100次/小时（平均每分钟1-2次）
+
+# 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
+MAX_USER_USAGE_PER_HOUR = 2000  # 秒（已废弃）
+MAX_IP_USAGE_PER_HOUR = 300     # 秒（已废弃）
 
 # 用戶能接收的最大json包
 MAX_ANONYMOUS_SIZE = 1024 * 1024  # 1MB for anonymous users

@@ -11,7 +11,8 @@ from app.auth.models import User, ApiUsageLog
 from app.auth.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
 from app.redis_client import redis_client
 from app.common.config import get_secret_key, ALGORITHM, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
-from app.common.api_config import MAX_USER_USAGE_PER_HOUR, MAX_IP_USAGE_PER_HOUR
+from app.common.api_config import MAX_USER_REQUESTS_PER_HOUR, MAX_IP_REQUESTS_PER_HOUR
+from app.redis_client import redis_client
 
 
 def user_to_dict(user: models.User) -> dict:
@@ -189,90 +190,90 @@ async def get_current_admin_user(
     return user
 
 
-def check_api_usage_limit(
+async def check_api_usage_limit(
         db: Session,
         user: Optional[User],
-        require_login: bool = False,  # 如果这个接口必须登录，设为 True
-        ip_address: Optional[str] = None  # 添加 ip_address 参数来处理未登录用户
+        require_login: bool = False,
+        ip_address: Optional[str] = None
 ) -> None:
     """
-    - 未登录: 默认放行（可选登录）；如需强制登录，传 require_login=True。
-    - 管理员: 不限流。
-    - 普通用户: 最近 1 小时内 duration 累积不得超过 MAX_(IP/USER)_USAGE_PER_HOUR 秒。
-    - 未登录用户: 根据 IP 地址限制流量。
+    API 限流检查（基于请求次数，使用 Redis 计数器）
+
+    - 未登录: 默认放行（可选登录）；如需强制登录，传 require_login=True
+    - 管理员: 不限流
+    - 普通用户: 最近 1 小时内请求次数不得超过 MAX_USER_REQUESTS_PER_HOUR
+    - 未登录用户: 根据 IP 地址限制，最近 1 小时内请求次数不得超过 MAX_IP_REQUESTS_PER_HOUR
     """
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-    # print(user)
     # 1) 可选登录场景处理
     if user is None:
-        if require_login:  # 匿名用户：无法按用户做配额，这里选择放行（如需限制可改为 raise 或基于 IP 做限流）
-            # print("1111")
+        if require_login:
             raise HTTPException(status_code=401, detail="[TIP] 請先登錄")
+
         # 未登录用户，按 IP 进行限制
         if ip_address is None:
             raise HTTPException(status_code=400, detail="🚫 IP 地址缺失")
 
-        # 从数据库获取当前 IP 在过去一小时内的总使用时长
-        total_duration = db.execute(
-            select(func.coalesce(func.sum(ApiUsageLog.duration), 0))
-            .where(ApiUsageLog.ip == ip_address)
-            .where(ApiUsageLog.called_at >= one_hour_ago)
-        ).scalar()
+        # 使用 Redis 计数器进行限流
+        try:
+            # 生成当前小时的时间戳（固定窗口）
+            from datetime import datetime
+            current_hour = datetime.utcnow().strftime("%Y%m%d%H")
+            cache_key = f"rate_limit:ip:{ip_address}:{current_hour}"
 
-        if total_duration >= MAX_IP_USAGE_PER_HOUR:
-            raise HTTPException(status_code=429,
-                                detail="[X] API使用已達每小時上限，請稍後再試\n [NEW] 小提醒：登入帳號可繼續查詢！[RUN]")
+            # 增加计数
+            count = await redis_client.incr(cache_key)
 
-        return
-    # 2)管理員不受限制
-    if user.role == "admin":
-        return
-    # 3)已登錄用戶根據用戶名
-    total_duration = db.execute(
-        select(func.coalesce(func.sum(ApiUsageLog.duration), 0))
-        .where(ApiUsageLog.user_id == user.id)
-        .where(ApiUsageLog.called_at >= one_hour_ago)
-    ).scalar()
+            # 第一次访问时设置过期时间（1小时）
+            if count == 1:
+                await redis_client.expire(cache_key, 3600)
 
-    if total_duration >= MAX_USER_USAGE_PER_HOUR:
-        # 取出所有紀錄，按時間排序
-        logs = db.execute(
-            select(ApiUsageLog.called_at, ApiUsageLog.duration)
-            .where(ApiUsageLog.user_id == user.id)
-            .where(ApiUsageLog.called_at >= one_hour_ago)
-            .order_by(ApiUsageLog.called_at.asc())
-        ).all()
-
-        remaining = total_duration - MAX_USER_USAGE_PER_HOUR
-
-        released_time = None
-        accumulated = 0.0
-
-        for log_time, duration in logs:
-            accumulated += duration
-            if accumulated >= remaining:
-                # 當這筆記錄過期後，限額才會釋放
-                released_time = log_time + timedelta(hours=1)
-                break
-
-        if released_time:
-            now = datetime.utcnow()
-            wait_seconds = int((released_time - now).total_seconds())
-            if wait_seconds > 0:
-                wait_time_str = str(timedelta(seconds=wait_seconds))  # hh:mm:ss
-                # [OK] 直接加 8 小時作為北京時間
-                released_time_bj = released_time + timedelta(hours=8)
-                formatted_time_bj = released_time_bj.strftime("%Y-%m-%d %H:%M:%S 北京時間")
-
+            # 检查是否超过限制
+            if count > MAX_IP_REQUESTS_PER_HOUR:
                 raise HTTPException(
                     status_code=429,
-                    detail=(
-                        f" 尊敬的 👤{user.username} ，您的API 使用配額已達本小時上限！⏳\n"
-                        f" 請等待 ⏱️ {wait_time_str} 後再試。\n"
-                        f"📅 可再次使用時間：{formatted_time_bj}\n"
-                    )
+                    detail=f"[X] API請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試
+[NEW] 小提醒：登入帳號可繼續查詢！[RUN]"
                 )
+        except HTTPException:
+            # 限流异常直接抛出
+            raise
+        except Exception as e:
+            # Redis 失败时降级：不限流（或者可以改为降级到数据库查询）
+            print(f"[WARN] Redis 限流失败，降级为不限流: {e}")
+            pass
 
+        return
+
+    # 2) 管理员不受限制
+    if user.role == "admin":
+        return
+
+    # 3) 已登录用户根据用户 ID 限流
+    try:
+        from datetime import datetime
+        current_hour = datetime.utcnow().strftime("%Y%m%d%H")
+        cache_key = f"rate_limit:user:{user.id}:{current_hour}"
+
+        # 增加计数
+        count = await redis_client.incr(cache_key)
+
+        # 第一次访问时设置过期时间（1小时）
+        if count == 1:
+            await redis_client.expire(cache_key, 3600)
+
+        # 检查是否超过限制
+        if count > MAX_USER_REQUESTS_PER_HOUR:
+            raise HTTPException(
+                status_code=429,
+                detail=f"[X] API請求已達每小時上限（{MAX_USER_REQUESTS_PER_HOUR}次），請稍後再試"
+            )
+    except HTTPException:
+        # 限流异常直接抛出
+        raise
+    except Exception as e:
+        # Redis 失败时降级：不限流
+        print(f"[WARN] Redis 限流失败，降级为不限流: {e}")
+        pass
 
 def check_login_rate_limit(db: Session, ip: str):
     one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
