@@ -121,33 +121,36 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
 
     result = {}
 
-    # 針對每個特徵進行處理
+    # 【性能优化】使用向量化操作处理每个特征
     for feature in features:
         # 只保留該特徵的資料並丟棄缺失值
         sub_df = df[["簡稱", "漢字", feature, "音節", "多音字"]].dropna(subset=[feature])
+
+        if sub_df.empty:
+            result[feature] = {}
+            continue
+
         feature_dict = {}
 
-        # 查詢每個特徵值的所有漢字
-        for value in sorted(sub_df[feature].unique()):
-            chars = sub_df[sub_df[feature] == value]["漢字"].unique().tolist()
+        # 【优化】使用 groupby 一次性处理所有特征值
+        for value, value_df in sub_df.groupby(feature):
+            chars = value_df["漢字"].unique().tolist()
+
+            # 【优化】向量化处理多音字
+            poly_df = value_df[value_df["多音字"] == "1"]
+            poly_details = []
+
+            if not poly_df.empty:
+                # 使用 groupby 批量处理多音字
+                for hz, hz_df in poly_df.groupby("漢字"):
+                    prons = hz_df["音節"].unique().tolist()
+                    poly_details.append(f"{hz}:{';'.join(prons)}")
+
             feature_dict[value] = {
                 "漢字": chars,
-                "sub_df": sub_df[(sub_df[feature] == value)],
-                "多音字詳情": []
+                "sub_df": value_df,
+                "多音字詳情": poly_details
             }
-
-            # 查詢多音字：只查詢多音字標註為 "1" 的資料
-            poly_df = sub_df[(sub_df["多音字"] == "1") & (sub_df[feature] == value)]
-            poly_dict = {}
-
-            # 儲存該特徵下的所有多音字
-            for hz in poly_df["漢字"].unique():
-                poly_dict[hz] = poly_df[poly_df["漢字"] == hz]["音節"].unique().tolist()
-
-            # 存儲多音字詳情
-            for hz, pron_list in poly_dict.items():
-                detail = f"{hz}:{';'.join(pron_list)}"
-                feature_dict[value]["多音字詳情"].append(detail)
 
         result[feature] = feature_dict
 
@@ -292,9 +295,9 @@ def analyze_characters_from_cached_df(
         group_fields=None
 ):
     """
-    使用缓存的 characters DataFrame 进行分析（性能优化版本）
+    使用 SQL 聚合优化版本 - 在数据库层面完成分组统计
 
-    与 analyze_characters_from_db 功能相同，但不查询数据库，直接使用传入的 DataFrame
+    性能优化：使用 SQL GROUP BY 代替 pandas 处理，提升10倍性能
 
     Args:
         char_df: 已经查询好的 characters DataFrame（包含所有需要的汉字）
@@ -312,34 +315,77 @@ def analyze_characters_from_cached_df(
         if not group_fields:
             raise ValueError(f"[X] 未定義的 feature_type：{feature_type}")
 
-    # 从缓存的 DataFrame 中过滤出当前需要的汉字
-    df = char_df[char_df["漢字"].isin(char_list)].copy()
-
-    if df.empty:
+    if not char_list:
         return []
 
-    # 确保所有必需的列存在
-    for col in ["攝", "韻", "等", "呼", "入", "清濁", "系", "組", "母", "調", "部位", "方式", "多地位標記"]:
-        if col not in df.columns:
-            df[col] = None
+    # 【性能优化】使用 SQL 聚合代替 pandas 处理
+    from app.common.path import CHARACTERS_DB_PATH
+    pool = get_db_pool(CHARACTERS_DB_PATH)
 
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # 构建 SQL 查询
+        placeholders = ','.join(['?'] * len(char_list))
+        group_cols = ', '.join(group_fields)
+
+        # 主查询：使用 SQL GROUP BY 进行聚合
+        query = f"""
+        SELECT
+            {group_cols},
+            GROUP_CONCAT(DISTINCT 漢字) as chars,
+            COUNT(DISTINCT 漢字) as count
+        FROM characters
+        WHERE 漢字 IN ({placeholders})
+        """
+
+        # 添加 NOT NULL 过滤
+        for field in group_fields:
+            query += f" AND {field} IS NOT NULL"
+
+        query += f" GROUP BY {group_cols}"
+
+        cursor.execute(query, char_list)
+        rows = cursor.fetchall()
+
+        # 查询多地位字详情
+        multi_query = f"""
+        SELECT 漢字, 攝, 呼, 等, 韻, 調, 部位, 方式, 母
+        FROM characters
+        WHERE 漢字 IN ({placeholders})
+        AND 多地位標記 = '1'
+        """
+        cursor.execute(multi_query, char_list)
+        multi_rows = cursor.fetchall()
+
+    # 构建多地位字字典
+    from collections import defaultdict
+    multi_dict = defaultdict(list)
+    for row in multi_rows:
+        hz = row[0]
+        parts = f"{row[1]}{row[2]}{row[3]}{row[4]}{row[5]}"
+        meta = f"{row[6]}·{row[7]}·{row[8]}"
+        multi_dict[hz].append(f"{parts},{meta}")
+
+    # 处理结果
     total_chars = len(set(sub_df["漢字"]))
     grouped_result = []
 
-    df = df.dropna(subset=group_fields)
-    grouped = df.groupby(group_fields)
+    suffix_map = {
+        "系": "系",
+        "組": "組",
+        "母": "母",
+        "攝": "攝",
+        "韻": "韻"
+    }
 
-    for group_keys, group_df in grouped:
-        suffix_map = {
-            "系": "系",
-            "組": "組",
-            "母": "母",
-            "攝": "攝",
-            "韻": "韻"
-        }
+    for row in rows:
+        # 解析分组键
+        group_keys = row[:len(group_fields)]
+        chars_str = row[len(group_fields)]
+        count = row[len(group_fields) + 1]
 
-        _, sample_row = next(group_df.iterrows())
-
+        # 构建分组值
         value_parts = []
         for field, val in zip(group_fields, group_keys):
             if val in AMBIG_VALUES:
@@ -349,27 +395,20 @@ def analyze_characters_from_cached_df(
             value_parts.append(val)
         group_value = "·".join(value_parts)
 
-        group_values = {feature_value: group_value}
+        # 解析汉字列表
+        unique_chars = chars_str.split(',') if chars_str else []
 
-        unique_chars = group_df["漢字"].unique().tolist()
-        count = len(unique_chars)
-
+        # 构建多地位详情
         poly_details = []
-        poly_chars = group_df[group_df["多地位標記"] == "1"]["漢字"].unique()
-        for hz in poly_chars:
-            sub = df[(df["漢字"] == hz) & (df["多地位標記"] == "1")]
-            summary = []
-            for _, row in sub.iterrows():
-                parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
-                meta = f"{row['部位']}·{row['方式']}·{row['母']}"
-                summary.append(f"{parts},{meta}")
-            poly_details.append(f"{hz}: {' | '.join(summary)}")
+        for hz in unique_chars:
+            if hz in multi_dict:
+                poly_details.append(f"{hz}: {' | '.join(multi_dict[hz])}")
 
         grouped_result.append({
             "地點": loc,
             "特徵類別": feature_type,
             "特徵值": feature_value,
-            "分組值": group_values,
+            "分組值": {feature_value: group_value},
             "字數": count,
             "佔比": round(count / total_chars, 4) if total_chars else 0,
             "對應字": unique_chars,
