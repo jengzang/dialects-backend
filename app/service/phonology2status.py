@@ -642,59 +642,71 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
             }
         }
     """
-    # 按地点分组的数据
-    locations_data = defaultdict(lambda: {
-        "matrix": defaultdict(lambda: defaultdict(lambda: defaultdict(list))),
-        "initials": set(),
-        "finals": set(),
-        "tones": set()
-    })
+    # 参数验证：必须提供地点列表
+    if not locations or len(locations) == 0:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="locations parameter is required and cannot be empty"
+        )
+
+    # 参数验证：限制地点数量
+    if len(locations) > 50:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many locations. Maximum 50 locations allowed, got {len(locations)}"
+        )
 
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 构建查询语句
-        if locations and len(locations) > 0:
-            # 查询指定地点
-            placeholders = ','.join(f"'{loc}'" for loc in locations)
-            query = f"""
-                SELECT 簡稱, 聲母, 韻母, 聲調, 漢字
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                ORDER BY 簡稱, 聲母, 韻母, 聲調
-            """
-        else:
-            # 查询所有地点
-            query = f"""
-                SELECT 簡稱, 聲母, 韻母, 聲調, 漢字
-                FROM {table}
-                ORDER BY 簡稱, 聲母, 韻母, 聲調
-            """
+        # 使用 SQL GROUP_CONCAT 聚合汉字
+        placeholders = ','.join(f"'{loc}'" for loc in locations)
+        query = f"""
+            SELECT 簡稱, 聲母, 韻母, 聲調, GROUP_CONCAT(漢字, '') as 漢字列表
+            FROM {table}
+            WHERE 簡稱 IN ({placeholders})
+              AND 簡稱 IS NOT NULL
+              AND 聲母 IS NOT NULL
+              AND 韻母 IS NOT NULL
+              AND 聲調 IS NOT NULL
+              AND 漢字 IS NOT NULL
+            GROUP BY 簡稱, 聲母, 韻母, 聲調
+            ORDER BY 簡稱, 聲母, 韻母, 聲調
+        """
 
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        # 处理查询结果
-        for row in rows:
-            location = row[0]  # 地点
-            initial = row[1]   # 声母
-            final = row[2]     # 韵母
-            tone = row[3]      # 声调
-            char = row[4]      # 汉字
+    # 按地点分组的数据
+    locations_data = defaultdict(lambda: {
+        "matrix": defaultdict(lambda: defaultdict(dict)),
+        "initials": set(),
+        "finals": set(),
+        "tones": set()
+    })
 
-            # 跳过空值
-            if not location or not initial or not final or not tone or not char:
-                continue
+    # 处理查询结果
+    for row in rows:
+        location = row[0]  # 地点
+        initial = row[1]   # 声母
+        final = row[2]     # 韵母
+        tone = row[3]      # 声调
+        chars_str = row[4]  # 汉字列表（已聚合）
 
-            # 添加到该地点的矩阵
-            loc_data = locations_data[location]
-            loc_data["matrix"][initial][final][tone].append(char)
+        # 转换为字符列表
+        chars_list = list(chars_str) if chars_str else []
 
-            # 收集该地点的唯一值
-            loc_data["initials"].add(initial)
-            loc_data["finals"].add(final)
-            loc_data["tones"].add(tone)
+        # 添加到该地点的矩阵
+        loc_data = locations_data[location]
+        loc_data["matrix"][initial][final][tone] = chars_list
+
+        # 收集该地点的唯一值
+        loc_data["initials"].add(initial)
+        loc_data["finals"].add(final)
+        loc_data["tones"].add(tone)
 
     # 转换为最终格式
     result = {

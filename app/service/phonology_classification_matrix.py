@@ -58,72 +58,44 @@ def build_phonology_classification_matrix(
     if not locations:
         raise HTTPException(status_code=400, detail="Locations cannot be empty")
 
-    # Step 2: 查詢 dialects.db
+    # Step 2: 使用 SQL JOIN 合併兩個數據庫的查詢
     pool = get_db_pool(dialect_db_path)
-    dialect_data = []
 
     with pool.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # ATTACH characters.db 以便進行 JOIN
+        cursor.execute(f"ATTACH DATABASE '{character_db_path}' AS chars_db")
+
         placeholders = ','.join(f"'{loc}'" for loc in locations)
         query = f"""
-            SELECT 簡稱, 漢字, {feature}, 音節, 多音字
-            FROM dialects
-            WHERE 簡稱 IN ({placeholders})
-            AND {feature} IS NOT NULL
+            SELECT
+                d.漢字,
+                d.{feature} as feature_value,
+                c.{horizontal_column} as h_val,
+                c.{vertical_column} as v_val,
+                c.{cell_row_column} as c_val
+            FROM dialects d
+            INNER JOIN chars_db.characters c ON d.漢字 = c.漢字
+            WHERE d.簡稱 IN ({placeholders})
+              AND d.{feature} IS NOT NULL
+              AND c.{horizontal_column} IS NOT NULL
+              AND c.{vertical_column} IS NOT NULL
+              AND c.{cell_row_column} IS NOT NULL
         """
-        cursor = conn.cursor()
         cursor.execute(query)
-        dialect_rows = cursor.fetchall()
+        joined_rows = cursor.fetchall()
 
-        for row in dialect_rows:
-            dialect_data.append({
-                '簡稱': row[0],
-                '漢字': row[1],
-                feature: row[2],
-                '音節': row[3],
-                '多音字': row[4]
-            })
+        # DETACH characters.db
+        cursor.execute("DETACH DATABASE chars_db")
 
-    if not dialect_data:
+    if not joined_rows:
         raise HTTPException(
             status_code=404,
             detail="No data found for the specified locations"
         )
 
-    # Step 3: 獲取唯一漢字列表
-    unique_chars = list(set(row['漢字'] for row in dialect_data))
-
-    # Step 4: 查詢 characters.db
-    pool = get_db_pool(character_db_path)
-    char_classification_map = {}
-
-    with pool.get_connection() as conn:
-        placeholders = ','.join(['?'] * len(unique_chars))
-        query = f"""
-            SELECT 漢字, {horizontal_column}, {vertical_column}, {cell_row_column}
-            FROM characters
-            WHERE 漢字 IN ({placeholders})
-        """
-        cursor = conn.cursor()
-        cursor.execute(query, unique_chars)
-        char_rows = cursor.fetchall()
-
-        for row in char_rows:
-            char = row[0]
-            h_val = row[1]
-            v_val = row[2]
-            c_val = row[3]
-
-            # 一個漢字可能有多個分類（多地位字）
-            if char not in char_classification_map:
-                char_classification_map[char] = []
-
-            char_classification_map[char].append({
-                horizontal_column: h_val,
-                vertical_column: v_val,
-                cell_row_column: c_val
-            })
-
-    # Step 5: 構建矩陣
+    # Step 3: 構建矩陣
     # 四層嵌套：horizontal → vertical → cell_row → feature_value → [chars]
     matrix = defaultdict(
         lambda: defaultdict(
@@ -133,28 +105,18 @@ def build_phonology_classification_matrix(
         )
     )
 
-    # 遍歷 dialect_data，填充矩陣
-    for row in dialect_data:
-        char = row['漢字']
-        feature_value = row[feature]
+    # 遍歷 JOIN 結果，填充矩陣
+    for row in joined_rows:
+        char = row[0]
+        feature_value = row[1]
+        h_val = row[2]
+        v_val = row[3]
+        c_val = row[4]
 
-        # 獲取該漢字的分類信息
-        classifications = char_classification_map.get(char, [])
+        # 添加到矩陣
+        matrix[h_val][v_val][c_val][feature_value].append(char)
 
-        # 對於多地位字，每個地位都要計入
-        for classification in classifications:
-            h_val = classification.get(horizontal_column)
-            v_val = classification.get(vertical_column)
-            c_val = classification.get(cell_row_column)
-
-            # 跳過缺失值
-            if not all([h_val, v_val, c_val, feature_value]):
-                continue
-
-            # 添加到矩陣
-            matrix[h_val][v_val][c_val][feature_value].append(char)
-
-    # Step 6: 去重和排序
+    # Step 4: 去重和排序
     # 收集所有 feature values 用於排序
     all_feature_values = set()
     for h_val in matrix:
@@ -174,7 +136,7 @@ def build_phonology_classification_matrix(
                     chars = matrix[h_val][v_val][c_val][f_val]
                     matrix[h_val][v_val][c_val][f_val] = sorted(list(set(chars)))
 
-    # Step 7: 收集所有唯一值（中古音系分類用普通排序）
+    # Step 5: 收集所有唯一值（中古音系分類用普通排序）
     horizontal_values = sorted(matrix.keys())
 
     vertical_values_set = set()
@@ -188,7 +150,7 @@ def build_phonology_classification_matrix(
             cell_row_values_set.update(matrix[h_val][v_val].keys())
     cell_row_values = sorted(cell_row_values_set)
 
-    # Step 8: 轉換為普通字典並返回
+    # Step 6: 轉換為普通字典並返回
     def convert_to_dict(d):
         """將 defaultdict 轉換為普通 dict（便於 JSON 序列化）"""
         if isinstance(d, defaultdict):
