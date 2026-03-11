@@ -15,17 +15,66 @@ CREATE INDEX idx_level_2 ON 广东省自然村(乡镇级);
 CREATE INDEX idx_level_3 ON 广东省自然村(行政村);
 """
 
+import sqlite3
+import threading
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import FullTreeParams, LazyTreeParams
-from app.auth.dependencies import get_current_user
-from app.auth.database import get_db as get_auth_db
-from app.auth.models import User
+from app.service.auth.dependencies import get_current_user
+from app.service.auth.database import get_db as get_auth_db
+from app.service.auth.models import User
+from app.common.path import DB_MAPPING
 
 router = APIRouter()
+
+_SCHEMA_CACHE = {}
+_SCHEMA_LOCK = threading.Lock()
+
+
+def _quote_identifier(name: str) -> str:
+    return f'"{name}"'
+
+
+def _load_schema(db_key: str, refresh: bool = False) -> dict[str, set[str]]:
+    with _SCHEMA_LOCK:
+        if not refresh and db_key in _SCHEMA_CACHE:
+            return _SCHEMA_CACHE[db_key]
+
+        db_path = DB_MAPPING.get(db_key)
+        if not db_path:
+            raise HTTPException(status_code=400, detail=f"Invalid db_key: {db_key}")
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            tables = [
+                row[0] for row in cur.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            schema = {}
+            for table in tables:
+                cols = [row[1] for row in cur.execute(f'PRAGMA table_info("{table}")').fetchall()]
+                schema[table] = set(cols)
+            conn.close()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load schema: {str(e)}")
+
+        _SCHEMA_CACHE[db_key] = schema
+        return schema
+
+
+def _validate_table(db_key: str, table_name: str) -> set[str]:
+    schema = _load_schema(db_key)
+    if table_name not in schema:
+        schema = _load_schema(db_key, refresh=True)
+        if table_name not in schema:
+            raise HTTPException(status_code=400, detail=f"Invalid table_name: {table_name}")
+    return schema[table_name]
 
 
 def validate_columns(level_columns: List[int], data_columns: List[int], all_column_names: List[str]):
@@ -82,12 +131,14 @@ def build_filter_conditions(
         # 处理普通值：使用 IN 查询
         if normal_values:
             placeholders = ",".join(["?"] * len(normal_values))
-            conditions.append(f"{col_name} IN ({placeholders})")
+            col_q = _quote_identifier(col_name)
+            conditions.append(f"{col_q} IN ({placeholders})")
             values.extend(normal_values)
 
         # 处理空值
         if has_empty:
-            conditions.append(f"({col_name} IS NULL OR {col_name} = '')")
+            col_q = _quote_identifier(col_name)
+            conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
 
         # 组合条件
         if conditions:
@@ -259,7 +310,9 @@ async def get_full_tree(
 
         try:
             # 获取表结构
-            cursor.execute(f"PRAGMA table_info({params.table_name})")
+            _validate_table(params.db_key, params.table_name)
+            table_q = _quote_identifier(params.table_name)
+            cursor.execute(f"PRAGMA table_info({table_q})")
             columns_info = cursor.fetchall()
 
             if not columns_info:
@@ -280,7 +333,8 @@ async def get_full_tree(
             # build_tree_structure 会负责把它们聚合到同一个叶子节点下。
             select_cols = level_col_names + data_col_names
             # 去重选择，防止完全重复的行
-            sql = f"SELECT DISTINCT {', '.join(select_cols)} FROM {params.table_name}"
+            select_cols_q = [_quote_identifier(c) for c in select_cols]
+            sql = f"SELECT DISTINCT {', '.join(select_cols_q)} FROM {table_q}"
 
             # ... (过滤条件逻辑 build_filter_conditions 不变) ...
             where_clauses, values = build_filter_conditions(params.filters, all_column_names)
@@ -288,7 +342,7 @@ async def get_full_tree(
                 sql += " WHERE " + " AND ".join(where_clauses)
 
             # 排序：只按层级列排序即可，保证树构建顺序
-            order_by = ", ".join([f"{name} ASC" for name in level_col_names])
+            order_by = ", ".join([f"{_quote_identifier(name)} ASC" for name in level_col_names])
             sql += f" ORDER BY {order_by}"
 
             # 执行查询
@@ -352,7 +406,9 @@ async def get_tree_children(
 
         try:
             # 获取表结构
-            cursor.execute(f"PRAGMA table_info({params.table_name})")
+            _validate_table(params.db_key, params.table_name)
+            table_q = _quote_identifier(params.table_name)
+            cursor.execute(f"PRAGMA table_info({table_q})")
             columns_info = cursor.fetchall()
 
             if not columns_info:
@@ -381,7 +437,8 @@ async def get_tree_children(
             target_col_name = all_column_names[target_col_index]
 
             # 构建SQL：只查询目标列的唯一值
-            sql = f"SELECT DISTINCT {target_col_name} FROM {params.table_name}"
+            target_col_q = _quote_identifier(target_col_name)
+            sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
 
             where_clauses = []
             values = []
@@ -390,7 +447,7 @@ async def get_tree_children(
             for i, parent_value in enumerate(parent_path):
                 col_index = params.level_columns[i]
                 col_name = all_column_names[col_index]
-                where_clauses.append(f"{col_name} = ?")
+                where_clauses.append(f"{_quote_identifier(col_name)} = ?")
                 values.append(parent_value)
 
             # 添加全局过滤条件
@@ -403,7 +460,7 @@ async def get_tree_children(
                 sql += " WHERE " + " AND ".join(where_clauses)
 
             # 排序
-            sql += f" ORDER BY {target_col_name} ASC"
+            sql += f" ORDER BY {target_col_q} ASC"
 
             # 执行查询
             cursor.execute(sql, values)

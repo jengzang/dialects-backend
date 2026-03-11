@@ -7,25 +7,24 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.auth.database import get_db
+from app.service.auth.database import get_db
 from app.redis_client import close_redis
 from app.routes import setup_routes
-from app.logs.service.api_logger import start_api_logger_workers, stop_api_logger_workers, TrafficLoggingMiddleware
-from app.logs.service.api_limit_keyword import ApiLoggingMiddleware
-from app.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
+from app.service.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, RequestLogMiddleware
+from app.service.auth.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
-from common.config import _RUN_TYPE
+from app.common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
 
 # [OK] 导入日志迁移模块
-# from app.logs.migrate_from_txt import run_migration
+# from app.logging.migrate_from_txt import run_migration
 # [OK] 导入定时任务模块
-from app.logs.scheduler import start_scheduler, stop_scheduler
+from app.service.logging.tasks import start_scheduler, stop_scheduler
 # [OK] 导入数据库索引管理模块
 from app.sql.index_manager import initialize_all_indexes
 # [NEW] 导入数据库连接池管理模块
 from app.sql.db_pool import close_all_pools, get_db_pool
-from common.path import (
+from app.common.path import (
     QUERY_DB_ADMIN, QUERY_DB_USER,
     DIALECTS_DB_ADMIN, DIALECTS_DB_USER,
     CHARACTERS_DB_PATH
@@ -89,7 +88,7 @@ async def lifespan(app: FastAPI):
     #
     #     # ✅ 刷新 SECRET_KEY（迁移可能创建了新密钥）
     #     try:
-    #         from common.config import get_secret_key
+    #         from app.common.config import get_secret_key
     #         key = get_secret_key()
     #         print(f"[STARTUP] ✅ SECRET_KEY loaded: {key[:20]}...")
     #     except Exception as e:
@@ -104,9 +103,9 @@ async def lifespan(app: FastAPI):
             t = threading.Thread(target=_periodic_printer, daemon=True)
             t.start()
 
-    # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
-    if _RUN_TYPE in [ 'MINE']:
-        initialize_all_indexes()
+    # # [OK] 初始化数据库索引（优化查询性能）- 仅对 EXE 和 MINE 模式生效
+    # if _RUN_TYPE in [ 'MINE']:
+    #     initialize_all_indexes()
     # initialize_all_indexes()
 
     # [NEW] 初始化数据库连接池
@@ -125,7 +124,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # [新增] 迁移 supplements.db - 创建 user_regions 表
-    from app.custom.database import migrate_user_regions_table
+    from app.service.user.submission.database import migrate_user_regions_table
     print("=" * 60)
     print("[DB] 检查 supplements.db 表结构...")
     try:
@@ -133,6 +132,21 @@ async def lifespan(app: FastAPI):
         print("[OK] supplements.db 表结构检查完成")
     except Exception as e:
         print(f"⚠️  supplements.db 迁移失败: {str(e)}")
+    print("=" * 60)
+
+    # [新增] 迁移 logs.db - 创建 API 统计表
+    from app.service.logging.migrations.add_hourly_daily_stats import migrate_hourly_daily_stats
+    import sqlite3
+    from app.common.path import LOGS_DATABASE_PATH
+    print("=" * 60)
+    print("[DB] 检查 logs.db API 统计表结构...")
+    try:
+        logs_db = sqlite3.connect(LOGS_DATABASE_PATH)
+        migrate_hourly_daily_stats(logs_db)
+        logs_db.close()
+        print("[OK] logs.db API 统计表结构检查完成")
+    except Exception as e:
+        print(f"⚠️  logs.db 迁移失败: {str(e)}")
     print("=" * 60)
 
     # [新增] 启动时清理旧的临时文件（12小时前的）
@@ -147,7 +161,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # [新增] 预热方言数据缓存（避免第一个请求超时）
-    from app.service.match_input_tip import _load_dialect_cache
+    from app.service.geo.match_input_tip import _load_dialect_cache
     print("=" * 60)
     print(" 预热方言数据缓存...")
     try:
@@ -170,7 +184,6 @@ async def lifespan(app: FastAPI):
     # 获取数据库连接，并启动日志线程
     # [FIX] 只在非 gunicorn 环境下启动后台线程
     # 在 gunicorn 环境下，后台线程由主进程启动（见 gunicorn_config.py）
-    db = next(get_db())
 
     # 检测是否在 gunicorn worker 进程中
     is_gunicorn_worker = os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn')
@@ -178,7 +191,7 @@ async def lifespan(app: FastAPI):
     if not is_gunicorn_worker:
         # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
         print(" [单进程模式] 启动后台线程...")
-        start_api_logger_workers(db)
+        start_api_logger_workers()
         # [NEW] 启动用户活动更新后台线程
         start_user_activity_writer()
 
@@ -247,11 +260,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # minimum_size=1024 表示只压缩大于 1KB 的响应
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-# API 日志记录中间件（在 TrafficLoggingMiddleware 之前）
-app.add_middleware(ApiLoggingMiddleware)
-
 # api統計
-app.add_middleware(TrafficLoggingMiddleware)
+app.add_middleware(RequestLogMiddleware)
 
 if _RUN_TYPE == 'EXE':
     # === 活動請求統計中介層 ===

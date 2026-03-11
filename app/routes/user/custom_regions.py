@@ -7,15 +7,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.custom.database import get_db
-from app.custom import region_service
+from app.service.user.submission.database import get_db
+from app.service.user.submission import region_service
 from app.schemas.custom_region import (
     CustomRegionCreate,
-    CustomRegionResponse,
     CustomRegionList
 )
-from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth.dependencies import get_current_user
+# from app.logging.dependencies.limiter import ApiLimiter
+from app.service.auth.models import User
 
 router = APIRouter()
 
@@ -23,8 +23,8 @@ router = APIRouter()
 @router.post("/api/custom_regions", response_model=dict)
 async def create_or_update_custom_region(
     data: CustomRegionCreate,
-    user: Optional[User] = Depends(ApiLimiter),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     创建或更新自定义区域
@@ -69,8 +69,8 @@ async def create_or_update_custom_region(
 @router.delete("/api/custom_regions", response_model=dict)
 async def delete_custom_region(
     region_name: str,
-    user: Optional[User] = Depends(ApiLimiter),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     删除自定义区域
@@ -107,8 +107,8 @@ async def delete_custom_region(
 @router.get("/api/custom_regions", response_model=CustomRegionList)
 async def get_custom_regions(
     region_name: Optional[str] = None,
-    user: Optional[User] = Depends(ApiLimiter),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user)
 ):
     """
     获取用户的自定义区域列表

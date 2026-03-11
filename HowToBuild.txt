@@ -68,6 +68,7 @@ scp query_admin.db root@47.115.57.138:/srv/myapp/data
 scp semantic_lexicon_v4_hybrid.json root@47.115.57.138:/srv/myapp/data
 
 
+
 scp villages.db root@47.115.57.138:/srv/myapp/data
 scp yc_spoken.db root@47.115.57.138:/srv/myapp/data
 scp logs.db root@47.115.57.138:/srv/myapp/data

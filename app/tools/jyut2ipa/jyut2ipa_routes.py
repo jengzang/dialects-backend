@@ -5,7 +5,6 @@ Jyut2IPA工具的API路由：粤语拼音转IPA
 from urllib.parse import quote
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
@@ -17,7 +16,7 @@ import threading
 
 from starlette.responses import StreamingResponse
 
-from common.constants import replace_data
+from app.common.constants import replace_data
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))

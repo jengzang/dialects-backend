@@ -8,7 +8,7 @@ import openpyxl
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from collections import defaultdict
-from common.constants import col_map
+from app.common.constants import col_map
 
 
 def load_reference_file(reference_path):

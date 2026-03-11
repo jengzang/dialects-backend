@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 拷贝源码
 COPY app/ /app/app/
-COPY common/ /app/common/
 COPY data/dependency/ /app/data/dependency/
 COPY serve.py /app/serve.py
 COPY gunicorn_config.py /app/gunicorn_config.py

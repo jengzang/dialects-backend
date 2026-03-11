@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 class IPHistoryItem(BaseModel):
     """IP 历史记录项"""
     ip: str
+    location: Optional[str] = None
     timestamp: str
 
     @field_validator('timestamp')
@@ -43,7 +44,9 @@ class SessionDetailResponse(BaseModel):
 
     # 网络跟踪
     current_ip: str
+    current_ip_location: Optional[str] = None
     first_ip: str
+    first_ip_location: Optional[str] = None
     ip_change_count: int
     ip_history: List[IPHistoryItem] = Field(default_factory=list)
 
@@ -75,6 +78,7 @@ class SessionSummaryResponse(BaseModel):
     last_activity_at: datetime
     revoked: bool
     current_ip: str
+    current_ip_location: Optional[str] = None
     device_info: Optional[str] = None
     is_suspicious: bool
     refresh_count: int
@@ -146,3 +150,71 @@ class FlagSessionRequest(BaseModel):
     """标记会话请求"""
     is_suspicious: bool
     reason: Optional[str] = Field(None, max_length=255)
+
+
+# ===== Analytics Schemas =====
+
+class DailyActivityItem(BaseModel):
+    """每日活跃度数据项"""
+    date: str
+    count: int
+
+
+class UserActivityData(BaseModel):
+    """用户活跃度数据"""
+    dau: List[DailyActivityItem] = Field(description="最近30天每日活跃用户数")
+    wau: int = Field(description="最近7天活跃用户总数")
+    mau: int = Field(description="最近30天活跃用户总数")
+
+
+class DeviceDistribution(BaseModel):
+    """设备类型分布"""
+    desktop: int
+    mobile: int
+    tablet: int
+    unknown: int
+
+
+class GeoDistributionItem(BaseModel):
+    """地理分布数据项"""
+    country: str
+    count: int
+
+
+class SessionDurationDistribution(BaseModel):
+    """会话时长分布"""
+    duration_0_5min: int = Field(alias="0-5min")
+    duration_5_30min: int = Field(alias="5-30min")
+    duration_30_60min: int = Field(alias="30-60min")
+    duration_1_2h: int = Field(alias="1-2h")
+    duration_2h_plus: int = Field(alias="2h+")
+
+    class Config:
+        populate_by_name = True
+
+
+class AnalyticsResponse(BaseModel):
+    """聚合统计响应"""
+    login_heatmap: List[List[int]] = Field(
+        description="登录热力图：7x24 二维数组，[weekday][hour]，weekday: 0=周日, 1=周一, ..., 6=周六"
+    )
+    user_activity: UserActivityData
+    device_distribution: DeviceDistribution
+    geo_distribution: List[GeoDistributionItem]
+    session_duration_distribution: SessionDurationDistribution
+
+
+class OnlineUserItem(BaseModel):
+    """在线用户数据项"""
+    user_id: int
+    username: str
+    last_seen: datetime
+    current_ip: str
+    current_ip_location: Optional[str] = None
+    device_info: Optional[str] = None
+
+
+class OnlineUsersResponse(BaseModel):
+    """实时在线用户响应"""
+    online_count: int
+    users: List[OnlineUserItem]

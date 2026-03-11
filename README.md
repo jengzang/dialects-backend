@@ -2027,7 +2027,7 @@ def process_my_feature(param1: str, param2: int):
 from fastapi import APIRouter, Depends
 from app.schemas.my_feature import MyRequest, MyResponse
 from app.service.my_service import process_my_feature
-from app.auth.dependencies import get_current_user
+from app.service.auth import get_current_user
 
 router = APIRouter()
 

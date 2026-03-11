@@ -5,7 +5,7 @@
 !serve.py
 !gunicorn_config.py
 !app/**
-!common/**
+!app/common/**
 !data/dependency/**
 
 # 常见无关/大文件

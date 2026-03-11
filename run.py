@@ -103,13 +103,13 @@ if __name__ == "__main__":
     # 设置环境变量，这样 config.py 就能读取到
     os.environ['_RUN_TYPE'] = args.run
 
-    from common.config import _RUN_TYPE
+    from app.common.config import _RUN_TYPE
     import time
     import threading
     import webbrowser
     import uvicorn
     from app.main import app
-    from common.config import APP_NAME, AUTHOR, VERSION, DATE_STR, APP_URL
+    from app.common.config import APP_NAME, AUTHOR, VERSION, DATE_STR, APP_URL
     import sys
     import shutil
 
@@ -122,7 +122,7 @@ if __name__ == "__main__":
         if should_open_browser:
             # 跑在局域網ip地址上
             threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
-        uvicorn.run("run:app", host="0.0.0.0", port=5000, reload=True)
+        uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
 
     elif _RUN_TYPE == 'EXE':
         if should_open_browser:

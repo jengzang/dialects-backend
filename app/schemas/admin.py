@@ -31,6 +31,7 @@ class ApiUsageLog(BaseModel):
     duration: float
     status_code: int
     ip: Optional[str]
+    ip_location: Optional[str] = None
     user_agent: Optional[str]
     referer: Optional[str]
     called_at: datetime
@@ -94,6 +95,17 @@ class LetAdmin(BaseModel):
         from_attributes = True
 
 
+class UserListItem(BaseModel):
+    """轻量级用户列表项（仅包含基本信息）"""
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
 # 权限管理相关 Schema
 class PermissionBase(BaseModel):
     """权限基础模型"""
@@ -138,3 +150,106 @@ class UserWithPermissions(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ===== Custom Region Admin Schemas =====
+
+class AdminRegionCreate(BaseModel):
+    """管理员为任意用户创建区域"""
+    username: str
+    region_name: str = Field(..., min_length=1, max_length=200)
+    locations: list[str] = Field(..., min_items=1)
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AdminRegionUpdate(BaseModel):
+    """管理员更新任意用户的区域"""
+    username: str
+    region_name: str  # 当前区域名
+    new_region_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    locations: Optional[list[str]] = Field(None, min_items=1)
+    description: Optional[str] = Field(None, max_length=1000)
+
+
+class AdminRegionDelete(BaseModel):
+    """管理员删除任意用户的区域"""
+    username: str
+    created_at: str
+
+
+class AdminRegionResponse(BaseModel):
+    """管理员视图的区域响应"""
+    id: int
+    user_id: int
+    username: str
+    region_name: str
+    locations: list[str]
+    location_count: int
+    description: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminRegionListResponse(BaseModel):
+    """分页区域列表响应"""
+    total: int
+    skip: int
+    limit: int
+    data: list[AdminRegionResponse]
+
+
+class UserRegionCount(BaseModel):
+    """用户区域数量统计"""
+    username: str
+    region_count: int
+
+
+# ===== Leaderboard Schemas =====
+
+class LeaderboardQueryParams(BaseModel):
+    """排行榜查询参数"""
+    ranking_type: str  # "user_global", "user_by_api", "api", "online_time"
+    metric: Optional[str] = None  # "count", "duration", "upload", "download"
+    api_path: Optional[str] = None
+    page: int = Field(1, ge=1)
+    page_size: int = Field(20, ge=1, le=100)
+
+
+class UserRankingItem(BaseModel):
+    """用户排名项"""
+    rank: int
+    user_id: int
+    username: str
+    value: float
+    percentage: float
+    gap_to_prev: Optional[float] = None
+    first_place_value: float
+
+
+class ApiRankingItem(BaseModel):
+    """API排名项"""
+    rank: int
+    path: str
+    value: float
+    percentage: float
+    unique_users: int
+    gap_to_prev: Optional[float] = None
+    first_place_value: float
+
+
+class LeaderboardResponse(BaseModel):
+    """排行榜响应"""
+    ranking_type: str
+    metric: Optional[str]
+    api_path: Optional[str]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    rankings: list
+    total_value: Optional[float] = Field(None, description="所有排名项目的累计总量（不受分页限制）")
+
+
+class AvailableApisResponse(BaseModel):
+    """可用API列表响应"""
+    apis: list[str]

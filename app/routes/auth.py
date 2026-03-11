@@ -6,14 +6,15 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth.dependencies import check_login_rate_limit
-from app.auth.models import ApiUsageLog
-from app.auth.service import update_user_profile
-from app.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
+from app.service.auth.dependencies import check_login_rate_limit
+from app.service.auth.models import ApiUsageLog
+from app.service.auth import utils
+from app.service.auth.service import update_user_profile, models
+from app.service.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
 from app.schemas import auth as schemas
-from app.auth import service, utils, models
-from app.auth.database import get_db
-from common.config import REQUIRE_EMAIL_VERIFICATION
+from app.service.auth import service
+from app.service.auth.database import get_db
+from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
@@ -275,9 +276,9 @@ def report_online_time(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # ✅ Put in queue instead of direct write (non-blocking)
-    from app.logs.service.api_logger import online_time_queue
-    online_time_queue.put({
+    # ✅ 非阻塞入队，队列满时后台兜底写入
+    from app.service.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
+    enqueue_online_time_non_blocking({
         'user_id': user.id,
         'session_id': session_id,
         'seconds': seconds,
@@ -295,21 +296,36 @@ def report_online_time(
 @router.put("/updateProfile")
 async def update_profile(
     username: str = Form(None),  # 使用 Form 获取数据
-    email: str = Form(...),
+    email: str = Form(None),
     password: str = Form(None),
     new_password: Optional[str] = Form(None),
+    token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-
     try:
+        payload = utils.decode_access_token(token)
+        token_username = payload.get("sub")
+        if not token_username:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        current_user = db.query(models.User).filter(models.User.username == token_username).first()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # 防止通过表单 email 指向他人账号（兼容旧前端保留字段）
+        if email and email != current_user.email:
+            raise HTTPException(status_code=403, detail="只能修改自己的帳號資料")
+
         updated_user = update_user_profile(
             db=db,
-            email=email,
+            user_id=current_user.id,
             username=username,
             password=password,
             new_password=new_password
         )
         return {" message": "用戶資料更新成功!", "user": {"username": updated_user.username, "email": updated_user.email}}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -351,5 +367,5 @@ def get_leaderboard(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Calculate all rankings
-    from app.auth.leaderboard_service import get_user_leaderboard
+    from app.service.user.leaderboard_service import get_user_leaderboard
     return get_user_leaderboard(db, user.id)

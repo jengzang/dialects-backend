@@ -4,8 +4,7 @@ Check工具的API路由：方言音位数据检查编辑器
 """
 from urllib.parse import quote
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 import pandas as pd
@@ -16,7 +15,7 @@ import re
 
 from starlette.responses import StreamingResponse
 
-from common.constants import col_map
+from app.common.constants import col_map
 
 # 添加项目路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -29,7 +28,7 @@ from .format_convert import (
     process_跳跳老鼠,
     process_縣志_excel,
     process_縣志_word,
-    convert_to_tsv_if_needed, extract_onset_rime_from_ipa, extract_all_from_files
+    extract_onset_rime_from_ipa, extract_all_from_files
 )
 
 router = APIRouter()

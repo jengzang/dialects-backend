@@ -106,6 +106,86 @@ class YinWeiAnalysis(BaseModel):
     )
 
 
+    @field_validator('features')
+    @classmethod
+    def validate_features(cls, v):
+        valid_features = {"\u8072\u6bcd", "\u97fb\u6bcd", "\u8072\u8abf"}
+        invalid = set(v) - valid_features
+        if invalid:
+            raise ValueError(f"invalid features: {invalid}; allowed: {valid_features}")
+        if not v:
+            raise ValueError("features cannot be empty")
+        return v
+
+
+class CompareZhongGuAnalysis(BaseModel):
+    """
+    比较两组中古音条件在方言中的读音差异
+    """
+    # --- 第一组中古音条件 ---
+    path_strings1: List[str] = Field(
+        ...,
+        description="第一组语音条件列表",
+        example=["[知]{組}"]
+    )
+    column1: Optional[List[str]] = Field(
+        default=None,
+        description="第一组的额外排列组合字段",
+        example=["等"]
+    )
+    combine_query1: bool = Field(
+        default=False,
+        description="第一组是否开启交叉组合查询"
+    )
+    exclude_columns1: Optional[List[str]] = Field(
+        default=None,
+        description="第一组要排除的列名列表",
+        example=["多地位標記", "多等"]
+    )
+
+    # --- 第二组中古音条件 ---
+    path_strings2: List[str] = Field(
+        ...,
+        description="第二组语音条件列表",
+        example=["[莊]{組}"]
+    )
+    column2: Optional[List[str]] = Field(
+        default=None,
+        description="第二组的额外排列组合字段",
+        example=["等"]
+    )
+    combine_query2: bool = Field(
+        default=False,
+        description="第二组是否开启交叉组合查询"
+    )
+    exclude_columns2: Optional[List[str]] = Field(
+        default=None,
+        description="第二组要排除的列名列表",
+        example=["多地位標記", "多等"]
+    )
+
+    # --- 方言分析参数 ---
+    locations: List[str] = Field(
+        ...,
+        description="目标地点列表",
+        example=["广州", "香港"]
+    )
+    regions: List[str] = Field(
+        default=[],
+        description="目标区域列表",
+        example=[]
+    )
+    features: List[str] = Field(
+        default=["韻母"],
+        description="需要比较的语音特征",
+        example=["聲母", "韻母"]
+    )
+    region_mode: str = Field(
+        default="yindian",
+        description="地区匹配模式"
+    )
+
+
 class PhonologyClassificationMatrixRequest(BaseModel):
     """
     音韻特徵分類矩陣請求模型

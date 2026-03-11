@@ -60,7 +60,7 @@ def check_config():
     print("=" * 60)
 
     try:
-        from common.api_config import API_ROUTE_CONFIG
+        from app.common.api_config import API_ROUTE_CONFIG
 
         required_routes = [
             "/api/submit_form",

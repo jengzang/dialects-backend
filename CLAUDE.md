@@ -198,7 +198,7 @@ Auto-managed by `app/sql/index_manager.py`:
 # Use connection pool
 from app.sql.db_pool import get_db_pool
 pool = get_db_pool(db_path)
-with pool.connect() as conn:
+with pool.get_connection() as conn:
     result = conn.execute(query)
 
 # Check permissions
@@ -350,12 +350,25 @@ The Praat acoustic analysis tool MUST follow specifications in the existing `cla
 - `app/auth/`: Authentication, authorization, session management
 - `app/logs/`: Logging system (multi-process queues, schedulers)
 - `app/sql/`: Database connection pools, query interfaces, permissions
-- `app/tools/`: Modular tools (Praat, Check, Merge, Jyut2IPA)
+- `app/tools/`: Modular tools (Praat, Check, Merge, Jyut2IPA, VillagesML)
 - `common/`: Shared configuration, constants, utilities
 - `data/`: SQLite database files (not in version control)
-- `docs/`: Documentation files (implementation guides, specifications, etc.)
+- `docs/`: Documentation files (organized by category - see docs/README.md)
+- `test/`: Test scripts and utilities
 
-**Documentation Guidelines**: All documentation files should be placed in the `docs/` directory to keep the project root clean and organized.
+### Critical File Constraints
+
+1.  **No New Root Files:** Do not create new documentation or script files in the root directory.
+2.  **Documentation Placement:** Any file explaining "how-to" or "architecture" must go into `docs/`.
+3.  **Testing & Migration:** Any `.py` file intended for testing, environment setup, or database migration must go into `test/`.
+4.  **Module Rule:** A module should be EITHER a file OR a package, never both simultaneously.
+
+### File Organization Guidelines
+
+* **Documentation:** ALL documentation files (including `.md` guides, technical specs, and manuals) MUST be placed in the `docs/` directory.
+* **Scripts:** ALL test scripts (unit, integration, or setup tests) and data migration scripts MUST be placed in the `test/` directory.
+* **Root Cleanliness:** Keep the project root clean. Only essential configuration files (e.g., `.gitignore`, `requirements.txt`, `pyproject.toml`) and the main entry point should reside in the root.
+
 
 ## Additional Resources
 

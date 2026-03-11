@@ -1,11 +1,10 @@
 import os
-import sqlite3
 from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.sql.db_pool import get_db_pool
-from common.path import ADMIN_ONLY_DBS, DB_MAPPING
+from app.common.path import ADMIN_ONLY_DBS, DB_MAPPING
 
 
 def get_db_connection(
@@ -63,8 +62,8 @@ def _check_read_permission(user: Optional["User"], db_key: str) -> bool:
 def _check_write_permission(auth_db: Optional[Session], user: Optional["User"], db_key: str) -> bool:
     """检查写权限（带缓存）"""
     # 延迟导入避免循环依赖
-    from app.auth.models import UserDbPermission
-    from app.auth.permission_cache import get_cached_permission_sync, set_cached_permission_sync
+    from app.service.auth.models import UserDbPermission
+    from app.service.auth import get_cached_permission_sync, set_cached_permission_sync
 
     # 管理员拥有所有权限
     if user and user.role == "admin":

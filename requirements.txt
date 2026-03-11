@@ -70,3 +70,7 @@ networkx>=3.0
 
 # Performance optimization for string matching
 rapidfuzz>=3.0.0
+
+# Analytics dependencies
+geoip2>=4.7.0
+user-agents>=2.2.0

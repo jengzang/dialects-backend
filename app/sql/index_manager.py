@@ -4,7 +4,7 @@ Database Index Manager
 """
 
 import sqlite3
-from typing import List, Set
+from typing import Set
 
 
 def ensure_indexes(db_path: str) -> None:
@@ -163,6 +163,43 @@ def ensure_query_indexes(db_path: str) -> None:
         print(f"  ✗ 创建索引失败 (query_dialects.db): {e}")
 
 
+def ensure_auth_indexes(db_path: str) -> None:
+    """
+    确保auth数据库中存在必要的索引（用于API使用日志查询优化）
+
+    Args:
+        db_path: 数据库文件路径
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        indexes = [
+            # API使用日志索引（用于admin API usage查询）
+            "CREATE INDEX IF NOT EXISTS idx_api_usage_logs_user_id ON api_usage_logs(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_api_usage_logs_called_at ON api_usage_logs(called_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_api_usage_logs_path ON api_usage_logs(path)",
+
+            # 复合索引用于常见查询模式
+            "CREATE INDEX IF NOT EXISTS idx_api_usage_logs_path_called_at ON api_usage_logs(path, called_at DESC)",
+        ]
+
+        created_count = 0
+        for idx_sql in indexes:
+            idx_name = idx_sql.split("IF NOT EXISTS")[1].split("ON")[0].strip()
+            cursor.execute(idx_sql)
+            created_count += 1
+
+        cursor.execute("ANALYZE")
+        conn.commit()
+        conn.close()
+
+        print(f"  → 在 auth.db 中确保了 {created_count} 个索引")
+
+    except Exception as e:
+        print(f"  ✗ 创建索引失败 (auth.db): {e}")
+
+
 def initialize_all_indexes() -> None:
     """
     初始化所有数据库的索引
@@ -181,12 +218,17 @@ def initialize_all_indexes() -> None:
 
     # 查询数据库索引
     print("\n[SEARCH] 查询数据库 (query):")
-    from common.config import QUERY_DB_USER
-    from common.path import QUERY_DB_ADMIN
+    from app.common.path import QUERY_DB_USER
+    from app.common.path import QUERY_DB_ADMIN
     if QUERY_DB_USER:
         ensure_query_indexes(QUERY_DB_USER)
     if QUERY_DB_ADMIN:
         ensure_query_indexes(QUERY_DB_ADMIN)
+
+    # 认证数据库索引
+    print("\n[AUTH] 认证数据库 (auth):")
+    from app.common.path import USER_DATABASE_PATH
+    ensure_auth_indexes(USER_DATABASE_PATH)
 
     print("\n[OK] 所有数据库索引初始化完成\n")
 
@@ -245,8 +287,8 @@ def drop_all_indexes(db_path: str) -> None:
 if __name__ == "__main__":
     # 命令行工具：可以手动运行此脚本来创建索引
     import sys
-    from common.config import QUERY_DB_USER
-    from common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, CHARACTERS_DB_PATH
+    from app.common.path import QUERY_DB_USER
+    from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 
     if len(sys.argv) > 1 and sys.argv[1] == "drop":
         print("[DEL] 删除所有索引...")
