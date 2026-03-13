@@ -76,7 +76,7 @@ async def api_run_phonology_analysis(
 #### 问题
 ```python
 # 服务层过度依赖 User 对象
-# app/service/custom.py
+# app/service/custom_data.py
 def get_from_submission(
     locations: List[str],
     regions: List[str],
@@ -107,7 +107,7 @@ async def query_location_data(
 #### 解决方案
 ```python
 # 服务层只接受必要的参数
-# app/service/custom.py
+# app/service/custom_data.py
 def get_from_submission(
     locations: List[str],
     regions: List[str],

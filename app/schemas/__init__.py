@@ -19,7 +19,7 @@ from .core.phonology import (
     FeatureStatsRequest
 )
 from .user.submissions import FormData
-from .core.query import QueryParams, FeatureQueryParams
+from app.schemas.user.custom_query import QueryParams, FeatureQueryParams
 
 __all__ = [
     "AnalysisPayload",

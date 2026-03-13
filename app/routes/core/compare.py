@@ -18,7 +18,7 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
 from app.service.geo.match_input_tip import match_locations_batch_all
 from app.service.core.compare import compare_characters, compare_tones
-from app.schemas.core.phonology import CompareZhongGuAnalysis
+from app.schemas.core import CompareZhongGuAnalysis
 
 router = APIRouter()
 

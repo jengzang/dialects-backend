@@ -15,7 +15,7 @@ from sqlalchemy import func
 
 from app.service.auth.database.models import User
 from app.service.user.core.models import Information
-from app.service.user.submission.write_submit import get_max_value
+from app.service.user.submission.submit import get_max_value
 
 
 def get_all_custom_data(db_info: DBSession, db_user: DBSession) -> List[Dict[str, Any]]:

@@ -10,7 +10,7 @@ from typing import Optional
 from app.service.user.core.database import get_db as get_db_custom
 from app.service.user.submission.delete import handle_form_deletion
 from app.schemas import FormData
-from app.service.user.submission.write_submit import handle_form_submission
+from app.service.user.submission.submit import handle_form_submission
 from app.service.auth.core.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
 from app.service.auth.database.models import User

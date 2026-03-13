@@ -9,7 +9,7 @@
 
 业务逻辑在 app.service.admin.submissions.management 中实现
 
-合并自：custom.py + custom_edit.py
+合并自：custom_data.py + custom_edit.py
 """
 from typing import List
 

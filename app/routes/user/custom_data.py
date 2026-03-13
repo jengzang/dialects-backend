@@ -7,9 +7,9 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
 from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.user.core.models import Information
-from app.service.user.submission.write_submit import get_max_value
+from app.service.user.submission.submit import get_max_value
 from app.schemas.admin.submissions import InformationBase
-from app.schemas.user.profile import CustomDataEdit, BatchDeleteRequest
+from app.schemas.user import CustomDataEdit, BatchDeleteRequest
 
 router = APIRouter()
 
