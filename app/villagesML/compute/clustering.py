@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
 import time
+import threading
 
 from .validators import ClusteringParams, ClusteringScanParams, CharacterTendencyClusteringParams, SampledVillageClusteringParams, SpatialAwareClusteringParams, HierarchicalClusteringParams
 from .cache import compute_cache
@@ -22,11 +23,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/clustering")
 
+_engine_instance = None
+_engine_lock = threading.Lock()
+
 
 def get_clustering_engine():
     """获取聚类引擎实例"""
-    db_path = get_db_path()
-    return ClusteringEngine(db_path)
+    global _engine_instance
+    if _engine_instance is None:
+        with _engine_lock:
+            if _engine_instance is None:
+                db_path = get_db_path()
+                _engine_instance = ClusteringEngine(db_path)
+    return _engine_instance
 
 
 @router.post("/run")

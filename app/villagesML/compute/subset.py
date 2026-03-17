@@ -26,6 +26,7 @@ from .validators import (
 from .cache import compute_cache
 from .timeout import timeout, TimeoutException
 from ..config import get_db_path
+from app.sql.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,6 @@ async def cluster_subset(
             start_time = time.time()
 
             db_path = get_db_path()
-            conn = sqlite3.connect(db_path)
             clustering_features = params.clustering.get('features', [])
             select_columns = ["village_id", "village_name"]
             if 'semantic' in clustering_features:
@@ -219,18 +219,17 @@ async def cluster_subset(
             if 'morphology' in clustering_features:
                 select_columns.append('name_length')
             if 'semantic' not in clustering_features and 'morphology' not in clustering_features:
-                conn.close()
                 raise HTTPException(
                     status_code=422,
                     detail="No clustering features selected. Choose at least one of: semantic, morphology."
                 )
 
             # 1. 过滤村庄
-            df = filter_villages(conn, params.filter.dict(), select_columns=select_columns)
+            with get_db_pool(db_path).get_connection() as conn:
+                df = filter_villages(conn, params.filter.dict(), select_columns=select_columns)
             matched_count = len(df)
 
             if matched_count == 0:
-                conn.close()
                 return {
                     'subset_id': f"subset_{int(time.time())}",
                     'matched_villages': 0,
@@ -250,7 +249,6 @@ async def cluster_subset(
                 feature_cols.append('name_length')
 
             if not feature_cols:
-                conn.close()
                 raise HTTPException(
                     status_code=422,
                     detail="No clustering features selected. Choose at least one of: semantic, morphology."
@@ -292,8 +290,6 @@ async def cluster_subset(
                     'size': int(mask.sum()),
                     'sample_villages': cluster_villages
                 })
-
-            conn.close()
 
             execution_time = int((time.time() - start_time) * 1000)
 
@@ -359,21 +355,20 @@ async def compare_subsets(
             timings = {}  # 性能监控
 
             db_path = get_db_path()
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
 
             # 1. 获取两组村庄数据（支持 village_ids 或 filter 两种模式）
             t0 = time.time()
             required_columns = _build_compare_required_columns(params.analysis)
-            if params.group_a.village_ids is not None:
-                df_a = get_villages_by_ids(conn, params.group_a.village_ids, select_columns=required_columns)
-            else:
-                df_a = filter_villages(conn, params.group_a.filter.dict(), select_columns=required_columns)
+            with get_db_pool(db_path).get_connection() as conn:
+                if params.group_a.village_ids is not None:
+                    df_a = get_villages_by_ids(conn, params.group_a.village_ids, select_columns=required_columns)
+                else:
+                    df_a = filter_villages(conn, params.group_a.filter.dict(), select_columns=required_columns)
 
-            if params.group_b.village_ids is not None:
-                df_b = get_villages_by_ids(conn, params.group_b.village_ids, select_columns=required_columns)
-            else:
-                df_b = filter_villages(conn, params.group_b.filter.dict(), select_columns=required_columns)
+                if params.group_b.village_ids is not None:
+                    df_b = get_villages_by_ids(conn, params.group_b.village_ids, select_columns=required_columns)
+                else:
+                    df_b = filter_villages(conn, params.group_b.filter.dict(), select_columns=required_columns)
             timings['data_loading'] = int((time.time() - t0) * 1000)
 
             group_a_size = len(df_a)
@@ -546,18 +541,20 @@ async def compare_subsets(
                         # 一次性查询所有坐标
                         batch_size = 1000  # 增大批次
                         all_coords = {}
-                        for i in range(0, len(all_village_ids), batch_size):
-                            batch = all_village_ids[i:i + batch_size]
-                            placeholders = ','.join(['?' for _ in batch])
-                            query = f"""
-                            SELECT village_id, longitude, latitude
-                            FROM 广东省自然村_预处理
-                            WHERE village_id IN ({placeholders})
-                            AND longitude IS NOT NULL AND latitude IS NOT NULL
-                            """
-                            cursor.execute(query, batch)
-                            for row in cursor.fetchall():
-                                all_coords[row[0]] = (row[1], row[2])
+                        with get_db_pool(db_path).get_connection() as spatial_conn:
+                            spatial_cursor = spatial_conn.cursor()
+                            for i in range(0, len(all_village_ids), batch_size):
+                                batch = all_village_ids[i:i + batch_size]
+                                placeholders = ','.join(['?' for _ in batch])
+                                query = f"""
+                                SELECT village_id, longitude, latitude
+                                FROM 广东省自然村_预处理
+                                WHERE village_id IN ({placeholders})
+                                AND longitude IS NOT NULL AND latitude IS NOT NULL
+                                """
+                                spatial_cursor.execute(query, batch)
+                                for row in spatial_cursor.fetchall():
+                                    all_coords[row[0]] = (row[1], row[2])
 
                         # 分组统计
                         results = []
@@ -596,8 +593,6 @@ async def compare_subsets(
 
             if params.analysis.get('spatial_distribution', False):
                 timings['spatial'] = int((time.time() - t0) * 1000)
-
-            conn.close()
 
             execution_time = int((time.time() - start_time) * 1000)
 

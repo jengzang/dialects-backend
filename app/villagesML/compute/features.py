@@ -9,6 +9,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
+import threading
 
 from .validators import FeatureExtractionParams, FeatureAggregationParams
 from .cache import compute_cache
@@ -20,11 +21,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/features")
 
+_engine_instance = None
+_engine_lock = threading.Lock()
+
 
 def get_feature_engine():
     """获取特征引擎实例"""
-    db_path = get_db_path()
-    return FeatureEngine(db_path)
+    global _engine_instance
+    if _engine_instance is None:
+        with _engine_lock:
+            if _engine_instance is None:
+                db_path = get_db_path()
+                _engine_instance = FeatureEngine(db_path)
+    return _engine_instance
 
 
 @router.post("/extract")

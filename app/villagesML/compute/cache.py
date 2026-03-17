@@ -47,7 +47,8 @@ class ComputeCache:
         """
         # 排序参数以确保一致性
         key_str = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        digest = hashlib.md5(key_str.encode()).hexdigest()
+        return f"{endpoint}:{digest}"
 
     def get(self, endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -124,11 +125,11 @@ class ComputeCache:
             self.access_count.clear()
             logger.info("All cache cleared")
         else:
-            # 清除特定端点的缓存
-            keys_to_remove = []
-            for key in self.cache.keys():
-                # 需要反向查找，这里简化处理
-                keys_to_remove.append(key)
+            # 清除特定端点（支持前缀匹配，如 clustering -> clustering_run）
+            keys_to_remove = [
+                key for key in self.cache.keys()
+                if key.split(":", 1)[0].startswith(endpoint)
+            ]
 
             for key in keys_to_remove:
                 del self.cache[key]

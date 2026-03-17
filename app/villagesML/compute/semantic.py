@@ -9,6 +9,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
+import threading
 
 from .validators import SemanticAnalysisParams, SemanticNetworkParams
 from .cache import compute_cache
@@ -19,11 +20,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/semantic")
 
+_engine_instance = None
+_engine_lock = threading.Lock()
+
 
 def get_semantic_engine():
     """获取语义引擎实例"""
-    db_path = get_db_path()
-    return SemanticEngine(db_path)
+    global _engine_instance
+    if _engine_instance is None:
+        with _engine_lock:
+            if _engine_instance is None:
+                db_path = get_db_path()
+                _engine_instance = SemanticEngine(db_path)
+    return _engine_instance
 
 
 @router.post("/cooccurrence")

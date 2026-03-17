@@ -8,7 +8,7 @@
 """
 
 import time
-import sqlite3
+from contextlib import contextmanager
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ from sklearn.metrics import (
     calinski_harabasz_score
 )
 import logging
+from app.sql.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,13 @@ class ClusteringEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self._db_pool = get_db_pool(db_path)
         self.feature_cache = {}  # 特征矩阵缓存
+
+    @contextmanager
+    def _connection(self):
+        with self._db_pool.get_connection() as conn:
+            yield conn
 
     def get_regional_features(
         self,
@@ -62,19 +69,18 @@ class ClusteringEngine:
             logger.info(f"Using cached features for {region_level}")
             return self.feature_cache[cache_key]
 
-        conn = sqlite3.connect(self.db_path)
+        with self._connection() as conn:
+            # 根据region_level选择正确的表
+            table_map = {
+                'city': 'city_aggregates',
+                'county': 'county_aggregates',
+                'township': 'town_aggregates'
+            }
+            table_name = table_map.get(region_level, 'county_aggregates')
 
-        # 根据region_level选择正确的表
-        table_map = {
-            'city': 'city_aggregates',
-            'county': 'county_aggregates',
-            'township': 'town_aggregates'
-        }
-        table_name = table_map.get(region_level, 'county_aggregates')
-
-        # 1. 读取区域聚合表
-        query = f"SELECT * FROM {table_name}"
-        df_regional = pd.read_sql_query(query, conn)
+            # 1. 读取区域聚合表
+            query = f"SELECT * FROM {table_name}"
+            df_regional = pd.read_sql_query(query, conn)
 
         # 区域名称列（用于输出 region_names）
         # - city_aggregates: 'city'
@@ -129,8 +135,6 @@ class ClusteringEngine:
 
         # 处理缺失值
         X = np.nan_to_num(X, nan=0.0)
-
-        conn.close()
 
         # 缓存结果
         self.feature_cache[cache_key] = (X, region_names)
@@ -398,8 +402,6 @@ class ClusteringEngine:
         if hasattr(region_level, 'value'):
             region_level = region_level.value
 
-        conn = sqlite3.connect(self.db_path)
-
         # 映射region_level到数据库中的region_level值
         db_level_map = {
             'city': 'city',
@@ -442,8 +444,8 @@ class ClusteringEngine:
         """
         params = [db_level] + params + [top_n_chars]
 
-        df = pd.read_sql_query(query, conn, params=params)
-        conn.close()
+        with self._connection() as conn:
+            df = pd.read_sql_query(query, conn, params=params)
 
         # Pivot操作：region × character矩阵
         pivot_df = df.pivot(index='region', columns='char', values=tendency_metric)
@@ -568,8 +570,6 @@ class ClusteringEngine:
         Returns:
             (特征矩阵, 聚类ID列表, 元数据)
         """
-        conn = sqlite3.connect(self.db_path)
-
         query = """
         SELECT
             cluster_id,
@@ -582,8 +582,8 @@ class ClusteringEngine:
         WHERE run_id = ?
         """
 
-        df = pd.read_sql_query(query, conn, params=[run_id])
-        conn.close()
+        with self._connection() as conn:
+            df = pd.read_sql_query(query, conn, params=[run_id])
 
         if len(df) == 0:
             raise ValueError(f"No spatial clusters found for run_id: {run_id}")
@@ -787,37 +787,34 @@ class ClusteringEngine:
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
         and_sql = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
 
-        conn = sqlite3.connect(self.db_path)
+        with self._connection() as conn:
+            # 1. SQL 层采样（不再全量加载）
+            if strategy == 'random':
+                # 随机采样直接在 SQL 完成
+                query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
+                df_sampled = pd.read_sql_query(query, conn, params=filter_params + [sample_size])
 
-        # 1. SQL 层采样（不再全量加载）
-        if strategy == 'random':
-            # 随机采样直接在 SQL 完成
-            query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
-            df_sampled = pd.read_sql_query(query, conn, params=filter_params + [sample_size])
+            elif strategy == 'stratified':
+                # Step1: 按县统计数量
+                count_query = f"SELECT county, COUNT(*) as cnt FROM village_features{where_sql} GROUP BY county"
+                county_df = pd.read_sql_query(count_query, conn, params=filter_params if filter_params else None)
+                total = county_df['cnt'].sum()
+                county_df['quota'] = (county_df['cnt'] / total * sample_size).astype(int).clip(lower=1)
 
-        elif strategy == 'stratified':
-            # Step1: 按县统计数量
-            count_query = f"SELECT county, COUNT(*) as cnt FROM village_features{where_sql} GROUP BY county"
-            county_df = pd.read_sql_query(count_query, conn, params=filter_params if filter_params else None)
-            total = county_df['cnt'].sum()
-            county_df['quota'] = (county_df['cnt'] / total * sample_size).astype(int).clip(lower=1)
+                # Step2: 每个县分别在 SQL 随机采样
+                sampled_dfs = []
+                for _, row in county_df.iterrows():
+                    q = f"SELECT * FROM village_features WHERE county = ?{and_sql} ORDER BY RANDOM() LIMIT ?"
+                    cdf = pd.read_sql_query(q, conn, params=[row['county']] + filter_params + [int(row['quota'])])
+                    sampled_dfs.append(cdf)
+                df_sampled = pd.concat([d for d in sampled_dfs if not d.empty], ignore_index=True)
 
-            # Step2: 每个县分别在 SQL 随机采样
-            sampled_dfs = []
-            for _, row in county_df.iterrows():
-                q = f"SELECT * FROM village_features WHERE county = ?{and_sql} ORDER BY RANDOM() LIMIT ?"
-                cdf = pd.read_sql_query(q, conn, params=[row['county']] + filter_params + [int(row['quota'])])
-                sampled_dfs.append(cdf)
-            df_sampled = pd.concat([d for d in sampled_dfs if not d.empty], ignore_index=True)
-
-        else:
-            # spatial：需要坐标范围做网格划分，先随机预取 3x 再 Python 端网格采样
-            oversample = min(sample_size * 3, 50000)
-            query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
-            df_pre = pd.read_sql_query(query, conn, params=filter_params + [oversample])
-            df_sampled = self._sample_villages(df_pre, strategy, sample_size, random_state)
-
-        conn.close()
+            else:
+                # spatial：需要坐标范围做网格划分，先随机预取 3x 再 Python 端网格采样
+                oversample = min(sample_size * 3, 50000)
+                query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
+                df_pre = pd.read_sql_query(query, conn, params=filter_params + [oversample])
+                df_sampled = self._sample_villages(df_pre, strategy, sample_size, random_state)
 
         logger.info(f"Sampled {len(df_sampled)} villages using {strategy} strategy (SQL-level)")
 
@@ -1074,17 +1071,14 @@ class ClusteringEngine:
         county_to_cluster = {a['region_name']: a['cluster_id'] for a in county_result['assignments']}
 
         # 2. 从数据库查询真实地理父子关系
-        conn = sqlite3.connect(self.db_path)
-
         city_to_counties: Dict[str, List[str]] = {}
-        for city, county in conn.execute("SELECT DISTINCT city, county FROM county_aggregates").fetchall():
-            city_to_counties.setdefault(city, []).append(county)
-
         county_to_townships: Dict[str, List[str]] = {}
-        for county, town in conn.execute("SELECT DISTINCT county, town FROM town_aggregates").fetchall():
-            county_to_townships.setdefault(county, []).append(town)
+        with self._connection() as conn:
+            for city, county in conn.execute("SELECT DISTINCT city, county FROM county_aggregates").fetchall():
+                city_to_counties.setdefault(city, []).append(county)
 
-        conn.close()
+            for county, town in conn.execute("SELECT DISTINCT county, town FROM town_aggregates").fetchall():
+                county_to_townships.setdefault(county, []).append(town)
 
         # 3. 构建层次树：每个城市只挂自己的县，每个县只挂自己的镇
         tree = []
@@ -1216,6 +1210,12 @@ class SemanticEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self._db_pool = get_db_pool(db_path)
+
+    @contextmanager
+    def _connection(self):
+        with self._db_pool.get_connection() as conn:
+            yield conn
 
     def analyze_cooccurrence(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1229,8 +1229,6 @@ class SemanticEngine:
         """
         start_time = time.time()
 
-        conn = sqlite3.connect(self.db_path)
-
         # 根据 detail 参数选择表
         table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
 
@@ -1243,7 +1241,8 @@ class SemanticEngine:
         WHERE frequency >= ?
         """
 
-        df = pd.read_sql_query(query, conn, params=(params['min_cooccurrence'],))
+        with self._connection() as conn:
+            df = pd.read_sql_query(query, conn, params=(params['min_cooccurrence'],))
 
         # 过滤类别
         if params.get('categories'):
@@ -1256,8 +1255,6 @@ class SemanticEngine:
         # 使用 PMI > 0 作为显著性标准
         df_significant = df[df['pmi'] > 0]
         significant_pairs = df_significant.to_dict('records')
-
-        conn.close()
 
         execution_time = int((time.time() - start_time) * 1000)
 
@@ -1290,8 +1287,6 @@ class SemanticEngine:
                 'execution_time_ms': 0
             }
 
-        conn = sqlite3.connect(self.db_path)
-
         # 根据 detail 参数选择表
         table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
 
@@ -1302,8 +1297,8 @@ class SemanticEngine:
         WHERE pmi >= ?
         """
 
-        df = pd.read_sql_query(query, conn, params=(params['min_edge_weight'],))
-        conn.close()
+        with self._connection() as conn:
+            df = pd.read_sql_query(query, conn, params=(params['min_edge_weight'],))
 
         # 构建网络
         G = nx.Graph()
@@ -1374,6 +1369,12 @@ class FeatureEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self._db_pool = get_db_pool(db_path)
+
+    @contextmanager
+    def _connection(self):
+        with self._db_pool.get_connection() as conn:
+            yield conn
 
     def extract_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1386,13 +1387,6 @@ class FeatureEngine:
             特征提取结果
         """
         start_time = time.time()
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # 获取列名
-        cursor.execute("PRAGMA table_info(village_features)")
-        columns = [col[1] for col in cursor.fetchall()]
 
         feature_config = params.get('features', {})
         villages = params['villages']
@@ -1408,60 +1402,67 @@ class FeatureEngine:
 
         # 批量查询村庄特征（使用 IN 子句，性能最优）
         placeholders = ','.join(['?'] * len(village_ids))
-        batch_query = f"""
-        SELECT * FROM village_features
-        WHERE village_id IN ({placeholders})
-        """
-        cursor.execute(batch_query, village_ids)
-        village_rows = cursor.fetchall()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        # 构建村庄数据字典（用于快速查找）
-        village_data = {}
-        for row in village_rows:
-            row_dict = dict(zip(columns, row))
-            village_data[row_dict['village_id']] = row_dict
+            # 获取列名
+            cursor.execute("PRAGMA table_info(village_features)")
+            columns = [col[1] for col in cursor.fetchall()]
 
-        # 如果启用 spatial，批量查询坐标
-        spatial_data = {}
-        if feature_config.get('spatial', False):
-            spatial_query = f"""
-            SELECT village_id, longitude, latitude
-            FROM 广东省自然村_预处理
+            batch_query = f"""
+            SELECT * FROM village_features
             WHERE village_id IN ({placeholders})
             """
-            cursor.execute(spatial_query, village_ids)
-            for row in cursor.fetchall():
-                if row[1] is not None:  # 只保存有效坐标
-                    spatial_data[row[0]] = {'longitude': row[1], 'latitude': row[2]}
+            cursor.execute(batch_query, village_ids)
+            village_rows = cursor.fetchall()
 
-        # 如果启用 character，批量查询字符特征
-        character_data = {}
-        if feature_config.get('character', False):
-            towns = list(set([village_data[vid].get('town') for vid in village_ids if vid in village_data and village_data[vid].get('town')]))
-            if towns:
-                town_placeholders = ','.join(['?'] * len(towns))
-                char_query = f"""
-                SELECT region_name, char, frequency
-                FROM char_regional_analysis
-                WHERE region_level = 'township' AND region_name IN ({town_placeholders})
-                ORDER BY region_name, frequency DESC
+            # 构建村庄数据字典（用于快速查找）
+            village_data = {}
+            for row in village_rows:
+                row_dict = dict(zip(columns, row))
+                village_data[row_dict['village_id']] = row_dict
+
+            # 如果启用 spatial，批量查询坐标
+            spatial_data = {}
+            if feature_config.get('spatial', False):
+                spatial_query = f"""
+                SELECT village_id, longitude, latitude
+                FROM 广东省自然村_预处理
+                WHERE village_id IN ({placeholders})
                 """
-                cursor.execute(char_query, towns)
-
-                # 按乡镇分组，每个乡镇取 Top-20
-                current_town = None
-                current_chars = []
+                cursor.execute(spatial_query, village_ids)
                 for row in cursor.fetchall():
-                    town, char, freq = row
-                    if town != current_town:
-                        if current_town and current_chars:
-                            character_data[current_town] = current_chars[:20]
-                        current_town = town
-                        current_chars = []
-                    current_chars.append({'char': char, 'frequency': freq})
-                # 保存最后一个乡镇
-                if current_town and current_chars:
-                    character_data[current_town] = current_chars[:20]
+                    if row[1] is not None:  # 只保存有效坐标
+                        spatial_data[row[0]] = {'longitude': row[1], 'latitude': row[2]}
+
+            # 如果启用 character，批量查询字符特征
+            character_data = {}
+            if feature_config.get('character', False):
+                towns = list(set([village_data[vid].get('town') for vid in village_ids if vid in village_data and village_data[vid].get('town')]))
+                if towns:
+                    town_placeholders = ','.join(['?'] * len(towns))
+                    char_query = f"""
+                    SELECT region_name, char, frequency
+                    FROM char_regional_analysis
+                    WHERE region_level = 'township' AND region_name IN ({town_placeholders})
+                    ORDER BY region_name, frequency DESC
+                    """
+                    cursor.execute(char_query, towns)
+
+                    # 按乡镇分组，每个乡镇取 Top-20
+                    current_town = None
+                    current_chars = []
+                    for row in cursor.fetchall():
+                        town, char, freq = row
+                        if town != current_town:
+                            if current_town and current_chars:
+                                character_data[current_town] = current_chars[:20]
+                            current_town = town
+                            current_chars = []
+                        current_chars.append({'char': char, 'frequency': freq})
+                    # 保存最后一个乡镇
+                    if current_town and current_chars:
+                        character_data[current_town] = current_chars[:20]
 
         # 构建特征列表
         features_list = []
@@ -1530,8 +1531,6 @@ class FeatureEngine:
 
                 features_list.append(feature_dict)
 
-        conn.close()
-
         execution_time = int((time.time() - start_time) * 1000)
 
         # 计算特征维度
@@ -1575,8 +1574,6 @@ class FeatureEngine:
         """
         start_time = time.time()
 
-        conn = sqlite3.connect(self.db_path)
-
         region_level = params['region_level']
         region_names = params.get('region_names', [])
         feature_config = params.get('features', {})
@@ -1599,12 +1596,13 @@ class FeatureEngine:
 
         # 构建查询
         query = f"SELECT * FROM {table_name}"
-        if region_names:
-            placeholders = ','.join(['?' for _ in region_names])
-            query += f" WHERE {region_col} IN ({placeholders})"
-            df = pd.read_sql_query(query, conn, params=region_names)
-        else:
-            df = pd.read_sql_query(query, conn)
+        with self._connection() as conn:
+            if region_names:
+                placeholders = ','.join(['?' for _ in region_names])
+                query += f" WHERE {region_col} IN ({placeholders})"
+                df = pd.read_sql_query(query, conn, params=region_names)
+            else:
+                df = pd.read_sql_query(query, conn)
 
         aggregates = []
 
@@ -1654,8 +1652,6 @@ class FeatureEngine:
                     aggregate_dict['cluster_distribution'] = {}
 
             aggregates.append(aggregate_dict)
-
-        conn.close()
 
         execution_time = int((time.time() - start_time) * 1000)
 
