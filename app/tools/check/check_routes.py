@@ -394,6 +394,8 @@ async def upload_file(
             message="文件上传成功" + (" (已自动转换格式)" if needs_conversion else "")
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
@@ -448,6 +450,8 @@ async def analyze_file(task_id: str):
             error_stats=error_stats
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(e))
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
@@ -517,6 +521,8 @@ async def execute_commands(request: CommandRequest):
             logs=results + errors
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         # 這裡統一回傳 CommandResponse 格式，保持前端處理邏輯一致
         return CommandResponse(
@@ -586,6 +592,8 @@ async def save_changes(request: SaveChangesRequest):
             "message": f"成功保存{len(request.modified_rows)}处修改"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
 
@@ -711,6 +719,8 @@ async def get_data(request: GetDataRequest):
             "total": len(data_rows)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取数据失败: {str(e)}")
 
@@ -743,6 +753,8 @@ async def get_tone_stats(request: GetDataRequest):
             "tone_stats": tone_stats
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取调值统计失败: {str(e)}")
 
@@ -804,6 +816,8 @@ async def update_row(request: UpdateRowRequest):
             "message": f"已更新第 {request.row} 行"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
 
@@ -851,5 +865,9 @@ async def batch_delete(request: BatchDeleteRequest):
             "message": f"成功删除 {len(df_indices)} 行"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
+
+

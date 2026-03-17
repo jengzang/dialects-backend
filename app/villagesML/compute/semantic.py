@@ -61,6 +61,13 @@ async def analyze_cooccurrence(
         result['from_cache'] = False
         return result
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Cooccurrence validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Cooccurrence analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -100,6 +107,13 @@ async def build_semantic_network(
 
         result['from_cache'] = False
         return result
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Network validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
         logger.error(f"Network building error: {str(e)}")

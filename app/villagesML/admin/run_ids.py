@@ -38,6 +38,8 @@ def get_all_active_run_ids():
             "data": result,
             "count": len(result)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -62,6 +64,8 @@ def get_active_run_id(
             "analysis_type": analysis_type,
             "run_id": run_id
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -87,6 +91,8 @@ def list_available_run_ids(analysis_type: str):
             "available_run_ids": run_ids,
             "count": len(run_ids)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -121,6 +127,8 @@ def set_active_run_id(
             "analysis_type": analysis_type,
             "run_id": request.run_id
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -144,6 +152,8 @@ def get_run_id_metadata(run_id: str):
             "success": True,
             "data": metadata
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -162,5 +172,7 @@ def refresh_cache():
             "success": True,
             "message": "缓存已刷新"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

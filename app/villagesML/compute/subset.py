@@ -7,7 +7,7 @@
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import time
 import sqlite3
@@ -18,7 +18,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 from scipy.stats import chi2_contingency
 
-from .validators import SubsetClusteringParams, SubsetComparisonParams
+from .validators import (
+    SubsetClusteringParams,
+    SubsetComparisonParams,
+    SUBSET_SEMANTIC_TAG_WHITELIST,
+)
 from .cache import compute_cache
 from .timeout import timeout, TimeoutException
 from ..config import get_db_path
@@ -27,8 +31,59 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/subset")
 
+SUBSET_SEMANTIC_COLUMNS = [f"sem_{tag}" for tag in sorted(SUBSET_SEMANTIC_TAG_WHITELIST)]
+SUBSET_BASE_COLUMNS = ["village_id", "village_name", "city", "county", "name_length", "suffix_1"]
+SUBSET_SELECTABLE_COLUMNS = set(SUBSET_BASE_COLUMNS + SUBSET_SEMANTIC_COLUMNS)
 
-def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> pd.DataFrame:
+
+def _build_select_clause(select_columns: Optional[List[str]]) -> str:
+    if not select_columns:
+        return "*"
+
+    selected = []
+    invalid = []
+    seen = set()
+    for col in select_columns:
+        if col in seen:
+            continue
+        seen.add(col)
+        if col in SUBSET_SELECTABLE_COLUMNS:
+            selected.append(col)
+        else:
+            invalid.append(col)
+
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid select columns: {invalid}")
+
+    if not selected:
+        selected = ["village_id"]
+
+    return ", ".join(selected)
+
+
+def _build_compare_required_columns(analysis: Dict[str, Any]) -> List[str]:
+    required = {"village_id"}
+
+    if analysis.get("semantic_distribution", True):
+        required.update(SUBSET_SEMANTIC_COLUMNS)
+
+    if analysis.get("morphology_patterns", True):
+        required.update({"name_length", "suffix_1"})
+
+    if analysis.get("character_distribution", False):
+        required.add("village_name")
+
+    if analysis.get("spatial_distribution", False):
+        required.add("village_id")
+
+    return sorted(required)
+
+
+def filter_villages(
+    conn: sqlite3.Connection,
+    filter_params: Dict[str, Any],
+    select_columns: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """
     根据过滤条件筛选村庄
 
@@ -39,7 +94,8 @@ def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> 
     Returns:
         过滤后的DataFrame
     """
-    query = "SELECT * FROM village_features WHERE 1=1"
+    select_clause = _build_select_clause(select_columns)
+    query = f"SELECT {select_clause} FROM village_features WHERE 1=1"
     params = []
 
     # 城市过滤
@@ -54,10 +110,20 @@ def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> 
         query += f" AND county IN ({placeholders})"
         params.extend(filter_params['counties'])
 
-    # 语义标签过滤
+    # 语义标签过滤（白名单，防止列名注入）
     if filter_params.get('semantic_tags'):
         for tag in filter_params['semantic_tags']:
+            if tag not in SUBSET_SEMANTIC_TAG_WHITELIST:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid semantic tag: {tag}"
+                )
             query += f" AND sem_{tag} = 1"
+
+    # 名称模糊匹配
+    if filter_params.get('name_pattern'):
+        query += " AND village_name LIKE ?"
+        params.append(f"%{filter_params['name_pattern']}%")
 
     df = pd.read_sql_query(query, conn, params=params)
 
@@ -69,7 +135,11 @@ def filter_villages(conn: sqlite3.Connection, filter_params: Dict[str, Any]) -> 
     return df
 
 
-def get_villages_by_ids(conn: sqlite3.Connection, village_ids: List[int]) -> pd.DataFrame:
+def get_villages_by_ids(
+    conn: sqlite3.Connection,
+    village_ids: List[int],
+    select_columns: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """
     根据村庄ID列表获取村庄数据
 
@@ -89,43 +159,21 @@ def get_villages_by_ids(conn: sqlite3.Connection, village_ids: List[int]) -> pd.
         normalized_ids.append(vid_str)
 
     # 批量查询（分批处理以避免 SQL 表达式树过大）
+    select_clause = _build_select_clause(select_columns)
     batch_size = 500
     all_dfs = []
 
     for i in range(0, len(normalized_ids), batch_size):
         batch_ids = normalized_ids[i:i + batch_size]
         placeholders = ','.join(['?' for _ in batch_ids])
-        query = f"SELECT * FROM village_features WHERE village_id IN ({placeholders})"
+        query = f"SELECT {select_clause} FROM village_features WHERE village_id IN ({placeholders})"
         df_batch = pd.read_sql_query(query, conn, params=batch_ids)
         all_dfs.append(df_batch)
 
     # 合并所有批次
     if all_dfs:
         return pd.concat(all_dfs, ignore_index=True)
-    else:
-        return pd.DataFrame()
-        query += f" AND city IN ({placeholders})"
-        params.extend(filter_params['cities'])
-
-    # 县区过滤
-    if filter_params.get('counties'):
-        placeholders = ','.join(['?' for _ in filter_params['counties']])
-        query += f" AND county IN ({placeholders})"
-        params.extend(filter_params['counties'])
-
-    # 语义标签过滤
-    if filter_params.get('semantic_tags'):
-        for tag in filter_params['semantic_tags']:
-            query += f" AND sem_{tag} = 1"
-
-    df = pd.read_sql_query(query, conn, params=params)
-
-    # 采样
-    sample_size = filter_params.get('sample_size')
-    if sample_size and len(df) > sample_size:
-        df = df.sample(n=sample_size, random_state=42)
-
-    return df
+    return pd.DataFrame()
 
 
 @router.post("/cluster")
@@ -159,9 +207,21 @@ async def cluster_subset(
 
             db_path = get_db_path()
             conn = sqlite3.connect(db_path)
+            clustering_features = params.clustering.get('features', [])
+            select_columns = ["village_id", "village_name"]
+            if 'semantic' in clustering_features:
+                select_columns.extend(SUBSET_SEMANTIC_COLUMNS)
+            if 'morphology' in clustering_features:
+                select_columns.append('name_length')
+            if 'semantic' not in clustering_features and 'morphology' not in clustering_features:
+                conn.close()
+                raise HTTPException(
+                    status_code=422,
+                    detail="No clustering features selected. Choose at least one of: semantic, morphology."
+                )
 
             # 1. 过滤村庄
-            df = filter_villages(conn, params.filter.dict())
+            df = filter_villages(conn, params.filter.dict(), select_columns=select_columns)
             matched_count = len(df)
 
             if matched_count == 0:
@@ -178,13 +238,18 @@ async def cluster_subset(
 
             # 2. 构建特征矩阵
             feature_cols = []
-            clustering_features = params.clustering.get('features', [])
             if 'semantic' in clustering_features:
-                semantic_cols = [col for col in df.columns if col.startswith('sem_')]
-                feature_cols.extend(semantic_cols)
+                feature_cols.extend([col for col in SUBSET_SEMANTIC_COLUMNS if col in df.columns])
 
             if 'morphology' in clustering_features:
                 feature_cols.append('name_length')
+
+            if not feature_cols:
+                conn.close()
+                raise HTTPException(
+                    status_code=422,
+                    detail="No clustering features selected. Choose at least one of: semantic, morphology."
+                )
 
             X = df[feature_cols].values
             X = np.nan_to_num(X, nan=0.0)
@@ -246,6 +311,13 @@ async def cluster_subset(
         logger.error(f"Subset clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Subset clustering validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Subset clustering error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
@@ -287,15 +359,16 @@ async def compare_subsets(
 
             # 1. 获取两组村庄数据（支持 village_ids 或 filter 两种模式）
             t0 = time.time()
+            required_columns = _build_compare_required_columns(params.analysis)
             if params.group_a.village_ids is not None:
-                df_a = get_villages_by_ids(conn, params.group_a.village_ids)
+                df_a = get_villages_by_ids(conn, params.group_a.village_ids, select_columns=required_columns)
             else:
-                df_a = filter_villages(conn, params.group_a.filter.dict())
+                df_a = filter_villages(conn, params.group_a.filter.dict(), select_columns=required_columns)
 
             if params.group_b.village_ids is not None:
-                df_b = get_villages_by_ids(conn, params.group_b.village_ids)
+                df_b = get_villages_by_ids(conn, params.group_b.village_ids, select_columns=required_columns)
             else:
-                df_b = filter_villages(conn, params.group_b.filter.dict())
+                df_b = filter_villages(conn, params.group_b.filter.dict(), select_columns=required_columns)
             timings['data_loading'] = int((time.time() - t0) * 1000)
 
             group_a_size = len(df_a)
@@ -417,8 +490,14 @@ async def compare_subsets(
                     total_chars_a = sum(chars_a.values())
                     total_chars_b = sum(chars_b.values())
 
-                    top_chars_a = {char: count/total_chars_a for char, count in chars_a.most_common(20)}
-                    top_chars_b = {char: count/total_chars_b for char, count in chars_b.most_common(20)}
+                    top_chars_a = (
+                        {char: count / total_chars_a for char, count in chars_a.most_common(20)}
+                        if total_chars_a > 0 else {}
+                    )
+                    top_chars_b = (
+                        {char: count / total_chars_b for char, count in chars_b.most_common(20)}
+                        if total_chars_b > 0 else {}
+                    )
 
                     # 对比高频字符
                     all_chars = sorted(set(top_chars_a.keys()) | set(top_chars_b.keys()))
@@ -430,7 +509,7 @@ async def compare_subsets(
                             'group_a_freq': float(freq_a),
                             'group_b_freq': float(freq_b),
                             'difference': float(freq_a - freq_b),
-                            'lift': float(freq_a / freq_b) if freq_b > 0 else float('inf')
+                            'lift': float(freq_a / freq_b) if freq_b > 0 else None
                         })
 
                     # 按差异排序
@@ -534,6 +613,13 @@ async def compare_subsets(
     except TimeoutException as e:
         logger.error(f"Subset comparison timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Subset comparison validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
         logger.error(f"Subset comparison error: {str(e)}")

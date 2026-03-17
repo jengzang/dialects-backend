@@ -67,6 +67,13 @@ async def extract_features(
         logger.error(f"Feature extraction timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Feature extraction validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Feature extraction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
@@ -111,6 +118,13 @@ async def aggregate_features(
     except TimeoutException as e:
         logger.error(f"Feature aggregation timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Feature aggregation validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
         logger.error(f"Feature aggregation error: {str(e)}")

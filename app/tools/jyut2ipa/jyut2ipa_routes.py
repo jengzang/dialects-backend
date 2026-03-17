@@ -350,6 +350,13 @@ async def upload_file(file: UploadFile = File(...)):
             "message": "文件上传成功"
         }
 
+    except HTTPException as e:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(e.detail)
+        )
+        raise
     except Exception as e:
         task_manager.update_task(
             task_id,

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.service.user.core.database import get_db
-from app.service.user.submission import region
+from app.service.user.submission import region as region_service
 from app.schemas.user.submissions import (
     CustomRegionCreate,
     CustomRegionList
@@ -39,7 +39,7 @@ async def create_or_update_custom_region(
 
     try:
         # 创建或更新区域
-        region, action = region.create_or_update_region(
+        region_record, action = region_service.create_or_update_region(
             db=db,
             user_id=user.id,
             username=user.username,
@@ -54,14 +54,16 @@ async def create_or_update_custom_region(
             "success": True,
             "action": action,
             "region": {
-                "id": region.id,
-                "region_name": region.region_name,
-                "locations": json.loads(region.locations),
-                "description": region.description,
-                "created_at": region.created_at.isoformat(),
-                "updated_at": region.updated_at.isoformat()
+                "id": region_record.id,
+                "region_name": region_record.region_name,
+                "locations": json.loads(region_record.locations),
+                "description": region_record.description,
+                "created_at": region_record.created_at.isoformat(),
+                "updated_at": region_record.updated_at.isoformat()
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"创建/更新区域失败: {str(e)}")
 
@@ -84,7 +86,7 @@ async def delete_custom_region(
 
     try:
         # 删除区域
-        deleted = region.delete_region(
+        deleted = region_service.delete_region(
             db=db,
             user_id=user.id,
             region_name=region_name
@@ -134,6 +136,7 @@ async def get_custom_regions(
             regions=regions,
             total=len(regions)
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取区域列表失败: {str(e)}")
-

@@ -10,6 +10,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
+import time
 
 from .validators import ClusteringParams, ClusteringScanParams, CharacterTendencyClusteringParams, SampledVillageClusteringParams, SpatialAwareClusteringParams, HierarchicalClusteringParams
 from .cache import compute_cache
@@ -68,6 +69,13 @@ async def run_clustering(
         logger.error(f"Clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Clustering validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Clustering error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
@@ -116,19 +124,31 @@ async def scan_clustering_params(
 
                 # 执行聚类
                 result = engine.run_clustering(clustering_params)
+                metrics = result.get('metrics', {})
+                metric_value = metrics.get(params.metric)
 
                 # 提取评估指标
                 scan_result = {
                     'k': k,
-                    params.metric: result['metrics'][params.metric],
-                    'execution_time_ms': result['execution_time_ms']
+                    params.metric: metric_value,
+                    'execution_time_ms': result.get('execution_time_ms', 0)
                 }
                 results.append(scan_result)
 
         total_time = int((time.time() - total_start_time) * 1000)
 
         # 找到最佳k值
-        best_result = max(results, key=lambda x: x[params.metric])
+        valid_results = [r for r in results if r.get(params.metric) is not None]
+        if not valid_results:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Metric '{params.metric}' unavailable for all scanned k values."
+            )
+
+        if params.metric == "davies_bouldin_index":
+            best_result = min(valid_results, key=lambda x: x[params.metric])
+        else:
+            best_result = max(valid_results, key=lambda x: x[params.metric])
 
         scan_output = {
             'scan_id': f"scan_{int(time.time())}",
@@ -147,6 +167,13 @@ async def scan_clustering_params(
     except TimeoutException as e:
         logger.error(f"Scan timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Scan validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
         logger.error(f"Scan error: {str(e)}")
@@ -217,6 +244,13 @@ async def run_character_tendency_clustering(
         logger.error(f"Character tendency clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Character tendency validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Character tendency clustering error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Character tendency clustering failed: {str(e)}")
@@ -263,6 +297,13 @@ async def run_sampled_village_clustering(
         logger.error(f"Sampled village clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Sampled village validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Sampled village clustering error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Sampled village clustering failed: {str(e)}")
@@ -308,6 +349,13 @@ async def run_spatial_aware_clustering(
     except TimeoutException as e:
         logger.error(f"Spatial-aware clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Spatial-aware validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
 
     except Exception as e:
         logger.error(f"Spatial-aware clustering error: {str(e)}")
@@ -356,9 +404,13 @@ async def run_hierarchical_clustering(
         logger.error(f"Hierarchical clustering timeout: {str(e)}")
         raise HTTPException(status_code=408, detail=str(e))
 
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning(f"Hierarchical validation error: {str(e)}")
+        raise HTTPException(status_code=422, detail=str(e))
+
     except Exception as e:
         logger.error(f"Hierarchical clustering error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Hierarchical clustering failed: {str(e)}")
-
-
-import time

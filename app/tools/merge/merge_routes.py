@@ -248,6 +248,13 @@ async def upload_reference(file: UploadFile = File(...)):
             message="参考表上传成功"
         )
 
+    except HTTPException as e:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(e.detail)
+        )
+        raise
     except Exception as e:
         task_manager.update_task(
             task_id,
@@ -309,6 +316,8 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
             message=f"成功上传{len(filenames)}个文件"
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 

@@ -9,6 +9,19 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 
+SUBSET_SEMANTIC_TAG_WHITELIST = {
+    "mountain",
+    "water",
+    "settlement",
+    "direction",
+    "clan",
+    "symbolic",
+    "agriculture",
+    "vegetation",
+    "infrastructure",
+}
+
+
 class AlgorithmType(str, Enum):
     """聚类算法类型"""
     KMEANS = "kmeans"
@@ -165,6 +178,39 @@ class SubsetFilter(BaseModel):
     semantic_tags: Optional[List[str]] = None
     name_pattern: Optional[str] = None
     sample_size: Optional[int] = Field(None, ge=100, le=10000)
+
+    @validator('semantic_tags')
+    def validate_semantic_tags(cls, v):
+        """Validate semantic tags against village_features sem_* whitelist."""
+        if not v:
+            return v
+
+        normalized_tags = []
+        invalid_tags = []
+        seen = set()
+
+        for tag in v:
+            if tag is None:
+                continue
+
+            normalized = str(tag).strip().lower()
+            if normalized.startswith("sem_"):
+                normalized = normalized[4:]
+
+            if normalized in SUBSET_SEMANTIC_TAG_WHITELIST:
+                if normalized not in seen:
+                    seen.add(normalized)
+                    normalized_tags.append(normalized)
+            else:
+                invalid_tags.append(str(tag))
+
+        if invalid_tags:
+            allowed = ", ".join(sorted(SUBSET_SEMANTIC_TAG_WHITELIST))
+            raise ValueError(
+                f"Invalid semantic_tags: {invalid_tags}. Allowed tags: {allowed}"
+            )
+
+        return normalized_tags or None
 
 
 class SubsetClusteringParams(BaseModel):

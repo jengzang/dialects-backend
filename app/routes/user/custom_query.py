@@ -41,6 +41,8 @@ async def query_location_data(
     try:
         result = get_from_submission(query_params.locations, query_params.regions, query_params.need_features, user, db)
         return result if result else []  # [OK] 返回空数组而不是 404 错误
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -72,6 +74,8 @@ async def get_custom_feature(
             user, db
         )
         return result if result else []  # [OK] 返回空数组而不是 404 错误
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
