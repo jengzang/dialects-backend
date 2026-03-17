@@ -74,7 +74,8 @@ def build_phonology_classification_matrix(
     vertical_column: str,
     cell_row_column: str,
     dialect_db_path: str,
-    character_db_path: str = CHARACTERS_DB_PATH
+    character_db_path: str = CHARACTERS_DB_PATH,
+    table: str = "characters"
 ) -> Dict[str, Any]:
     """
     構建音韻特徵分類矩陣
@@ -87,11 +88,23 @@ def build_phonology_classification_matrix(
         cell_row_column: 單元格內分行欄位
         dialect_db_path: 方言數據庫路徑
         character_db_path: 漢字數據庫路徑
+        table: 字符數據庫表名（默認 "characters"）
 
     Returns:
         包含矩陣數據的字典
     """
     # Step 1: 參數驗證
+    from app.common.constants import validate_table_name, get_table_schema
+
+    # 驗證表名
+    if not validate_table_name(table):
+        raise HTTPException(
+            status_code=400,
+            detail=f"無效的表名：{table}"
+        )
+
+    schema = get_table_schema(table)
+
     valid_features = ["聲母", "韻母", "聲調"]
     if feature not in valid_features:
         raise HTTPException(
@@ -99,12 +112,13 @@ def build_phonology_classification_matrix(
             detail=f"Invalid feature. Must be one of: {valid_features}"
         )
 
-    valid_columns = HIERARCHY_COLUMNS
+    # 驗證列名是否在表的層級列中
+    valid_columns = schema["hierarchy"]
     for col in [horizontal_column, vertical_column, cell_row_column]:
         if col not in valid_columns:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid column '{col}'. Must be one of: {valid_columns}"
+                detail=f"Invalid column '{col}' for table '{table}'. Must be one of: {valid_columns}"
             )
 
     if not locations:
@@ -120,6 +134,7 @@ def build_phonology_classification_matrix(
         cursor.execute(f"ATTACH DATABASE '{character_db_path}' AS chars_db")
 
         placeholders = ','.join(f"'{loc}'" for loc in locations)
+        char_col = schema["char_column"]
         query = f"""
             SELECT
                 d.漢字,
@@ -128,7 +143,7 @@ def build_phonology_classification_matrix(
                 c.{vertical_column} as v_val,
                 c.{cell_row_column} as c_val
             FROM dialects d
-            INNER JOIN chars_db.characters c ON d.漢字 = c.漢字
+            INNER JOIN chars_db.{table} c ON d.漢字 = c.{char_col}
             WHERE d.簡稱 IN ({placeholders})
               AND d.{feature} IS NOT NULL
               AND c.{horizontal_column} IS NOT NULL

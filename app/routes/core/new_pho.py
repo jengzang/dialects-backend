@@ -24,11 +24,18 @@ async def generate_combinations_and_query(
     path_strings = payload.path_strings
     column = payload.column
     combine_query = payload.combine_query
+    table_name = payload.table_name
 
     # 限流和日志记录已由中间件和依赖注入自动处理
 
-    # 2. 生成緩存 Key
-    cache_key = generate_cache_key(path_strings, column, combine_query, exclude_columns=payload.exclude_columns)
+    # 2. 生成緩存 Key（包含 table_name 以確保緩存隔離）
+    cache_key = generate_cache_key(
+        path_strings,
+        column,
+        combine_query,
+        exclude_columns=payload.exclude_columns,
+        table=table_name
+    )
 
     # 3. 【嘗試讀取緩存】
     # [OK] 加上 await
@@ -45,7 +52,8 @@ async def generate_combinations_and_query(
         path_strings,
         column,
         combine_query,
-        payload.exclude_columns
+        payload.exclude_columns,
+        table_name  # [NEW] 傳入表名
     )
 
     if result:
@@ -73,7 +81,8 @@ async def analyze_zhonggu(
         path_strings=payload.path_strings,
         column=payload.column,
         combine_query=payload.combine_query,
-        exclude_columns=payload.exclude_columns
+        exclude_columns=payload.exclude_columns,
+        table_name=payload.table_name  # [NEW] 傳入表名
     )
     cached_char_result = await generate_combinations_and_query(
         payload=char_request_payload
@@ -96,7 +105,8 @@ async def analyze_zhonggu(
         features=features,
         region_mode=payload.region_mode,  # 如果需要的話
         db_path_dialect=dialects_db,
-        db_path_query=query_db  # 新增：传入查询数据库
+        db_path_query=query_db,  # 新增：传入查询数据库
+        table=payload.table_name  # [NEW] 傳入表名
     )
 
     return {
@@ -128,7 +138,8 @@ async def analyze_yinwei(
             region_mode=payload.region_mode,  # 如果需要的話
             dialect_db_path=dialects_db,
             exclude_columns=payload.exclude_columns,
-            query_db_path=query_db  # 新增：传入查询数据库
+            query_db_path=query_db,  # 新增：传入查询数据库
+            table=payload.table_name  # [NEW] 傳入表名
         )
         if isinstance(analysis_results, pd.DataFrame):
             return {"success": True, "results": analysis_results.to_dict(orient="records")}

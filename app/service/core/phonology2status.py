@@ -119,7 +119,8 @@ def analyze_characters_from_db(
         sub_df,
         char_db_path=CHARACTERS_DB_PATH,
         group_fields=None,
-        exclude_columns=None
+        exclude_columns=None,
+        table="characters"
 ):
     """
     根據漢字名單，從 characters.db 中查出相關音系特徵資料，並根據指定的 group_fields 欄位分組統計。
@@ -138,7 +139,15 @@ def analyze_characters_from_db(
     Args:
         exclude_columns: List[str] or None, 例如 ["多地位標記", "多等"]
                         用於過濾掉這些列值為 1（字符串或整數）的行
+        table: 字符數據庫表名（默認 "characters"）
     """
+
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        raise ValueError(f"無效的表名：{table}")
+
+    schema = get_table_schema(table)
 
     default_grouping = {
         "聲母": ["母"],
@@ -154,7 +163,8 @@ def analyze_characters_from_db(
     pool = get_db_pool(char_db_path)
     with pool.get_connection() as conn:
         placeholders = ','.join(['?'] * len(char_list))
-        query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
+        char_col = schema["char_column"]
+        query = f"SELECT * FROM {table} WHERE {char_col} IN ({placeholders})"
         df = pd.read_sql_query(query, conn, params=char_list)
 
     if df.empty:
@@ -377,7 +387,15 @@ def pho2sta(locations, regions, features, status_inputs,
             dialect_db_path=DIALECTS_DB_USER,
             character_db_path=CHARACTERS_DB_PATH, region_mode='yindian',
             exclude_columns=None,
-            query_db_path=QUERY_DB_USER):  # 新增：用于查询地点的数据库
+            query_db_path=QUERY_DB_USER,
+            table="characters"):  # 新增：字符數據庫表名
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        raise ValueError(f"無效的表名：{table}")
+
+    schema = get_table_schema(table)
+
     def convert_simplified_to_traditional(simplified_text):
         return "".join([s2t_column.get(ch, ch) for ch in simplified_text])
 
@@ -390,8 +408,8 @@ def pho2sta(locations, regions, features, status_inputs,
         # [OK] 最開始就做簡體轉繁體轉換
         user_input = convert_simplified_to_traditional(user_input)
 
-        # 嘗試匹配欄位
-        user_columns = [col for col in HIERARCHY_COLUMNS if col in user_input]
+        # 嘗試匹配欄位（使用表的層級列）
+        user_columns = [col for col in schema["hierarchy"] if col in user_input]
 
         if user_columns:
             print(f"[OK] 特徵【{feature}】使用分組欄位：{user_columns}")

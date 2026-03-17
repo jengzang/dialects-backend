@@ -52,6 +52,14 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     - 避免pandas DataFrame的开销
     """
 
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return [], []
+
+    schema = get_table_schema(table)
+
     # 解析語法：[值]{欄位}
     pattern = r"\[([^\[\]]+)\]\{([^\{\}]+)\}"
     matches = re.findall(pattern, path_string)
@@ -62,8 +70,8 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
 
     filter_columns = [col for _, col in matches]
     for col in filter_columns:
-        if col not in HIERARCHY_COLUMNS:
-            print(f"[!] 欄位「{col}」不在允許的層級欄位中")
+        if col not in schema["hierarchy"]:
+            print(f"[!] 欄位「{col}」不在表 '{table}' 的允許層級欄位中")
             return [], []
 
     # 使用連接池
@@ -100,22 +108,25 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
         if not characters:
             return [], []
 
-        # 【SQL优化2】多地位字检查：完全在SQL层面完成
-        # 构建filter_columns的拼接表达式用于GROUP BY
-        filter_cols_concat = " || '|' || ".join(filter_columns)
+        # 【SQL优化2】多地位字检查：完全在SQL层面完成（僅對支持多地位的表）
+        multi_chars = []
+        if schema.get("has_multi_status", False):
+            # 构建filter_columns的拼接表达式用于GROUP BY
+            filter_cols_concat = " || '|' || ".join(filter_columns)
 
-        multi_query = f"""
-        SELECT 漢字
-        FROM {table}
-        WHERE {where_clause}
-        AND 多地位標記 = '1'
-        AND 漢字 IN ({','.join(['?'] * len(characters))})
-        GROUP BY 漢字
-        HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
-        """
+            multi_status_col = schema.get("multi_status_column", "多地位標記")
+            multi_query = f"""
+            SELECT 漢字
+            FROM {table}
+            WHERE {where_clause}
+            AND {multi_status_col} = '1'
+            AND 漢字 IN ({','.join(['?'] * len(characters))})
+            GROUP BY 漢字
+            HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
+            """
 
-        cursor.execute(multi_query, params + characters)
-        multi_chars = [row[0] for row in cursor.fetchall()]
+            cursor.execute(multi_query, params + characters)
+            multi_chars = [row[0] for row in cursor.fetchall()]
 
     return characters, multi_chars
 
@@ -139,6 +150,14 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     if not path_strings:
         return []
 
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return []
+
+    schema = get_table_schema(table)
+
     # 解析所有path_string
     pattern = r"\[([^\[\]]+)\]\{([^\{\}]+)\}"
     parsed_queries = []
@@ -149,7 +168,7 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
             continue
 
         filter_columns = [col for _, col in matches]
-        valid = all(col in HIERARCHY_COLUMNS for col in filter_columns)
+        valid = all(col in schema["hierarchy"] for col in filter_columns)
         if not valid:
             continue
 
@@ -690,20 +709,28 @@ def sta2pho(
 
 # 這函數沒啥用
 def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return {}
+
+    schema = get_table_schema(table)
+
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
 
     unique_values = {}
 
-    for col in HIERARCHY_COLUMNS:
+    for col in schema["hierarchy"]:
         if col in df.columns:
             values = df[col].dropna().unique()
             values = sorted(str(v).strip() for v in values if str(v).strip() != "")
             unique_values[col] = values
         else:
             unique_values[col] = []
-            print(f"[!] 欄位「{col}」不存在")
+            print(f"[!] 欄位「{col}」不存在於表 '{table}' 中")
 
     return unique_values
 

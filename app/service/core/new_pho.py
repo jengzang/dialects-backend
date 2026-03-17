@@ -13,12 +13,13 @@ from typing import List, Dict, Optional, Any
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 
 
-def process_chars_status(path_strings, column, combine_query, exclude_columns=None):
+def process_chars_status(path_strings, column, combine_query, exclude_columns=None, table="characters"):
     """
     处理 path_strings 和 column 的组合查询逻辑
 
     Args:
         exclude_columns: List[str] or None, 要排除的列名列表
+        table: 字符數據庫表名（默認 "characters"）
 
     性能优化：
     - 使用批量查询（UNION ALL）减少数据库连接开销
@@ -73,7 +74,8 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
         from app.service.core.status_arrange_pho import query_characters_by_path_batch
         batch_results = query_characters_by_path_batch(
             all_query_strings,
-            exclude_columns=exclude_columns
+            exclude_columns=exclude_columns,
+            table=table  # [NEW] 傳入表名
         )
 
         for (query_string, characters, _), metadata in zip(batch_results, query_metadata):
@@ -88,7 +90,8 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
         for metadata in query_metadata:
             characters, _ = query_characters_by_path(
                 metadata['query_string'],
-                exclude_columns=exclude_columns
+                exclude_columns=exclude_columns,
+                table=table  # [NEW] 傳入表名
             )
             if characters:
                 result.append({
@@ -157,7 +160,7 @@ def _run_dialect_analysis_sync(
 
 
 # --- 1. 生成唯一的 Cache Key ---
-def generate_cache_key(path_strings: Any, column: Any, combine_query: bool, exclude_columns: Any = None) -> str:
+def generate_cache_key(path_strings: Any, column: Any, combine_query: bool, exclude_columns: Any = None, table: str = "characters") -> str:
     """
     生成标准化的缓存 Key
     核心逻辑：暴力清洗数据，将 None 视为 []，确保 Key 的唯一性
@@ -179,12 +182,13 @@ def generate_cache_key(path_strings: Any, column: Any, combine_query: bool, excl
     if safe_exclude:
         safe_exclude = sorted(safe_exclude)
 
-    # 构建用于生成 Hash 的字典
+    # 构建用于生成 Hash 的字典（包含 table 參數以確保不同表的緩存隔離）
     key_data = {
         "path": safe_path,
         "col": safe_col,
         "combine": bool(combine_query),  # 强转 bool，防止 0/1 差异
-        "exclude": safe_exclude
+        "exclude": safe_exclude,
+        "table": table  # 新增：確保不同表使用不同的緩存
     }
 
     # 序列化为字符串

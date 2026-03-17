@@ -9,12 +9,20 @@ from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.sql.db_pool import get_db_pool
 
 
-def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian', query_db_path=QUERY_DB_USER):
+def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian', query_db_path=QUERY_DB_USER, table="characters"):
     """
     Args:
         db_path: 方言数据库路径（用于查询实际读音数据）
         query_db_path: 查询数据库路径（用于查询地点信息）
+        table: 字符数据库表名（默认 "characters"）
     """
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        raise HTTPException(status_code=400, detail=f"無效的表名：{table}")
+
+    schema = get_table_schema(table)
+
     all_locations = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
     if not all_locations:
         raise HTTPException(status_code=400, detail="🛑 請輸入正確的地點！\n建議點擊地點輸入框下方的提示地點！")
@@ -56,10 +64,24 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
         if clean_str:
             # 批量查询所有字符的基本信息
             char_placeholders = ','.join('?' * len(clean_str))
+
+            # 根據表結構構建查詢列
+            char_col = schema["char_column"]
+            # 只查詢表中實際存在的列
+            select_cols = [char_col]
+            for col in ['攝', '呼', '等', '韻', '調', '組', '母', '部位', '方式']:
+                if col in schema["hierarchy"]:
+                    select_cols.append(col)
+
+            # 如果表支持多地位標記，也查詢該列
+            if schema.get("has_multi_status", False):
+                multi_status_col = schema.get("multi_status_column", "多地位標記")
+                select_cols.append(multi_status_col)
+
             characters_query = f"""
-                SELECT 漢字, 攝, 呼, 等, 韻, 調, 組, 母, 部位, 方式, 多地位標記
-                FROM characters
-                WHERE 漢字 IN ({char_placeholders})
+                SELECT {', '.join(select_cols)}
+                FROM {table}
+                WHERE {char_col} IN ({char_placeholders})
             """
             characters_cursor.execute(characters_query, clean_str)
             characters_results = characters_cursor.fetchall()
@@ -67,7 +89,7 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
             # 按字符组织结果
             char2rows = {}
             for row in characters_results:
-                char = row['漢字']
+                char = row[char_col]
                 if char not in char2rows:
                     char2rows[char] = []
                 char2rows[char].append(row)
@@ -76,7 +98,11 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
             for char in clean_str:
                 rows = char2rows.get(char, [])
                 positions = []
-                is_multi = any(row['多地位標記'] == 1 for row in rows)
+                # 只有支持多地位的表才檢查多地位標記
+                is_multi = False
+                if schema.get("has_multi_status", False):
+                    multi_status_col = schema.get("multi_status_column", "多地位標記")
+                    is_multi = any(row.get(multi_status_col) == 1 for row in rows)
                 char2is_multi[char] = is_multi
 
                 for row in rows:

@@ -113,7 +113,8 @@ async def api_phonology_classification_matrix(
             horizontal_column=payload.horizontal_column,
             vertical_column=payload.vertical_column,
             cell_row_column=payload.cell_row_column,
-            dialect_db_path=dialects_db
+            dialect_db_path=dialects_db,
+            table=payload.table_name  # [NEW] 傳入表名
         )
 
         return result

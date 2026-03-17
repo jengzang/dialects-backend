@@ -24,6 +24,7 @@ async def search_chars(
         locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
         regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
         region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),
+        table_name: str = Query("characters", description="字符數據庫表名"),
         db: Session = Depends(get_db),
         dialects_db: str = Depends(get_dialects_db),
         query_db: str = Depends(get_query_db),
@@ -35,7 +36,17 @@ async def search_chars(
     - locations-要查的地點，可多個
     - regions-要查的分區，可多個（輸入某一級的分區）
     - region_mode-查詢所使用的分區欄位，可選 'yindian'（音典分區）或 'map'（地圖集二分區）
+    - table_name-字符數據庫表名（默認 "characters"）
     """
+    # 驗證表名
+    from app.common.constants import VALID_CHARACTER_TABLES
+    from fastapi import HTTPException
+    if table_name not in VALID_CHARACTER_TABLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid table_name: {table_name}. Must be one of {VALID_CHARACTER_TABLES}"
+        )
+
     # 限流和日志记录已由中间件和依赖注入自动处理
     # start = time.time()
     try:
@@ -57,7 +68,8 @@ async def search_chars(
             regions=regions,
             db_path=dialects_db,
             region_mode=region_mode,  # [OK] 傳入參數
-            query_db_path=query_db  # [NEW] 传入查询数据库路径
+            query_db_path=query_db,  # [NEW] 传入查询数据库路径
+            table=table_name  # [NEW] 傳入表名
         )
 
         # 同时查询声调系统数据（避免前端二次请求）

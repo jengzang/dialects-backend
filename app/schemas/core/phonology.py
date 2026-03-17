@@ -39,6 +39,18 @@ class CharListRequest(BaseModel):
         default=None,
         description="要排除的列名列表，如 ['多地位標記', '多等']"
     )
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名"
+    )
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
 
 
 class ZhongGuAnalysis(BaseModel):
@@ -80,6 +92,18 @@ class ZhongGuAnalysis(BaseModel):
     )
     # 可選：如果你想控制 region_mode
     region_mode: str = Field(default="yindian", description="地區匹配模式")
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名"
+    )
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
 
 
 class YinWeiAnalysis(BaseModel):
@@ -93,7 +117,19 @@ class YinWeiAnalysis(BaseModel):
         default=None,
         description="要排除的列名列表，如 ['多地位標記', '多等']"
     )
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名"
+    )
 
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name_field(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
 
     @field_validator('features')
     @classmethod
@@ -150,6 +186,18 @@ class PhonologyClassificationMatrixRequest(BaseModel):
         description="單元格內分行欄位（來自 characters.db）",
         example="部位"
     )
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名"
+    )
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
 
 
 class FeatureStatsRequest(BaseModel):

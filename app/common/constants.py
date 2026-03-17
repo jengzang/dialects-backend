@@ -134,3 +134,82 @@ replace_data = [
 
 
 vowel_pattern = r"[iyɨʉɯuɪʏɿʅʅɭıɪſɩɷʮɥʯʊeɘɵəɤoοоɛεɝɚᴇœɜɞʌɔæaɶɑɒᴀɐãẽĩỹõúαᵘᶷᶤᶶᵚʸᶦᵊⁱ◌øɻβʝɹǝуеṃṇīā∅Øǝ]"
+
+# ============ 多表支持配置 =================
+
+# 表白名單
+VALID_CHARACTER_TABLES = [
+    "characters",    # 中古音（切韻音系）- 默認
+    "fenyun",        # 分韻撮要（粵語音系）
+    "hongwu",        # 洪武正韻（明代音系）
+    "menggu",        # 蒙古字韻（元代音系）
+    "old_chinese",   # 上古音構擬
+    "zhongyuan"      # 中原音韻（元代音系）
+]
+
+# 表結構映射（用於列驗證和查詢構建）
+TABLE_COLUMN_SCHEMAS = {
+    "characters": {
+        "hierarchy": ['攝', '韻', '等', '呼', '入', '清濁', '系', '組', '母', '調', '部位', '方式'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    },
+    "fenyun": {
+        "hierarchy": ['聲母', '韻母', '韻部', '聲調', '小韻'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    },
+    "hongwu": {
+        "hierarchy": ['聲母', '韻部', '聲調', '清濁', '聲類'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    },
+    "menggu": {
+        "hierarchy": ['韻部', '聲調'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    },
+    "old_chinese": {
+        "hierarchy": ['聲母', '韻母', '韻部', '聲調', '聲母組'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    },
+    "zhongyuan": {
+        "hierarchy": ['聲母', '韻母', '呼', '等', '聲調', '小韻'],
+        "char_column": "漢字",
+        "has_multi_status": True,
+        "multi_status_column": "多地位標記"
+    }
+}
+
+
+def validate_table_name(table_name: str) -> bool:
+    """
+    驗證表名是否在白名單中
+
+    Args:
+        table_name: 表名
+
+    Returns:
+        bool: 表名是否有效
+    """
+    return table_name in VALID_CHARACTER_TABLES
+
+
+def get_table_schema(table_name: str = "characters") -> dict:
+    """
+    獲取表的結構配置
+
+    Args:
+        table_name: 表名，默認為 "characters"
+
+    Returns:
+        dict: 表結構配置，包含 hierarchy（層級列）、char_column（字符列名）、
+              has_multi_status（是否有多地位標記）等信息
+    """
+    return TABLE_COLUMN_SCHEMAS.get(table_name, TABLE_COLUMN_SCHEMAS["characters"])

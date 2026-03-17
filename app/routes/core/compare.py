@@ -181,7 +181,8 @@ async def compare_zhonggu(
                 path_strings,
                 column,
                 combine_query,
-                exclude_columns=exclude_columns
+                exclude_columns=exclude_columns,
+                table=payload.table_name  # [NEW] 傳入表名
             )
             cached_result = await get_cache(cache_key)
             if cached_result is not None:
@@ -191,7 +192,8 @@ async def compare_zhonggu(
                 path_strings,
                 column,
                 combine_query,
-                exclude_columns=exclude_columns
+                exclude_columns=exclude_columns,
+                table=payload.table_name  # [NEW] 傳入表名
             )
             if fresh_result:
                 await set_cache(cache_key, fresh_result, expire_seconds=600)

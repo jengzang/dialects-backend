@@ -3,7 +3,7 @@
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CompareCharsRequest(BaseModel):
@@ -105,3 +105,15 @@ class CompareZhongGuAnalysis(BaseModel):
         default="yindian",
         description="地区匹配模式"
     )
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名（兩組使用相同表）"
+    )
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
