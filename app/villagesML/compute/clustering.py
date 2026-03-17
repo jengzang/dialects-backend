@@ -122,8 +122,13 @@ async def scan_clustering_params(
                     'random_state': 42
                 }
 
-                # 执行聚类
-                result = engine.run_clustering(clustering_params)
+                # 执行聚类（优先复用单次聚类缓存，减少重复计算）
+                cached_run_result = compute_cache.get("clustering_run", clustering_params)
+                if cached_run_result:
+                    result = cached_run_result
+                else:
+                    result = engine.run_clustering(clustering_params)
+                    compute_cache.set("clustering_run", clustering_params, result)
                 metrics = result.get('metrics', {})
                 metric_value = metrics.get(params.metric)
 

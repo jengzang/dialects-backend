@@ -158,6 +158,11 @@ def get_villages_by_ids(
             vid_str = f'v_{vid_str}'
         normalized_ids.append(vid_str)
 
+    # 去重可减少 SQL 占位符和扫描成本；IN 查询本身也不会返回重复行
+    normalized_ids = list(dict.fromkeys(normalized_ids))
+    if not normalized_ids:
+        return pd.DataFrame()
+
     # 批量查询（分批处理以避免 SQL 表达式树过大）
     select_clause = _build_select_clause(select_columns)
     batch_size = 500
@@ -530,8 +535,13 @@ async def compare_subsets(
                     def get_spatial_stats_batch(village_ids_list):
                         """批量获取多组村庄的空间统计"""
                         all_village_ids = []
+                        seen_ids = set()
                         for ids in village_ids_list:
-                            all_village_ids.extend(ids)
+                            for vid in ids:
+                                if vid in seen_ids:
+                                    continue
+                                seen_ids.add(vid)
+                                all_village_ids.append(vid)
 
                         # 一次性查询所有坐标
                         batch_size = 1000  # 增大批次

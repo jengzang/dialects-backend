@@ -340,7 +340,8 @@ async def execute_merge(request: MergeRequest, background_tasks: BackgroundTasks
         raise HTTPException(status_code=404, detail="任务不存在")
 
     # 获取参考表路径
-    reference_path = Path(task['data'].get("reference_path"))
+    reference_path_raw = task['data'].get("reference_path")
+    reference_path = Path(reference_path_raw) if reference_path_raw else None
     if not reference_path or not reference_path.exists():
         raise HTTPException(status_code=404, detail="参考表不存在")
 
@@ -349,7 +350,13 @@ async def execute_merge(request: MergeRequest, background_tasks: BackgroundTasks
     if not merge_file_paths:
         raise HTTPException(status_code=400, detail="没有待合并文件")
 
-    file_paths = [Path(p) for p in merge_file_paths if Path(p).exists()]
+    file_paths: List[Path] = []
+    for p in merge_file_paths:
+        if not p:
+            continue
+        path_obj = Path(p)
+        if path_obj.exists():
+            file_paths.append(path_obj)
 
     if not file_paths:
         raise HTTPException(status_code=400, detail="没有有效的待合并文件")

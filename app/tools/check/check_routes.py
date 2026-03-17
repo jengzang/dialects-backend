@@ -418,7 +418,8 @@ async def analyze_file(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -467,7 +468,8 @@ async def execute_commands(request: CommandRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -542,7 +544,8 @@ async def save_changes(request: SaveChangesRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -639,7 +642,11 @@ async def download_file(task_id: str):
     if modified_path and Path(modified_path).exists():
         file_path = Path(modified_path)
     else:
-        file_path = Path(task['data'].get("file_path"))
+        file_path_raw = task['data'].get("file_path")
+        file_path = Path(file_path_raw) if file_path_raw else None
+
+    if not file_path:
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     file_path = file_path.resolve()
 
@@ -648,7 +655,8 @@ async def download_file(task_id: str):
 
     # 2. 准备下载文件名
     # 强制以 .xlsx 结尾
-    filename_stem = Path(task['data'].get("filename", file_path.name)).stem
+    filename_raw = task['data'].get("filename") or file_path.name
+    filename_stem = Path(filename_raw).stem
     download_filename = f"{filename_stem}.xlsx"
     encoded_filename = quote(download_filename)
 
@@ -679,7 +687,8 @@ async def get_data(request: GetDataRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -734,7 +743,8 @@ async def get_tone_stats(request: GetDataRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -768,7 +778,8 @@ async def update_row(request: UpdateRowRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -837,7 +848,8 @@ async def batch_delete(request: BatchDeleteRequest):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    file_path = Path(task['data'].get("file_path"))
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
