@@ -118,12 +118,15 @@ def search_keyword_logs(
     params = []
 
     if keyword:
-        where_clauses.append("keyword LIKE ?")
-        params.append(f"%{keyword}%")
+        where_clauses.append("(value LIKE ? OR field LIKE ? OR path LIKE ?)")
+        like_pattern = f"%{keyword}%"
+        params.extend([like_pattern, like_pattern, like_pattern])
 
+    # api_keyword_log 表不包含 user_id 字段。
+    # 为兼容旧接口语义，这里将 user_id 解释为参数日志中的字段值过滤。
     if user_id is not None:
-        where_clauses.append("user_id = ?")
-        params.append(user_id)
+        where_clauses.append("(field = ? AND value = ?)")
+        params.extend(["user_id", str(user_id)])
 
     if start_time:
         where_clauses.append("timestamp >= ?")
@@ -159,16 +162,22 @@ def search_keyword_logs(
     db.close()
 
     # 构建结果
-    logs = [
-        {
-            "id": row[0],
-            "keyword": row[1],
-            "user_id": row[2],
-            "timestamp": row[3],
-            "ip_address": row[4]
-        }
-        for row in rows
-    ]
+    logs = []
+    for row in rows:
+        field_name = row[2]
+        value = row[1]
+        logs.append(
+            {
+                "id": row[0],
+                "keyword": value,  # 兼容旧字段
+                "value": value,
+                "field": field_name,
+                "timestamp": row[3],
+                "path": row[4],
+                "user_id": int(value) if field_name == "user_id" and str(value).isdigit() else None,
+                "ip_address": value if field_name in {"ip", "ip_address"} else None,
+            }
+        )
 
     return {
         "logs": logs,

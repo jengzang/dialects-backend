@@ -1,5 +1,6 @@
 # app/tools/file_manager.py
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -11,6 +12,8 @@ class FileManager:
     通用文件管理器
     负责管理文件的存储、路径获取和清理
     """
+
+    _TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -34,6 +37,19 @@ class FileManager:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         print(f"[FileManager] Storage Path: {self.base_dir.resolve()}")
 
+    def _normalize_task_id(self, task_id: str) -> str:
+        safe_task_id = (task_id or "").strip()
+        if not self._TASK_ID_PATTERN.fullmatch(safe_task_id):
+            raise ValueError("Invalid task_id format")
+        return safe_task_id
+
+    @staticmethod
+    def _normalize_filename(filename: str) -> str:
+        safe_name = Path(filename or "").name.strip()
+        if safe_name in {"", ".", ".."}:
+            raise ValueError("Invalid filename")
+        return safe_name
+
     def get_tool_dir(self, tool_name: str) -> Path:
         """
         获取工具对应的存储目录 (动态生成)
@@ -53,7 +69,8 @@ class FileManager:
         获取任务专属目录
         结构: base_dir / tool_name / task_id
         """
-        task_dir = self.get_tool_dir(tool_name) / task_id
+        safe_task_id = self._normalize_task_id(task_id)
+        task_dir = self.get_tool_dir(tool_name) / safe_task_id
         # 确保任务目录存在
         task_dir.mkdir(parents=True, exist_ok=True)
         return task_dir
@@ -63,7 +80,11 @@ class FileManager:
         """保存上传的文件"""
         task_dir = self.get_task_dir(task_id, tool_name)
 
-        file_path = task_dir / filename
+        safe_name = self._normalize_filename(filename)
+        task_dir_resolved = task_dir.resolve()
+        file_path = (task_dir_resolved / safe_name).resolve()
+        if file_path.parent != task_dir_resolved:
+            raise ValueError("Invalid upload path")
         try:
             # 指针归零，防止读取过的文件保存为空
             file.seek(0)
@@ -79,13 +100,16 @@ class FileManager:
         """获取文件路径"""
         # 注意：这里不需要 mkdir，只是查找
         tool_dir = self.base_dir / tool_name
-        file_path = tool_dir / task_id / filename
+        safe_task_id = self._normalize_task_id(task_id)
+        safe_name = self._normalize_filename(filename)
+        file_path = tool_dir / safe_task_id / safe_name
         return file_path if file_path.exists() else None
 
     def delete_task_files(self, task_id: str, tool_name: str):
         """删除任务相关的所有文件"""
         tool_dir = self.base_dir / tool_name
-        task_dir = tool_dir / task_id
+        safe_task_id = self._normalize_task_id(task_id)
+        task_dir = tool_dir / safe_task_id
         if task_dir.exists():
             try:
                 shutil.rmtree(task_dir)
@@ -95,7 +119,8 @@ class FileManager:
     def list_task_files(self, task_id: str, tool_name: str) -> list[str]:
         """列出任务目录下的所有文件"""
         tool_dir = self.base_dir / tool_name
-        task_dir = tool_dir / task_id
+        safe_task_id = self._normalize_task_id(task_id)
+        task_dir = tool_dir / safe_task_id
 
         if not task_dir.exists():
             return []

@@ -14,7 +14,7 @@ import threading
 from .validators import FeatureExtractionParams, FeatureAggregationParams
 from .cache import compute_cache
 from .engine import FeatureEngine
-from .timeout import timeout, TimeoutException
+from .timeout import run_with_timeout, TimeoutException
 from ..config import get_db_path
 
 logger = logging.getLogger(__name__)
@@ -63,8 +63,7 @@ async def extract_features(
         logger.info(f"Extracting features for {len(params.villages)} villages")
 
         # 执行提取（带超时控制）
-        with timeout(3):  # 3秒超时
-            result = engine.extract_features(params.dict())
+        result = await run_with_timeout(engine.extract_features, 3, params.dict())
 
         # 缓存结果
         compute_cache.set("feature_extract", params.dict(), result)
@@ -115,8 +114,7 @@ async def aggregate_features(
         logger.info(f"Aggregating features for {len(params.region_names)} regions")
 
         # 执行聚合（带超时控制）
-        with timeout(5):  # 5秒超时
-            result = engine.aggregate_features(params.dict())
+        result = await run_with_timeout(engine.aggregate_features, 5, params.dict())
 
         # 缓存结果
         compute_cache.set("feature_aggregate", params.dict(), result)

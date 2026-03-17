@@ -16,7 +16,7 @@ import threading
 from .validators import ClusteringParams, ClusteringScanParams, CharacterTendencyClusteringParams, SampledVillageClusteringParams, SpatialAwareClusteringParams, HierarchicalClusteringParams
 from .cache import compute_cache
 from .engine import ClusteringEngine
-from .timeout import timeout, TimeoutException
+from .timeout import run_with_timeout, TimeoutException
 from ..config import get_db_path
 
 logger = logging.getLogger(__name__)
@@ -65,8 +65,7 @@ async def run_clustering(
         # 执行聚类（带超时控制）
         logger.info(f"Running clustering: {params.algorithm}, k={params.k}, level={params.region_level}")
 
-        with timeout(5):  # 5秒超时
-            result = engine.run_clustering(params.dict())
+        result = await run_with_timeout(engine.run_clustering, 5, params.dict())
 
         # 缓存结果
         compute_cache.set("clustering_run", params.dict(), result)
@@ -119,35 +118,40 @@ async def scan_clustering_params(
         results = []
         total_start_time = time.time()
 
-        with timeout(15):  # 15秒总超时
-            for k in params.k_range:
-                # 构建单次聚类参数
-                clustering_params = {
-                    'algorithm': params.algorithm,
-                    'k': k,
-                    'region_level': params.region_level,
-                    'features': params.features.dict(),
-                    'preprocessing': {'standardize': True, 'use_pca': True, 'pca_n_components': 50},
-                    'random_state': 42
-                }
+        total_timeout = 15.0
+        for k in params.k_range:
+            elapsed = time.time() - total_start_time
+            remaining = total_timeout - elapsed
+            if remaining <= 0:
+                raise TimeoutException(f"Computation exceeded {int(total_timeout)} seconds")
 
-                # 执行聚类（优先复用单次聚类缓存，减少重复计算）
-                cached_run_result = compute_cache.get("clustering_run", clustering_params)
-                if cached_run_result:
-                    result = cached_run_result
-                else:
-                    result = engine.run_clustering(clustering_params)
-                    compute_cache.set("clustering_run", clustering_params, result)
-                metrics = result.get('metrics', {})
-                metric_value = metrics.get(params.metric)
+            # 构建单次聚类参数
+            clustering_params = {
+                'algorithm': params.algorithm,
+                'k': k,
+                'region_level': params.region_level,
+                'features': params.features.dict(),
+                'preprocessing': {'standardize': True, 'use_pca': True, 'pca_n_components': 50},
+                'random_state': 42
+            }
 
-                # 提取评估指标
-                scan_result = {
-                    'k': k,
-                    params.metric: metric_value,
-                    'execution_time_ms': result.get('execution_time_ms', 0)
-                }
-                results.append(scan_result)
+            # 执行聚类（优先复用单次聚类缓存，减少重复计算）
+            cached_run_result = compute_cache.get("clustering_run", clustering_params)
+            if cached_run_result:
+                result = cached_run_result
+            else:
+                result = await run_with_timeout(engine.run_clustering, remaining, clustering_params)
+                compute_cache.set("clustering_run", clustering_params, result)
+            metrics = result.get('metrics', {})
+            metric_value = metrics.get(params.metric)
+
+            # 提取评估指标
+            scan_result = {
+                'k': k,
+                params.metric: metric_value,
+                'execution_time_ms': result.get('execution_time_ms', 0)
+            }
+            results.append(scan_result)
 
         total_time = int((time.time() - total_start_time) * 1000)
 
@@ -245,8 +249,7 @@ async def run_character_tendency_clustering(
 
         logger.info(f"Running character tendency clustering: {params.algorithm}, level={params.region_level}, metric={params.tendency_metric}")
 
-        with timeout(5):
-            result = engine.run_character_tendency_clustering(params.dict())
+        result = await run_with_timeout(engine.run_character_tendency_clustering, 5, params.dict())
 
         # 缓存结果
         compute_cache.set("character_tendency", params.dict(), result)
@@ -298,8 +301,7 @@ async def run_sampled_village_clustering(
 
         logger.info(f"Running sampled village clustering: {params.algorithm}, strategy={params.sampling_strategy}, size={params.sample_size}")
 
-        with timeout(60):
-            result = engine.run_sampled_village_clustering(params.dict())
+        result = await run_with_timeout(engine.run_sampled_village_clustering, 60, params.dict())
 
         # 缓存结果
         compute_cache.set("sampled_villages", params.dict(), result)
@@ -351,8 +353,7 @@ async def run_spatial_aware_clustering(
 
         logger.info(f"Running spatial-aware clustering: {params.algorithm}, run_id={params.spatial_run_id}")
 
-        with timeout(5):
-            result = engine.run_spatial_aware_clustering(params.dict())
+        result = await run_with_timeout(engine.run_spatial_aware_clustering, 5, params.dict())
 
         # 缓存结果
         compute_cache.set("spatial_aware", params.dict(), result)
@@ -405,8 +406,7 @@ async def run_hierarchical_clustering(
         logger.info(f"Running hierarchical clustering: {params.algorithm}, k_city={params.k_city}, k_county={params.k_county}, k_township={params.k_township}")
 
         # 层次聚类可能需要更长时间
-        with timeout(8):
-            result = engine.run_hierarchical_clustering(params.dict())
+        result = await run_with_timeout(engine.run_hierarchical_clustering, 8, params.dict())
 
         # 缓存结果
         compute_cache.set("hierarchical", params.dict(), result)

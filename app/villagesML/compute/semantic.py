@@ -14,6 +14,7 @@ import threading
 from .validators import SemanticAnalysisParams, SemanticNetworkParams
 from .cache import compute_cache
 from .engine import SemanticEngine
+from .timeout import run_with_timeout, TimeoutException
 from ..config import get_db_path
 
 logger = logging.getLogger(__name__)
@@ -62,13 +63,17 @@ async def analyze_cooccurrence(
         logger.info(f"Analyzing cooccurrence: region={params.region_name}, level={params.region_level}")
 
         # 执行分析
-        result = engine.analyze_cooccurrence(params.dict())
+        result = await run_with_timeout(engine.analyze_cooccurrence, 8, params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_cooccurrence", params.dict(), result)
 
         result['from_cache'] = False
         return result
+
+    except TimeoutException as e:
+        logger.error(f"Cooccurrence analysis timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
 
     except HTTPException:
         raise
@@ -109,13 +114,17 @@ async def build_semantic_network(
         logger.info(f"Building semantic network: region={params.region_name}")
 
         # 构建网络
-        result = engine.build_semantic_network(params.dict())
+        result = await run_with_timeout(engine.build_semantic_network, 8, params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_network", params.dict(), result)
 
         result['from_cache'] = False
         return result
+
+    except TimeoutException as e:
+        logger.error(f"Network building timeout: {str(e)}")
+        raise HTTPException(status_code=408, detail=str(e))
 
     except HTTPException:
         raise

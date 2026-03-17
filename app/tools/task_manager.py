@@ -148,11 +148,13 @@ class TaskManager:
             if cached is not None:
                 return copy.deepcopy(cached)
 
-        # 1. 解析 ID 拿到 tool_name
+        # 1. 解析 ID 拿到 tool_name，并进行路径安全校验
         tool_name, _ = self._parse_id(task_id)
-
-        # 2. 拼路径
-        json_path = self._get_task_json_path(task_id, tool_name)
+        try:
+            # 2. 拼路径
+            json_path = self._get_task_json_path(task_id, tool_name)
+        except ValueError:
+            return None
 
         # 3. 读文件并回填缓存
         task_info = self._load_json(json_path)
@@ -165,7 +167,10 @@ class TaskManager:
     def update_task(self, task_id: str, **kwargs):
         """更新任务状态（读-改-写）"""
         tool_name, _ = self._parse_id(task_id)
-        json_path = self._get_task_json_path(task_id, tool_name)
+        try:
+            json_path = self._get_task_json_path(task_id, tool_name)
+        except ValueError:
+            return
 
         # 加锁是为了防止极端的并发写入冲突（同一任务极短时间内被两次更新）
         with self._lock:
@@ -198,7 +203,10 @@ class TaskManager:
         with self._lock:
             self._task_cache.pop(task_id, None)
         # 调用 file_manager 删除整个文件夹
-        file_manager.delete_task_files(task_id, tool_name)
+        try:
+            file_manager.delete_task_files(task_id, tool_name)
+        except ValueError:
+            return
 
     def cleanup_old_tasks(self, max_age_seconds: int = 3600):
         """

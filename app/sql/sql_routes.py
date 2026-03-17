@@ -326,7 +326,7 @@ async def get_distinct_values(
             # 排除当前列
             context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
 
-            for col, values in context_filters.items():
+            for col_idx, (col, values) in enumerate(context_filters.items()):
                 if not values: continue
 
                 clean_values = [v for v in values if v is not None]
@@ -338,8 +338,8 @@ async def get_distinct_values(
                     # 生成一组参数名，例如: filter_city_0, filter_city_1
                     param_keys = []
                     for idx, val in enumerate(clean_values):
-                        # 构造唯一的参数键名
-                        key = f"f_{col}_{idx}"
+                        # 构造 ASCII 参数键名，避免中文列名导致 sqlite 命名参数解析错误
+                        key = f"f_{col_idx}_{idx}"
                         params[key] = val
                         param_keys.append(f":{key}")
 
@@ -402,5 +402,4 @@ async def get_distinct_values(
             raise HTTPException(status_code=400, detail=f"Database Error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
 

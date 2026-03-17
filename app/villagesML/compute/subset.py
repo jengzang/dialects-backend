@@ -183,7 +183,7 @@ def get_villages_by_ids(
 
 
 @router.post("/cluster")
-async def cluster_subset(
+def cluster_subset(
     params: SubsetClusteringParams
 ) -> Dict[str, Any]:
     """
@@ -325,7 +325,7 @@ async def cluster_subset(
 
 
 @router.post("/compare")
-async def compare_subsets(
+def compare_subsets(
     params: SubsetComparisonParams
 ) -> Dict[str, Any]:
     """

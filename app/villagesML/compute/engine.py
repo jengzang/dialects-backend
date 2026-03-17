@@ -557,6 +557,39 @@ class ClusteringEngine:
         else:
             raise ValueError(f"Unknown sampling strategy: {strategy}")
 
+    def _fetch_village_rows_by_rowids(
+        self,
+        conn,
+        rowids: List[int],
+        chunk_size: int = 800
+    ) -> pd.DataFrame:
+        """
+        按 rowid 批量回表查询 village_features，避免 ORDER BY RANDOM() 全表排序。
+        """
+        if not rowids:
+            return pd.DataFrame()
+
+        # 去重并保持顺序
+        ordered_ids: List[int] = []
+        seen = set()
+        for row_id in rowids:
+            row_id_int = int(row_id)
+            if row_id_int not in seen:
+                seen.add(row_id_int)
+                ordered_ids.append(row_id_int)
+
+        frames = []
+        for i in range(0, len(ordered_ids), chunk_size):
+            batch = ordered_ids[i:i + chunk_size]
+            placeholders = ",".join(["?"] * len(batch))
+            query = f"SELECT * FROM village_features WHERE rowid IN ({placeholders})"
+            frames.append(pd.read_sql_query(query, conn, params=batch))
+
+        if not frames:
+            return pd.DataFrame()
+
+        return pd.concat(frames, ignore_index=True)
+
     def _parse_spatial_json(
         self,
         run_id: str
@@ -785,35 +818,32 @@ class ClusteringEngine:
                 where_clauses.append(f"county IN ({placeholders})")
                 filter_params.extend(filter_config['counties'])
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-        and_sql = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
-
         with self._connection() as conn:
-            # 1. SQL 层采样（不再全量加载）
-            if strategy == 'random':
-                # 随机采样直接在 SQL 完成
-                query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
-                df_sampled = pd.read_sql_query(query, conn, params=filter_params + [sample_size])
+            # 1) 先拿到候选 rowid（轻量列扫描，避免 ORDER BY RANDOM() 全表排序）
+            id_query = f"SELECT rowid as _rid, county FROM village_features{where_sql}"
+            id_df = pd.read_sql_query(id_query, conn, params=filter_params if filter_params else None)
+            original_village_count = len(id_df)
 
-            elif strategy == 'stratified':
-                # Step1: 按县统计数量
-                count_query = f"SELECT county, COUNT(*) as cnt FROM village_features{where_sql} GROUP BY county"
-                county_df = pd.read_sql_query(count_query, conn, params=filter_params if filter_params else None)
-                total = county_df['cnt'].sum()
-                county_df['quota'] = (county_df['cnt'] / total * sample_size).astype(int).clip(lower=1)
+            if id_df.empty:
+                raise ValueError("No villages found for the given filters")
 
-                # Step2: 每个县分别在 SQL 随机采样
-                sampled_dfs = []
-                for _, row in county_df.iterrows():
-                    q = f"SELECT * FROM village_features WHERE county = ?{and_sql} ORDER BY RANDOM() LIMIT ?"
-                    cdf = pd.read_sql_query(q, conn, params=[row['county']] + filter_params + [int(row['quota'])])
-                    sampled_dfs.append(cdf)
-                df_sampled = pd.concat([d for d in sampled_dfs if not d.empty], ignore_index=True)
-
+            if strategy in {"random", "stratified"}:
+                sampled_ids_df = self._sample_villages(
+                    id_df,
+                    strategy,
+                    sample_size,
+                    random_state
+                )
+                sampled_rowids = sampled_ids_df["_rid"].astype(int).tolist()
+                df_sampled = self._fetch_village_rows_by_rowids(conn, sampled_rowids)
             else:
-                # spatial：需要坐标范围做网格划分，先随机预取 3x 再 Python 端网格采样
-                oversample = min(sample_size * 3, 50000)
-                query = f"SELECT * FROM village_features{where_sql} ORDER BY RANDOM() LIMIT ?"
-                df_pre = pd.read_sql_query(query, conn, params=filter_params + [oversample])
+                # spatial：先随机预取 3x 的候选，再做网格采样
+                oversample = min(sample_size * 3, 50000, len(id_df))
+                sampled_rowids = id_df.sample(
+                    n=oversample,
+                    random_state=random_state
+                )["_rid"].astype(int).tolist()
+                df_pre = self._fetch_village_rows_by_rowids(conn, sampled_rowids)
                 df_sampled = self._sample_villages(df_pre, strategy, sample_size, random_state)
 
         logger.info(f"Sampled {len(df_sampled)} villages using {strategy} strategy (SQL-level)")
@@ -897,7 +927,7 @@ class ClusteringEngine:
             'run_id': f"sampled_villages_{int(time.time())}",
             'algorithm': algorithm,
             'k': params.get('k'),
-            'original_village_count': None,  # SQL层采样，不再全量加载
+            'original_village_count': int(original_village_count),
             'sampled_village_count': len(df_sampled),
             'sampling_strategy': params['sampling_strategy'],
             'execution_time_ms': execution_time,
