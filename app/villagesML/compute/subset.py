@@ -23,8 +23,6 @@ from .cache import compute_cache
 from .timeout import timeout, TimeoutException
 from ..config import get_db_path
 
-# 导入身份验证依赖
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/subset")
@@ -132,25 +130,19 @@ def get_villages_by_ids(conn: sqlite3.Connection, village_ids: List[int]) -> pd.
 
 @router.post("/cluster")
 async def cluster_subset(
-    params: SubsetClusteringParams  # 添加身份验证
+    params: SubsetClusteringParams
 ) -> Dict[str, Any]:
     """
     对自定义子集进行聚类（需要登录）
 
     Args:
         params: 子集聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         聚类结果
 
     Raises:
-        HTTPException: 如果未登录、聚类失败或超时
+        HTTPException: 如果聚类失败或超时
     """
-    # 检查用户是否登录
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("subset_cluster", params.dict())
@@ -261,25 +253,19 @@ async def cluster_subset(
 
 @router.post("/compare")
 async def compare_subsets(
-    params: SubsetComparisonParams  # 添加身份验证
+    params: SubsetComparisonParams
 ) -> Dict[str, Any]:
     """
     对比两个子集（需要登录）
 
     Args:
         params: 对比参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         对比结果
 
     Raises:
-        HTTPException: 如果未登录、对比失败或超时
+        HTTPException: 如果对比失败或超时
     """
-    # 检查用户是否登录
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("subset_compare", params.dict())

@@ -43,9 +43,15 @@ def match_route_config(path: str) -> Dict[str, Any]:
     if path in API_ROUTE_CONFIG:
         return API_ROUTE_CONFIG[path]
 
-    # 4. 通配符匹配
-    for pattern, config in API_ROUTE_CONFIG.items():
-        if "*" in pattern and fnmatch.fnmatch(path, pattern):
+    # 4. 通配符匹配（按模式具体度降序，避免 /api/villages/* 抢先匹配 /api/villages/compute/*）
+    wildcard_patterns = [
+        (pattern, config)
+        for pattern, config in API_ROUTE_CONFIG.items()
+        if "*" in pattern
+    ]
+    wildcard_patterns.sort(key=lambda item: len(item[0].replace("*", "")), reverse=True)
+    for pattern, config in wildcard_patterns:
+        if fnmatch.fnmatch(path, pattern):
             return config
 
     # 5. 默认配置

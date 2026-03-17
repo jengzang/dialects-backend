@@ -17,8 +17,6 @@ from .engine import ClusteringEngine
 from .timeout import timeout, TimeoutException
 from ..config import get_db_path
 
-# 导入身份验证依赖
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/clustering")
@@ -32,7 +30,7 @@ def get_clustering_engine():
 
 @router.post("/run")
 async def run_clustering(
-    params: ClusteringParams,  # 添加身份验证
+    params: ClusteringParams,
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -40,18 +38,12 @@ async def run_clustering(
 
     Args:
         params: 聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         聚类结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    # 检查用户是否登录
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("clustering_run", params.dict())
@@ -83,7 +75,7 @@ async def run_clustering(
 
 @router.post("/scan")
 async def scan_clustering_params(
-    params: ClusteringScanParams,  # 添加身份验证
+    params: ClusteringScanParams,
     engine: ClusteringEngine = Depends(get_clustering_engine)
 ) -> Dict[str, Any]:
     """
@@ -91,18 +83,12 @@ async def scan_clustering_params(
 
     Args:
         params: 扫描参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         扫描结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    # 检查用户是否登录
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("clustering_scan", params.dict())
@@ -202,17 +188,12 @@ async def run_character_tendency_clustering(
 
     Args:
         params: 字符倾向性聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         聚类结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("character_tendency", params.dict())
@@ -253,17 +234,12 @@ async def run_sampled_village_clustering(
 
     Args:
         params: 采样村庄聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         聚类结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("sampled_villages", params.dict())
@@ -304,17 +280,12 @@ async def run_spatial_aware_clustering(
 
     Args:
         params: 空间感知聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         聚类结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("spatial_aware", params.dict())
@@ -355,17 +326,12 @@ async def run_hierarchical_clustering(
 
     Args:
         params: 层次聚类参数
-        user: 当前用户（由 ApiLimiter 自动验证）
-
     Returns:
         层次聚类结果
 
     Raises:
-        HTTPException: 如果未登录、计算失败或超时
+        HTTPException: 如果计算失败或超时
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="此功能需要登录")
-
     try:
         # 检查缓存
         cached_result = compute_cache.get("hierarchical", params.dict())

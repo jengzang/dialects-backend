@@ -59,11 +59,11 @@ async def api_limiter_dependency(
         await check_api_usage_limit(db, user, require_login, ip_address=ip_address)
         # print(f"[ApiLimiter] ✅ 限流检查通过")
     except HTTPException as e:
-        print(f"[ApiLimiter] ❌ 限流检查失败: {e.detail}")
+        print(f"[ApiLimiter] rate limit check failed: {e.detail}")
         # 限流异常直接抛出
         raise
     except Exception as e:
-        print(f"[ERROR] 限流检查失败: {e}")
+        print(f"[ERROR] rate limit check failed: {e}")
         # 其他异常不阻塞请求（可根据需求调整）
 
     return user
