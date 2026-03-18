@@ -139,8 +139,8 @@ async def get_all_locs(
 ```python
 # 修改导入
 from app.sql.db_selector import get_query_db
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 # get_coordinates
 @router.get("/get_coordinates")
@@ -170,8 +170,8 @@ async def get_coordinates(
 
 ```python
 # 修改导入 - 保留 get_current_user
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 # get_regions
 @router.get("/get_regions")
@@ -189,8 +189,8 @@ async def get_regions(
 
 ```python
 # 保留 get_current_user 导入
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 # query_location_data
 @router.get("/get_custom")
@@ -218,8 +218,8 @@ async def query_location_data(
 
 ```python
 # 保留 get_current_user 导入
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 # submit_form
 @router.post("/submit_form")
@@ -239,8 +239,8 @@ async def submit_form(
 
 ```python
 # 保留 get_current_user 导入
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 
 # 所有三个函数都保留 user 参数
 # 因为需要 user.id, user.username 等属性

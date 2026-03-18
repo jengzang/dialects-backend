@@ -10,6 +10,11 @@ from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
+
+def _quote_identifier(name: str) -> str:
+    return f'"{name.replace("\"", "\"\"")}"'
+
+
 """
 本腳本提供一組函數用於從語音描述詞查詢對應漢字，並根據不同地點與語音特徵進行統計分析。
 核心流程與功能如下：
@@ -52,6 +57,14 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
     - 避免pandas DataFrame的开销
     """
 
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return [], []
+
+    schema = get_table_schema(table)
+
     # 解析語法：[值]{欄位}
     pattern = r"\[([^\[\]]+)\]\{([^\{\}]+)\}"
     matches = re.findall(pattern, path_string)
@@ -62,8 +75,8 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
 
     filter_columns = [col for _, col in matches]
     for col in filter_columns:
-        if col not in HIERARCHY_COLUMNS:
-            print(f"[!] 欄位「{col}」不在允許的層級欄位中")
+        if col not in schema["hierarchy"]:
+            print(f"[!] 欄位「{col}」不在表 '{table}' 的允許層級欄位中")
             return [], []
 
     # 使用連接池
@@ -100,22 +113,25 @@ def query_characters_by_path(path_string, db_path=CHARACTERS_DB_PATH, table="cha
         if not characters:
             return [], []
 
-        # 【SQL优化2】多地位字检查：完全在SQL层面完成
-        # 构建filter_columns的拼接表达式用于GROUP BY
-        filter_cols_concat = " || '|' || ".join(filter_columns)
+        # 【SQL优化2】多地位字检查：完全在SQL层面完成（僅對支持多地位的表）
+        multi_chars = []
+        if schema.get("has_multi_status", False):
+            # 构建filter_columns的拼接表达式用于GROUP BY
+            filter_cols_concat = " || '|' || ".join(filter_columns)
 
-        multi_query = f"""
-        SELECT 漢字
-        FROM {table}
-        WHERE {where_clause}
-        AND 多地位標記 = '1'
-        AND 漢字 IN ({','.join(['?'] * len(characters))})
-        GROUP BY 漢字
-        HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
-        """
+            multi_status_col = schema.get("multi_status_column", "多地位標記")
+            multi_query = f"""
+            SELECT 漢字
+            FROM {table}
+            WHERE {where_clause}
+            AND {multi_status_col} = '1'
+            AND 漢字 IN ({','.join(['?'] * len(characters))})
+            GROUP BY 漢字
+            HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
+            """
 
-        cursor.execute(multi_query, params + characters)
-        multi_chars = [row[0] for row in cursor.fetchall()]
+            cursor.execute(multi_query, params + characters)
+            multi_chars = [row[0] for row in cursor.fetchall()]
 
     return characters, multi_chars
 
@@ -139,6 +155,14 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     if not path_strings:
         return []
 
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return []
+
+    schema = get_table_schema(table)
+
     # 解析所有path_string
     pattern = r"\[([^\[\]]+)\]\{([^\{\}]+)\}"
     parsed_queries = []
@@ -149,7 +173,7 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
             continue
 
         filter_columns = [col for _, col in matches]
-        valid = all(col in HIERARCHY_COLUMNS for col in filter_columns)
+        valid = all(col in schema["hierarchy"] for col in filter_columns)
         if not valid:
             continue
 
@@ -597,7 +621,20 @@ def sta2pho(
         print("[i] inputs 為空，自動推導條件字串...")
         pool = get_db_pool(db_path_char)
         with pool.get_connection() as conn:
-            df_char = pd.read_sql_query("SELECT * FROM characters", conn)
+            required_columns = set()
+            for feat in features:
+                if feat == "聲母":
+                    required_columns.add("母")
+                elif feat == "韻母":
+                    required_columns.add("攝")
+                elif feat == "聲調":
+                    required_columns.update({"清濁", "調"})
+
+            if required_columns:
+                select_cols = ", ".join(_quote_identifier(col) for col in sorted(required_columns))
+                df_char = pd.read_sql_query(f"SELECT {select_cols} FROM characters", conn)
+            else:
+                df_char = pd.DataFrame()
 
         auto_inputs = []
         auto_features = []
@@ -690,20 +727,32 @@ def sta2pho(
 
 # 這函數沒啥用
 def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
+    # 驗證表名
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        print(f"[X] 無效的表名：{table}")
+        return {}
+
+    schema = get_table_schema(table)
+
     pool = get_db_pool(db_path)
-    with pool.get_connection() as conn:
-        df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+    table_q = _quote_identifier(table)
 
     unique_values = {}
 
-    for col in HIERARCHY_COLUMNS:
-        if col in df.columns:
-            values = df[col].dropna().unique()
-            values = sorted(str(v).strip() for v in values if str(v).strip() != "")
-            unique_values[col] = values
-        else:
-            unique_values[col] = []
-            print(f"[!] 欄位「{col}」不存在")
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        for col in schema["hierarchy"]:
+            col_q = _quote_identifier(col)
+            cursor.execute(
+                f"""
+                SELECT DISTINCT {col_q}
+                FROM {table_q}
+                WHERE {col_q} IS NOT NULL AND TRIM({col_q}) != ''
+                ORDER BY {col_q} ASC
+                """
+            )
+            unique_values[col] = [str(row[0]).strip() for row in cursor.fetchall()]
 
     return unique_values
 
@@ -806,4 +855,3 @@ def query_by_status_stats_only(char_list, locations, features, db_path=DIALECTS_
             }
 
     return results
-

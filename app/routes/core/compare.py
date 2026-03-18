@@ -11,14 +11,14 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.service.auth.database import get_db
+from app.service.auth.database.connection import get_db
 from app.sql.db_selector import get_dialects_db, get_query_db
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 # from app.logging.dependencies.limiter import ApiLimiter
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 from app.service.geo.match_input_tip import match_locations_batch_all
 from app.service.core.compare import compare_characters, compare_tones
-from app.schemas.phonology import CompareZhongGuAnalysis
+from app.schemas.core import CompareZhongGuAnalysis
 
 router = APIRouter()
 
@@ -181,7 +181,8 @@ async def compare_zhonggu(
                 path_strings,
                 column,
                 combine_query,
-                exclude_columns=exclude_columns
+                exclude_columns=exclude_columns,
+                table=payload.table_name  # [NEW] 傳入表名
             )
             cached_result = await get_cache(cache_key)
             if cached_result is not None:
@@ -191,7 +192,8 @@ async def compare_zhonggu(
                 path_strings,
                 column,
                 combine_query,
-                exclude_columns=exclude_columns
+                exclude_columns=exclude_columns,
+                table=payload.table_name  # [NEW] 傳入表名
             )
             if fresh_result:
                 await set_cache(cache_key, fresh_result, expire_seconds=600)

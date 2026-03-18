@@ -25,7 +25,7 @@ from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
 from app.tools.praat.routes import router as praat_router
 from app.service.logging.dependencies import ApiLimiter
-from app.VillagesML import setup_villages_routes
+from app.villagesML import setup_villages_routes
 
 
 def setup_routes(app: FastAPI):

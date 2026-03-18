@@ -69,12 +69,12 @@ VillagesML/
 **解决方案**:
 ```bash
 # 删除空目录
-rm -rf app/tools/VillagesML/routers/
-rm -rf app/tools/VillagesML/services/
-rm -rf app/tools/VillagesML/pattern/
+rm -rf app/tools/villagesML/routers/
+rm -rf app/tools/villagesML/services/
+rm -rf app/tools/villagesML/pattern/
 
 # 重命名 patterns -> pattern（单数形式更符合 Python 惯例）
-mv app/tools/VillagesML/patterns/ app/tools/VillagesML/pattern/
+mv app/tools/villagesML/patterns/ app/tools/villagesML/pattern/
 ```
 
 #### 问题 2：配置文件分散 ⭐⭐⭐
@@ -206,13 +206,13 @@ database/
 
 ```bash
 # 1. 删除空目录和测试文件
-rm -rf app/tools/VillagesML/routers/
-rm -rf app/tools/VillagesML/services/
-rm -rf app/tools/VillagesML/pattern/
+rm -rf app/tools/villagesML/routers/
+rm -rf app/tools/villagesML/services/
+rm -rf app/tools/villagesML/pattern/
 rm app/test.py
 
 # 2. 重命名 patterns -> pattern
-mv app/tools/VillagesML/patterns/ app/tools/VillagesML/pattern/
+mv app/tools/villagesML/patterns/ app/tools/villagesML/pattern/
 
 # 3. 创建 utils 目录
 mkdir -p app/utils
@@ -276,9 +276,9 @@ echo "开始清理 app/ 目录..."
 
 # 1. 删除空目录
 echo "删除空目录..."
-rm -rf app/tools/VillagesML/routers/
-rm -rf app/tools/VillagesML/services/
-rm -rf app/tools/VillagesML/pattern/
+rm -rf app/tools/villagesML/routers/
+rm -rf app/tools/villagesML/services/
+rm -rf app/tools/villagesML/pattern/
 
 # 2. 删除测试文件
 echo "删除测试文件..."
@@ -287,7 +287,7 @@ rm -f app/test.py
 # 3. 重命名 patterns -> pattern
 echo "重命名 patterns -> pattern..."
 if [ -d "app/tools/VillagesML/patterns" ]; then
-    mv app/tools/VillagesML/patterns/ app/tools/VillagesML/pattern/
+    mv app/tools/villagesML/patterns/ app/tools/villagesML/pattern/
 fi
 
 # 4. 创建 utils 目录并移动文件

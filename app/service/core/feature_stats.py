@@ -15,7 +15,7 @@ from typing import List, Dict, Optional, Set
 import hashlib
 
 from app.sql.db_pool import get_db_pool
-from app.service.core.phonology2status import custom_phonology_sort
+from app.service.core.matrix import custom_phonology_sort
 
 
 def get_feature_counts(locations, db_path, table="dialects"):

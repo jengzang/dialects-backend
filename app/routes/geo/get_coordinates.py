@@ -8,14 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.service.user.submission.database import SessionLocal
+from app.service.user.core.database import SessionLocal
 from app.schemas import CoordinatesQuery
 from app.service.geo.locs_regions import get_coordinates_from_db
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
 from app.service.geo.match_input_tip import match_locations_batch_all
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 from app.sql.db_selector import get_query_db
-from app.service.auth.models import User
+from app.service.auth.database.models import User
 
 router = APIRouter()
 
@@ -47,7 +47,8 @@ def _resolve_coordinates_sync(
         user: Optional[User]
 ):
     if query.iscustom and not user:
-        raise HTTPException(status_code=401, detail="Authentication required for custom coordinates")
+        # 未登錄時靜默降級：不查自定義數據，走普通流程
+        query.iscustom = False
 
     locations_list = query.locations.split(',')
     regions_list = query.regions.split(',')

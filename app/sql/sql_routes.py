@@ -9,10 +9,10 @@ from app.sql.choose_db import get_db_connection
 from app.sql.sql_schemas import (
     QueryParams, DistinctQueryRequest
 )
-from app.service.auth.dependencies import get_current_user
+from app.service.auth.core.dependencies import get_current_user
 from app.service.logging.dependencies import ApiLimiter
-from app.service.auth.database import get_db as get_auth_db
-from app.service.auth.models import User
+from app.service.auth.database.connection import get_db as get_auth_db
+from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
 from app.redis_client import redis_client
 
@@ -259,30 +259,67 @@ async def get_column_info(
 async def get_table_count(
     db_key: str,
     table_name: str,
+    filter_column: Optional[str] = None,
+    filter_value: Optional[str] = None,
     user: Optional[User] = Depends(ApiLimiter),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
-    获取指定表的总行数 - 轻量级接口
+    获取指定表的行数 - 轻量级接口
 
     参数:
     - db_key: 数据库标识
     - table_name: 表名
+    - filter_column: （可选）筛选列名
+    - filter_value: （可选）筛选值，统计该列等于此值的行数
 
     返回:
-    - count: 总行数
+    - count: 行数
     """
     _validate_table(db_key, table_name)
+    if filter_column is not None:
+        _validate_columns(db_key, table_name, [filter_column], "filter_column")
+
+    # 构造缓存 key
+    cache_key = f"sql_count:{db_key}:{table_name}"
+    if filter_column is not None:
+        cache_key += f":{filter_column}:{filter_value}"
+
+    # 尝试从缓存读取
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached is not None:
+            return {"count": int(cached)}
+    except Exception:
+        pass
+
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
+        table_q = _quote_identifier(table_name)
 
         try:
-            cursor.execute(f"SELECT COUNT(*) FROM {_quote_identifier(table_name)}")
-            count = cursor.fetchone()[0]
+            if filter_column is not None:
+                col_q = _quote_identifier(filter_column)
+                if filter_value is None:
+                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} IS NULL"
+                    cursor.execute(sql)
+                else:
+                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} = ?"
+                    cursor.execute(sql, (filter_value,))
+            else:
+                cursor.execute(f"SELECT COUNT(*) FROM {table_q}")
 
-            return {"count": count}
+            count = cursor.fetchone()[0]
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
+
+    # 写入缓存（1 小时过期）
+    try:
+        await redis_client.setex(cache_key, 3600, str(count))
+    except Exception:
+        pass
+
+    return {"count": count}
 
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(
@@ -326,7 +363,7 @@ async def get_distinct_values(
             # 排除当前列
             context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
 
-            for col, values in context_filters.items():
+            for col_idx, (col, values) in enumerate(context_filters.items()):
                 if not values: continue
 
                 clean_values = [v for v in values if v is not None]
@@ -338,8 +375,8 @@ async def get_distinct_values(
                     # 生成一组参数名，例如: filter_city_0, filter_city_1
                     param_keys = []
                     for idx, val in enumerate(clean_values):
-                        # 构造唯一的参数键名
-                        key = f"f_{col}_{idx}"
+                        # 构造 ASCII 参数键名，避免中文列名导致 sqlite 命名参数解析错误
+                        key = f"f_{col_idx}_{idx}"
                         params[key] = val
                         param_keys.append(f":{key}")
 
@@ -402,5 +439,4 @@ async def get_distinct_values(
             raise HTTPException(status_code=400, detail=f"Database Error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-
 

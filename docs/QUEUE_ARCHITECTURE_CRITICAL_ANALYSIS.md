@@ -145,7 +145,7 @@ SQLite虽然支持并发读，但并发写入会导致：
 # gunicorn_config.py
 def on_starting(server):
     """主进程启动日志线程"""
-    from app.logging.middleware.traffic_logging import start_api_logger_workers
+    from app.service.logging.middleware import start_api_logger_workers
     start_api_logger_workers()  # 不传db，避免跨进程连接问题
 
 # traffic_logging.py
@@ -264,8 +264,8 @@ def start_api_logger_workers():
 # gunicorn_config.py
 def on_starting(server):
     """主进程启动日志线程"""
-    from app.logging.middleware.traffic_logging import start_api_logger_workers
-    from app.logging.tasks.scheduler import start_scheduler
+    from app.service.logging.middleware import start_api_logger_workers
+    from app.service.logging.tasks.scheduler import start_scheduler
 
     print("[Gunicorn Master] starting logging workers...")
     start_api_logger_workers()  # 主进程启动
@@ -273,7 +273,7 @@ def on_starting(server):
 
 def on_exit(server):
     """主进程停止日志线程"""
-    from app.logging.middleware.traffic_logging import stop_api_logger_workers
+    from app.service.logging.middleware import stop_api_logger_workers
     stop_api_logger_workers()
 
 # 移除 post_worker_init 中的日志启动

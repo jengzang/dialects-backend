@@ -58,9 +58,10 @@ RECORD_API = [
     "api/tools",
     "feature_counts",
     "feature_stats",  # 新增：特征统计接口
+    "pho_pie",        # 新增：音韻餅圖接口
     "user/custom",
     "custom_regions",  # 新增：用户自定义区域接口
-    "villages",  # 新增：VillagesML 自然村分析接口
+    "villages",  # 新增：villagesML 自然村分析接口
 ]
 
 # 不記錄帶有以下字段的 API（排除特定路由）
@@ -217,6 +218,18 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": True,
     },
+    "/api/pho_pie_by_value": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/pho_pie_by_status": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
 
     # ===== Praat 声学分析 API =====
     # 路径设计规则：
@@ -250,6 +263,26 @@ API_ROUTE_CONFIG = {
         "log_body": False,
     },
 
+    # ===== 其他 tools API =====
+    "/api/tools/check/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/tools/merge/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/tools/jyut2ipa/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+
     # # ===== Admin 会话管理 API =====
     # "/admin/user-sessions/*": {
     #     "rate_limit": True,  # 启用限流（防止管理员滥用）
@@ -274,7 +307,7 @@ API_ROUTE_CONFIG = {
     #     "log_body": True,  # 记录请求体（用于分析用户创建的区域）
     # },
 
-    # ===== VillagesML 自然村分析 API =====
+    # ===== villagesML 自然村分析 API =====
     "/api/villages/*": {
         "rate_limit": True,  # 启用限流（防止滥用）
         "require_login": False,  # 不强制登录（公开查询 API）

@@ -8,7 +8,7 @@ import math
 from typing import List
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User, ApiUsageSummary
+from app.service.auth.database.models import User, ApiUsageSummary
 
 
 def calculate_shannon_entropy(api_usage_list: List[tuple]) -> float:

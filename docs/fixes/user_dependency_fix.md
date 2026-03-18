@@ -20,8 +20,8 @@
 
 ```python
 from typing import Optional
-from app.auth.models import User
-from app.auth.dependencies import get_current_user
+from app.service.auth import User
+from app.service.auth import get_current_user
 
 @router.post("/endpoint")
 async def endpoint_function(
@@ -38,8 +38,8 @@ async def endpoint_function(
 ### 1. 取消註釋必要的導入 (line 14-16)
 
 ```python
-from app.auth.dependencies import get_current_user
-from app.auth.models import User
+from app.service.auth import get_current_user
+from app.service.auth import User
 ```
 
 ### 2. 為 5 個函數添加 user 參數

@@ -9,7 +9,7 @@ import os
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.admin.analytics.geo import lookup_ip_location
+from app.service.admin.analytics.geo import lookup_ip_location
 
 
 def test_lookup_ip_location():

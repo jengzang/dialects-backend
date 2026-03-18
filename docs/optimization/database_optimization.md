@@ -94,7 +94,7 @@ console.log(`显著 N-gram: ${data.ngram_significance.significant} (${data.ngram
     "semantic_regional_analysis": 15489
   },
   "total_records": 11172894,
-  "note": "Total record count across major VillagesML tables"
+  "note": "Total record count across major villagesML tables"
 }
 ```
 

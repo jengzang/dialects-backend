@@ -6,7 +6,7 @@ import asyncio
 import threading
 import multiprocessing  # [FIX] 改用跨进程队列
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 # from collections import defaultdict
 # import ast
 from decimal import Decimal
@@ -16,13 +16,13 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 # from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
-from queue import Empty  # 只引入這個異常類，不引入 Queue 類
-from app.service.auth.database import get_db
-from app.service.auth.dependencies import get_current_user_for_middleware
-from app.service.auth.models import ApiUsageLog, ApiUsageSummary
+from queue import Empty, Full  # multiprocessing.Queue 满队列时会抛出 queue.Full
+from app.service.auth.database.connection import get_db
+from app.service.auth.core.dependencies import get_current_user_for_middleware
+from app.service.auth.database.models import ApiUsageLog, ApiUsageSummary
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.models import ApiKeywordLog
-from app.common.api_config import CLEAR_WEEK, RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
+from app.common.api_config import RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 
 
 # === 路径规范化函数 ===
@@ -140,7 +140,10 @@ def log_keyword(path: str, field: str, value):
         field=field,
         value=str(value)
     )
-    keyword_log_queue.put(log)
+    try:
+        keyword_log_queue.put_nowait(log)
+    except Full:
+        print("[WARN] keyword_log_queue is full, dropping ApiKeywordLog entry")
 
 
 def log_all_fields(path: str, param_dict: dict):
@@ -359,7 +362,10 @@ def update_statistic(db: Session, stat_type: str, date: datetime, category: str,
 def update_count(path: str):
     """更新 API 调用次数统计"""
     today = datetime.now()
-    statistics_queue.put((path, today))
+    try:
+        statistics_queue.put_nowait((path, today))
+    except Full:
+        print("[WARN] statistics_queue is full, dropping statistics update")
 
 
 def enqueue_online_time_non_blocking(data: dict):
@@ -373,7 +379,7 @@ def enqueue_online_time_non_blocking(data: dict):
     """
     try:
         online_time_queue.put_nowait(data)
-    except queue.Full:
+    except Full:
         # 队列满了，直接写入数据库（兜底策略）
         print(f"[!] online_time_queue 已满，直接写入数据库")
         _write_online_time_batch({
@@ -384,7 +390,10 @@ def enqueue_online_time_non_blocking(data: dict):
 def update_html_visit(path: str):
     """更新 HTML 页面访问次数统计"""
     today = datetime.now()
-    html_visit_queue.put((path, today))
+    try:
+        html_visit_queue.put_nowait((path, today))
+    except Full:
+        print("[WARN] html_visit_queue is full, dropping html visit update")
 
 
 # === HTML 页面访问统计写入线程（logs.db）===
@@ -477,7 +486,7 @@ def update_html_visit_stat(db: Session, path: str, date):
 
 def log_writer_thread():
     """批量写入 ApiUsageLog 到 auth.db（在线程内创建数据库连接）"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
 
     # 在线程内创建数据库连接（避免跨进程传递）
     db = AuthSessionLocal()
@@ -530,7 +539,6 @@ def _write_log_batch(db: Session, batch: list):
 
 # 异步写入日志的函数
 def log_detailed_api_to_db(
-        db: Session,
         path: str,
         duration: float,
         status_code: int,
@@ -538,18 +546,11 @@ def log_detailed_api_to_db(
         user_agent: str,
         referer: str,
         user_id: int = None,
-        clear_old: bool = False,
         request_size: int = 0,
         response_size: int = 0,
-        start_time: float = None  # start_time 参数保持可选
+        start_time: float = None
 ):
-    # Step 1: Optional cleanup of old logs
-    if clear_old:
-        one_week_ago = datetime.utcnow() - timedelta(weeks=1)
-        db.query(ApiUsageLog).filter(ApiUsageLog.called_at < one_week_ago).delete()
-        db.commit()
-
-    # Step 2: Insert detailed log (short-term log)
+    # Step 1: build detailed log and enqueue for background writer
     log = ApiUsageLog(
         path=path,
         duration=duration,
@@ -565,17 +566,23 @@ def log_detailed_api_to_db(
     )
 
     # 将日志添加到队列
-    log_queue.put(log)
+    try:
+        log_queue.put_nowait(log)
+    except Full:
+        print("[WARN] log_queue is full, dropping ApiUsageLog entry")
 
-    # Step 3: 将 ApiUsageSummary 更新移至队列
+    # Step 2: enqueue ApiUsageSummary update
     if user_id:
-        summary_queue.put({
-            'user_id': user_id,
-            'path': path,
-            'duration': duration,
-            'request_size': request_size,
-            'response_size': response_size
-        })
+        try:
+            summary_queue.put_nowait({
+                'user_id': user_id,
+                'path': path,
+                'duration': duration,
+                'request_size': request_size,
+                'response_size': response_size
+            })
+        except Full:
+            print("[WARN] summary_queue is full, dropping ApiUsageSummary entry")
 
 
 def summary_writer():
@@ -610,7 +617,7 @@ def summary_writer():
 
 def _process_summary_batch(batch: list):
     """批量处理 ApiUsageSummary 更新"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
     db = AuthSessionLocal()
 
     try:
@@ -715,8 +722,8 @@ def online_time_writer():
 
 def _write_online_time_batch(batch: dict):
     """Write aggregated online time updates to database"""
-    from app.service.auth.database import SessionLocal as AuthSessionLocal
-    from app.service.auth.models import User, Session
+    from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
+    from app.service.auth.database.models import User, Session
 
     db = AuthSessionLocal()
     try:
@@ -748,7 +755,6 @@ def _write_online_time_batch(batch: dict):
 
 
 async def log_detailed_api_to_db_async(
-        db: Session,
         path: str,
         duration: float,
         status_code: int,
@@ -756,15 +762,13 @@ async def log_detailed_api_to_db_async(
         user_agent: str,
         referer: str,
         user_id: int = None,
-        clear_old: bool = False,
         request_size: int = 0,
         response_size: int = 0,
         start_time: float = None
 ):
-    """异步包装器：将同步的数据库操作异步化"""
+    """异步包装器：将同步日志入队操作异步化"""
     await asyncio.to_thread(
         log_detailed_api_to_db,
-        db,
         path,
         duration,
         status_code,
@@ -772,7 +776,6 @@ async def log_detailed_api_to_db_async(
         user_agent,
         referer,
         user_id,
-        clear_old,
         request_size,
         response_size,
         start_time
@@ -945,7 +948,6 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
             # 异步记录日志
             await log_detailed_api_to_db_async(
-                db=db,
                 path=request.url.path,
                 duration=duration,
                 status_code=response.status_code,
@@ -955,7 +957,6 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                 user_id=user.id if user else None,
                 request_size=request_size,
                 response_size=response_size,
-                clear_old=CLEAR_WEEK,
                 start_time=start_time
             )
 

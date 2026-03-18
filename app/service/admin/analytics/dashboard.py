@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User, ApiUsageSummary
+from app.service.auth.database.models import User, ApiUsageSummary
 from .segmentation import get_user_segments
 from .growth import get_user_growth
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import geoip2.database
 import os
 
-from app.service.auth.models import ApiUsageLog
+from app.service.auth.database.models import ApiUsageLog
 
 
 # GeoLite2 database paths

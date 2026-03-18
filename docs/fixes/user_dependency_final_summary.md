@@ -129,11 +129,12 @@ if uses_user and not defines_user and not has_user_param:
 ## 驗證結果
 
 ✅ **所有修復的文件導入測試通過**
+
 ```python
-from app.routes.phonology import router
-from app.routes.compare import router
-from app.routes.search import router
-from app.routes.new_pho import router
+from app.routes.core.phonology import router
+from app.routes.core.compare import router
+from app.routes.core.search import router
+from app.routes.core.new_pho import router
 from app.routes.geo.batch_match import router
 from app.routes.geo.get_locs import router
 from app.routes.geo.get_coordinates import router

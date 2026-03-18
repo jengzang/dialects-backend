@@ -18,8 +18,8 @@ VillagesML 模块的路由当前**没有实现身份验证**，导致：
 ### 模式 1: 管理员端点（Admin Only）
 
 ```python
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
+from app.service.auth import get_current_admin_user
+from app.service.auth import User
 
 @router.get("/admin/something")
 def admin_endpoint(
@@ -39,7 +39,7 @@ def admin_endpoint(
 
 ```python
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 @router.post("/api/something")
@@ -64,7 +64,7 @@ async def authenticated_endpoint(
 
 ```python
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 @router.get("/api/something")
@@ -103,10 +103,11 @@ async def public_endpoint(
 - `DELETE /compute/clustering/cache` - 需要 admin
 
 **修改模板:**
+
 ```python
 # 在文件顶部添加导入
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 # 修改端点签名
@@ -161,10 +162,11 @@ async def run_clustering(
 - `DELETE /run-ids/cache` - 需要 admin
 
 **修改模板（admin 端点）:**
+
 ```python
 # 在文件顶部添加导入
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
+from app.service.auth import get_current_admin_user
+from app.service.auth import User
 
 # 修改端点签名
 @router.post("/run-ids/active/{analysis_type}")
@@ -180,10 +182,11 @@ def set_active_run_id(
 ```
 
 **修改模板（公开端点）:**
+
 ```python
 # 在文件顶部添加导入
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 # 修改端点签名

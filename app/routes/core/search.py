@@ -1,148 +1,113 @@
 """
-[PKG] 路由模塊：處理 /api/search_chars 與 /api/search_tones 查詢音節與聲調。
+Core search routes:
+- /api/search_chars
+- /api/search_tones
 """
 
-from fastapi import APIRouter, Query, Depends
+import logging
 from typing import List, Optional
-from sqlalchemy.orm import Session
 
-from app.service.auth.database import get_db
-from app.sql.db_selector import get_dialects_db, get_query_db
-from app.service.auth.dependencies import get_current_user
-# from app.logging.dependencies.limiter import ApiLimiter
-from app.service.auth.models import User
-from app.service.geo.match_input_tip import match_locations_batch_all
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from app.common.constants import VALID_CHARACTER_TABLES
+from app.service.auth.core.dependencies import get_current_user
+from app.service.auth.database.connection import get_db
+from app.service.auth.database.models import User
 from app.service.core.search_chars import search_characters
 from app.service.core.search_tones import search_tones
+from app.service.geo.match_input_tip import match_locations_batch_all
+from app.sql.db_selector import get_dialects_db, get_query_db
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/search_chars/")
 async def search_chars(
-        chars: List[str] = Query(..., description="要查的漢字序列"),
-        locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
-        regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),
-        db: Session = Depends(get_db),
-        dialects_db: str = Depends(get_dialects_db),
-        query_db: str = Depends(get_query_db),
-        user: Optional[User] = Depends(get_current_user)
+    chars: List[str] = Query(..., description="要查询的汉字列表"),
+    locations: Optional[List[str]] = Query(None, description="地点列表"),
+    regions: Optional[List[str]] = Query(None, description="分区列表"),
+    region_mode: str = Query("yindian", description="分区模式: yindian/map"),
+    table_name: str = Query("characters", description="字表名称"),
+    db: Session = Depends(get_db),
+    dialects_db: str = Depends(get_dialects_db),
+    query_db: str = Depends(get_query_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """
-    - 用于 /api/search_chars 查字，返回中古地位、對應地點的讀音及注釋。
-    - chars-要查的漢字序列
-    - locations-要查的地點，可多個
-    - regions-要查的分區，可多個（輸入某一級的分區）
-    - region_mode-查詢所使用的分區欄位，可選 'yindian'（音典分區）或 'map'（地圖集二分區）
-    """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-    # start = time.time()
+    if table_name not in VALID_CHARACTER_TABLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid table_name: {table_name}. Must be one of {VALID_CHARACTER_TABLES}",
+        )
+
     try:
-        # 数据库路径已通过依赖注入自动选择
-        # [NEW] 使用批量处理函数，一次性处理所有地点
-        locations_processed = match_locations_batch_all(
+        # Avoid event-loop blocking by offloading sync CPU/DB work.
+        locations_processed = await run_in_threadpool(
+            match_locations_batch_all,
             locations or [],
             filter_valid_abbrs_only=True,
             exact_only=True,
             query_db=query_db,
-            db=db,
-            user=user  # 传递 user 对象以支持自定义地点
+            db=None,
+            user=None,
         )
 
-        # 查询汉字读音数据
-        result = search_characters(
+        result = await run_in_threadpool(
+            search_characters,
             chars=chars,
             locations=locations_processed,
             regions=regions,
             db_path=dialects_db,
-            region_mode=region_mode,  # [OK] 傳入參數
-            query_db_path=query_db  # [NEW] 传入查询数据库路径
+            region_mode=region_mode,
+            query_db_path=query_db,
+            table=table_name,
         )
 
-        # 同时查询声调系统数据（避免前端二次请求）
-        tones_result = search_tones(
+        tones_result = await run_in_threadpool(
+            search_tones,
             locations=locations_processed,
             regions=regions,
             db_path=query_db,
-            region_mode=region_mode
+            region_mode=region_mode,
         )
 
         return {
             "result": result,
-            "tones_result": tones_result  # 新增：声调系统数据
+            "tones_result": tones_result,
         }
     finally:
-        print("search_chars")
-        # duration = time.time() - start
-        # log_detailed_api(request.url.path, duration, 200,
-        #                  request.client.host,
-        #                  request.headers.get("user-agent", ""),
-        #                  request.headers.get("referer", ""))
-
-        # path = request.url.path
-        # ip = request.client.host
-        # agent = request.headers.get("user-agent", "")
-        # referer = request.headers.get("referer", "")
-        # user_id = user.id if user else None
-        # log_detailed_api_to_db(db, path, duration, 200, ip, agent, referer, user_id, CLEAR_2HOUR)
+        logger.debug("search_chars completed")
 
 
 @router.get("/search_tones/")
 async def search_tones_o(
-        locations: Optional[List[str]] = Query(None, description="要查的地點，可多個"),
-        regions: Optional[List[str]] = Query(None, description="要查的分區，可多個（輸入某一級的分區）"),
-        region_mode: str = Query("yindian", description="分區模式，可選 'yindian' 或 'map'"),
-        db: Session = Depends(get_db),
-        query_db: str = Depends(get_query_db),
-        user: Optional[User] = Depends(get_current_user)
+    locations: Optional[List[str]] = Query(None, description="地点列表"),
+    regions: Optional[List[str]] = Query(None, description="分区列表"),
+    region_mode: str = Query("yindian", description="分区模式: yindian/map"),
+    db: Session = Depends(get_db),
+    query_db: str = Depends(get_query_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """
-    - 用于 /api/search_tones 查調，返回調值、調類。
-    - locations-要查的地點，可多個
-    - regions-要查的分區，可多個（輸入某一級的分區）
-    - region_mode-查詢所使用的分區欄位，可選 'yindian'（音典分區）或 'map'（地圖集二分區）
-    """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-    # start = time.time()
     try:
-        # 数据库路径已通过依赖注入自动选择
-
-        # [NEW] 使用批量处理函数，一次性处理所有地点
-        locations_processed = match_locations_batch_all(
+        locations_processed = await run_in_threadpool(
+            match_locations_batch_all,
             locations or [],
             filter_valid_abbrs_only=False,
             exact_only=True,
             query_db=query_db,
-            db=db,
-            user=user  # 传递 user 对象以支持自定义地点
+            db=None,
+            user=None,
         )
-        print(locations_processed)
-        result = search_tones(
+        result = await run_in_threadpool(
+            search_tones,
             locations=locations_processed,
             regions=regions,
             db_path=query_db,
-            region_mode=region_mode  # [OK] 傳入參數
+            region_mode=region_mode,
         )
         return {"tones_result": result}
     finally:
-        print("search_tones")
-        # duration = time.time() - start
-        # log_detailed_api(request.url.path, duration, 200,
-        #                  request.client.host,
-        #                  request.headers.get("user-agent", ""),
-        #                  request.headers.get("referer", ""))
-        # 记录到数据库
-        # log_detailed_api_to_db(
-        #     db,
-        #     request.url.path,
-        #     duration,
-        #     200,
-        #     request.client.host,
-        #     request.headers.get("user-agent", ""),
-        #     request.headers.get("referer", ""),
-        #     user.id if user else None,
-        #     request_size=request_size,
-        #     response_size=response_size,
-        #     clear_old=CLEAR_2HOUR
-        # )
+        logger.debug("search_tones completed")
+

@@ -6,14 +6,14 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
-from app.service.auth.dependencies import check_login_rate_limit
-from app.service.auth.models import ApiUsageLog
-from app.service.auth import utils
-from app.service.auth.service import update_user_profile, models
-from app.service.auth.session_service import create_session, refresh_session  # ✅ 导入session服务
+from app.service.auth.core.dependencies import check_login_rate_limit
+from app.service.auth.database.models import ApiUsageLog
+from app.service.auth.core import utils
+from app.service.auth.core.service import update_user_profile, models
+from app.service.auth.session.service import create_session, refresh_session  # ✅ 导入session服务
 from app.schemas import auth as schemas
-from app.service.auth import service
-from app.service.auth.database import get_db
+from app.service.auth.core import service
+from app.service.auth.database.connection import get_db
 from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()

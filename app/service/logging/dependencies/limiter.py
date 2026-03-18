@@ -4,9 +4,9 @@ API 限流依赖注入：自动检查 API 使用限制
 from typing import Optional
 from fastapi import Depends, Request, HTTPException
 from sqlalchemy.orm import Session
-from app.service.auth.database import get_db
-from app.service.auth.dependencies import get_current_user, check_api_usage_limit
-from app.service.auth.models import User
+from app.service.auth.database.connection import get_db
+from app.service.auth.core.dependencies import get_current_user, check_api_usage_limit
+from app.service.auth.database.models import User
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
 from app.common.config import REQUIRE_LOGIN
 
@@ -41,16 +41,16 @@ async def api_limiter_dependency(
     # 获取路由配置
     config = match_route_config(path)
 
-    # 如果不需要限流，直接返回
-    if not config.get("rate_limit"):
-        # print(f"[ApiLimiter] 跳过限流检查: {path}")
-        return user
+    require_login = config.get("require_login", REQUIRE_LOGIN)
+    if require_login and user is None:
+        raise HTTPException(status_code=401, detail="[TIP] 请先登录")
 
-    # print(f"[ApiLimiter] 开始限流检查: {path}")
+    # 如果不需要限流，登录检查后即可返回
+    if not config.get("rate_limit"):
+        return user
 
     # 执行限流检查
     ip_address = request.client.host
-    require_login = config.get("require_login", REQUIRE_LOGIN)
 
     user_info = f"用户: {user.username}" if user else "匿名用户"
     # print(f"[ApiLimiter] {user_info}, IP: {ip_address}, 需要登录: {require_login}")
@@ -59,11 +59,11 @@ async def api_limiter_dependency(
         await check_api_usage_limit(db, user, require_login, ip_address=ip_address)
         # print(f"[ApiLimiter] ✅ 限流检查通过")
     except HTTPException as e:
-        print(f"[ApiLimiter] ❌ 限流检查失败: {e.detail}")
+        print(f"[ApiLimiter] rate limit check failed: {e.detail}")
         # 限流异常直接抛出
         raise
     except Exception as e:
-        print(f"[ERROR] 限流检查失败: {e}")
+        print(f"[ERROR] rate limit check failed: {e}")
         # 其他异常不阻塞请求（可根据需求调整）
 
     return user

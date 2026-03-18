@@ -92,9 +92,10 @@
 ### 模式 1: 需要登录（Compute 端点）
 
 **实现方式:**
+
 ```python
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 @router.post("/endpoint")
@@ -119,9 +120,10 @@ async def endpoint(
 ### 模式 2: 需要 Admin（Admin 写操作）
 
 **实现方式:**
+
 ```python
-from app.auth.dependencies import get_current_admin_user
-from app.auth.models import User
+from app.service.auth import get_current_admin_user
+from app.service.auth import User
 
 @router.put("/admin/endpoint")
 def admin_endpoint(
@@ -143,9 +145,10 @@ def admin_endpoint(
 ### 模式 3: 公开但限流（查询端点）
 
 **实现方式:**
+
 ```python
 from app.logs.service.api_limiter import ApiLimiter
-from app.auth.models import User
+from app.service.auth import User
 from typing import Optional
 
 @router.get("/endpoint")

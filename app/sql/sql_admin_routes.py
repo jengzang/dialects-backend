@@ -1,9 +1,9 @@
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.service.auth.database import get_db as get_auth_db
-from app.service.auth.dependencies import get_current_admin_user
-from app.service.auth.models import User
+from app.service.auth.database.connection import get_db as get_auth_db
+from app.service.auth.core.dependencies import get_current_admin_user
+from app.service.auth.database.models import User
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_routes import router, _validate_table, _validate_columns, _quote_identifier
 from app.sql.sql_schemas import MutationParams, BatchMutationParams, BatchReplacePreviewParams, \

@@ -5,9 +5,9 @@ from typing import List, Union, Optional
 
 from sqlalchemy.orm import Session
 
-from app.service.auth.dependencies import get_current_user
-from app.service.auth.models import User
-from app.service.user.submission.database import get_db
+from app.service.auth.core.dependencies import get_current_user
+from app.service.auth.database.models import User
+from app.service.user.core.database import get_db
 from app.service.geo.locs_regions import fetch_dialect_region
 # from app.logging.dependencies.limiter import ApiLimiter
 

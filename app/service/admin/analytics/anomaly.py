@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 import statistics
 
-from app.service.auth.models import User, ApiUsageSummary
+from app.service.auth.database.models import User, ApiUsageSummary
 
 
 def detect_anomalies(

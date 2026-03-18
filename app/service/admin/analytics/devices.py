@@ -9,7 +9,7 @@ from typing import List, Dict
 from sqlalchemy.orm import Session
 from user_agents import parse
 
-from app.service.auth.models import ApiUsageLog
+from app.service.auth.database.models import ApiUsageLog
 
 
 def get_device_distribution(db: Session) -> dict:

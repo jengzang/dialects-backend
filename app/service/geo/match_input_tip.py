@@ -9,8 +9,8 @@ from pypinyin import lazy_pinyin
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
-from app.service.auth.models import User
-from app.service.user.submission.models import Information
+from app.service.auth.database.models import User
+from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
 from app.common.path import QUERY_DB_ADMIN
 from app.common.s2t import s2t_pro
@@ -666,13 +666,6 @@ def match_locations_batch_all(locations_list, filter_valid_abbrs_only=True, exac
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
-
-        # 批量获取所有有效简称
-        if filter_valid_abbrs_only:
-            cursor.execute("SELECT 簡稱 FROM dialects WHERE 存儲標記 = 1")
-        else:
-            cursor.execute("SELECT 簡稱 FROM dialects")
-        valid_abbrs_set = set(row[0] for row in cursor.fetchall())
 
         # 批量精确匹配查询（使用 WHERE IN）
         if unique_parts:
