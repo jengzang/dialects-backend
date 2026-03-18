@@ -259,30 +259,67 @@ async def get_column_info(
 async def get_table_count(
     db_key: str,
     table_name: str,
+    filter_column: Optional[str] = None,
+    filter_value: Optional[str] = None,
     user: Optional[User] = Depends(ApiLimiter),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
-    获取指定表的总行数 - 轻量级接口
+    获取指定表的行数 - 轻量级接口
 
     参数:
     - db_key: 数据库标识
     - table_name: 表名
+    - filter_column: （可选）筛选列名
+    - filter_value: （可选）筛选值，统计该列等于此值的行数
 
     返回:
-    - count: 总行数
+    - count: 行数
     """
     _validate_table(db_key, table_name)
+    if filter_column is not None:
+        _validate_columns(db_key, table_name, [filter_column], "filter_column")
+
+    # 构造缓存 key
+    cache_key = f"sql_count:{db_key}:{table_name}"
+    if filter_column is not None:
+        cache_key += f":{filter_column}:{filter_value}"
+
+    # 尝试从缓存读取
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached is not None:
+            return {"count": int(cached)}
+    except Exception:
+        pass
+
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
+        table_q = _quote_identifier(table_name)
 
         try:
-            cursor.execute(f"SELECT COUNT(*) FROM {_quote_identifier(table_name)}")
-            count = cursor.fetchone()[0]
+            if filter_column is not None:
+                col_q = _quote_identifier(filter_column)
+                if filter_value is None:
+                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} IS NULL"
+                    cursor.execute(sql)
+                else:
+                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} = ?"
+                    cursor.execute(sql, (filter_value,))
+            else:
+                cursor.execute(f"SELECT COUNT(*) FROM {table_q}")
 
-            return {"count": count}
+            count = cursor.fetchone()[0]
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
+
+    # 写入缓存（1 小时过期）
+    try:
+        await redis_client.setex(cache_key, 3600, str(count))
+    except Exception:
+        pass
+
+    return {"count": count}
 
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(

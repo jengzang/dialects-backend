@@ -98,6 +98,11 @@ class ZhongGuAnalysis(BaseModel):
     )
     region_mode: str = Field(default="yindian", description="地區匹配模式")
 
+    include_custom: bool = Field(
+        default=False,
+        description="是否附帶查詢當前用戶的自定義數據（需登錄，匿名用戶返回空數組）"
+    )
+
     @model_validator(mode="after")
     def check_locations_or_regions(self):
         if not self.locations and not self.regions:
