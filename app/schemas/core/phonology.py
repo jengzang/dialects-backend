@@ -1,6 +1,6 @@
 # schemas/phonology.py
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Union, Optional, Dict
 
 
@@ -29,6 +29,12 @@ class AnalysisPayload(BaseModel):
     group_inputs: Union[str, List[str], None] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
 
 
 class CharListRequest(BaseModel):
@@ -76,12 +82,12 @@ class ZhongGuAnalysis(BaseModel):
 
     # --- 第二部分：用於方言分析 (傳給 _run_dialect_analysis_sync) ---
     locations: List[str] = Field(
-        ...,
+        default_factory=list,
         description="目標地點列表，例如 ['北京', '上海']",
         example=["北京", "广州"]
     )
     regions: List[str] = Field(
-        default=[],
+        default_factory=list,
         description="目標區域列表（用於輔助查找地點），可留空",
         example=[]
     )
@@ -90,8 +96,13 @@ class ZhongGuAnalysis(BaseModel):
         description="需要分析的語音特徵",
         example=["聲母", "韻母"]
     )
-    # 可選：如果你想控制 region_mode
     region_mode: str = Field(default="yindian", description="地區匹配模式")
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
     table_name: str = Field(
         default="characters",
         description="字符數據庫表名"
@@ -122,6 +133,11 @@ class YinWeiAnalysis(BaseModel):
         description="字符數據庫表名"
     )
 
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
 
     @field_validator('table_name')
     @classmethod

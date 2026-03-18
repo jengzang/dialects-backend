@@ -3,7 +3,7 @@
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CompareCharsRequest(BaseModel):
@@ -87,12 +87,12 @@ class CompareZhongGuAnalysis(BaseModel):
 
     # --- 方言分析参数 ---
     locations: List[str] = Field(
-        ...,
+        default_factory=list,
         description="目标地点列表",
         example=["广州", "香港"]
     )
     regions: List[str] = Field(
-        default=[],
+        default_factory=list,
         description="目标区域列表",
         example=[]
     )
@@ -109,6 +109,12 @@ class CompareZhongGuAnalysis(BaseModel):
         default="characters",
         description="字符數據庫表名（兩組使用相同表）"
     )
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
 
     @field_validator('table_name')
     @classmethod

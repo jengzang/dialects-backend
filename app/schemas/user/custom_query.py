@@ -1,6 +1,6 @@
 # schemas/query_custom.py
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import List
 
 class QueryParams(BaseModel):
@@ -11,9 +11,15 @@ class QueryParams(BaseModel):
     - need_features:要查的特徵
     - 返回用於繪圖的、自定義點的相關信息
     """
-    locations: List[str]
-    regions: List[str]
+    locations: List[str] = []
+    regions: List[str] = []
     need_features: List[str]
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
 
 class FeatureQueryParams(BaseModel):
     """
@@ -23,6 +29,12 @@ class FeatureQueryParams(BaseModel):
     - word-用戶輸入，待匹配特徵
     - 返回匹配到的自定義特徵（例如來、流等）
     """
-    locations: List[str]
-    regions: List[str]
+    locations: List[str] = []
+    regions: List[str] = []
     word: str
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
