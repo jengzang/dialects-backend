@@ -251,8 +251,12 @@ if _RUN_TYPE in ['EXE', 'MINE']:
 else:
     app = FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 
-# 允許跨域
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# 允許跨域（WEB 模式限制來源，開發模式完全開放）
+if _RUN_TYPE == "WEB":
+    cors_origins = ["https://dialects.yzup.top", "https://yzup.top"]
+else:
+    cors_origins = ["*"]
+app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 #  自动 gzip 压缩（基于 Accept-Encoding 请求头）
 # minimum_size=1024 表示只压缩大于 1KB 的响应
