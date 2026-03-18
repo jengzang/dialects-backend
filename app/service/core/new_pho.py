@@ -4,7 +4,7 @@ from app.redis_client import redis_client
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.service.core.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER
-from app.common.constants import COLUMN_VALUES
+from app.common.constants import COLUMN_VALUES, TABLE_COLUMN_SCHEMAS
 
 import json
 import hashlib
@@ -38,12 +38,16 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
     all_query_strings = []
     query_metadata = []  # 存储每个查询的元数据
 
+    # 根據 table 選擇對應的 column_values（characters 表沿用全局 COLUMN_VALUES）
+    schema = TABLE_COLUMN_SCHEMAS.get(table, TABLE_COLUMN_SCHEMAS["characters"])
+    col_values = schema.get("column_values", COLUMN_VALUES)
+
     for path_string in path_strings:
         if combine_query:
             # 如果 combine_query 为 True, 处理 path_string 和 column 组合叠加
             value_combinations = []
             for col in column:
-                values = COLUMN_VALUES.get(col)
+                values = col_values.get(col)
                 if values:
                     value_combinations.append(values)
 
