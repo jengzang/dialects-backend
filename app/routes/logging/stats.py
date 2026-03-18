@@ -92,14 +92,14 @@ async def get_field_stats_route(
 @router.get("/visits/total")
 async def get_total_visits_route():
     """获取总访问量"""
-    total = visit_stats.get_total_visits()
+    total = await visit_stats.get_total_visits()
     return {"total_visits": total}
 
 
 @router.get("/visits/today")
 async def get_today_visits_route():
     """获取今日访问量"""
-    today = visit_stats.get_today_visits()
+    today = await visit_stats.get_today_visits()
     return {"today_visits": today}
 
 

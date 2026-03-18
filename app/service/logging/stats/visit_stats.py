@@ -6,50 +6,43 @@
 
 import sqlite3
 from typing import List, Dict, Any, Optional
-from datetime import date
+from datetime import date, timedelta
+
+from starlette.concurrency import run_in_threadpool
 
 from app.common.path import LOGS_DATABASE_PATH
+from app.sql.db_pool import get_db_pool
 
 
-def get_total_visits() -> int:
-    """
-    获取总访问量
-
-    Returns:
-        总访问次数
-    """
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
-    # 查询 date=NULL 的记录（总计）
-    cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
-    result = cursor.fetchone()
-
-    db.close()
-
+def _sync_total_visits() -> int:
+    pool = get_db_pool(LOGS_DATABASE_PATH)
+    with pool.get_connection() as conn:
+        result = conn.execute(
+            "SELECT SUM(count) FROM api_visit_log WHERE date IS NULL"
+        ).fetchone()
     return result[0] if result and result[0] else 0
 
 
-def get_today_visits() -> int:
-    """
-    获取今日访问量
-
-    Returns:
-        今日访问次数
-    """
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
+def _sync_today_visits() -> int:
+    pool = get_db_pool(LOGS_DATABASE_PATH)
     today = date.today()
-    cursor.execute(
-        "SELECT SUM(count) FROM api_visit_log WHERE date(date) = ?",
-        (today,)
-    )
-    result = cursor.fetchone()
-
-    db.close()
-
+    tomorrow = today + timedelta(days=1)
+    with pool.get_connection() as conn:
+        result = conn.execute(
+            "SELECT SUM(count) FROM api_visit_log WHERE date >= ? AND date < ?",
+            (today.isoformat(), tomorrow.isoformat())
+        ).fetchone()
     return result[0] if result and result[0] else 0
+
+
+async def get_total_visits() -> int:
+    """获取总访问量"""
+    return await run_in_threadpool(_sync_total_visits)
+
+
+async def get_today_visits() -> int:
+    """获取今日访问量"""
+    return await run_in_threadpool(_sync_today_visits)
 
 
 def get_visit_history(
