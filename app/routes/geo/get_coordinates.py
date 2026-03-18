@@ -47,7 +47,8 @@ def _resolve_coordinates_sync(
         user: Optional[User]
 ):
     if query.iscustom and not user:
-        raise HTTPException(status_code=401, detail="Authentication required for custom coordinates")
+        # 未登錄時靜默降級：不查自定義數據，走普通流程
+        query.iscustom = False
 
     locations_list = query.locations.split(',')
     regions_list = query.regions.split(',')

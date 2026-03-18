@@ -6,8 +6,13 @@ from fastapi import Depends, HTTPException
 from app.common.path import DIALECTS_DB_ADMIN
 from app.redis_client import redis_client
 from app.routes.core.phonology import router
-from app.schemas import PhonologyMatrixRequest, PhonologyClassificationMatrixRequest
-from app.service.core.matrix import build_phonology_classification_matrix, get_all_phonology_matrices
+from app.schemas import PhonologyMatrixRequest, PhonologyClassificationMatrixRequest, PhoPieRequest
+from app.service.core.matrix import (
+    build_phonology_classification_matrix,
+    get_all_phonology_matrices,
+    build_pho_pie_by_value,
+    build_pho_pie_by_status,
+)
 from app.sql.db_selector import get_dialects_db
 
 
@@ -127,3 +132,58 @@ async def api_phonology_classification_matrix(
             status_code=500,
             detail=f"Internal Server Error: {str(e)}"
         )
+
+@router.post("/pho_pie_by_value")
+async def api_pho_pie_by_value(
+    payload: PhoPieRequest,
+    dialects_db: str = Depends(get_dialects_db)
+):
+    """
+    音值視角餅圖數據。
+
+    固定查詢聲母、韻母、聲調三個 feature。
+    每個獨特音值對應一個餅圖，扇形 = level1 各類別佔比；
+    點擊扇形可取得 level2 細分。
+    """
+    try:
+        result = await asyncio.to_thread(
+            build_pho_pie_by_value,
+            locations=payload.locations,
+            level1_column=payload.level1_column,
+            level2_column=payload.level2_column,
+            dialect_db_path=dialects_db,
+            table=payload.table_name,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+@router.post("/pho_pie_by_status")
+async def api_pho_pie_by_status(
+    payload: PhoPieRequest,
+    dialects_db: str = Depends(get_dialects_db)
+):
+    """
+    地位視角餅圖數據。
+
+    固定查詢聲母、韻母、聲調三個 feature。
+    每個 level1 類別對應一個餅圖，扇形 = 各音值佔比；
+    點擊扇形可取得該音值在 level2 的細分。
+    """
+    try:
+        result = await asyncio.to_thread(
+            build_pho_pie_by_status,
+            locations=payload.locations,
+            level1_column=payload.level1_column,
+            level2_column=payload.level2_column,
+            dialect_db_path=dialects_db,
+            table=payload.table_name,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")

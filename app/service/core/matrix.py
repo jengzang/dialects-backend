@@ -348,3 +348,218 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         }
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 音韻餅圖：共用查詢層
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _query_pho_pie_rows(
+    locations: List[str],
+    level1_column: str,
+    level2_column: str,
+    dialect_db_path: str,
+    character_db_path: str = CHARACTERS_DB_PATH,
+    table: str = "characters",
+):
+    """
+    一次 JOIN 查詢，取回所有地點的聲母/韻母/聲調 + 兩級分類值。
+
+    Returns:
+        list of (漢字, 聲母, 韻母, 聲調, l1, l2)
+    """
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        raise HTTPException(status_code=400, detail=f"無效的表名：{table}")
+
+    schema = get_table_schema(table)
+    char_col = schema["char_column"]
+    valid_cols = schema["hierarchy"]
+    for col in [level1_column, level2_column]:
+        if col not in valid_cols:
+            raise HTTPException(
+                status_code=400,
+                detail=f"欄位 '{col}' 在表 '{table}' 中無效，可用欄位：{valid_cols}"
+            )
+
+    pool = get_db_pool(dialect_db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"ATTACH DATABASE '{character_db_path}' AS chars_db")
+        placeholders = ",".join(f"'{loc}'" for loc in locations)
+        query = f"""
+            SELECT
+                d.漢字,
+                d.聲母,
+                d.韻母,
+                d.聲調,
+                c.{level1_column} AS l1,
+                c.{level2_column} AS l2
+            FROM dialects d
+            INNER JOIN chars_db.{table} c ON d.漢字 = c.{char_col}
+            WHERE d.簡稱 IN ({placeholders})
+              AND c.{level1_column} IS NOT NULL
+              AND c.{level2_column} IS NOT NULL
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        cursor.execute("DETACH DATABASE chars_db")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No data found for the specified locations")
+    return rows
+
+
+def _build_level2_entries(chars_by_l2: dict, total: int) -> List[Dict]:
+    """將 {l2: [chars]} 轉為帶 count/percent/chars 的列表，按 count 降序。"""
+    result = []
+    for label, chars in chars_by_l2.items():
+        count = len(chars)
+        result.append({
+            "label": label,
+            "count": count,
+            "percent": round(count / total * 100, 1) if total else 0.0,
+            "chars": sorted(set(chars)),
+        })
+    result.sort(key=lambda x: -x["count"])
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API 1：音值視角  /api/pho_pie_by_value
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_pho_pie_by_value(
+    locations: List[str],
+    level1_column: str,
+    level2_column: str,
+    dialect_db_path: str,
+    character_db_path: str = CHARACTERS_DB_PATH,
+    table: str = "characters",
+) -> Dict[str, Any]:
+    """
+    音值視角餅圖數據。
+
+    結構：feature → [音值 → level1分佈 → level2細分]
+    每個獨特音值對應一個餅圖，扇形 = level1 各類別佔比。
+    """
+    rows = _query_pho_pie_rows(
+        locations, level1_column, level2_column,
+        dialect_db_path, character_db_path, table
+    )
+
+    FEATURES = ["聲母", "韻母", "聲調"]
+    # {feature: {value: {l1: {l2: [chars]}}}}
+    from collections import defaultdict
+    agg: Dict[str, Dict[str, Dict[str, Dict[str, list]]]] = {
+        f: defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for f in FEATURES
+    }
+
+    for char, initial, final, tone, l1, l2 in rows:
+        for feature, val in zip(FEATURES, [initial, final, tone]):
+            if val:
+                agg[feature][val][l1][l2].append(char)
+
+    data = {}
+    for feature in FEATURES:
+        feature_list = []
+        for val, l1_dict in agg[feature].items():
+            total = sum(len(chars) for l1 in l1_dict.values() for chars in l1.values())
+            level1_entries = []
+            for l1_label, l2_dict in l1_dict.items():
+                l1_count = sum(len(c) for c in l2_dict.values())
+                level1_entries.append({
+                    "label": l1_label,
+                    "count": l1_count,
+                    "percent": round(l1_count / total * 100, 1) if total else 0.0,
+                    "chars": sorted(set(c for chars in l2_dict.values() for c in chars)),
+                    "level2": _build_level2_entries(l2_dict, l1_count),
+                })
+            level1_entries.sort(key=lambda x: -x["count"])
+            feature_list.append({
+                "value": val,
+                "total": total,
+                "level1": level1_entries,
+            })
+        # 聲母/韻母按自定義 IPA 順序排序，聲調按 custom_order 排序
+        feature_list.sort(key=lambda x: custom_phonology_sort([x["value"]])[0]
+                          if feature != "聲調" else x["value"])
+        data[feature] = feature_list
+
+    return {
+        "locations": locations,
+        "level1_column": level1_column,
+        "level2_column": level2_column,
+        "table_name": table,
+        "data": data,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# API 2：地位視角  /api/pho_pie_by_status
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_pho_pie_by_status(
+    locations: List[str],
+    level1_column: str,
+    level2_column: str,
+    dialect_db_path: str,
+    character_db_path: str = CHARACTERS_DB_PATH,
+    table: str = "characters",
+) -> Dict[str, Any]:
+    """
+    地位視角餅圖數據。
+
+    結構：feature → [level1類別 → 音值佔比 → level2細分]
+    每個 level1 類別對應一個餅圖，扇形 = 各音值佔比。
+    """
+    rows = _query_pho_pie_rows(
+        locations, level1_column, level2_column,
+        dialect_db_path, character_db_path, table
+    )
+
+    FEATURES = ["聲母", "韻母", "聲調"]
+    from collections import defaultdict
+    # {feature: {l1: {value: {l2: [chars]}}}}
+    agg: Dict[str, Dict[str, Dict[str, Dict[str, list]]]] = {
+        f: defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for f in FEATURES
+    }
+
+    for char, initial, final, tone, l1, l2 in rows:
+        for feature, val in zip(FEATURES, [initial, final, tone]):
+            if val:
+                agg[feature][l1][val][l2].append(char)
+
+    data = {}
+    for feature in FEATURES:
+        l1_list = []
+        for l1_label, val_dict in agg[feature].items():
+            total = sum(len(chars) for v in val_dict.values() for chars in v.values())
+            pho_entries = []
+            for val, l2_dict in val_dict.items():
+                val_count = sum(len(c) for c in l2_dict.values())
+                pho_entries.append({
+                    "value": val,
+                    "count": val_count,
+                    "percent": round(val_count / total * 100, 1) if total else 0.0,
+                    "chars": sorted(set(c for chars in l2_dict.values() for c in chars)),
+                    "level2": _build_level2_entries(l2_dict, val_count),
+                })
+            pho_entries.sort(key=lambda x: -x["count"])
+            l1_list.append({
+                "level1_value": l1_label,
+                "total": total,
+                "phonetic_values": pho_entries,
+            })
+        l1_list.sort(key=lambda x: x["level1_value"])
+        data[feature] = l1_list
+
+    return {
+        "locations": locations,
+        "level1_column": level1_column,
+        "level2_column": level2_column,
+        "table_name": table,
+        "data": data,
+    }

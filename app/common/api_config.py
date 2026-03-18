@@ -58,6 +58,7 @@ RECORD_API = [
     "api/tools",
     "feature_counts",
     "feature_stats",  # 新增：特征统计接口
+    "pho_pie",        # 新增：音韻餅圖接口
     "user/custom",
     "custom_regions",  # 新增：用户自定义区域接口
     "villages",  # 新增：villagesML 自然村分析接口
@@ -212,6 +213,18 @@ API_ROUTE_CONFIG = {
         "log_body": False,
     },
     "/api/feature_stats": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/pho_pie_by_value": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/pho_pie_by_status": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,

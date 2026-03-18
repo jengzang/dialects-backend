@@ -273,3 +273,53 @@ class FeatureStatsRequest(BaseModel):
         if invalid:
             raise ValueError(f"filters 中的無效鍵: {invalid}，必須是 {valid_features}")
         return v
+
+
+class PhoPieRequest(BaseModel):
+    """
+    音韻餅圖 API 請求模型（音值視角 + 地位視角共用）
+
+    固定查詢聲母、韻母、聲調三個 feature。
+    level1_column / level2_column 來自 characters.db 的分類欄位。
+    """
+    locations: List[str] = Field(
+        ...,
+        description="地點簡稱列表（必填）",
+        example=["東莞莞城", "廣州"]
+    )
+    level1_column: str = Field(
+        ...,
+        description="第一級分類欄位（來自 characters.db），如 攝、系、組",
+        example="攝"
+    )
+    level2_column: str = Field(
+        ...,
+        description="第二級分類欄位（來自 characters.db），如 韻、母",
+        example="韻"
+    )
+    table_name: str = Field(
+        default="characters",
+        description="characters.db 的表名"
+    )
+
+    @field_validator("table_name")
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_columns(self):
+        from app.common.constants import TABLE_COLUMN_SCHEMAS
+        schema = TABLE_COLUMN_SCHEMAS.get(self.table_name, {})
+        valid_cols = schema.get("hierarchy", [])
+        for col in [self.level1_column, self.level2_column]:
+            if col not in valid_cols:
+                raise ValueError(
+                    f"欄位 '{col}' 在表 '{self.table_name}' 中無效，可用欄位：{valid_cols}"
+                )
+        if self.level1_column == self.level2_column:
+            raise ValueError("level1_column 和 level2_column 不能相同")
+        return self

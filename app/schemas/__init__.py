@@ -16,7 +16,8 @@ from .core.phonology import (
     AnalysisPayload,
     PhonologyClassificationMatrixRequest,
     PhonologyMatrixRequest,
-    FeatureStatsRequest
+    FeatureStatsRequest,
+    PhoPieRequest,
 )
 from .user.submissions import FormData
 from app.schemas.user.custom_query import QueryParams, FeatureQueryParams
@@ -26,6 +27,7 @@ __all__ = [
     "PhonologyClassificationMatrixRequest",
     "PhonologyMatrixRequest",
     "FeatureStatsRequest",
+    "PhoPieRequest",
     "FormData",
     "QueryParams",
     "FeatureQueryParams",
