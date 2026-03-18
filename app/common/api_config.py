@@ -250,6 +250,26 @@ API_ROUTE_CONFIG = {
         "log_body": False,
     },
 
+    # ===== 其他 tools API =====
+    "/api/tools/check/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/tools/merge/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/tools/jyut2ipa/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+
     # # ===== Admin 会话管理 API =====
     # "/admin/user-sessions/*": {
     #     "rate_limit": True,  # 启用限流（防止管理员滥用）

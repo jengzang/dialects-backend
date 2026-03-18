@@ -195,82 +195,77 @@ async def check_api_usage_limit(
         ip_address: Optional[str] = None
 ) -> None:
     """
-    API 限流检查（基于请求次数，使用 Redis 计数器）
+    API 限流檢查（滑動窗口 + 雙重計數）
 
-    - 未登录: 默认放行（可选登录）；如需强制登录，传 require_login=True
-    - 管理员: 不限流
-    - 普通用户: 最近 1 小时内请求次数不得超过 MAX_USER_REQUESTS_PER_HOUR
-    - 未登录用户: 根据 IP 地址限制，最近 1 小时内请求次数不得超过 MAX_IP_REQUESTS_PER_HOUR
+    策略：
+    - 所有請求都記錄 IP 計數（無論是否登錄）
+    - 已登錄用戶額外記錄用戶計數
+    - 兩個計數器獨立觸發限流，取更嚴格的那個
+    - 防止用戶達到用戶限額後退出登錄繞過限制
+
+    限額：
+    - 管理員：不限流
+    - 已登錄用戶：IP 計數 ≤ MAX_IP_REQUESTS_PER_HOUR，用戶計數 ≤ MAX_USER_REQUESTS_PER_HOUR
+    - 未登錄遊客：IP 計數 ≤ MAX_IP_REQUESTS_PER_HOUR
     """
-    # 1) 可选登录场景处理
-    if user is None:
-        if require_login:
-            raise HTTPException(status_code=401, detail="[TIP] 請先登錄")
+    import time
 
-        # 未登录用户，按 IP 进行限制
-        if ip_address is None:
-            raise HTTPException(status_code=400, detail="🚫 IP 地址缺失")
+    # 1) 管理員不受限制
+    if user and user.role == "admin":
+        return
 
-        # 使用 Redis 计数器进行限流
-        try:
-            # 生成当前小时的时间戳（固定窗口）
-            from datetime import datetime
-            current_hour = datetime.utcnow().strftime("%Y%m%d%H")
-            cache_key = f"rate_limit:ip:{ip_address}:{current_hour}"
+    # 2) 需要登錄但未登錄
+    if user is None and require_login:
+        raise HTTPException(status_code=401, detail="[TIP] 請先登錄")
 
-            # 增加计数
-            count = await redis_client.incr(cache_key)
+    WINDOW = 3600  # 滑動窗口大小：1 小時
+    now = int(time.time())
+    cutoff = now - WINDOW  # 窗口起始時間戳
 
-            # 第一次访问时设置过期时间（1小时）
-            if count == 1:
-                await redis_client.expire(cache_key, 3600)
+    try:
+        # === 步驟 A：始終記錄並檢查 IP 計數 ===
+        if ip_address:
+            ip_key = f"rl:ip:{ip_address}"
+            # 用時間戳作為 score 和 member（加隨機後綴避免同一秒衝突）
+            member = f"{now}:{id(object())}"
+            await redis_client.zadd(ip_key, {member: now})
+            await redis_client.zremrangebyscore(ip_key, 0, cutoff)
+            await redis_client.expire(ip_key, WINDOW + 60)
+            ip_count = await redis_client.zcard(ip_key)
 
-            # 检查是否超过限制
-            if count > MAX_IP_REQUESTS_PER_HOUR:
+            if ip_count > MAX_IP_REQUESTS_PER_HOUR:
+                if user is None:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"[X] API請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試\n"
+                               f"[NEW] 小提醒：登入帳號可繼續查詢！[RUN]"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"[X] 該 IP 請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試"
+                    )
+
+        # === 步驟 B：已登錄用戶額外檢查用戶計數 ===
+        if user:
+            user_key = f"rl:user:{user.id}"
+            member = f"{now}:{id(object())}"
+            await redis_client.zadd(user_key, {member: now})
+            await redis_client.zremrangebyscore(user_key, 0, cutoff)
+            await redis_client.expire(user_key, WINDOW + 60)
+            user_count = await redis_client.zcard(user_key)
+
+            if user_count > MAX_USER_REQUESTS_PER_HOUR:
                 raise HTTPException(
                     status_code=429,
-                    detail=f"[X] API請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試\n"
-                           f"[NEW] 小提醒：登入帳號可繼續查詢！[RUN]"
+                    detail=f"[X] API請求已達每小時上限（{MAX_USER_REQUESTS_PER_HOUR}次），請稍後再試"
                 )
-        except HTTPException:
-            # 限流异常直接抛出
-            raise
-        except Exception as e:
-            # Redis 失败时降级：不限流（或者可以改为降级到数据库查询）
-            print(f"[WARN] Redis 限流失败，降级为不限流: {e}")
-            pass
 
-        return
-
-    # 2) 管理员不受限制
-    if user.role == "admin":
-        return
-
-    # 3) 已登录用户根据用户 ID 限流
-    try:
-        from datetime import datetime
-        current_hour = datetime.utcnow().strftime("%Y%m%d%H")
-        cache_key = f"rate_limit:user:{user.id}:{current_hour}"
-
-        # 增加计数
-        count = await redis_client.incr(cache_key)
-
-        # 第一次访问时设置过期时间（1小时）
-        if count == 1:
-            await redis_client.expire(cache_key, 3600)
-
-        # 检查是否超过限制
-        if count > MAX_USER_REQUESTS_PER_HOUR:
-            raise HTTPException(
-                status_code=429,
-                detail=f"[X] API請求已達每小時上限（{MAX_USER_REQUESTS_PER_HOUR}次），請稍後再試"
-            )
     except HTTPException:
-        # 限流异常直接抛出
         raise
     except Exception as e:
-        # Redis 失败时降级：不限流
-        print(f"[WARN] Redis 限流失败，降级为不限流: {e}")
+        # Redis 故障時降級：記錄警告但不阻斷服務
+        print(f"[WARN] Redis 限流失敗，降級為不限流: {e}")
         pass
 
 def check_login_rate_limit(db: Session, ip: str):
