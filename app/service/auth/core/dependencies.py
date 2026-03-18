@@ -205,7 +205,7 @@ async def check_api_usage_limit(
 
     限額：
     - 管理員：不限流
-    - 已登錄用戶：IP 計數 ≤ MAX_IP_REQUESTS_PER_HOUR，用戶計數 ≤ MAX_USER_REQUESTS_PER_HOUR
+    - 已登錄用戶：IP 計數 ≤ MAX_USER_REQUESTS_PER_HOUR，用戶計數 ≤ MAX_USER_REQUESTS_PER_HOUR（任一達到即限流）
     - 未登錄遊客：IP 計數 ≤ MAX_IP_REQUESTS_PER_HOUR
     """
     import time
@@ -222,6 +222,9 @@ async def check_api_usage_limit(
     now = int(time.time())
     cutoff = now - WINDOW  # 窗口起始時間戳
 
+    # 已登錄用戶的 IP 限額與用戶名一致，遊客使用較低的 IP 限額
+    ip_limit = MAX_USER_REQUESTS_PER_HOUR if user else MAX_IP_REQUESTS_PER_HOUR
+
     try:
         # === 步驟 A：始終記錄並檢查 IP 計數 ===
         if ip_address:
@@ -233,17 +236,17 @@ async def check_api_usage_limit(
             await redis_client.expire(ip_key, WINDOW + 60)
             ip_count = await redis_client.zcard(ip_key)
 
-            if ip_count > MAX_IP_REQUESTS_PER_HOUR:
+            if ip_count > ip_limit:
                 if user is None:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"[X] API請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試\n"
+                        detail=f"[X] API請求已達每小時上限（{ip_limit}次），請稍後再試\n"
                                f"[NEW] 小提醒：登入帳號可繼續查詢！[RUN]"
                     )
                 else:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"[X] 該 IP 請求已達每小時上限（{MAX_IP_REQUESTS_PER_HOUR}次），請稍後再試"
+                        detail=f"[X] 該 IP 請求已達每小時上限（{ip_limit}次），請稍後再試"
                     )
 
         # === 步驟 B：已登錄用戶額外檢查用戶計數 ===
