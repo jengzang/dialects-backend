@@ -1,0 +1,89 @@
+{
+  "server": {
+    "base_url": "http://localhost:5000",
+    "openapi_path": "/openapi.json"
+  },
+  "auth": {
+    "enabled": true,
+    "login_path": "/auth/login",
+    "username": "admin",
+    "password": "",
+    "password_env": "TEST_ADMIN_PASSWORD"
+  },
+  "defaults": {
+    "timeout_seconds": 15
+  },
+  "fixtures": {
+    "api_path": ""
+  },
+  "cases": {
+    "logs_stats_hourly": {
+      "method": "GET",
+      "path": "/logs/stats/hourly",
+      "params": {
+        "hours": 24
+      }
+    },
+    "logs_stats_daily": {
+      "method": "GET",
+      "path": "/logs/stats/daily",
+      "params": {
+        "days": 7
+      }
+    },
+    "logs_stats_ranking": {
+      "method": "GET",
+      "path": "/logs/stats/ranking",
+      "params": {
+        "limit": 5
+      }
+    }
+  },
+  "smoke": {
+    "enabled": true,
+    "methods": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE"
+    ],
+    "include_path_prefixes": [
+      "/api",
+      "/admin",
+      "/auth",
+      "/logs"
+    ],
+    "exclude_path_prefixes": [
+      "/docs",
+      "/redoc"
+    ],
+    "exclude_paths": [
+      "/openapi.json"
+    ],
+    "accepted_statuses": [
+      200,
+      201,
+      202,
+      204,
+      400,
+      401,
+      403,
+      404,
+      405,
+      409,
+      422
+    ],
+    "fail_on_any_error": true,
+    "max_endpoints": 0,
+    "path_param_defaults": {
+      "id": 1,
+      "user_id": 1,
+      "run_id": 1,
+      "task_id": "test-task-id",
+      "job_id": "test-job-id",
+      "api_name": "/api/test",
+      "path": "/api/test"
+    }
+  }
+}
