@@ -41,16 +41,16 @@ async def api_limiter_dependency(
     # 获取路由配置
     config = match_route_config(path)
 
-    # 如果不需要限流，直接返回
-    if not config.get("rate_limit"):
-        # print(f"[ApiLimiter] 跳过限流检查: {path}")
-        return user
+    require_login = config.get("require_login", REQUIRE_LOGIN)
+    if require_login and user is None:
+        raise HTTPException(status_code=401, detail="[TIP] 请先登录")
 
-    # print(f"[ApiLimiter] 开始限流检查: {path}")
+    # 如果不需要限流，登录检查后即可返回
+    if not config.get("rate_limit"):
+        return user
 
     # 执行限流检查
     ip_address = request.client.host
-    require_login = config.get("require_login", REQUIRE_LOGIN)
 
     user_info = f"用户: {user.username}" if user else "匿名用户"
     # print(f"[ApiLimiter] {user_info}, IP: {ip_address}, 需要登录: {require_login}")

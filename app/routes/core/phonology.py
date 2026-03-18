@@ -1,8 +1,6 @@
 # routes/phonology.py
 """
-[PKG] 路由模塊：處理 /api/phonology 音韻分析請求。
-不改動原邏輯，將原來 app.py 中對應接口移出。
-"""
+[PKG] 璺敱妯″锛氳檿鐞?/api/phonology 闊抽熁鍒嗘瀽璜嬫眰銆?涓嶆敼鍕曞師閭忚集锛屽皣鍘熶締 app.py 涓皪鎳夋帴鍙ｇЩ鍑恒€?"""
 
 import asyncio
 import json
@@ -33,43 +31,31 @@ async def api_run_phonology_analysis(
         query_db: str = Depends(get_query_db)
 ):
     """
-     - 用于 /api/phonology 路由的輸入特徵，分析聲韻。
-    :param payload: - mode: p2s-查詢音位查詢的中古來源 s2p-按中古地位查詢音值
-    - locations: 輸入地點（可多個）
-    - regions: 輸入分區（某一級分區，例如嶺南，可多個）
-    - features: 要查詢的特徵（聲母/韻母/聲調）必須完全匹配，用繁體字
-    - status_inputs: 要查詢的中古地位，可帶類名（例如莊組），也可不帶（例如來）；
-                   並且支持-全匹配（例如宕-等，會自動匹配宕一、宕三）；後端會進行簡繁轉換，可輸入簡體
-                   s2p模式需要的輸入，若留空，則韻母查所有攝，聲母查三十六母，聲調查清濁+調
-    - group_inputs: 分組特徵，輸入中古的類名（例如攝，則按韻攝整理某個音位）
-                  可輸入簡體，支持簡體轉繁體
-                   p2s模式需要的輸入，若不填，則韻母按攝分類，聲母按聲分類，聲調按清濁+調分類。
-    - pho_values: 要查詢的具體音值，p2s模式下的輸入，若留空，則查所有音值
-    :param user: 後端校驗得到的用戶身份
-    :return: - 若為s2p,返回一個帶有地點、特徵（聲韻調）、分類值（中古地位）、值（具體音值）、對應字（所有查到的字）、
-            字數、佔比（在所有查得的值中佔比）、多音字 的數組。p2s也是類似
+     - 鐢ㄤ簬 /api/phonology 璺敱鐨勮几鍏ョ壒寰碉紝鍒嗘瀽鑱查熁銆?    :param payload: - mode: p2s-鏌ヨ闊充綅鏌ヨ鐨勪腑鍙や締婧?s2p-鎸変腑鍙ゅ湴浣嶆煡瑭㈤煶鍊?    - locations: 杓稿叆鍦伴粸锛堝彲澶氬€嬶級
+    - regions: 杓稿叆鍒嗗崁锛堟煇涓€绱氬垎鍗€锛屼緥濡傚逗鍗楋紝鍙鍊嬶級
+    - features: 瑕佹煡瑭㈢殑鐗瑰镜锛堣伈姣?闊绘瘝/鑱茶锛夊繀闋堝畬鍏ㄥ尮閰嶏紝鐢ㄧ箒楂斿瓧
+    - status_inputs: 瑕佹煡瑭㈢殑涓彜鍦颁綅锛屽彲甯堕鍚嶏紙渚嬪鑾婄祫锛夛紝涔熷彲涓嶅付锛堜緥濡備締锛夛紱
+                   涓︿笖鏀寔-鍏ㄥ尮閰嶏紙渚嬪瀹?绛夛紝鏈冭嚜鍕曞尮閰嶅畷涓€銆佸畷涓夛級锛涘緦绔渻閫茶绨＄箒杞夋彌锛屽彲杓稿叆绨￠珨
+                   s2p妯″紡闇€瑕佺殑杓稿叆锛岃嫢鐣欑┖锛屽墖闊绘瘝鏌ユ墍鏈夋敐锛岃伈姣嶆煡涓夊崄鍏瘝锛岃伈瑾挎煡娓呮縼+瑾?    - group_inputs: 鍒嗙祫鐗瑰镜锛岃几鍏ヤ腑鍙ょ殑椤炲悕锛堜緥濡傛敐锛屽墖鎸夐熁鏀濇暣鐞嗘煇鍊嬮煶浣嶏級
+                  鍙几鍏ョ啊楂旓紝鏀寔绨￠珨杞夌箒楂?                   p2s妯″紡闇€瑕佺殑杓稿叆锛岃嫢涓嶅～锛屽墖闊绘瘝鎸夋敐鍒嗛锛岃伈姣嶆寜鑱插垎椤烇紝鑱茶鎸夋竻婵?瑾垮垎椤炪€?    - pho_values: 瑕佹煡瑭㈢殑鍏烽珨闊冲€硷紝p2s妯″紡涓嬬殑杓稿叆锛岃嫢鐣欑┖锛屽墖鏌ユ墍鏈夐煶鍊?    :param user: 寰岀鏍￠寰楀埌鐨勭敤鎴惰韩浠?    :return: - 鑻ョ偤s2p,杩斿洖涓€鍊嬪付鏈夊湴榛炪€佺壒寰碉紙鑱查熁瑾匡級銆佸垎椤炲€硷紙涓彜鍦颁綅锛夈€佸€硷紙鍏烽珨闊冲€硷級銆佸皪鎳夊瓧锛堟墍鏈夋煡鍒扮殑瀛楋級銆?            瀛楁暩銆佷綌姣旓紙鍦ㄦ墍鏈夋煡寰楃殑鍊间腑浣旀瘮锛夈€佸闊冲瓧 鐨勬暩绲勩€俻2s涔熸槸椤炰技
     """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-
+    # 闄愭祦鍜屾棩蹇楄褰曞凡鐢变腑闂翠欢鍜屼緷璧栨敞鍏ヨ嚜鍔ㄥ鐞?
     # start = time.time()
     try:
-        # 数据库路径已通过依赖注入自动选择
+        # 鏁版嵁搴撹矾寰勫凡閫氳繃渚濊禆娉ㄥ叆鑷姩閫夋嫨
         result = await asyncio.to_thread(run_phonology_analysis, **payload.dict(), dialects_db=dialects_db, query_db=query_db)
         if not result:
-            raise HTTPException(status_code=400, detail="[X] 輸入的中古地位不存在")
-        status = 200
+            raise HTTPException(status_code=400, detail="[X] 杓稿叆鐨勪腑鍙ゅ湴浣嶄笉瀛樺湪")
         if isinstance(result, pd.DataFrame):
             return {"success": True, "results": result.to_dict(orient="records")}
         if isinstance(result, list) and all(isinstance(df, pd.DataFrame) for df in result):
             merged = pd.concat(result, ignore_index=True)
             return {"success": True, "results": merged.to_dict(orient="records")}
-        return {"success": False, "error": "未識別的分析結果格式"}
-    except HTTPException as http_exc:
-        status = http_exc.status_code  # 抓出 status
+        raise HTTPException(status_code=500, detail="未识别的分析结果格式")
+    except HTTPException:
         raise
     except Exception as e:
-        status = 500
-        return {"success": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         print("api_run_phonology_analysis")
         # duration = time.time() - start
@@ -79,11 +65,10 @@ async def api_run_phonology_analysis(
         # referer = request.headers.get("referer", "")
         # user_id = user.id if user else None
 
-        # 原有寫入 JSON 日誌
+        # 鍘熸湁瀵叆 JSON 鏃ヨ獙
         # log_detailed_api(path, duration, status, ip, agent, referer)
 
-        # 新增寫入資料庫
-        # log_detailed_api_to_db(db, path, duration, status, ip, agent, referer, user_id, CLEAR_2HOUR)
+        # 鏂板瀵叆璩囨枡搴?        # log_detailed_api_to_db(db, path, duration, status, ip, agent, referer, user_id, CLEAR_2HOUR)
 
 
 def run_phonology_analysis(
@@ -96,38 +81,34 @@ def run_phonology_analysis(
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
         region_mode='yindian',
-        query_db=QUERY_DB_USER  # 新增：用于查询地点的数据库
+        query_db=QUERY_DB_USER
 ):
     """
-    統一介面函數：根據 mode ('s2p' 或 'p2s') 執行 sta2pho 或 pho2sta。
+    绲变竴浠嬮潰鍑芥暩锛氭牴鎿?mode ('s2p' 鎴?'p2s') 鍩疯 sta2pho 鎴?pho2sta銆?
+    鍙冩暩锛?        mode: 's2p' = 瑾為煶姊濅欢 鉃?绲辫▓锛?p2s' = 鐗瑰镜鍊?鉃?绲辫▓
+        locations: 鏂硅█榛炲悕绋?        features: 瑾為煶鐗瑰镜娆勪綅
+        status_inputs: 瑾為煶姊濅欢瀛椾覆锛堝 '鐭ョ祫涓?锛夛紝鍍呴檺 's2p'
+        group_inputs: 瑕佸垎绲勭殑娆勪綅锛堝 '绲勮伈'锛夛紝鍍呴檺 'p2s'
+        pho_values: 闊冲€兼浠讹紙濡?['l', 'm', 'an']锛夛紝鍍呴檺 'p2s'
 
-    參數：
-        mode: 's2p' = 語音條件 ➝ 統計；'p2s' = 特徵值 ➝ 統計
-        locations: 方言點名稱
-        features: 語音特徵欄位
-        status_inputs: 語音條件字串（如 '知組三'），僅限 's2p'
-        group_inputs: 要分組的欄位（如 '組聲'），僅限 'p2s'
-        pho_values: 音值條件（如 ['l', 'm', 'an']），僅限 'p2s'
-
-    回傳：
-        List[pd.DataFrame]
+    鍥炲偝锛?        List[pd.DataFrame]
     """
 
     if mode == 's2p':
         # if not status_inputs:
-        #     raise ValueError("🔴 mode='s2p' 時，請提供 status_inputs。")
+        #     raise ValueError("馃敶 mode='s2p' 鏅傦紝璜嬫彁渚?status_inputs銆?)
         return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db,
                        region_mode=region_mode, db_path_query=query_db)
 
     elif mode == 'p2s':
         # if not group_inputs :
-        #     raise ValueError("🔴 mode='p2s' 時，請提供 group_inputs ")
+        #     raise ValueError("馃敶 mode='p2s' 鏅傦紝璜嬫彁渚?group_inputs ")
         return pho2sta(locations, regions, features, group_inputs, pho_values,
                        dialect_db_path=dialects_db, region_mode=region_mode, query_db_path=query_db)
 
 
     else:
-        raise ValueError("🔴 mode 必須為 's2p' 或 'p2s'")
+        raise ValueError("馃敶 mode 蹇呴爤鐐?'s2p' 鎴?'p2s'")
 
 
 
@@ -137,9 +118,9 @@ async def feature_counts(
     dialects_db: str = Depends(get_dialects_db)
 ):
     try:
-        # 数据库路径已通过依赖注入自动选择
+        # 鏁版嵁搴撹矾寰勫凡閫氳繃渚濊禆娉ㄥ叆鑷姩閫夋嫨
         result = get_feature_counts(locations, dialects_db)
-        # 如果结果为空，可以抛出 HTTP 404 错误
+        # 濡傛灉缁撴灉涓虹┖锛屽彲浠ユ姏鍑?HTTP 404 閿欒
         if not result:
             raise HTTPException(status_code=404, detail="No data found for the given locations.")
         return result
@@ -153,33 +134,26 @@ async def feature_stats(
     dialects_db: str = Depends(get_dialects_db)
 ):
     """
-    獲取指定地點的音韻特徵統計數據（索引優化格式）
-
-    支持功能：
-    1. 漢字篩選（chars 參數）
-    2. 特徵值篩選（filters 參數）
-    3. 計算每個特徵值的數量和占比
-    4. 返回索引優化格式（減少數據重複）
-    5. Redis 緩存（1小時 TTL）
-
+    鐛插彇鎸囧畾鍦伴粸鐨勯煶闊荤壒寰电当瑷堟暩鎿氾紙绱㈠紩鍎寲鏍煎紡锛?
+    鏀寔鍔熻兘锛?    1. 婕㈠瓧绡╅伕锛坈hars 鍙冩暩锛?    2. 鐗瑰镜鍊肩閬革紙filters 鍙冩暩锛?    3. 瑷堢畻姣忓€嬬壒寰靛€肩殑鏁搁噺鍜屽崰姣?    4. 杩斿洖绱㈠紩鍎寲鏍煎紡锛堟笡灏戞暩鎿氶噸瑜囷級
+    5. Redis 绶╁瓨锛?灏忔檪 TTL锛?
     Request Body:
     {
-        "locations": ["廣州", "東莞"],           // 必需
-        "chars": ["東", "西"],                   // 可選
-        "features": ["聲母", "韻母", "聲調"],    // 可選，默認全部
-        "filters": {                             // 可選
-            "聲母": ["p", "b"],
-            "韻母": ["a", "ɐ"]
+        "locations": ["寤ｅ窞", "鏉辫帪"],           // 蹇呴渶
+        "chars": ["鏉?, "瑗?],                   // 鍙伕
+        "features": ["鑱叉瘝", "闊绘瘝", "鑱茶"],    // 鍙伕锛岄粯瑾嶅叏閮?        "filters": {                             // 鍙伕
+            "鑱叉瘝": ["p", "b"],
+            "闊绘瘝": ["a", "蓯"]
         }
     }
 
     Response:
     {
-        "chars_map": ["八", "把", "白", ...],   // 全局字符字典
+        "chars_map": ["鍏?, "鎶?, "鐧?, ...],   // 鍏ㄥ眬瀛楃瀛楀吀
         "data": {
-            "廣州": {
+            "寤ｅ窞": {
                 "total_chars": 3000,
-                "聲母": {
+                "鑱叉瘝": {
                     "p": {
                         "count": 150,
                         "ratio": 0.05,
@@ -196,14 +170,13 @@ async def feature_stats(
         }
     }
     """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-
+    # 闄愭祦鍜屾棩蹇楄褰曞凡鐢变腑闂翠欢鍜屼緷璧栨敞鍏ヨ嚜鍔ㄥ鐞?
     try:
-        # 数据库路径已通过依赖注入自动选择
-        # 根据数据库路径判断类型（用于缓存键）
+        # 鏁版嵁搴撹矾寰勫凡閫氳繃渚濊禆娉ㄥ叆鑷姩閫夋嫨
+        # 鏍规嵁鏁版嵁搴撹矾寰勫垽鏂被鍨嬶紙鐢ㄤ簬缂撳瓨閿級
         db_type = "admin" if dialects_db == DIALECTS_DB_ADMIN else "user"
 
-        # 生成緩存鍵
+        # 鐢熸垚绶╁瓨閸?        cache_key = generate_cache_key(
         cache_key = generate_cache_key(
             db_type=db_type,
             locations=payload.locations,
@@ -212,15 +185,15 @@ async def feature_stats(
             filters=payload.filters
         )
 
-        # 嘗試從 Redis 獲取緩存
+        # 鍢楄│寰?Redis 鐛插彇绶╁瓨
         cached_data = await redis_client.get(cache_key)
         if cached_data:
             print(f"[CACHE HIT] {cache_key}")
             return json.loads(cached_data)
 
-        print(f"[CACHE MISS] {cache_key} - 查詢數據庫")
+        print(f"[CACHE MISS] {cache_key} - querying db")
 
-        # 從數據庫查詢
+        # 寰炴暩鎿氬韩鏌ヨ
         result = await asyncio.to_thread(
             get_feature_statistics,
             locations=payload.locations,
@@ -236,10 +209,10 @@ async def feature_stats(
                 detail="No data found for the specified locations"
             )
 
-        # 存入 Redis 緩存（1小時過期）
+        # 瀛樺叆 Redis 绶╁瓨锛?灏忔檪閬庢湡锛?        await redis_client.setex(
         await redis_client.setex(
             cache_key,
-            3600,  # 1小時
+            3600,  # 1灏忔檪
             json.dumps(result, ensure_ascii=False)
         )
         print(f"[CACHE SET] {cache_key}")
@@ -249,7 +222,7 @@ async def feature_stats(
     except HTTPException:
         raise
     except ValueError as e:
-        # 捕获验证错误（来自 get_feature_statistics）
+        # 鎹曡幏楠岃瘉閿欒锛堟潵鑷?get_feature_statistics锛?        print(f"[VALIDATION ERROR] {str(e)}")
         print(f"[VALIDATION ERROR] {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -261,4 +234,6 @@ async def feature_stats(
             status_code=500,
             detail=f"Internal Server Error: {str(e)}"
         )
+
+
 

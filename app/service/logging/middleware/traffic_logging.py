@@ -140,7 +140,10 @@ def log_keyword(path: str, field: str, value):
         field=field,
         value=str(value)
     )
-    keyword_log_queue.put(log)
+    try:
+        keyword_log_queue.put_nowait(log)
+    except Full:
+        print("[WARN] keyword_log_queue is full, dropping ApiKeywordLog entry")
 
 
 def log_all_fields(path: str, param_dict: dict):
@@ -359,7 +362,10 @@ def update_statistic(db: Session, stat_type: str, date: datetime, category: str,
 def update_count(path: str):
     """更新 API 调用次数统计"""
     today = datetime.now()
-    statistics_queue.put((path, today))
+    try:
+        statistics_queue.put_nowait((path, today))
+    except Full:
+        print("[WARN] statistics_queue is full, dropping statistics update")
 
 
 def enqueue_online_time_non_blocking(data: dict):
@@ -384,7 +390,10 @@ def enqueue_online_time_non_blocking(data: dict):
 def update_html_visit(path: str):
     """更新 HTML 页面访问次数统计"""
     today = datetime.now()
-    html_visit_queue.put((path, today))
+    try:
+        html_visit_queue.put_nowait((path, today))
+    except Full:
+        print("[WARN] html_visit_queue is full, dropping html visit update")
 
 
 # === HTML 页面访问统计写入线程（logs.db）===
@@ -557,17 +566,23 @@ def log_detailed_api_to_db(
     )
 
     # 将日志添加到队列
-    log_queue.put(log)
+    try:
+        log_queue.put_nowait(log)
+    except Full:
+        print("[WARN] log_queue is full, dropping ApiUsageLog entry")
 
     # Step 2: enqueue ApiUsageSummary update
     if user_id:
-        summary_queue.put({
-            'user_id': user_id,
-            'path': path,
-            'duration': duration,
-            'request_size': request_size,
-            'response_size': response_size
-        })
+        try:
+            summary_queue.put_nowait({
+                'user_id': user_id,
+                'path': path,
+                'duration': duration,
+                'request_size': request_size,
+                'response_size': response_size
+            })
+        except Full:
+            print("[WARN] summary_queue is full, dropping ApiUsageSummary entry")
 
 
 def summary_writer():

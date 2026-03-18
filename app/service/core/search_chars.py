@@ -121,33 +121,39 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
         try:
             if clean_str and all_locations:
                 # SQLite参数限制：默认999个参数
-                # 对于大量数据，需要分批处理
                 MAX_PARAMS = 900  # 留一些余量
-                char_loc_pairs = [(c, loc) for c in clean_str for loc in all_locations]
+                unique_chars = list(dict.fromkeys(clean_str))
+                unique_locations = list(dict.fromkeys(all_locations))
 
-                # 分批查询
-                for i in range(0, len(char_loc_pairs), MAX_PARAMS // 2):
-                    batch = char_loc_pairs[i:i + MAX_PARAMS // 2]
-                    pair_placeholders = ','.join(['(?,?)'] * len(batch))
-                    flat_params = [val for pair in batch for val in pair]
+                # 分批查询（避免构造字符×地点笛卡尔积参数）
+                max_loc_batch = max(1, MAX_PARAMS // 2)
+                for loc_start in range(0, len(unique_locations), max_loc_batch):
+                    loc_batch = unique_locations[loc_start:loc_start + max_loc_batch]
+                    max_char_batch = max(1, MAX_PARAMS - len(loc_batch))
 
-                    dialect_query = f"""
-                        SELECT 漢字, 簡稱, 音節, 多音字, 註釋
-                        FROM dialects
-                        WHERE (漢字, 簡稱) IN ({pair_placeholders})
-                    """
-                    dialect_cursor.execute(dialect_query, flat_params)
-                    batch_results = dialect_cursor.fetchall()
+                    for char_start in range(0, len(unique_chars), max_char_batch):
+                        char_batch = unique_chars[char_start:char_start + max_char_batch]
+                        char_placeholders = ','.join('?' * len(char_batch))
+                        loc_placeholders = ','.join('?' * len(loc_batch))
 
-                    # 组织结果到嵌套字典
-                    for row in batch_results:
-                        char = row['漢字']
-                        loc = row['簡稱']
-                        if char not in char2loc2data:
-                            char2loc2data[char] = {}
-                        if loc not in char2loc2data[char]:
-                            char2loc2data[char][loc] = []
-                        char2loc2data[char][loc].append(row)
+                        dialect_query = f"""
+                            SELECT 漢字, 簡稱, 音節, 多音字, 註釋
+                            FROM dialects
+                            WHERE 漢字 IN ({char_placeholders})
+                            AND 簡稱 IN ({loc_placeholders})
+                        """
+                        dialect_cursor.execute(dialect_query, char_batch + loc_batch)
+                        batch_results = dialect_cursor.fetchall()
+
+                        # 组织结果到嵌套字典
+                        for row in batch_results:
+                            char = row['漢字']
+                            loc = row['簡稱']
+                            if char not in char2loc2data:
+                                char2loc2data[char] = {}
+                            if loc not in char2loc2data[char]:
+                                char2loc2data[char][loc] = []
+                            char2loc2data[char][loc].append(row)
 
             # [OK] 批量查询多音字的全部音节（用于补充）
             char2all_syllables = {}
@@ -233,6 +239,5 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
             pass  # 连接池会自动管理连接
 
     return result
-
 
 

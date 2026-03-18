@@ -10,6 +10,11 @@ from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
+
+def _quote_identifier(name: str) -> str:
+    return f'"{name.replace("\"", "\"\"")}"'
+
+
 """
 本腳本提供一組函數用於從語音描述詞查詢對應漢字，並根據不同地點與語音特徵進行統計分析。
 核心流程與功能如下：
@@ -616,7 +621,20 @@ def sta2pho(
         print("[i] inputs 為空，自動推導條件字串...")
         pool = get_db_pool(db_path_char)
         with pool.get_connection() as conn:
-            df_char = pd.read_sql_query("SELECT * FROM characters", conn)
+            required_columns = set()
+            for feat in features:
+                if feat == "聲母":
+                    required_columns.add("母")
+                elif feat == "韻母":
+                    required_columns.add("攝")
+                elif feat == "聲調":
+                    required_columns.update({"清濁", "調"})
+
+            if required_columns:
+                select_cols = ", ".join(_quote_identifier(col) for col in sorted(required_columns))
+                df_char = pd.read_sql_query(f"SELECT {select_cols} FROM characters", conn)
+            else:
+                df_char = pd.DataFrame()
 
         auto_inputs = []
         auto_features = []
@@ -718,19 +736,23 @@ def extract_unique_values(db_path=CHARACTERS_DB_PATH, table="characters"):
     schema = get_table_schema(table)
 
     pool = get_db_pool(db_path)
-    with pool.get_connection() as conn:
-        df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+    table_q = _quote_identifier(table)
 
     unique_values = {}
 
-    for col in schema["hierarchy"]:
-        if col in df.columns:
-            values = df[col].dropna().unique()
-            values = sorted(str(v).strip() for v in values if str(v).strip() != "")
-            unique_values[col] = values
-        else:
-            unique_values[col] = []
-            print(f"[!] 欄位「{col}」不存在於表 '{table}' 中")
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        for col in schema["hierarchy"]:
+            col_q = _quote_identifier(col)
+            cursor.execute(
+                f"""
+                SELECT DISTINCT {col_q}
+                FROM {table_q}
+                WHERE {col_q} IS NOT NULL AND TRIM({col_q}) != ''
+                ORDER BY {col_q} ASC
+                """
+            )
+            unique_values[col] = [str(row[0]).strip() for row in cursor.fetchall()]
 
     return unique_values
 
@@ -833,4 +855,3 @@ def query_by_status_stats_only(char_list, locations, features, db_path=DIALECTS_
             }
 
     return results
-

@@ -32,6 +32,7 @@ router = APIRouter()
 
 _SCHEMA_CACHE = {}
 _SCHEMA_LOCK = threading.Lock()
+MAX_FULL_TREE_ROWS = 200000
 
 
 def _quote_identifier(name: str) -> str:
@@ -345,9 +346,19 @@ async def get_full_tree(
             order_by = ", ".join([f"{_quote_identifier(name)} ASC" for name in level_col_names])
             sql += f" ORDER BY {order_by}"
 
-            # 执行查询
+            # 执行查询（加上限保护，避免全表超大结果拖垮接口）
+            sql += f" LIMIT {MAX_FULL_TREE_ROWS + 1}"
             cursor.execute(sql, values)
             rows = [dict(row) for row in cursor.fetchall()]
+
+            if len(rows) > MAX_FULL_TREE_ROWS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"结果集过大（超过 {MAX_FULL_TREE_ROWS} 行），"
+                        "请增加 filters 或改用 /sql/tree/lazy 分层加载。"
+                    ),
+                )
 
             # 3. 传入数据列名进行构建
             tree = build_tree_structure(rows, level_col_names, data_col_names)
