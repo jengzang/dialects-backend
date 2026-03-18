@@ -36,11 +36,8 @@ logs/
 *.sql-shm
 *.sql-wal
 
-# Frontend build artifacts (重要！)
-app/statics/assets/main.*.js
-app/statics/assets/main.*.css
-app/statics/admin/admin.js
-app/statics/admin/admin.css
+# Frontend statics（由前端仓库管理，不提交到后端仓库）
+app/statics/
 
 # Temporary files
 *.tmp
@@ -55,3 +52,14 @@ Thumbs.db
 
 # Claude
 .claude/
+CLAUDE.md
+
+# 服务器特定配置（不适合开源）
+myapp.conf
+deploy_statics.ps1
+deploy_statics.sh
+
+# 临时分析文件
+route_analysis_report.txt
+temp_*.txt
+temp_*.json
