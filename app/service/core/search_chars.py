@@ -102,7 +102,10 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                 is_multi = False
                 if schema.get("has_multi_status", False):
                     multi_status_col = schema.get("multi_status_column", "多地位標記")
-                    is_multi = any(row.get(multi_status_col) == 1 for row in rows)
+                    is_multi = any(
+                        multi_status_col in row.keys() and str(row[multi_status_col]) == "1"
+                        for row in rows
+                    )
                 char2is_multi[char] = is_multi
 
                 for row in rows:

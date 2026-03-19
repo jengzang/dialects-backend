@@ -48,7 +48,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                     query_metadata.append(
                         {
                             "query_string": query_string,
-                            "display_name": convert_path_str(query_string),
+                            "display_name": convert_path_str(query_string, table_name=table),
                         }
                     )
             else:
@@ -56,7 +56,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                 query_metadata.append(
                     {
                         "query_string": path_string,
-                        "display_name": convert_path_str(path_string),
+                        "display_name": convert_path_str(path_string, table_name=table),
                     }
                 )
         else:
@@ -64,7 +64,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
             query_metadata.append(
                 {
                     "query_string": path_string,
-                    "display_name": convert_path_str(path_string),
+                    "display_name": convert_path_str(path_string, table_name=table),
                 }
             )
 

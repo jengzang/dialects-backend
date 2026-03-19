@@ -148,12 +148,10 @@ def analyze_characters_from_db(
         raise ValueError(f"無效的表名：{table}")
 
     schema = get_table_schema(table)
+    ambig = schema.get("ambig_values", AMBIG_VALUES)
+    suffix_map = schema.get("suffix_map", {})
 
-    default_grouping = {
-        "聲母": ["母"],
-        "韻母": ["攝"],
-        "聲調": ["清濁", "調"]
-    }
+    default_grouping = schema.get("default_grouping", {})
     # print(f"特徵值{feature_value}")
     if not group_fields:
         group_fields = default_grouping.get(feature_type)
@@ -180,7 +178,12 @@ def analyze_characters_from_db(
                     (df[col_name] != "1")
                 ]
 
-    for col in ["攝", "韻", "等", "呼", "入", "清濁", "系", "組", "母", "調", "部位", "方式", "多地位標記"]:
+    multi_status_col = schema.get("multi_status_column", "多地位標記")
+    multi_cols_groups = schema.get("multi_status_cols", [["攝", "呼", "等", "韻", "調"], ["部位", "方式", "母"]])
+    all_multi_cols = [c for grp in multi_cols_groups for c in grp]
+
+    # 確保所需列存在（不存在的填 None）
+    for col in all_multi_cols + [multi_status_col]:
         if col not in df.columns:
             df[col] = None
 
@@ -191,45 +194,33 @@ def analyze_characters_from_db(
     grouped = df.groupby(group_fields)
 
     for group_keys, group_df in grouped:
-        # 特定欄位需要後綴
-        suffix_map = {
-            "系": "系",
-            "組": "組",
-            "母": "母",
-            "攝": "攝",
-            "韻": "韻"
-        }
-
-        # 使用 group_df 中第一筆資料取得欄位值（若需要用到 row，可取樣一筆）
         _, sample_row = next(group_df.iterrows())
 
-        # 建構 value（加後綴）
         value_parts = []
         for field, val in zip(group_fields, group_keys):
-            if val in AMBIG_VALUES:
+            if val in ambig:
                 suffix = suffix_map.get(field)
                 if suffix:
                     val = f"{val}{suffix}"
             value_parts.append(val)
         group_value = "·".join(value_parts)
 
-        # 最終的分組值格式
-        # group_values = {group_key_label: group_value}
         group_values = {feature_value: group_value}
 
-        # 以下原本的邏輯照舊
         unique_chars = group_df["漢字"].unique().tolist()
         count = len(unique_chars)
 
         poly_details = []
-        poly_chars = group_df[group_df["多地位標記"] == "1"]["漢字"].unique()
+        poly_chars = group_df[group_df[multi_status_col] == "1"]["漢字"].unique()
         for hz in poly_chars:
-            sub = df[(df["漢字"] == hz) & (df["多地位標記"] == "1")]
+            sub = df[(df["漢字"] == hz) & (df[multi_status_col] == "1")]
             summary = []
             for _, row in sub.iterrows():
-                parts = f"{row['攝']}{row['呼']}{row['等']}{row['韻']}{row['調']}"
-                meta = f"{row['部位']}·{row['方式']}·{row['母']}"
-                summary.append(f"{parts},{meta}")
+                group_strs = []
+                for grp in multi_cols_groups:
+                    vals = [str(row[c]) for c in grp if pd.notna(row.get(c))]
+                    group_strs.append("·".join(vals))
+                summary.append(",".join(s for s in group_strs if s))
             poly_details.append(f"{hz}: {' | '.join(summary)}")
         # print(f"🧩 當前分析地點：{loc}")
         # print(f"🔢 total_chars for {loc}: {total_chars}")
@@ -256,25 +247,16 @@ def analyze_characters_from_cached_df(
         feature_value,
         loc,
         sub_df,
-        group_fields=None
+        group_fields=None,
+        table="characters"
 ):
-    """
-    使用 SQL 聚合优化版本 - 在数据库层面完成分组统计
-
-    性能优化：使用 SQL GROUP BY 代替 pandas 处理，提升10倍性能
-
-    Args:
-        char_df: 已经查询好的 characters DataFrame（包含所有需要的汉字）
-        char_list: 当前需要分析的汉字列表
-        其他参数同 analyze_characters_from_db
-    """
-    default_grouping = {
-        "聲母": ["母"],
-        "韻母": ["攝"],
-        "聲調": ["清濁", "調"]
-    }
+    from app.common.constants import get_table_schema
+    schema = get_table_schema(table)
+    ambig = schema.get("ambig_values", AMBIG_VALUES)
+    suffix_map = schema.get("suffix_map", {})
 
     if not group_fields:
+        default_grouping = schema.get("default_grouping", {})
         group_fields = default_grouping.get(feature_type)
         if not group_fields:
             raise ValueError(f"[X] 未定義的 feature_type：{feature_type}")
@@ -282,42 +264,38 @@ def analyze_characters_from_cached_df(
     if not char_list:
         return []
 
-    # 【性能优化】使用 SQL 聚合代替 pandas 处理
     from app.common.path import CHARACTERS_DB_PATH
     pool = get_db_pool(CHARACTERS_DB_PATH)
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
-
-        # 构建 SQL 查询
         placeholders = ','.join(['?'] * len(char_list))
         group_cols = ', '.join(group_fields)
 
-        # 主查询：使用 SQL GROUP BY 进行聚合
         query = f"""
         SELECT
             {group_cols},
             GROUP_CONCAT(DISTINCT 漢字) as chars,
             COUNT(DISTINCT 漢字) as count
-        FROM characters
+        FROM {table}
         WHERE 漢字 IN ({placeholders})
         """
-
-        # 添加 NOT NULL 过滤
         for field in group_fields:
             query += f" AND {field} IS NOT NULL"
-
         query += f" GROUP BY {group_cols}"
-
         cursor.execute(query, char_list)
         rows = cursor.fetchall()
 
-        # 查询多地位字详情
+        # 多地位详情查询
+        multi_cols_groups = schema.get("multi_status_cols", [["攝", "呼", "等", "韻", "調"], ["部位", "方式", "母"]])
+        all_multi_cols = [c for grp in multi_cols_groups for c in grp]
+        multi_select = ", ".join(all_multi_cols)
+        multi_status_col = schema.get("multi_status_column", "多地位標記")
         multi_query = f"""
-        SELECT 漢字, 攝, 呼, 等, 韻, 調, 部位, 方式, 母
-        FROM characters
+        SELECT 漢字, {multi_select}
+        FROM {table}
         WHERE 漢字 IN ({placeholders})
-        AND 多地位標記 = '1'
+        AND {multi_status_col} = '1'
         """
         cursor.execute(multi_query, char_list)
         multi_rows = cursor.fetchall()
@@ -325,48 +303,39 @@ def analyze_characters_from_cached_df(
     # 构建多地位字字典
     from collections import defaultdict
     multi_dict = defaultdict(list)
+    col_offset = 1  # row[0] is 漢字
     for row in multi_rows:
         hz = row[0]
-        parts = f"{row[1]}{row[2]}{row[3]}{row[4]}{row[5]}"
-        meta = f"{row[6]}·{row[7]}·{row[8]}"
-        multi_dict[hz].append(f"{parts},{meta}")
+        group_strs = []
+        offset = col_offset
+        for grp in multi_cols_groups:
+            vals = [str(row[offset + i]) for i in range(len(grp)) if row[offset + i] is not None]
+            group_strs.append("·".join(vals))
+            offset += len(grp)
+        multi_dict[hz].append(",".join(s for s in group_strs if s))
 
-    # 处理结果
     total_chars = len(set(sub_df["漢字"]))
     grouped_result = []
 
-    suffix_map = {
-        "系": "系",
-        "組": "組",
-        "母": "母",
-        "攝": "攝",
-        "韻": "韻"
-    }
-
     for row in rows:
-        # 解析分组键
         group_keys = row[:len(group_fields)]
         chars_str = row[len(group_fields)]
         count = row[len(group_fields) + 1]
 
-        # 构建分组值
         value_parts = []
         for field, val in zip(group_fields, group_keys):
-            if val in AMBIG_VALUES:
+            if val in ambig:
                 suffix = suffix_map.get(field)
                 if suffix:
                     val = f"{val}{suffix}"
             value_parts.append(val)
         group_value = "·".join(value_parts)
 
-        # 解析汉字列表
         unique_chars = chars_str.split(',') if chars_str else []
-
-        # 构建多地位详情
-        poly_details = []
-        for hz in unique_chars:
-            if hz in multi_dict:
-                poly_details.append(f"{hz}: {' | '.join(multi_dict[hz])}")
+        poly_details = [
+            f"{hz}: {' | '.join(multi_dict[hz])}"
+            for hz in unique_chars if hz in multi_dict
+        ]
 
         grouped_result.append({
             "地點": loc,
@@ -443,9 +412,9 @@ def pho2sta(locations, regions, features, status_inputs,
     with pool.get_connection() as conn:
         if all_chars:
             placeholders = ','.join(['?'] * len(all_chars))
-            query = f"SELECT * FROM characters WHERE 漢字 IN ({placeholders})"
+            query = f"SELECT * FROM {table} WHERE 漢字 IN ({placeholders})"
             all_chars_df = pd.read_sql_query(query, conn, params=list(all_chars))
-            print(f"[OK] 批量查询 characters.db 完成，共 {len(all_chars_df)} 条记录")
+            print(f"[OK] 批量查询 {table} 完成，共 {len(all_chars_df)} 条记录")
         else:
             all_chars_df = pd.DataFrame()
 
@@ -512,7 +481,8 @@ def pho2sta(locations, regions, features, status_inputs,
                     feature_value=feature_value,
                     loc=loc,
                     sub_df=sub_df[sub_df["簡稱"] == loc],
-                    group_fields=group_fields
+                    group_fields=group_fields,
+                    table=table,
                 )
 
                 results.extend(result if isinstance(result, list) else [result])
