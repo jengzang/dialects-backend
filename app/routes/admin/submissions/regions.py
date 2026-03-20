@@ -91,22 +91,22 @@ async def create_region(
 ):
     """管理员为任意用户创建区域"""
     try:
-        region = region.create_region_admin(
+        region_record = region.create_region_admin(
             db, data.username, data.region_name, data.locations, data.description
         )
-        locations = json.loads(region.locations)
+        locations = json.loads(region_record.locations)
         return {
             "success": True,
             "region": {
-                "id": region.id,
-                "user_id": region.user_id,
-                "username": region.username,
-                "region_name": region.region_name,
+                "id": region_record.id,
+                "user_id": region_record.user_id,
+                "username": region_record.username,
+                "region_name": region_record.region_name,
                 "locations": locations,
                 "location_count": len(locations),
-                "description": region.description,
-                "created_at": region.created_at.isoformat(),
-                "updated_at": region.updated_at.isoformat()
+                "description": region_record.description,
+                "created_at": region_record.created_at.isoformat(),
+                "updated_at": region_record.updated_at.isoformat()
             }
         }
     except ValueError as e:
@@ -122,23 +122,23 @@ async def update_region(
 ):
     """管理员更新任意用户的区域"""
     try:
-        region = region.update_region_admin(
+        region_record = region.update_region_admin(
             db, data.username, data.region_name,
             data.new_region_name, data.locations, data.description
         )
-        locations = json.loads(region.locations)
+        locations = json.loads(region_record.locations)
         return {
             "success": True,
             "region": {
-                "id": region.id,
-                "user_id": region.user_id,
-                "username": region.username,
-                "region_name": region.region_name,
+                "id": region_record.id,
+                "user_id": region_record.user_id,
+                "username": region_record.username,
+                "region_name": region_record.region_name,
                 "locations": locations,
                 "location_count": len(locations),
-                "description": region.description,
-                "created_at": region.created_at.isoformat(),
-                "updated_at": region.updated_at.isoformat()
+                "description": region_record.description,
+                "created_at": region_record.created_at.isoformat(),
+                "updated_at": region_record.updated_at.isoformat()
             }
         }
     except ValueError as e:
