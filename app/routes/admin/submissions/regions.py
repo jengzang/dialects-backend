@@ -39,7 +39,7 @@ async def get_all_regions(
 ):
     """获取所有用户的自定义区域（分页）"""
     try:
-        data, total = region_service.get_all_regions_admin(db, skip, limit, search)
+        data, total = region.get_all_regions_admin(db, skip, limit, search)
         return AdminRegionListResponse(total=total, skip=skip, limit=limit, data=data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
@@ -76,7 +76,7 @@ async def get_region_counts(db: Session = Depends(get_db)):
 async def get_statistics(db: Session = Depends(get_db)):
     """获取区域统计信息"""
     try:
-        stats = region_service.get_region_statistics(db)
+        stats = region.get_region_statistics(db)
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
@@ -178,7 +178,7 @@ async def batch_delete_regions(
     """批量删除区域"""
     try:
         regions_data = [{"username": r.username, "created_at": r.created_at} for r in regions]
-        deleted_count, failed = region_service.batch_delete_regions_admin(db, regions_data)
+        deleted_count, failed = region.batch_delete_regions_admin(db, regions_data)
         return {
             "success": True,
             "deleted_count": deleted_count,
