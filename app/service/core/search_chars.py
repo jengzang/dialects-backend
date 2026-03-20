@@ -115,6 +115,29 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
 
                 char2positions[char] = positions
 
+    # [NEW] 批量查询 old_chinese 地位信息
+    old_chinese_pool = get_db_pool(CHARACTERS_DB_PATH)
+    char2old_positions = {}
+
+    with old_chinese_pool.get_connection() as oc_conn:
+        oc_cursor = oc_conn.cursor()
+        if clean_str:
+            char_placeholders = ','.join('?' * len(clean_str))
+            oc_query = f"""
+                SELECT 漢字, 韻部, 韻母, 聲母組, 聲母, 聲調
+                FROM old_chinese
+                WHERE 漢字 IN ({char_placeholders})
+            """
+            oc_cursor.execute(oc_query, clean_str)
+            for row in oc_cursor.fetchall():
+                hz = row['漢字']
+                part1 = '·'.join(str(v) for v in [row['韻部'], row['韻母']] if v is not None)
+                part2 = '·'.join(str(v) for v in [row['聲母組'], row['聲母'], row['聲調']] if v is not None)
+                pos = ','.join(p for p in [part1, part2] if p)
+                if hz not in char2old_positions:
+                    char2old_positions[hz] = []
+                char2old_positions[hz].append(pos)
+
     # [OK] 优化：批量查询方言数据（消除N×M次查询）
     char2loc2data = {}  # {char: {location: [rows]}}
 
@@ -231,10 +254,11 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                                  for syl in syllables]
 
                         result.append({
-                            'char': candidate,  # 返回候选字（不是原字）
+                            'char': candidate,
                             '音节': syllables,
                             'location': location,
                             'positions': char2positions.get(candidate, []),
+                            'old_position': char2old_positions.get(candidate, []),
                             'notes': notes
                         })
 

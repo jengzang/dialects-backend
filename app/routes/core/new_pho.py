@@ -90,15 +90,16 @@ async def analyze_zhonggu(
 
     custom_data = []
     if payload.include_custom and user is not None:
-        need_features = [item["query"] for item in cached_char_result if item.get("query")]
-        if need_features:
+        phonology_list = list({item["query"] for item in cached_char_result if item.get("query")})
+        if phonology_list and payload.features:
             custom_data = await run_in_threadpool(
                 get_from_submission,
                 payload.locations,
                 payload.regions,
-                need_features,
+                payload.features,
                 user,
                 custom_db,
+                phonology_list,
             )
 
     return {
