@@ -1,11 +1,10 @@
 import asyncio
 import json
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.common.path import DIALECTS_DB_ADMIN
 from app.redis_client import redis_client
-from app.routes.core.phonology import router
 from app.schemas import PhonologyMatrixRequest, PhonologyClassificationMatrixRequest, PhoPieRequest
 from app.service.core.matrix import (
     build_phonology_classification_matrix,
@@ -14,6 +13,8 @@ from app.service.core.matrix import (
     build_pho_pie_by_status,
 )
 from app.sql.db_selector import get_dialects_db
+
+router = APIRouter()
 
 
 async def _fetch_phonology_matrix(locations: list[str] | None, dialects_db: str):
