@@ -1,46 +1,54 @@
-# routes/custom_query.py
-"""
-[PKG] 路由模塊：處理 /api/get_custom 及 /api/get_custom_feature 查詢提交資料。
-"""
-
-from fastapi import APIRouter, Query, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.service.user.core.database import get_db as get_db_custom
-from app.schemas import QueryParams, FeatureQueryParams
-from app.service.user.submission.get_custom import get_from_submission
-from app.service.geo.match_input_tip import match_custom_feature
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.schemas import FeatureQueryParams, QueryParams
 from app.service.auth.core.dependencies import get_current_user
-# from app.logging.dependencies.limiter import ApiLimiter
 from app.service.auth.database.models import User
+from app.service.geo.match_input_tip import match_custom_feature
+from app.service.user.core.database import get_db as get_db_custom
+from app.service.user.submission.get_custom import get_from_submission
 
 router = APIRouter()
 
 
 @router.get("/get_custom")
 async def query_location_data(
-        locations: List[str] = Query(..., description="要查的地點，可多個"),
-        regions: List[str] = Query(..., description="要查的分區，可多個"),
-        need_features: str = Query(..., description="要查的特徵，用逗號分隔（例如：流,深）"),
-        db: Session = Depends(get_db_custom),
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+    locations: List[str] = Query(..., description="Target locations"),
+    regions: List[str] = Query(..., description="Target regions"),
+    need_features: str = Query(..., description="Feature filters, comma-separated"),
+    phonology: Optional[str] = Query(
+        None,
+        description="Optional 聲韻調 filters (聲母/韻母/聲調), comma-separated",
+    ),
+    db: Session = Depends(get_db_custom),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """
-    用于 /api/get_custom 查詢用戶自定義填入的地點的相關信息用於繪圖。
-    - locations-要查的地點，可多個
-    - region-要查的音典分區，可多個（輸入某一級的音典分區）
-    - need_features:要查的特徵，用逗號分隔（例如：流,深）
-    - 返回用於繪圖的、自定義點的相關信息
+    Query custom records by location/region + 特徵, with optional 聲韻調 filter.
+    Backward compatible:
+    - If `phonology` is not provided, behavior is unchanged.
+    - If `phonology` is provided, apply extra filter on Information.聲韻調.
     """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-    # [OK] 将逗号分隔的字符串分割成列表
-    features_list = [f.strip() for f in need_features.split(',') if f.strip()]
+    features_list = [f.strip() for f in need_features.split(",") if f.strip()]
+    phonology_list = [p.strip() for p in phonology.split(",") if p.strip()] if phonology else None
 
-    query_params = QueryParams(locations=locations, regions=regions, need_features=features_list)
+    query_params = QueryParams(
+        locations=locations,
+        regions=regions,
+        need_features=features_list,
+    )
     try:
-        result = get_from_submission(query_params.locations, query_params.regions, query_params.need_features, user, db)
-        return result if result else []  # [OK] 返回空数组而不是 404 错误
+        result = get_from_submission(
+            query_params.locations,
+            query_params.regions,
+            query_params.need_features,
+            user,
+            db,
+            phonology_list,
+        )
+        return result if result else []
     except HTTPException:
         raise
     except Exception as e:
@@ -51,29 +59,25 @@ async def query_location_data(
 
 @router.get("/get_custom_feature")
 async def get_custom_feature(
-        locations: List[str] = Query(..., description="要查的地點，可多個"),
-        regions: List[str] = Query(..., description="要查的音典分區，可多個"),
-        word: str = Query(..., description="用戶輸入，待匹配特徵"),
-        db: Session = Depends(get_db_custom),
-        user: Optional[User] = Depends(get_current_user)  # 自动限流和日志记录
+    locations: List[str] = Query(..., description="Target locations"),
+    regions: List[str] = Query(..., description="Target regions"),
+    word: str = Query(..., description="Input keyword for feature matching"),
+    db: Session = Depends(get_db_custom),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """
-    用于 /api/get_custom_feature 查詢用戶自定義填入的地點所含的特徵。
-    - locations-要查的地點，可多個
-    - region-要查的音典分區，可多個（輸入某一級的音典分區）
-    - word-用戶輸入，待匹配特徵
-    - 返回匹配到的自定義特徵（例如來、流等）
+    Match custom features for the current user by input keyword.
     """
-    # 限流和日志记录已由中间件和依赖注入自动处理
     query_params = FeatureQueryParams(locations=locations, regions=regions, word=word)
     try:
         result = match_custom_feature(
             query_params.locations,
             query_params.regions,
             query_params.word,
-            user, db
+            user,
+            db,
         )
-        return result if result else []  # [OK] 返回空数组而不是 404 错误
+        return result if result else []
     except HTTPException:
         raise
     except Exception as e:
