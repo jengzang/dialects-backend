@@ -62,10 +62,10 @@ def cleanup_old_logs():
             )
         ).delete()
 
-        # 删除每日统计（保留总计）
+        # 删除关键词每日统计（保留总计）
         deleted_stats = db.query(ApiStatistics).filter(
             and_(
-                ApiStatistics.stat_type.in_(["keyword_daily", "usage_daily"]),
+                ApiStatistics.stat_type == "keyword_daily",
                 ApiStatistics.date < cutoff_date
             )
         ).delete()

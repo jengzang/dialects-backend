@@ -1,7 +1,7 @@
 import asyncio
 # import gzip
 # import io
-# import json
+import json
 # import os
 import threading
 import multiprocessing  # [FIX] 改用跨进程队列
@@ -23,6 +23,7 @@ from app.service.auth.database.models import ApiUsageLog, ApiUsageSummary
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.models import ApiKeywordLog
 from app.common.api_config import RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
+from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
 
 
 # === 路径规范化函数 ===
@@ -131,6 +132,55 @@ online_time_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] Online time rep
 
 
 # === 关键词日志（写入logs.db） ===
+async def _capture_request_body(request: Request) -> bytes:
+    """Read request body and restore stream for downstream handlers."""
+    body = await request.body()
+
+    async def receive():
+        return {"type": "http.request", "body": body}
+
+    request._receive = receive
+    return body
+
+
+async def _log_params_if_needed(request: Request, path: str):
+    """
+    Keep legacy logs.db parameter logging logic:
+    - route-based params/body logging
+    """
+    if should_skip_route(path):
+        return
+
+    config = match_route_config(path)
+    if not config.get("log_params") and not config.get("log_body"):
+        return
+
+    params_to_log = {}
+
+    if config.get("log_params") and request.query_params:
+        params_to_log.update(dict(request.query_params))
+
+    if config.get("log_body") and request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            body = await _capture_request_body(request)
+            if body:
+                try:
+                    body_data = json.loads(body)
+                    if isinstance(body_data, dict):
+                        params_to_log.update(body_data)
+                    else:
+                        params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
+                except json.JSONDecodeError:
+                    params_to_log["_raw_body"] = body.decode("utf-8", errors="ignore")
+        except Exception as e:
+            print(f"[WARN] failed to read request body for params logging: {e}")
+
+    if params_to_log:
+        try:
+            log_all_fields(path, params_to_log)
+        except Exception as e:
+            print(f"[ERROR] failed to enqueue params logs: {e}")
+
 def log_keyword(path: str, field: str, value):
     """记录 API 调用的参数关键词到数据库"""
     timestamp = datetime.now()
@@ -255,13 +305,6 @@ def _process_statistics_batch(batch: list):
             # 规范化路径（替换路径参数为占位符）
             normalized_path = normalize_api_path(path)
 
-            # 更新总计
-            update_statistic(db, "usage_total", None, "path", normalized_path)
-
-            # 更新每日统计
-            if date_obj:
-                update_statistic(db, "usage_daily", date_obj, "path", normalized_path)
-
             # 新增：更新 api_usage_hourly 表（小时级总调用统计）
             # 使用请求到达时的时间（date_obj），而不是写入时的时间
             request_hour = date_obj.replace(minute=0, second=0, microsecond=0)
@@ -309,52 +352,6 @@ def _process_statistics_batch(batch: list):
         db.rollback()
     finally:
         db.close()
-
-
-def update_statistic(db: Session, stat_type: str, date: datetime, category: str, item: str):
-    """更新或创建统计记录（使用 UPSERT 避免并发问题）"""
-    from sqlalchemy import text
-
-    # 使用 SQLite 的 INSERT OR IGNORE + UPDATE 策略
-    try:
-        # 先尝试更新
-        result = db.execute(
-            text("""
-                UPDATE api_statistics
-                SET count = count + 1, updated_at = datetime('now')
-                WHERE stat_type = :stat_type
-                  AND category = :category
-                  AND item = :item
-                  AND (
-                    (date IS NULL AND :date IS NULL) OR
-                    (date = :date)
-                  )
-            """),
-            {
-                "stat_type": stat_type,
-                "date": date,
-                "category": category,
-                "item": item
-            }
-        )
-
-        # 如果没有更新任何行（记录不存在），则插入新记录
-        if result.rowcount == 0:
-            db.execute(
-                text("""
-                    INSERT OR IGNORE INTO api_statistics (stat_type, date, category, item, count, updated_at)
-                    VALUES (:stat_type, :date, :category, :item, 1, datetime('now'))
-                """),
-                {
-                    "stat_type": stat_type,
-                    "date": date,
-                    "category": category,
-                    "item": item
-                }
-            )
-    except Exception as e:
-        print(f"[X] 更新统计失败: stat_type={stat_type}, category={category}, item={item}, error={e}")
-        raise
 
 
 
@@ -894,6 +891,12 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
         # 1. 快速过滤
         path = request.url.path
+        try:
+            update_count(path)
+        except Exception as e:
+            print(f"[ERROR] failed to enqueue usage count: {e}")
+
+        await _log_params_if_needed(request, path)
         if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
             return await call_next(request)
 
