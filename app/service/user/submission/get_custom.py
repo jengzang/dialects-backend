@@ -1,7 +1,6 @@
 import re
 from typing import List, Optional
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.service.auth.database.models import User
@@ -20,9 +19,8 @@ def get_from_submission(
     """
     查询用户自定义数据。
 
-    - need_features: 过滤 Information.特徵（特征类型，如"韻母"）
-    - phonology_list: 若提供，额外过滤 Information.聲韻調（音系分类，如"流摄"）
-                      使用 LIKE 前缀匹配，兼容"流"/"流摄"/"流攝"等格式差异
+    - need_features: 过滤 Information.特徵（来自 ZhongGu path/query）
+    - phonology_list: 若提供，额外过滤 Information.聲韻調（如 "聲母/韻母/聲調"）
     """
     if user is None:
         return []
@@ -38,7 +36,7 @@ def get_from_submission(
         )
 
         if phonology_list:
-            q = q.filter(or_(*[Information.聲韻調.like(f"{p}%") for p in phonology_list]))
+            q = q.filter(Information.聲韻調.in_(phonology_list))
 
         for record in q.all():
             latitude_longitude = list(map(float, re.split(r'[，,]', record.經緯度)))

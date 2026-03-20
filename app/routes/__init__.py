@@ -5,6 +5,7 @@
 
 from fastapi import FastAPI, Depends
 from app.routes.core.phonology import router as phonology_router
+from app.routes.core import matrix as _matrix_routes  # register matrix endpoints on phonology_router
 from app.routes.core.new_pho import router as new_pho_router
 from app.routes.geo.get_regions import router as region_router
 from app.routes.geo.get_partitions import router as partitions_router
