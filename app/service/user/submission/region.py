@@ -273,7 +273,7 @@ def create_region_admin(
 ) -> UserRegion:
     """管理员为任意用户创建区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -318,7 +318,7 @@ def update_region_admin(
 ) -> UserRegion:
     """管理员更新任意用户的区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -355,7 +355,7 @@ def update_region_admin(
 def delete_region_admin(db: Session, username: str, created_at: str) -> bool:
     """管理员删除任意用户的区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -404,4 +404,3 @@ def batch_delete_regions_admin(db: Session, regions: List[dict]) -> tuple[int, L
             })
 
     return deleted_count, failed
-

@@ -13,10 +13,12 @@
 """
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.auth.database.connection import SessionLocal as SessionLocal_user
+from app.service.auth.database.models import User
+from app.service.auth.core.dependencies import get_current_admin_user
 from app.schemas.admin.submissions import InformationBase, EditRequest
 from app.service.admin.submissions import management as custom_service
 
@@ -116,7 +118,8 @@ async def selected_custom(requests: List[EditRequest]):
 
 @router.delete("/delete", response_model=List[InformationBase])
 async def delete_custom_by_admin(
-    requests: List[EditRequest]
+    requests: List[EditRequest],
+    current_user: User = Depends(get_current_admin_user)
 ):
     """管理员删除custom数据"""
     session_info = SessionLocal_info()
@@ -129,7 +132,8 @@ async def delete_custom_by_admin(
         result = custom_service.delete_custom_by_admin(
             session_info,
             session_user,
-            requests_dict
+            requests_dict,
+            current_user
         )
 
         if not result["success"]:
