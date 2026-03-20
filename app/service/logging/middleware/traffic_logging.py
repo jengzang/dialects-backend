@@ -125,10 +125,25 @@ def normalize_api_path(path: str) -> str:
 # keyword_queue = queue.Queue()  # [X] 不再使用 txt文件队列
 log_queue = multiprocessing.Queue(maxsize=2000)  # [OK] ApiUsageLog 队列（auth.db）- 限制 2000 条
 keyword_log_queue = multiprocessing.Queue(maxsize=5000)  # [OK] ApiKeywordLog 队列（logs.db）- 限制 5000 条
-statistics_queue = multiprocessing.Queue(maxsize=1000)  # [OK] ApiStatistics 队列（logs.db）- 限制 1000 条
-html_visit_queue = multiprocessing.Queue(maxsize=500)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 500 条
+statistics_queue = multiprocessing.Queue(maxsize=3000)  # [OK] ApiStatistics 队列（logs.db）- 限制 3000 条（保守上调）
+html_visit_queue = multiprocessing.Queue(maxsize=1000)  # [OK] HTML 页面访问统计队列（logs.db）- 限制 1000 条（保守上调）
 summary_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] ApiUsageSummary 队列（auth.db）- 限制 1000 条
 online_time_queue = multiprocessing.Queue(maxsize=1000)  # [NEW] Online time reports 队列（auth.db）- 限制 1000 条
+
+
+QUEUE_PUT_TIMEOUT_SECONDS = 0.05  # 满队列时最多背压 50ms
+
+
+def _enqueue_with_backpressure(q, item, queue_name: str) -> bool:
+    """Try enqueue with short backpressure instead of immediate drop."""
+    try:
+        q.put(item, timeout=QUEUE_PUT_TIMEOUT_SECONDS)
+        return True
+    except Full:
+        print(
+            f"[WARN] {queue_name} is full after {int(QUEUE_PUT_TIMEOUT_SECONDS * 1000)}ms, dropping entry"
+        )
+        return False
 
 
 # === 关键词日志（写入logs.db） ===
@@ -190,10 +205,7 @@ def log_keyword(path: str, field: str, value):
         field=field,
         value=str(value)
     )
-    try:
-        keyword_log_queue.put_nowait(log)
-    except Full:
-        print("[WARN] keyword_log_queue is full, dropping ApiKeywordLog entry")
+    _enqueue_with_backpressure(keyword_log_queue, log, "keyword_log_queue")
 
 
 def log_all_fields(path: str, param_dict: dict):
@@ -266,7 +278,7 @@ def keyword_log_writer():
 def statistics_writer():
     """后台线程：批量更新 ApiStatistics"""
     batch = []
-    batch_size = 50
+    batch_size = 100
     batch_timeout = 120.0
 
     while True:
@@ -295,7 +307,7 @@ def statistics_writer():
         _process_statistics_batch(batch)
 
 
-def _process_statistics_batch(batch: list):
+def _process_statistics_batch_legacy(batch: list):
     """批量处理统计更新"""
     from sqlalchemy import text
 
@@ -356,13 +368,60 @@ def _process_statistics_batch(batch: list):
 
 
 # === API调用统计（写入logs.db）===
+def _process_statistics_batch(batch: list):
+    """Batch process usage counters with in-memory aggregation."""
+    from sqlalchemy import text
+
+    db = LogsSessionLocal()
+    try:
+        hourly_counts = {}
+        daily_counts = {}
+
+        for path, date_obj in batch:
+            request_hour = date_obj.replace(minute=0, second=0, microsecond=0)
+            hourly_counts[request_hour] = hourly_counts.get(request_hour, 0) + 1
+
+            request_date = date_obj.date()
+            normalized_path = normalize_api_path(path)
+            daily_key = (request_date, normalized_path)
+            daily_counts[daily_key] = daily_counts.get(daily_key, 0) + 1
+
+        for hour, inc in hourly_counts.items():
+            db.execute(
+                text("""
+                    INSERT INTO api_usage_hourly (hour, total_calls, updated_at)
+                    VALUES (:hour, :inc, datetime('now'))
+                    ON CONFLICT(hour) DO UPDATE SET
+                        total_calls = total_calls + excluded.total_calls,
+                        updated_at = datetime('now')
+                """),
+                {"hour": hour, "inc": inc}
+            )
+
+        for (date_key, path_key), inc in daily_counts.items():
+            db.execute(
+                text("""
+                    INSERT INTO api_usage_daily (date, path, call_count, updated_at)
+                    VALUES (:date, :path, :inc, datetime('now'))
+                    ON CONFLICT(date, path) DO UPDATE SET
+                        call_count = call_count + excluded.call_count,
+                        updated_at = datetime('now')
+                """),
+                {"date": date_key, "path": path_key, "inc": inc}
+            )
+
+        db.commit()
+    except Exception as e:
+        print(f"[X] statistics batch failed: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def update_count(path: str):
     """更新 API 调用次数统计"""
     today = datetime.now()
-    try:
-        statistics_queue.put_nowait((path, today))
-    except Full:
-        print("[WARN] statistics_queue is full, dropping statistics update")
+    _enqueue_with_backpressure(statistics_queue, (path, today), "statistics_queue")
 
 
 def enqueue_online_time_non_blocking(data: dict):
@@ -387,17 +446,14 @@ def enqueue_online_time_non_blocking(data: dict):
 def update_html_visit(path: str):
     """更新 HTML 页面访问次数统计"""
     today = datetime.now()
-    try:
-        html_visit_queue.put_nowait((path, today))
-    except Full:
-        print("[WARN] html_visit_queue is full, dropping html visit update")
+    _enqueue_with_backpressure(html_visit_queue, (path, today), "html_visit_queue")
 
 
 # === HTML 页面访问统计写入线程（logs.db）===
 def html_visit_writer():
     """后台线程：批量更新 HTML 页面访问统计"""
     batch = []
-    batch_size = 3
+    batch_size = 20
     batch_timeout = 5.0
 
     while True:
@@ -563,23 +619,21 @@ def log_detailed_api_to_db(
     )
 
     # 将日志添加到队列
-    try:
-        log_queue.put_nowait(log)
-    except Full:
-        print("[WARN] log_queue is full, dropping ApiUsageLog entry")
+    _enqueue_with_backpressure(log_queue, log, "log_queue")
 
     # Step 2: enqueue ApiUsageSummary update
     if user_id:
-        try:
-            summary_queue.put_nowait({
+        _enqueue_with_backpressure(
+            summary_queue,
+            {
                 'user_id': user_id,
                 'path': path,
                 'duration': duration,
                 'request_size': request_size,
                 'response_size': response_size
-            })
-        except Full:
-            print("[WARN] summary_queue is full, dropping ApiUsageSummary entry")
+            },
+            "summary_queue"
+        )
 
 
 def summary_writer():
