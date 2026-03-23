@@ -23,7 +23,7 @@ def on_starting(server):
     """
     from app.service.logging.tasks import start_scheduler
     from app.service.logging.middleware.traffic_logging import start_api_logger_workers
-    from app.service.auth import start_user_activity_writer
+    from app.service.auth.core.service import start_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] starting background workers...")
@@ -69,7 +69,7 @@ def on_exit(server):
     """
     from app.service.logging.tasks import stop_scheduler
     from app.service.logging.middleware.traffic_logging import stop_api_logger_workers
-    from app.service.auth import stop_user_activity_writer
+    from app.service.auth.core.service import stop_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] stopping background workers...")
