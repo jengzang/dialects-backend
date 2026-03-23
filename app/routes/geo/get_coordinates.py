@@ -12,7 +12,7 @@ from app.service.user.core.database import SessionLocal
 from app.schemas import CoordinatesQuery
 from app.service.geo.locs_regions import get_coordinates_from_db
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations, query_dialect_abbreviations_orm
-from app.service.geo.match_input_tip import match_locations_batch_all
+from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.service.auth.core.dependencies import get_current_user
 from app.sql.db_selector import get_query_db
 from app.service.auth.database.models import User
@@ -53,13 +53,11 @@ def _resolve_coordinates_sync(
     locations_list = query.locations.split(',')
     regions_list = query.regions.split(',')
 
-    # Batch exact-match locations to avoid per-item loops.
-    locations_processed = match_locations_batch_all(
-        locations_list,
-        filter_valid_abbrs_only=True,
-        exact_only=True,
-        query_db=query_db
-    )
+    locations_processed = []
+    for location in locations_list:
+        matched = match_locations_batch_exact(location, query_db=query_db)
+        extracted = [res[0][0] for res in matched if res[0]]
+        locations_processed.extend(extracted)
 
     if query.iscustom and query.region_mode == 'yindian':
         thread_db: Optional[Session] = None

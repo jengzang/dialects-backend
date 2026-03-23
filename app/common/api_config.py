@@ -66,6 +66,7 @@ RECORD_API = [
 
 # 不記錄帶有以下字段的 API（排除特定路由）
 IGNORE_API = [
+    "/sql/query/count",  # keep hourly/daily aggregate only
     "download",  # 下载类 API（避免记录大量下载请求）
     "progress",  # 进度查询类 API（避免记录频繁的轮询请求）
 ]
@@ -176,6 +177,11 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": False,  # GET 请求无 body
+    }, "/sql/query/count": {
+        "rate_limit": False,  # 不参与 Redis 限流/计数
+        "require_login": False,
+        "log_params": False,  # 不记录详细参数
+        "log_body": False,
     }, "/sql/*": {
         "rate_limit": True,
         "require_login": False,
