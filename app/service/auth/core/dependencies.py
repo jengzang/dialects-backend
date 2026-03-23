@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -14,6 +15,9 @@ from app.common.api_config import MAX_USER_REQUESTS_PER_HOUR, MAX_IP_REQUESTS_PE
 from app.redis_client import redis_client
 
 
+RATE_LIMIT_DEBUG = os.getenv("RATE_LIMIT_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
+
+
 def user_to_dict(user: models.User) -> dict:
     user_dict = {column.name: getattr(user, column.name) for column in user.__table__.columns}
 
@@ -27,6 +31,19 @@ def user_to_dict(user: models.User) -> dict:
 def _make_rate_limit_member(now: int) -> str:
     """为滑动窗口计数生成真正唯一的 member，避免同秒覆盖。"""
     return f"{now}:{uuid4().hex}"
+
+
+def rate_limit_debug(event: str, **fields) -> None:
+    """Print rate-limit debug logs only when RATE_LIMIT_DEBUG is enabled."""
+    if not RATE_LIMIT_DEBUG:
+        return
+
+    parts = [f"event={event}"]
+    for key, value in fields.items():
+        if value is None:
+            continue
+        parts.append(f"{key}={value}")
+    print("[RATE_LIMIT]", " ".join(parts))
 
 
 def _format_reset_at(unix_ts: int) -> str:
@@ -120,8 +137,29 @@ async def _raise_redis_rate_limit(
         retry_after_seconds=retry_after_seconds,
         suggest_login=suggest_login,
     )
+    rate_limit_debug(
+        "raise_429",
+        key=key,
+        limit_type=limit_type,
+        scope=scope,
+        count=count,
+        limit=limit,
+        retry_after_seconds=retry_after_seconds,
+    )
     headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds is not None else None
     raise HTTPException(status_code=429, detail=detail, headers=headers)
+
+
+async def _rollback_rate_limit_member(key: Optional[str], member: Optional[str]) -> None:
+    """Best-effort rollback for a rejected rate-limit record."""
+    if not key or not member:
+        return
+
+    try:
+        await redis_client.zrem(key, member)
+        rate_limit_debug("rollback", key=key, member=member)
+    except Exception as e:
+        print(f"[WARN] Redis 限流回滚失败 ({key}): {e}")
 
 
 def _get_login_retry_after_seconds(
@@ -349,7 +387,8 @@ async def check_api_usage_limit(
         db: Session,
         user: Optional[User],
         require_login: bool = False,
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
+        path: Optional[str] = None
 ) -> None:
     """
     API 限流檢查（滑動窗口 + 雙重計數）
@@ -383,17 +422,50 @@ async def check_api_usage_limit(
     ip_limit = MAX_USER_REQUESTS_PER_HOUR if user else MAX_IP_REQUESTS_PER_HOUR
 
     try:
+        ip_key = None
+        ip_member = None
+        user_id = user.id if user else None
+
+        rate_limit_debug(
+            "request",
+            path=path,
+            ip=ip_address,
+            user_id=user_id,
+            require_login=require_login,
+            ip_limit=ip_limit,
+            user_limit=MAX_USER_REQUESTS_PER_HOUR if user else None,
+        )
+
         # === 步驟 A：始終記錄並檢查 IP 計數 ===
         if ip_address:
             ip_key = f"rl:ip:{ip_address}"
             # 用時間戳作為 score，member 必須真正唯一，否則會覆蓋同秒內的舊記錄。
-            member = _make_rate_limit_member(now)
-            await redis_client.zadd(ip_key, {member: now})
+            ip_member = _make_rate_limit_member(now)
+            await redis_client.zadd(ip_key, {ip_member: now})
             await redis_client.zremrangebyscore(ip_key, 0, cutoff)
             await redis_client.expire(ip_key, WINDOW + 60)
             ip_count = await redis_client.zcard(ip_key)
+            rate_limit_debug(
+                "ip_counter",
+                path=path,
+                ip=ip_address,
+                user_id=user_id,
+                key=ip_key,
+                count=ip_count,
+                limit=ip_limit,
+            )
 
             if ip_count > ip_limit:
+                rate_limit_debug(
+                    "ip_limit_exceeded",
+                    path=path,
+                    ip=ip_address,
+                    user_id=user_id,
+                    key=ip_key,
+                    count=ip_count,
+                    limit=ip_limit,
+                )
+                await _rollback_rate_limit_member(ip_key, ip_member)
                 if user is None:
                     await _raise_redis_rate_limit(
                         key=ip_key,
@@ -421,13 +493,33 @@ async def check_api_usage_limit(
         # === 步驟 B：已登錄用戶額外檢查用戶計數 ===
         if user:
             user_key = f"rl:user:{user.id}"
-            member = _make_rate_limit_member(now)
-            await redis_client.zadd(user_key, {member: now})
+            user_member = _make_rate_limit_member(now)
+            await redis_client.zadd(user_key, {user_member: now})
             await redis_client.zremrangebyscore(user_key, 0, cutoff)
             await redis_client.expire(user_key, WINDOW + 60)
             user_count = await redis_client.zcard(user_key)
+            rate_limit_debug(
+                "user_counter",
+                path=path,
+                ip=ip_address,
+                user_id=user_id,
+                key=user_key,
+                count=user_count,
+                limit=MAX_USER_REQUESTS_PER_HOUR,
+            )
 
             if user_count > MAX_USER_REQUESTS_PER_HOUR:
+                rate_limit_debug(
+                    "user_limit_exceeded",
+                    path=path,
+                    ip=ip_address,
+                    user_id=user_id,
+                    key=user_key,
+                    count=user_count,
+                    limit=MAX_USER_REQUESTS_PER_HOUR,
+                )
+                await _rollback_rate_limit_member(user_key, user_member)
+                await _rollback_rate_limit_member(ip_key, ip_member)
                 await _raise_redis_rate_limit(
                     key=user_key,
                     count=user_count,
