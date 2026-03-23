@@ -338,14 +338,17 @@ def get_leaderboard(
     """
     Get comprehensive leaderboard rankings for current user.
 
-    Returns all 18 ranking metrics in a single response:
+    Returns category, grouped, and endpoint ranking metrics in a single response:
     - online_time: Total online time ranking
     - total_queries: Total API queries ranking
     - category_音韻查詢: Phonology queries category
     - category_字調查詢: Character/tone queries category
     - category_音系分析: System analysis category
     - category_工具使用: Tools usage category
-    - endpoint_*: Individual endpoint rankings (13 endpoints)
+    - category_其他查询: Other queries category, including villagesML aggregate
+    - endpoint_group_villages_ml: Aggregated villagesML ranking
+    - endpoint_group_pho_pie: Aggregated pho_pie ranking
+    - endpoint_*: Individual endpoint rankings
 
     Each ranking includes:
     - rank: User's rank (null if no activity)

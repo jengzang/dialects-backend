@@ -92,9 +92,9 @@ class RankingDetail(BaseModel):
 
 
 class LeaderboardResponse(BaseModel):
-    """Complete leaderboard response with all 18 rankings"""
+    """Complete leaderboard response with category, grouped, and endpoint rankings."""
     rankings: dict[str, RankingDetail] = Field(
-        description="Dictionary of all rankings (online_time, total_queries, categories, endpoints)"
+        description="Dictionary of all rankings (online_time, total_queries, categories, grouped aggregates, endpoints)"
     )
     total_users: int = Field(description="Total number of active users")
 
