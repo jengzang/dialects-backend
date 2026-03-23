@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request
 from jose import JWTError, jwt
@@ -21,6 +22,162 @@ def user_to_dict(user: models.User) -> dict:
         if isinstance(value, datetime):
             user_dict[key] = value.isoformat()  # 转换为 ISO 8601 字符串格式
     return user_dict
+
+
+def _make_rate_limit_member(now: int) -> str:
+    """为滑动窗口计数生成真正唯一的 member，避免同秒覆盖。"""
+    return f"{now}:{uuid4().hex}"
+
+
+def _format_reset_at(unix_ts: int) -> str:
+    """Format a Unix timestamp as an ISO 8601 UTC string."""
+    return datetime.utcfromtimestamp(unix_ts).isoformat() + "Z"
+
+
+def _build_rate_limit_detail(
+    *,
+    limit_type: str,
+    scope: str,
+    message: str,
+    limit: int,
+    current_count: int,
+    window_seconds: int,
+    retry_after_seconds: Optional[int],
+    suggest_login: bool = False,
+) -> dict:
+    reset_at = None
+    if retry_after_seconds is not None:
+        reset_at = _format_reset_at(int(datetime.utcnow().timestamp()) + retry_after_seconds)
+
+    return {
+        "code": "rate_limit_exceeded",
+        "limit_type": limit_type,
+        "scope": scope,
+        "window_type": "sliding_window",
+        "window_seconds": window_seconds,
+        "limit": limit,
+        "current_count": current_count,
+        "retry_after_seconds": retry_after_seconds,
+        "reset_at": reset_at,
+        "suggest_login": suggest_login,
+        "message": message,
+    }
+
+
+async def _get_redis_retry_after_seconds(
+    key: str,
+    *,
+    count: int,
+    limit: int,
+    window_seconds: int,
+    now: int,
+) -> Optional[int]:
+    """
+    Estimate when a Redis sliding-window limiter will drop back to <= limit.
+
+    Rejected requests are already inserted into the sorted set before the check,
+    so `count` includes the current rejected request.
+    """
+    overflow = count - limit
+    if overflow <= 0:
+        overflow = 1
+
+    rows = await redis_client.zrange(key, 0, overflow - 1, withscores=True)
+    if not rows:
+        return None
+
+    _, score = rows[-1]
+    retry_after_seconds = max(1, int(score) + window_seconds - now)
+    return retry_after_seconds
+
+
+async def _raise_redis_rate_limit(
+    *,
+    key: str,
+    count: int,
+    limit: int,
+    window_seconds: int,
+    now: int,
+    limit_type: str,
+    scope: str,
+    message: str,
+    suggest_login: bool = False,
+) -> None:
+    retry_after_seconds = await _get_redis_retry_after_seconds(
+        key,
+        count=count,
+        limit=limit,
+        window_seconds=window_seconds,
+        now=now,
+    )
+    detail = _build_rate_limit_detail(
+        limit_type=limit_type,
+        scope=scope,
+        message=message,
+        limit=limit,
+        current_count=count,
+        window_seconds=window_seconds,
+        retry_after_seconds=retry_after_seconds,
+        suggest_login=suggest_login,
+    )
+    headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds is not None else None
+    raise HTTPException(status_code=429, detail=detail, headers=headers)
+
+
+def _get_login_retry_after_seconds(
+    db: Session,
+    *,
+    ip: str,
+    login_attempts: int,
+) -> Optional[int]:
+    """
+    Estimate when the next login attempt can pass the 1-minute sliding window.
+
+    Login rate-limit checks happen before writing the current attempt, so
+    `login_attempts` only counts already-recorded rows.
+    """
+    overflow = login_attempts - MAX_LOGIN_PER_MINUTE + 1
+    if overflow <= 0:
+        overflow = 1
+
+    target_row = db.query(ApiUsageLog.called_at).filter(
+        ApiUsageLog.ip == ip,
+        ApiUsageLog.path == "/login",
+    ).order_by(ApiUsageLog.called_at.asc()).offset(overflow - 1).first()
+
+    if not target_row or not target_row[0]:
+        return None
+
+    release_at = target_row[0] + timedelta(minutes=1)
+    retry_after_seconds = int((release_at - datetime.utcnow()).total_seconds())
+    return max(1, retry_after_seconds)
+
+
+def _raise_login_rate_limit(
+    db: Session,
+    *,
+    ip: str,
+    login_attempts: int,
+) -> None:
+    retry_after_seconds = _get_login_retry_after_seconds(
+        db,
+        ip=ip,
+        login_attempts=login_attempts,
+    )
+    detail = _build_rate_limit_detail(
+        limit_type="login_ip_limit",
+        scope="ip",
+        message="登录过于频繁，请稍候再试",
+        limit=MAX_LOGIN_PER_MINUTE,
+        current_count=login_attempts,
+        window_seconds=60,
+        retry_after_seconds=retry_after_seconds,
+        suggest_login=False,
+    )
+    headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds is not None else None
+    raise HTTPException(status_code=429, detail=detail, headers=headers)
+
+
 async def get_current_user(
         request: Request,
         db: Session = Depends(get_db),
@@ -229,8 +386,8 @@ async def check_api_usage_limit(
         # === 步驟 A：始終記錄並檢查 IP 計數 ===
         if ip_address:
             ip_key = f"rl:ip:{ip_address}"
-            # 用時間戳作為 score 和 member（加隨機後綴避免同一秒衝突）
-            member = f"{now}:{id(object())}"
+            # 用時間戳作為 score，member 必須真正唯一，否則會覆蓋同秒內的舊記錄。
+            member = _make_rate_limit_member(now)
             await redis_client.zadd(ip_key, {member: now})
             await redis_client.zremrangebyscore(ip_key, 0, cutoff)
             await redis_client.expire(ip_key, WINDOW + 60)
@@ -238,30 +395,48 @@ async def check_api_usage_limit(
 
             if ip_count > ip_limit:
                 if user is None:
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"[X] API請求已達每小時上限（{ip_limit}次），請稍後再試\n"
-                               f"[NEW] 小提醒：登入帳號可繼續查詢！[RUN]"
+                    await _raise_redis_rate_limit(
+                        key=ip_key,
+                        count=ip_count,
+                        limit=ip_limit,
+                        window_seconds=WINDOW,
+                        now=now,
+                        limit_type="guest_ip_limit",
+                        scope="ip",
+                        message="游客请求已达每小时上限，请稍后再试。登录账号后可继续查询。",
+                        suggest_login=True,
                     )
                 else:
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"[X] 該 IP 請求已達每小時上限（{ip_limit}次），請稍後再試"
+                    await _raise_redis_rate_limit(
+                        key=ip_key,
+                        count=ip_count,
+                        limit=ip_limit,
+                        window_seconds=WINDOW,
+                        now=now,
+                        limit_type="authenticated_ip_limit",
+                        scope="ip",
+                        message="该 IP 请求已达每小时上限，请稍后再试。",
                     )
 
         # === 步驟 B：已登錄用戶額外檢查用戶計數 ===
         if user:
             user_key = f"rl:user:{user.id}"
-            member = f"{now}:{id(object())}"
+            member = _make_rate_limit_member(now)
             await redis_client.zadd(user_key, {member: now})
             await redis_client.zremrangebyscore(user_key, 0, cutoff)
             await redis_client.expire(user_key, WINDOW + 60)
             user_count = await redis_client.zcard(user_key)
 
             if user_count > MAX_USER_REQUESTS_PER_HOUR:
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"[X] API請求已達每小時上限（{MAX_USER_REQUESTS_PER_HOUR}次），請稍後再試"
+                await _raise_redis_rate_limit(
+                    key=user_key,
+                    count=user_count,
+                    limit=MAX_USER_REQUESTS_PER_HOUR,
+                    window_seconds=WINDOW,
+                    now=now,
+                    limit_type="authenticated_user_limit",
+                    scope="user",
+                    message="当前账号请求已达每小时上限，请稍后再试。",
                 )
 
     except HTTPException:
@@ -281,7 +456,4 @@ def check_login_rate_limit(db: Session, ip: str):
     ).count()
 
     if login_attempts >= MAX_LOGIN_PER_MINUTE:
-        raise HTTPException(
-            status_code=429,
-            detail="🚫 登入過於頻繁，請稍候再試"
-        )
+        _raise_login_rate_limit(db, ip=ip, login_attempts=login_attempts)
