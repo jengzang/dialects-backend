@@ -48,6 +48,10 @@ def ensure_indexes(db_path: str) -> None:
 
             # 音节索引（用于音节查询）
             "CREATE INDEX IF NOT EXISTS idx_dialects_syllable ON dialects(音節)",
+
+            # 矩阵查询覆盖索引（matrix.py 的核心查询：WHERE 簡稱 IN + GROUP BY/ORDER BY 聲母韻母聲調）
+            # 消除 filesort 和 hash aggregation，对大地点集合查询效果最显著
+            "CREATE INDEX IF NOT EXISTS idx_dialects_abbr_pho_full ON dialects(簡稱, 聲母, 韻母, 聲調)",
         ]
 
         # 创建索引
@@ -78,40 +82,53 @@ def ensure_indexes(db_path: str) -> None:
 
 def ensure_character_indexes(db_path: str) -> None:
     """
-    确保characters数据库中存在必要的索引
+    确保characters数据库中存在必要的索引。
 
-    Args:
-        db_path: 数据库文件路径
+    characters.db 随数据一起发布时已预建了约25个索引（每张表均有单列、双列、层级和多地位标记索引）。
+    若直接对所有索引执行 CREATE IF NOT EXISTS，会因名称不同而产生大量重复索引，徒增磁盘占用和写入开销。
+
+    策略：
+    - 若 characters 表上已有 >= 10 个索引，说明 DB 携带了完整的预建索引，直接跳过。
+    - 若索引不足（裸 DB），才创建最小必要索引集。
     """
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
+        cursor.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='index' AND tbl_name='characters'"
+        )
+        existing_count = cursor.fetchone()[0]
+
+        if existing_count >= 10:
+            conn.close()
+            print(f"  → characters.db 已有 {existing_count} 个预建索引，跳过")
+            return
+
+        # 裸 DB 兜底：仅在索引不足时创建基础索引集
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        existing_indexes: Set[str] = {row[0] for row in cursor.fetchall()}
+
         indexes = [
-            # 字符查询索引（最常用）
             "CREATE INDEX IF NOT EXISTS idx_characters_char ON characters(漢字)",
-
-            # 多地位标记索引
             "CREATE INDEX IF NOT EXISTS idx_characters_multi ON characters(多地位標記, 漢字)",
-
-            # 音韵层级索引（用于status_arrange_pho.py的分组统计）
             "CREATE INDEX IF NOT EXISTS idx_characters_hierarchy ON characters(組, 母, 攝, 韻, 調)",
-
-            # 等级查询索引（用于等=三的特殊处理）
             "CREATE INDEX IF NOT EXISTS idx_characters_grade ON characters(等, 漢字)",
         ]
 
         created_count = 0
         for idx_sql in indexes:
             idx_name = idx_sql.split("IF NOT EXISTS")[1].split("ON")[0].strip()
-            cursor.execute(idx_sql)
-            created_count += 1
+            if idx_name not in existing_indexes:
+                cursor.execute(idx_sql)
+                created_count += 1
+                print(f"  ✓ 创建索引: {idx_name}")
 
         cursor.execute("ANALYZE")
         conn.commit()
         conn.close()
 
-        print(f"  → 在 characters.db 中确保了 {created_count} 个索引")
+        print(f"  → 在 characters.db 中创建了 {created_count} 个索引")
 
     except Exception as e:
         print(f"  ✗ 创建索引失败 (characters.db): {e}")
