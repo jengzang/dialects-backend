@@ -1,7 +1,7 @@
 """Session管理服务"""
 import uuid
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session as DBSession
 
@@ -69,7 +69,7 @@ def should_update_session(session: Session) -> bool:
     if not session.last_activity_at:
         return True
 
-    time_since_update = datetime.utcnow() - session.last_activity_at
+    time_since_update = datetime.now(timezone.utc).replace(tzinfo=None) - session.last_activity_at
     return time_since_update.total_seconds() > 300  # 5 minutes
 
 
@@ -94,7 +94,7 @@ def create_session(
     if best_ip and best_ip != "0.0.0.0":
         ip_history_data.append({
             "ip": best_ip,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         })
 
     # 创建session记录
@@ -102,16 +102,16 @@ def create_session(
         session_id=session_id,
         user_id=user.id,
         username=user.username,
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         first_ip=best_ip,
         current_ip=best_ip,
         device_info=device_info,
         first_device_info=device_info,  # ✅ 记录首次设备
         device_fingerprint=device_fingerprint,
         ip_history=json.dumps(ip_history_data),
-        current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
-        last_seen=datetime.utcnow()  # ✅ Initialize last_seen
+        current_session_started_at=datetime.now(timezone.utc).replace(tzinfo=None),  # ✅ Initialize timestamp
+        last_seen=datetime.now(timezone.utc).replace(tzinfo=None)  # ✅ Initialize last_seen
     )
     db.add(session)
     db.flush()  # 获取session.id
@@ -172,16 +172,16 @@ def refresh_session(
             session_id=f"migrated-{user.id}-{uuid.uuid4().hex[:8]}",
             user_id=user.id,
             username=user.username,
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
             first_ip=best_ip,
             current_ip=best_ip,
             device_info=device_info,
             first_device_info=device_info,
             ip_history=json.dumps([]),
             refresh_count=0,
-            current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
-            last_seen=datetime.utcnow()  # ✅ Initialize last_seen
+            current_session_started_at=datetime.now(timezone.utc).replace(tzinfo=None),  # ✅ Initialize timestamp
+            last_seen=datetime.now(timezone.utc).replace(tzinfo=None)  # ✅ Initialize last_seen
         )
         db.add(session)
         db.flush()  # 获取session.id
@@ -202,17 +202,17 @@ def refresh_session(
             if not session.ip_history or session.ip_history == "[]":
                 session.ip_history = json.dumps([{
                     "ip": session.current_ip,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
                     "event": "backfilled"
                 }])
 
     # ✅ BACKFILL: Initialize timestamp fields for migrated sessions
     if not session.current_session_started_at:
-        session.current_session_started_at = datetime.utcnow()
+        session.current_session_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
         print(f"[BACKFILL] Initialized current_session_started_at for session {session.id}")
 
     if not session.last_seen:
-        session.last_seen = datetime.utcnow()
+        session.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
         print(f"[BACKFILL] Initialized last_seen for session {session.id}")
 
     # Apply fallback for new current_ip (if extraction failed)
@@ -237,7 +237,7 @@ def refresh_session(
 
             # 更新IP历史
             ip_history = json.loads(session.ip_history or "[]")
-            ip_history.append({"ip": new_current_ip, "timestamp": datetime.utcnow().isoformat()})
+            ip_history.append({"ip": new_current_ip, "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()})
             session.ip_history = json.dumps(ip_history[-IP_HISTORY_LIMIT:])  # 保留最近N条
 
             # 检测可疑活动
@@ -257,13 +257,13 @@ def refresh_session(
 
         # Update timestamps and counters
         session.refresh_count += 1
-        session.last_activity_at = datetime.utcnow()
-        session.last_seen = datetime.utcnow()
-        session.current_session_started_at = datetime.utcnow()
+        session.last_activity_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.current_session_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # ✅ Update User table (kept as per user requirement)
-        user.last_seen = datetime.utcnow()
-        user.current_session_started_at = datetime.utcnow()
+        user.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
+        user.current_session_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # 创建新token对
     token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
@@ -304,7 +304,7 @@ def revoke_session(db: DBSession, session_id: int, reason: str = "manual"):
     session = db.query(Session).filter(Session.id == session_id).first()
     if session:
         session.revoked = True
-        session.revoked_at = datetime.utcnow()
+        session.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
         session.revoked_reason = reason
 
         # 撤销所有关联token

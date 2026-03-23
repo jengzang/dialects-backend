@@ -9,7 +9,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def now_utc_naive() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def now_shanghai() -> datetime:

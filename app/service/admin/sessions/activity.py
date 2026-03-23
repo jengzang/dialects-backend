@@ -64,7 +64,7 @@ def get_session_activity(
     for i, ip_item in enumerate(ip_history):
         if i > 0:  # 跳过第一个 IP（已在创建事件中显示）
             try:
-                timestamp = datetime.fromisoformat(ip_item.timestamp.replace('Z', '+00:00'))
+                timestamp = datetime.fromisoformat(ip_item.timestamp)
                 location = lookup_ip_location(ip_item.ip)
                 location_str = f" ({location})" if location else ""
                 events.append(SessionActivityItem(
