@@ -9,10 +9,12 @@
 
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+
+from app.schemas.base import ShanghaiBaseModel
 
 
-class FormData(BaseModel):
+class FormData(ShanghaiBaseModel):
     """
     用于 /api/submit_form 的用戶自定表單提交，寫入數據庫supplements.db。
     - locations-寫入的地點
@@ -35,7 +37,7 @@ class FormData(BaseModel):
     created_at: Optional[str] = None  # submit沒有，delete必填
 
 
-class CustomRegionCreate(BaseModel):
+class CustomRegionCreate(ShanghaiBaseModel):
     """创建或更新自定义区域的请求模型"""
     region_name: str = Field(..., min_length=1, max_length=200, description="区域名称")
     locations: List[str] = Field(..., min_items=1, description="地点简称列表")
@@ -54,7 +56,7 @@ class CustomRegionCreate(BaseModel):
         return v
 
 
-class CustomRegionResponse(BaseModel):
+class CustomRegionResponse(ShanghaiBaseModel):
     """自定义区域响应模型"""
     id: int
     region_name: str
@@ -64,18 +66,17 @@ class CustomRegionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class CustomRegionList(BaseModel):
+class CustomRegionList(ShanghaiBaseModel):
     """自定义区域列表响应模型"""
     success: bool = True
     regions: List[CustomRegionResponse]
     total: int
 
 
-class CustomDataEdit(BaseModel):
+class CustomDataEdit(ShanghaiBaseModel):
     """編輯 custom 數據請求"""
     created_at: datetime  # 用於識別要編輯的記錄
     簡稱: Optional[str] = None
@@ -87,6 +88,6 @@ class CustomDataEdit(BaseModel):
     說明: Optional[str] = None
 
 
-class BatchDeleteRequest(BaseModel):
+class BatchDeleteRequest(ShanghaiBaseModel):
     """批量刪除請求"""
     created_at_list: List[datetime]

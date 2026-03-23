@@ -18,6 +18,7 @@ import json
 
 from app.service.user.core.database import get_db
 from app.service.user.submission import region
+from app.common.time_utils import to_shanghai_iso
 from app.schemas.admin.submissions import (
     AdminRegionListResponse,
     AdminRegionCreate,
@@ -105,8 +106,8 @@ async def create_region(
                 "locations": locations,
                 "location_count": len(locations),
                 "description": region_record.description,
-                "created_at": region_record.created_at.isoformat(),
-                "updated_at": region_record.updated_at.isoformat()
+                "created_at": to_shanghai_iso(region_record.created_at),
+                "updated_at": to_shanghai_iso(region_record.updated_at)
             }
         }
     except ValueError as e:
@@ -137,8 +138,8 @@ async def update_region(
                 "locations": locations,
                 "location_count": len(locations),
                 "description": region_record.description,
-                "created_at": region_record.created_at.isoformat(),
-                "updated_at": region_record.updated_at.isoformat()
+                "created_at": to_shanghai_iso(region_record.created_at),
+                "updated_at": to_shanghai_iso(region_record.updated_at)
             }
         }
     except ValueError as e:

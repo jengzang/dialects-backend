@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from app.service.auth.database.models import User, RefreshToken
+from app.common.time_utils import to_shanghai_iso
 
 
 def get_active_tokens(
@@ -52,8 +53,8 @@ def get_active_tokens(
                 "user_id": token.user_id,
                 "username": token.user.username,
                 "device_info": token.device_info,
-                "created_at": token.created_at.isoformat(),
-                "expires_at": token.expires_at.isoformat(),
+                "created_at": to_shanghai_iso(token.created_at),
+                "expires_at": to_shanghai_iso(token.expires_at),
                 "is_active": not token.revoked and token.expires_at > datetime.utcnow()
             }
             for token in tokens
@@ -91,8 +92,8 @@ def get_user_tokens(db: Session, user_id: int) -> Dict[str, Any]:
             {
                 "id": token.id,
                 "device_info": token.device_info,
-                "created_at": token.created_at.isoformat(),
-                "expires_at": token.expires_at.isoformat(),
+                "created_at": to_shanghai_iso(token.created_at),
+                "expires_at": to_shanghai_iso(token.expires_at),
                 "revoked": token.revoked,
                 "is_expired": token.expires_at < datetime.utcnow()
             }

@@ -2,7 +2,8 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=5000 _RUN_TYPE=WEB MPLCONFIGDIR=/tmp \
     FORWARDED_ALLOW_IPS=127.0.0.1,172.17.0.1 \
     AUTO_MIGRATE=true \
-    MIGRATION_TIMEOUT=300
+    MIGRATION_TIMEOUT=300 \
+    TZ=Asia/Shanghai
 WORKDIR /app
 
 # ==================== 👇 核心修改在这里 👇 ====================
@@ -12,7 +13,7 @@ WORKDIR /app
 # --no-install-recommends: 不安装推荐的额外包，保持镜像体积小
 # rm -rf: 安装完清理缓存，减小镜像体积
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg tzdata && \
     rm -rf /var/lib/apt/lists/*
 # ============================================================
 

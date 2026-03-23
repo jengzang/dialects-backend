@@ -1,4 +1,4 @@
-﻿"""
+"""
 API usage stats service.
 """
 
@@ -7,13 +7,15 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from app.common.path import LOGS_DATABASE_PATH
+from app.common.time_utils import shanghai_to_utc_naive
 
 
 def _to_db_time(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.isoformat(sep=" ", timespec="seconds")
+        normalized = shanghai_to_utc_naive(value)
+        return normalized.isoformat(sep=" ", timespec="seconds") if normalized else None
     return str(value)
 
 

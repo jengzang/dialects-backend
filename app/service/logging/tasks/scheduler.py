@@ -1,92 +1,76 @@
 # logs/scheduler.py
-"""
-日志系统定时任务
+"""Scheduled maintenance and aggregation tasks for the logging system."""
 
-功能：
-1. 每周清理 30 天前的旧日志
-2. 每小时聚合关键词统计
-3. Session和Token自动清理
-4. SECRET_KEY自动清理
-"""
 import logging
 from datetime import datetime, timedelta
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import and_, text
 
-from app.service.logging.core.database import SessionLocal
-from app.service.logging.core.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
+from app.common.time_utils import now_shanghai, now_utc_naive, shanghai_to_utc_naive
 from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
 from app.service.auth.database.models import ApiUsageLog
-from app.service.auth.session.cleanup import (  # ✅ 导入session清理函数
-    cleanup_revoked_tokens,
+from app.service.auth.security.key_manager import cleanup_expired_keys
+from app.service.auth.session.cleanup import (
+    cleanup_excess_tokens_per_session,
     cleanup_expired_sessions,
+    cleanup_revoked_tokens,
     cleanup_suspicious_sessions,
-    cleanup_excess_tokens_per_session
 )
-from app.service.auth.security.key_manager import cleanup_expired_keys  # ✅ 导入key清理函数
+from app.service.logging.core.database import SessionLocal
+from app.service.logging.core.models import ApiKeywordLog, ApiStatistics, ApiVisitLog
 
-# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 创建调度器
 scheduler = BackgroundScheduler()
 
 
-def cleanup_old_logs():
-    """
-    清理旧日志任务
-
-    删除 30 天前的：
-    - api_keyword_log 记录
-    - api_visit_log 每日统计（保留总计，date=NULL）
-    - api_statistics 每日统计（保留总计）
-    """
-    logger.info("[DEL] 开始清理旧日志...")
+def cleanup_old_logs() -> None:
+    """Delete old log data while keeping aggregate total rows."""
+    logger.info("[DEL] Cleaning old log data...")
     db = SessionLocal()
 
     try:
-        cutoff_date = datetime.now() - timedelta(days=365)
+        keyword_cutoff = now_utc_naive() - timedelta(days=365)
+        local_bucket_cutoff = now_shanghai().replace(tzinfo=None) - timedelta(days=365)
 
-        # 删除关键词日志
         deleted_keywords = db.query(ApiKeywordLog).filter(
-            ApiKeywordLog.timestamp < cutoff_date
+            ApiKeywordLog.timestamp < keyword_cutoff
         ).delete()
 
-        # 删除 HTML 访问每日统计（保留总计）
         deleted_visits = db.query(ApiVisitLog).filter(
             and_(
-                ApiVisitLog.date.isnot(None),  # 只删除每日统计
-                ApiVisitLog.date < cutoff_date
+                ApiVisitLog.date.isnot(None),
+                ApiVisitLog.date < local_bucket_cutoff,
             )
         ).delete()
 
-        # 删除关键词每日统计（保留总计）
         deleted_stats = db.query(ApiStatistics).filter(
             and_(
                 ApiStatistics.stat_type == "keyword_daily",
-                ApiStatistics.date < cutoff_date
+                ApiStatistics.date < local_bucket_cutoff,
             )
         ).delete()
 
         db.commit()
-
-        logger.info(f"[OK] 清理完成: 删除了 {deleted_keywords} 条关键词日志, {deleted_visits} 条访问统计, {deleted_stats} 条每日统计")
-
-    except Exception as e:
-        logger.error(f"[X] 清理旧日志失败: {e}")
+        logger.info(
+            "[OK] Cleanup finished: removed %s keyword logs, %s visit stats rows, %s daily keyword stats",
+            deleted_keywords,
+            deleted_visits,
+            deleted_stats,
+        )
+    except Exception as exc:
+        logger.error("[X] Failed to clean old logs: %s", exc)
         db.rollback()
     finally:
         db.close()
 
 
-def cleanup_old_api_usage_logs():
-    """
-    清理 auth.db 中的 API 使用日志（ApiUsageLog）
-    保留最近 7 天，避免日志表持续膨胀。
-    """
-    logger.info("[DEL] 开始清理 auth.db 的 ApiUsageLog...")
+def cleanup_old_api_usage_logs() -> None:
+    """Delete old API usage rows from auth.db."""
+    logger.info("[DEL] Cleaning ApiUsageLog rows in auth.db...")
     db = AuthSessionLocal()
     try:
         cutoff_date = datetime.utcnow() - timedelta(days=7)
@@ -94,201 +78,185 @@ def cleanup_old_api_usage_logs():
             ApiUsageLog.called_at < cutoff_date
         ).delete()
         db.commit()
-        logger.info(f"[OK] ApiUsageLog 清理完成: 删除 {deleted_count} 条")
-    except Exception as e:
-        logger.error(f"[X] ApiUsageLog 清理失败: {e}")
+        logger.info("[OK] ApiUsageLog cleanup finished: removed %s rows", deleted_count)
+    except Exception as exc:
+        logger.error("[X] ApiUsageLog cleanup failed: %s", exc)
         db.rollback()
     finally:
         db.close()
 
 
-def aggregate_keyword_statistics():
-    """
-    聚合关键词统计任务
-
-    重新聚合：
-    - keyword_total: 总计统计
-    - keyword_daily: 最近 7 天的每日统计
-    """
-    logger.info("[DB] 开始聚合关键词统计...")
+def aggregate_keyword_statistics() -> None:
+    """Rebuild keyword total and keyword daily aggregates."""
+    logger.info("[DB] Aggregating keyword statistics...")
     db = SessionLocal()
 
     try:
-        # 清空现有关键词统计
         db.query(ApiStatistics).filter(
             ApiStatistics.stat_type.in_(["keyword_total", "keyword_daily"])
         ).delete()
 
-        # 聚合总计
-        db.execute(text("""
-            INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
-            SELECT
-                'keyword_total' as stat_type,
-                NULL as date,
-                field as category,
-                value as item,
-                COUNT(*) as count,
-                datetime('now') as updated_at
-            FROM api_keyword_log
-            GROUP BY field, value
-        """))
+        db.execute(
+            text(
+                """
+                INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
+                SELECT
+                    'keyword_total' as stat_type,
+                    NULL as date,
+                    field as category,
+                    value as item,
+                    COUNT(*) as count,
+                    datetime('now') as updated_at
+                FROM api_keyword_log
+                GROUP BY field, value
+                """
+            )
+        )
 
-        # 聚合最近 7 天的每日统计
-        seven_days_ago = datetime.now() - timedelta(days=7)
-        db.execute(text("""
-            INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
-            SELECT
-                'keyword_daily' as stat_type,
-                DATE(timestamp) as date,
-                field as category,
-                value as item,
-                COUNT(*) as count,
-                datetime('now') as updated_at
-            FROM api_keyword_log
-            WHERE timestamp >= :cutoff_date
-            GROUP BY DATE(timestamp), field, value
-        """), {"cutoff_date": seven_days_ago})
+        seven_days_ago = shanghai_to_utc_naive(now_shanghai() - timedelta(days=7))
+        db.execute(
+            text(
+                """
+                INSERT INTO api_statistics (stat_type, date, category, item, count, updated_at)
+                SELECT
+                    'keyword_daily' as stat_type,
+                    DATE(datetime(timestamp, '+8 hours')) as date,
+                    field as category,
+                    value as item,
+                    COUNT(*) as count,
+                    datetime('now') as updated_at
+                FROM api_keyword_log
+                WHERE timestamp >= :cutoff_date
+                GROUP BY DATE(datetime(timestamp, '+8 hours')), field, value
+                """
+            ),
+            {"cutoff_date": seven_days_ago},
+        )
 
         db.commit()
 
-        # 统计结果
         from sqlalchemy import func
+
         keyword_total = db.query(func.count(ApiStatistics.id)).filter(
             ApiStatistics.stat_type == "keyword_total"
         ).scalar()
-
         keyword_daily = db.query(func.count(ApiStatistics.id)).filter(
             ApiStatistics.stat_type == "keyword_daily"
         ).scalar()
 
-        logger.info(f"[OK] 聚合完成: 总计 {keyword_total} 条, 每日 {keyword_daily} 条")
-
-    except Exception as e:
-        logger.error(f"[X] 聚合统计失败: {e}")
+        logger.info(
+            "[OK] Keyword aggregation finished: total=%s daily=%s",
+            keyword_total,
+            keyword_daily,
+        )
+    except Exception as exc:
+        logger.error("[X] Keyword aggregation failed: %s", exc)
         db.rollback()
     finally:
         db.close()
 
 
-def start_scheduler():
-    """启动定时任务调度器"""
-    # ========== 日志清理任务 ==========
-    # 每周日凌晨 3 点清理旧日志
+def start_scheduler() -> None:
+    """Start background scheduled jobs."""
     scheduler.add_job(
         cleanup_old_logs,
-        CronTrigger(day_of_week='sun', hour=3, minute=0),
-        id='cleanup_old_logs',
-        name='清理365天前的旧日志',
-        replace_existing=True
+        CronTrigger(day_of_week="sun", hour=3, minute=0),
+        id="cleanup_old_logs",
+        name="cleanup_old_logs",
+        replace_existing=True,
     )
 
-    # 每天凌晨 3:30 清理 auth.db 的 ApiUsageLog（保留7天）
     scheduler.add_job(
         cleanup_old_api_usage_logs,
         CronTrigger(hour=3, minute=30),
-        id='cleanup_old_api_usage_logs',
-        name='清理7天前的 ApiUsageLog',
-        replace_existing=True
+        id="cleanup_old_api_usage_logs",
+        name="cleanup_old_api_usage_logs",
+        replace_existing=True,
     )
 
-    # 每小时的第 5 分钟聚合关键词统计
     scheduler.add_job(
         aggregate_keyword_statistics,
         CronTrigger(minute=5),
-        id='aggregate_keyword_stats',
-        name='聚合关键词统计',
-        replace_existing=True
+        id="aggregate_keyword_stats",
+        name="aggregate_keyword_stats",
+        replace_existing=True,
     )
 
-    # ========== Session和Token清理任务 ==========
-    # ✅ 每周日凌晨3点清理已撤销的token（保留7天历史）
     scheduler.add_job(
         cleanup_revoked_tokens,
-        CronTrigger(day_of_week='sun', hour=3, minute=0),
-        id='cleanup_revoked_tokens',
-        name='清理已撤销的Token（每周）',
-        replace_existing=True
+        CronTrigger(day_of_week="sun", hour=3, minute=0),
+        id="cleanup_revoked_tokens",
+        name="cleanup_revoked_tokens",
+        replace_existing=True,
     )
 
-    # ✅ 每天凌晨2点标记过期session（不删除，只revoke）
     scheduler.add_job(
         cleanup_expired_sessions,
         CronTrigger(hour=2, minute=0),
-        id='revoke_expired_sessions',
-        name='撤销过期Session（每天）',
-        replace_existing=True
+        id="revoke_expired_sessions",
+        name="revoke_expired_sessions",
+        replace_existing=True,
     )
 
-    # ✅ 每小时检测可疑会话
     scheduler.add_job(
         cleanup_suspicious_sessions,
         CronTrigger(minute=15),
-        id='check_suspicious_sessions',
-        name='检测可疑会话（每小时）',
-        replace_existing=True
+        id="check_suspicious_sessions",
+        name="check_suspicious_sessions",
+        replace_existing=True,
     )
 
-    # ✅ 每天凌晨4点清理超量token
     scheduler.add_job(
         cleanup_excess_tokens_per_session,
         CronTrigger(hour=4, minute=0),
-        id='cleanup_excess_tokens',
-        name='清理超量Token（每天）',
-        replace_existing=True
+        id="cleanup_excess_tokens",
+        name="cleanup_excess_tokens",
+        replace_existing=True,
     )
 
-    # ========== SECRET_KEY清理任务 ==========
-    # ✅ 每天凌晨1点清理过期密钥
     scheduler.add_job(
         cleanup_expired_keys,
         CronTrigger(hour=1, minute=0),
-        id='cleanup_expired_keys',
-        name='清理过期SECRET_KEY',
-        replace_existing=True
+        id="cleanup_expired_keys",
+        name="cleanup_expired_keys",
+        replace_existing=True,
     )
 
     scheduler.start()
-    logger.info("[OK] 定时任务调度器已启动")
-    logger.info("   - 清理旧日志: 每周日 03:00")
-    logger.info("   - 清理 ApiUsageLog: 每天 03:30（保留7天）")
-    logger.info("   - 聚合统计: 每小时第 5 分钟")
-    logger.info("   - 清理已撤销Token: 每周日 03:00")
-    logger.info("   - 撤销过期Session: 每天 02:00")
-    logger.info("   - 检测可疑会话: 每小时第 15 分钟")
-    logger.info("   - 清理超量Token: 每天 04:00")
-    logger.info("   - 清理过期密钥: 每天 01:00")
+    logger.info("[OK] Scheduler started")
+    logger.info("   - cleanup_old_logs: Sun 03:00")
+    logger.info("   - cleanup_old_api_usage_logs: daily 03:30")
+    logger.info("   - aggregate_keyword_stats: hourly minute 05")
+    logger.info("   - cleanup_revoked_tokens: Sun 03:00")
+    logger.info("   - revoke_expired_sessions: daily 02:00")
+    logger.info("   - check_suspicious_sessions: hourly minute 15")
+    logger.info("   - cleanup_excess_tokens: daily 04:00")
+    logger.info("   - cleanup_expired_keys: daily 01:00")
 
 
-def stop_scheduler():
-    """停止定时任务调度器"""
+def stop_scheduler() -> None:
+    """Stop background scheduled jobs."""
     if scheduler.running:
         scheduler.shutdown()
-        logger.info("🛑 定时任务调度器已停止")
+        logger.info("[OK] Scheduler stopped")
 
 
-def run_task_now(task_name: str):
-    """
-    立即执行指定任务（用于测试或手动触发）
-
-    Args:
-        task_name: 'cleanup' 或 'aggregate'
-    """
-    if task_name == 'cleanup':
+def run_task_now(task_name: str) -> None:
+    """Run a maintenance task immediately."""
+    if task_name == "cleanup":
         cleanup_old_logs()
-    elif task_name == 'aggregate':
+    elif task_name == "aggregate":
         aggregate_keyword_statistics()
     else:
-        raise ValueError(f"未知的任务名: {task_name}")
+        raise ValueError(f"Unknown task name: {task_name}")
 
 
-# 可以直接运行此脚本来手动执行任务
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) > 1:
-        task = sys.argv[1]
-        run_task_now(task)
+        run_task_now(sys.argv[1])
     else:
-        print("用法:")
-        print("  python -m app.logging.scheduler cleanup    # 清理旧日志")
-        print("  python -m app.logging.scheduler aggregate  # 聚合统计")
+        print("Usage:")
+        print("  python -m app.logging.scheduler cleanup")
+        print("  python -m app.logging.scheduler aggregate")

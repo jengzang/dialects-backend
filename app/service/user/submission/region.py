@@ -9,6 +9,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from app.common.time_utils import to_shanghai_iso
 from app.service.user.core.models import UserRegion
 
 
@@ -246,7 +247,7 @@ def get_region_statistics(db: Session) -> dict:
             "username": r.username,
             "region_name": r.region_name,
             "action": "updated" if r.updated_at > r.created_at else "created",
-            "timestamp": r.updated_at.isoformat()
+            "timestamp": to_shanghai_iso(r.updated_at)
         }
         for r in recent
     ]
