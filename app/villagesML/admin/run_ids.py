@@ -1,9 +1,3 @@
-"""
-Run_ID 绠＄悊 API 绔偣
-
-鎻愪緵 HTTP 鎺ュ彛绠＄悊 run_id 閰嶇疆銆?
-"""
-
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
@@ -11,14 +5,19 @@ from typing import Optional
 from ..run_id_manager import run_id_manager
 from app.service.auth.core.dependencies import get_current_admin_user
 
-# 瀵煎叆韬唤楠岃瘉渚濊禆
+"""
+Run ID 管理 API 路由。
 
+提供读取当前激活 run_id、列出可用 run_id、切换激活 run_id、
+查询元数据以及刷新缓存的接口。
+"""
 
 router = APIRouter()
 
 
 class SetActiveRunIDRequest(BaseModel):
-    """璁剧疆娲昏穬 run_id 鐨勮姹備綋"""
+    """设置激活 run_id 的请求体。"""
+
     run_id: str
     updated_by: Optional[str] = None
     notes: Optional[str] = None
@@ -27,17 +26,17 @@ class SetActiveRunIDRequest(BaseModel):
 @router.get("/run-ids/active")
 def get_all_active_run_ids():
     """
-    鑾峰彇鎵€鏈夊垎鏋愮被鍨嬬殑娲昏穬 run_id锛堝叕寮€绔偣锛?
+    获取所有分析类型当前激活的 run_id。
 
     Returns:
-        鎵€鏈夊垎鏋愮被鍨嬬殑娲昏穬 run_id 閰嶇疆
+        所有分析类型对应的当前激活 run_id。
     """
     try:
         result = run_id_manager.get_all_active_run_ids()
         return {
             "success": True,
             "data": result,
-            "count": len(result)
+            "count": len(result),
         }
     except HTTPException:
         raise
@@ -47,23 +46,23 @@ def get_all_active_run_ids():
 
 @router.get("/run-ids/active/{analysis_type}")
 def get_active_run_id(
-    analysis_type: str  # 娣诲姞閫熺巼闄愬埗锛屼絾鍏佽鍖垮悕璁块棶
+    analysis_type: str,  # 分析类型名称
 ):
     """
-    鑾峰彇鎸囧畾鍒嗘瀽绫诲瀷鐨勬椿璺?run_id锛堝叕寮€绔偣锛?
+    获取指定分析类型当前激活的 run_id。
 
     Args:
-        analysis_type: 鍒嗘瀽绫诲瀷鏍囪瘑
+        analysis_type: 分析类型名称。
 
     Returns:
-        娲昏穬鐨?run_id 閰嶇疆
+        当前激活的 run_id 信息。
     """
     try:
         run_id = run_id_manager.get_active_run_id(analysis_type)
         return {
             "success": True,
             "analysis_type": analysis_type,
-            "run_id": run_id
+            "run_id": run_id,
         }
     except HTTPException:
         raise
@@ -76,13 +75,13 @@ def get_active_run_id(
 @router.get("/run-ids/available/{analysis_type}")
 def list_available_run_ids(analysis_type: str):
     """
-    鍒楀嚭鎸囧畾鍒嗘瀽绫诲瀷鐨勬墍鏈夊彲鐢?run_id
+    列出指定分析类型下可用的 run_id。
 
     Args:
-        analysis_type: 鍒嗘瀽绫诲瀷鏍囪瘑
+        analysis_type: 分析类型名称。
 
     Returns:
-        鍙敤 run_id 鍒楄〃
+        可用 run_id 列表。
     """
     try:
         run_ids = run_id_manager.list_available_run_ids(analysis_type)
@@ -90,7 +89,7 @@ def list_available_run_ids(analysis_type: str):
             "success": True,
             "analysis_type": analysis_type,
             "available_run_ids": run_ids,
-            "count": len(run_ids)
+            "count": len(run_ids),
         }
     except HTTPException:
         raise
@@ -105,29 +104,29 @@ def set_active_run_id(
     _admin=Depends(get_current_admin_user),
 ):
     """
-    璁剧疆娲昏穬 run_id锛堥渶瑕佺鐞嗗憳鏉冮檺锛?
+    设置指定分析类型的激活 run_id。
 
     Args:
-        analysis_type: 鍒嗘瀽绫诲瀷鏍囪瘑
-        request: 鍖呭惈 run_id銆乽pdated_by銆乶otes 鐨勮姹備綋
-        admin: 褰撳墠绠＄悊鍛樼敤鎴?
+        analysis_type: 分析类型名称。
+        request: 包含 `run_id`、`updated_by` 和 `notes` 的请求体。
+        admin: 当前管理员用户。
 
     Returns:
-        鏇存柊缁撴灉
+        更新结果。
     """
     try:
         run_id_manager.set_active_run_id(
             analysis_type=analysis_type,
             run_id=request.run_id,
             updated_by=request.updated_by,
-            notes=request.notes
+            notes=request.notes,
         )
 
         return {
             "success": True,
-            "message": f"宸插皢 {analysis_type} 鐨勬椿璺?run_id 鏇存柊涓?{request.run_id}",
+            "message": f"已将 {analysis_type} 的激活 run_id 更新为 {request.run_id}",
             "analysis_type": analysis_type,
-            "run_id": request.run_id
+            "run_id": request.run_id,
         }
     except HTTPException:
         raise
@@ -140,19 +139,19 @@ def set_active_run_id(
 @router.get("/run-ids/metadata/{run_id}")
 def get_run_id_metadata(run_id: str):
     """
-    鑾峰彇 run_id 鐨勮缁嗗厓鏁版嵁
+    获取 run_id 的元数据。
 
     Args:
-        run_id: run_id 鏍囪瘑
+        run_id: run_id 名称。
 
     Returns:
-        run_id 鐨勫厓鏁版嵁
+        run_id 元数据。
     """
     try:
         metadata = run_id_manager.get_run_id_metadata(run_id)
         return {
             "success": True,
-            "data": metadata
+            "data": metadata,
         }
     except HTTPException:
         raise
@@ -165,20 +164,18 @@ def refresh_cache(
     _admin=Depends(get_current_admin_user),
 ):
     """
-    鍒锋柊 run_id 缂撳瓨
+    刷新 run_id 缓存。
 
     Returns:
-        鍒锋柊缁撴灉
+        刷新结果。
     """
     try:
         run_id_manager.refresh_cache()
         return {
             "success": True,
-            "message": "缓存刷新成功"
+            "message": "缓存刷新成功",
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-

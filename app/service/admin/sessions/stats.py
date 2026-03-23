@@ -1,12 +1,9 @@
 """
-浼氳瘽缁熻涓氬姟閫昏緫
+Session statistics aggregation helpers.
 
-鑱岃矗锛?
-- 浼氳瘽缁熻浠〃鏉?
-- 鍦ㄧ嚎鐢ㄦ埛缁熻
-- 浼氳瘽鍒嗘瀽
-
-娉ㄦ剰锛氭妯″潡涓嶄緷璧朏astAPI锛屽彲鍦ㄤ换浣曞湴鏂硅皟鐢?
+This module powers the admin session analytics endpoints.
+It provides aggregate counters, online user snapshots,
+user session history, and higher-level analytics views.
 """
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session as DBSession
@@ -14,7 +11,6 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 
 from app.common.time_utils import to_shanghai_datetime
-
 from app.service.auth.database.models import Session
 
 
@@ -24,19 +20,18 @@ def get_session_stats(
     end_date: Optional[datetime] = None
 ) -> Dict[str, Any]:
     """
-    浼氳瘽缁熻浠〃鏉?
+    Aggregate session statistics.
 
     Args:
-        db: 鏁版嵁搴撲細璇?
-        start_date: 缁熻寮€濮嬫椂闂?
-        end_date: 缁熻缁撴潫鏃堕棿
+        db: Database session.
+        start_date: Inclusive lower bound for the query window.
+        end_date: Inclusive upper bound for the query window.
 
     Returns:
-        缁熻鏁版嵁瀛楀吀
+        Aggregated session statistics payload.
     """
     query = db.query(Session)
 
-    # 搴旂敤鏃堕棿鑼冨洿绛涢€?
     if start_date:
         query = query.filter(Session.created_at >= start_date)
     if end_date:
@@ -44,7 +39,7 @@ def get_session_stats(
 
     now = datetime.utcnow()
 
-    # 鍩虹缁熻
+    # Count sessions by status.
     total_sessions = query.count()
     active_sessions = query.filter(
         Session.revoked == False,
@@ -57,13 +52,13 @@ def get_session_stats(
     ).count()
     suspicious_sessions = query.filter(Session.is_suspicious == True).count()
 
-    # 鍞竴鐢ㄦ埛鏁?
+    # Count unique users in range.
     unique_users = db.query(func.count(func.distinct(Session.user_id))).filter(
         Session.created_at >= start_date if start_date else True,
         Session.created_at <= end_date if end_date else True
     ).scalar() or 0
 
-    # 鍦ㄧ嚎鏃堕暱缁熻
+    # Summarize online duration in range.
     total_seconds = db.query(func.sum(Session.total_online_seconds)).filter(
         Session.created_at >= start_date if start_date else True,
         Session.created_at <= end_date if end_date else True
@@ -76,7 +71,7 @@ def get_session_stats(
     ).scalar() or 0
     avg_hours = round(avg_seconds / 3600, 2)
 
-    # Top 10 IP 鍙樻洿鏈€澶氱殑浼氳瘽
+    # Top 10 sessions by IP-change count.
     top_ip_query = db.query(
         Session.session_id,
         Session.username,
@@ -89,7 +84,7 @@ def get_session_stats(
 
     top_ip = top_ip_query.order_by(Session.ip_change_count.desc()).limit(10).all()
 
-    # Top 10 璁惧鍙樻洿鏈€澶氱殑浼氳瘽
+    # Top 10 sessions by device-change count.
     top_device_query = db.query(
         Session.session_id,
         Session.username,
@@ -127,24 +122,25 @@ def get_online_users(
     threshold_minutes: int = 5
 ) -> Dict[str, Any]:
     """
-    鑾峰彇鍦ㄧ嚎鐢ㄦ埛鍒楄〃
+    Fetch users with sessions that are still considered online.
 
     Args:
-        db: 鏁版嵁搴撲細璇?
-        threshold_minutes: 鍦ㄧ嚎闃堝€硷紙鍒嗛挓锛?
+        db: Database session.
+        threshold_minutes: Idle threshold, in minutes, for online status.
 
     Returns:
-        鍦ㄧ嚎鐢ㄦ埛鏁版嵁瀛楀吀
+        Online-user summary payload.
     """
+    from app.service.admin.analytics.geo import lookup_ip_location
+
     threshold = datetime.utcnow() - timedelta(minutes=threshold_minutes)
 
-    # 鏌ヨ鏈€杩戞椿璺冪殑浼氳瘽
     online_sessions = db.query(Session).filter(
         Session.revoked == False,
         Session.last_activity_at >= threshold
     ).all()
 
-    # 鎸夌敤鎴峰垎缁?
+    # Group sessions by user.
     users_dict = {}
     for session in online_sessions:
         if session.user_id not in users_dict:
@@ -165,7 +161,7 @@ def get_online_users(
             "last_activity_at": session.last_activity_at
         })
 
-        # 鏇存柊鏈€鍚庢椿鍔ㄦ椂闂?
+        # Keep the most recent activity time per user.
         if session.last_activity_at > users_dict[session.user_id]["last_activity"]:
             users_dict[session.user_id]["last_activity"] = session.last_activity_at
 
@@ -187,16 +183,16 @@ def get_user_session_history(
     limit: int = 50
 ) -> Optional[Dict[str, Any]]:
     """
-    鑾峰彇鐢ㄦ埛鐨勪細璇濆巻鍙?
+    Fetch paginated session history for one user.
 
     Args:
-        db: 鏁版嵁搴撲細璇?
-        user_id: 鐢ㄦ埛ID
-        skip: 鍒嗛〉鍋忕Щ
-        limit: 鍒嗛〉闄愬埗
+        db: Database session.
+        user_id: Target user ID.
+        skip: Pagination offset.
+        limit: Pagination limit.
 
     Returns:
-        浼氳瘽鍘嗗彶瀛楀吀锛屽鏋滅敤鎴蜂笉瀛樺湪鍒欒繑鍥濶one
+        User session history payload or None.
     """
     from app.service.auth.database.models import User
     from app.service.admin.sessions.core import build_session_summary
@@ -205,13 +201,12 @@ def get_user_session_history(
     if not user:
         return None
 
-    # 鏌ヨ鐢ㄦ埛鐨勬墍鏈変細璇?
     query = db.query(Session).filter(Session.user_id == user_id)
     total = query.count()
 
     sessions = query.order_by(Session.created_at.desc()).offset(skip).limit(limit).all()
 
-    # 缁熻
+    # Count active sessions for the user.
     active_count = db.query(Session).filter(
         Session.user_id == user_id,
         Session.revoked == False,
@@ -234,45 +229,42 @@ def get_analytics(
     days: int = 30
 ) -> Dict[str, Any]:
     """
-    浼氳瘽鍒嗘瀽锛堟椂闂村簭鍒椼€佸湴鐞嗗垎甯冦€佽澶囧垎甯冿級
+    Build analytics for recent session activity.
 
     Args:
-        db: 鏁版嵁搴撲細璇?
-        days: 鍒嗘瀽澶╂暟
+        db: Database session.
+        days: Lookback window, in days.
 
     Returns:
-        鍒嗘瀽鏁版嵁瀛楀吀
+        Session analytics payload.
     """
+    from collections import defaultdict
+
     from app.service.admin.analytics.geo import lookup_ip_location
     from app.service.auth.database.models import ApiUsageLog
-    from collections import defaultdict
 
     now = datetime.utcnow()
     start_date = now - timedelta(days=days)
 
-    # 鏌ヨ鏃堕棿鑼冨洿鍐呯殑鎵€鏈変細璇?
+    # Load sessions within the analysis window.
     sessions = db.query(Session).filter(
         Session.created_at >= start_date
     ).all()
 
-    # 1. 鐧诲綍鐑姏鍥撅紙7x24锛?
+    # 1. Login heatmap.
     login_heatmap = [[0 for _ in range(24)] for _ in range(7)]
     for session in sessions:
         session_created_at = to_shanghai_datetime(session.created_at)
-        weekday = session_created_at.weekday()  # 0=鍛ㄤ竴, 6=鍛ㄦ棩
-        # 杞崲涓?0=鍛ㄦ棩, 1=鍛ㄤ竴, ..., 6=鍛ㄥ叚
-        weekday = (weekday + 1) % 7
+        weekday = session_created_at.weekday()  # 0=Monday, 6=Sunday
+        weekday = (weekday + 1) % 7  # Convert to Sunday-first index.
         hour = session_created_at.hour
         login_heatmap[weekday][hour] += 1
 
-    # 2. DAU/WAU/MAU 璁＄畻
-    # DAU & WAU: 浣跨敤 ApiUsageLog锛堝噯纭弽鏄?API 浣跨敤鎯呭喌锛屼繚鐣?澶╋級
-    # MAU: 浣跨敤 Session.created_at锛圓piUsageLog 鍙繚鐣?澶╋紝鏃犳硶璁＄畻30澶╂暟鎹級
-
-    # DAU: 姣忔棩娲昏穬鐢ㄦ埛鏁帮紙鍩轰簬 API 璋冪敤锛?
+    # 2. DAU/WAU/MAU.
+    # DAU and WAU come from API usage logs.
+    # MAU is derived from sessions created in the selected window.
     dau_dict = defaultdict(set)
 
-    # 鏌ヨ鏈€杩?0澶╃殑 API 璋冪敤璁板綍锛堝疄闄呭彧鏈?澶╂暟鎹級
     api_logs = db.query(ApiUsageLog).filter(
         ApiUsageLog.user_id.isnot(None),
         ApiUsageLog.called_at >= start_date
@@ -287,7 +279,6 @@ def get_analytics(
         for date, users in sorted(dau_dict.items())
     ]
 
-    # WAU: 鏈€杩?澶╂湁 API 璋冪敤鐨勫敮涓€鐢ㄦ埛鏁?
     wau_start_date = now - timedelta(days=7)
     wau_users = db.query(ApiUsageLog.user_id).filter(
         ApiUsageLog.user_id.isnot(None),
@@ -295,13 +286,10 @@ def get_analytics(
     ).distinct().all()
     wau = len(wau_users)
 
-    # MAU: 鏈€杩?0澶╃櫥褰曡繃鐨勫敮涓€鐢ㄦ埛鏁帮紙鍩轰簬 Session.created_at锛?
-    mau_users = set()
-    for session in sessions:
-        mau_users.add(session.user_id)
+    mau_users = {session.user_id for session in sessions}
     mau = len(mau_users)
 
-    # 3. 璁惧绫诲瀷鍒嗗竷
+    # 3. Device breakdown.
     device_counts = {
         "desktop": 0,
         "mobile": 0,
@@ -323,25 +311,22 @@ def get_analytics(
         else:
             device_counts["desktop"] += 1
 
-    # 4. 鍦扮悊鍒嗗竷锛氭寜鍥藉/鍦板尯缁熻
+    # 4. Geographic distribution by country/region.
     country_stats = {}
-
     for session in sessions:
         if session.current_ip:
             location = lookup_ip_location(session.current_ip)
             if location:
-                # location 鏄瓧绗︿覆鏍煎紡 "鍥藉 - 鍩庡競" 鎴?"鍥藉"
                 parts = location.split(" - ", 1)
                 country = parts[0] if parts else "Unknown"
                 country_stats[country] = country_stats.get(country, 0) + 1
 
-    # 杞崲涓哄垪琛ㄥ苟鎺掑簭
     geo_distribution = [
-        {"country": k, "count": v}
-        for k, v in sorted(country_stats.items(), key=lambda x: x[1], reverse=True)
-    ][:20]  # Top 20
+        {"country": country, "count": count}
+        for country, count in sorted(country_stats.items(), key=lambda item: item[1], reverse=True)
+    ][:20]
 
-    # 5. 浼氳瘽鏃堕暱鍒嗗竷
+    # 5. Session duration buckets.
     duration_counts = {
         "0-5min": 0,
         "5-30min": 0,
@@ -363,7 +348,6 @@ def get_analytics(
         else:
             duration_counts["2h+"] += 1
 
-    # 鏋勫缓鍝嶅簲
     return {
         "login_heatmap": login_heatmap,
         "user_activity": {
@@ -375,7 +359,3 @@ def get_analytics(
         "geo_distribution": geo_distribution,
         "session_duration_distribution": duration_counts
     }
-
-
-
-
