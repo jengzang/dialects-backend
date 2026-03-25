@@ -10,7 +10,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from app.redis_client import close_redis
 from app.routes import setup_routes
 from app.service.logging.middleware.traffic_logging import start_api_logger_workers, stop_api_logger_workers, RequestLogMiddleware
-from app.service.auth.core.service import start_user_activity_writer, stop_user_activity_writer  # [NEW] 用户活动队列
 from app.static_utils import ensure_user_data  # 如果你要用它挂载静态资源
 from app.common.config import _RUN_TYPE
 from starlette.staticfiles import StaticFiles
@@ -190,8 +189,6 @@ async def lifespan(app: FastAPI):
         # 非 gunicorn 环境（如 uvicorn 直接运行），启动后台线程
         print(" [单进程模式] 启动后台线程...")
         start_api_logger_workers()
-        # [NEW] 启动用户活动更新后台线程
-        start_user_activity_writer()
 
         # [OK] 启动定时任务调度器（只在单进程模式下启动）
         start_scheduler()
@@ -212,9 +209,6 @@ async def lifespan(app: FastAPI):
         if not is_gunicorn_worker:
             # 停止日志写入线程
             stop_api_logger_workers()
-
-            # [NEW] 停止用户活动更新线程
-            stop_user_activity_writer()
 
             # [OK] 停止定时任务调度器
             stop_scheduler()

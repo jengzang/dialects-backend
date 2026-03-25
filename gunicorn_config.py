@@ -23,7 +23,6 @@ def on_starting(server):
     """
     from app.service.logging.tasks import start_scheduler
     from app.service.logging.middleware.traffic_logging import start_api_logger_workers
-    from app.service.auth.core.service import start_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] starting background workers...")
@@ -32,16 +31,12 @@ def on_starting(server):
     # 启动日志后台线程（在主进程中，使用 multiprocessing.Queue 与 worker 通信）
     start_api_logger_workers()
 
-    # 启动用户活动更新后台线程
-    start_user_activity_writer()
-
     # 启动定时任务调度器
     start_scheduler()
 
     print("=" * 60)
     print("[Gunicorn Master] background workers started")
     print("  - 6 logging threads (using multiprocessing.Queue)")
-    print("  - 1 user activity thread")
     print("  - 1 scheduler")
     print("=" * 60)
 
@@ -69,7 +64,6 @@ def on_exit(server):
     """
     from app.service.logging.tasks import stop_scheduler
     from app.service.logging.middleware.traffic_logging import stop_api_logger_workers
-    from app.service.auth.core.service import stop_user_activity_writer
 
     print("=" * 60)
     print("[Gunicorn Master] stopping background workers...")
@@ -79,11 +73,6 @@ def on_exit(server):
         stop_api_logger_workers()
     except Exception as e:
         print(f"[Gunicorn Master] stop_api_logger_workers failed: {e}")
-
-    try:
-        stop_user_activity_writer()
-    except Exception as e:
-        print(f"[Gunicorn Master] stop_user_activity_writer failed: {e}")
 
     try:
         stop_scheduler()

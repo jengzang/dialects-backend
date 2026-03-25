@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 from app.common.time_utils import to_shanghai_datetime
 from app.service.auth.database.models import Session
+from app.service.auth.session.service import active_refresh_token_exists_clause
 
 
 def get_session_stats(
@@ -43,7 +44,8 @@ def get_session_stats(
     total_sessions = query.count()
     active_sessions = query.filter(
         Session.revoked == False,
-        Session.expires_at > now
+        Session.expires_at > now,
+        active_refresh_token_exists_clause(now),
     ).count()
     revoked_sessions = query.filter(Session.revoked == True).count()
     expired_sessions = query.filter(
@@ -133,11 +135,14 @@ def get_online_users(
     """
     from app.service.admin.analytics.geo import lookup_ip_location
 
-    threshold = datetime.utcnow() - timedelta(minutes=threshold_minutes)
+    current_time = datetime.utcnow()
+    threshold = current_time - timedelta(minutes=threshold_minutes)
 
     online_sessions = db.query(Session).filter(
         Session.revoked == False,
-        Session.last_activity_at >= threshold
+        Session.expires_at > current_time,
+        Session.last_activity_at >= threshold,
+        active_refresh_token_exists_clause(current_time),
     ).all()
 
     # Group sessions by user.
@@ -207,10 +212,12 @@ def get_user_session_history(
     sessions = query.order_by(Session.created_at.desc()).offset(skip).limit(limit).all()
 
     # Count active sessions for the user.
+    current_time = datetime.utcnow()
     active_count = db.query(Session).filter(
         Session.user_id == user_id,
         Session.revoked == False,
-        Session.expires_at > datetime.utcnow()
+        Session.expires_at > current_time,
+        active_refresh_token_exists_clause(current_time),
     ).count()
 
     return {

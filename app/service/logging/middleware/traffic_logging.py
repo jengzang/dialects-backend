@@ -429,16 +429,10 @@ def enqueue_online_time_non_blocking(data: dict):
     Args:
         data: Mapping with user_id, session_id, seconds, and timestamp.
 
-    If the queue is full, write directly as a fallback.
+    Returns:
+        True when the payload was accepted by the queue, False otherwise.
     """
-    try:
-        online_time_queue.put_nowait(data)
-    except Full:
-
-        print(f"[!] online_time_queue is full, writing directly")
-        _write_online_time_batch({
-            (data['user_id'], data.get('session_id')): data
-        })
+    return _enqueue_with_backpressure(online_time_queue, data, "online_time_queue")
 
 
 def update_html_visit(path: str):
@@ -740,6 +734,11 @@ def online_time_writer():
             key = (item['user_id'], item.get('session_id'))
             if key in batch:
                 batch[key]['seconds'] += item['seconds']
+                if item.get('timestamp') and (
+                    not batch[key].get('timestamp') or
+                    item['timestamp'] > batch[key]['timestamp']
+                ):
+                    batch[key]['timestamp'] = item['timestamp']
             else:
                 batch[key] = item
 
@@ -773,26 +772,32 @@ def _write_online_time_batch(batch: dict):
     """Write aggregated online time updates to database"""
     from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
     from app.service.auth.database.models import User, Session
+    from sqlalchemy import func
 
     db = AuthSessionLocal()
     try:
         for (user_id, session_id), item in batch.items():
             seconds = item['seconds']
+            last_seen_at = item.get('timestamp') or datetime.utcnow()
 
-            # Update user
-            user = db.query(User).filter(User.id == user_id).first()
-            if user:
-                user.total_online_seconds = (user.total_online_seconds or 0) + seconds
-                user.last_seen = datetime.utcnow()
+            db.query(User).filter(User.id == user_id).update(
+                {
+                    User.total_online_seconds: func.coalesce(User.total_online_seconds, 0) + seconds,
+                    User.last_seen: last_seen_at,
+                },
+                synchronize_session=False,
+            )
 
-            # Update session if exists
             if session_id:
-                session = db.query(Session).filter(
+                db.query(Session).filter(
                     Session.session_id == session_id
-                ).first()
-                if session:
-                    session.total_online_seconds = (session.total_online_seconds or 0) + seconds
-                    session.last_seen = datetime.utcnow()
+                ).update(
+                    {
+                        Session.total_online_seconds: func.coalesce(Session.total_online_seconds, 0) + seconds,
+                        Session.last_seen: last_seen_at,
+                    },
+                    synchronize_session=False,
+                )
 
         db.commit()
         print(f"[OnlineTimeWriter] Batch wrote {len(batch)} online time updates")

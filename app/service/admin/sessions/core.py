@@ -387,6 +387,10 @@ def revoke_user_sessions(
         }
 
     # 查找所有活跃会话
+    from app.service.auth.session.service import reconcile_user_sessions
+
+    reconcile_user_sessions(db, user_id)
+
     active_sessions = db.query(Session).filter(
         Session.user_id == user_id,
         Session.revoked == False

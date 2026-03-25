@@ -4,13 +4,15 @@ from typing import Optional
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request
-from jose import JWTError, jwt
+from jose import JWTError
 from sqlalchemy.orm import Session
 from app.service.auth.database import models
+from app.service.auth.core import utils
 from app.service.auth.database.connection import get_db
 from app.service.auth.database.models import User, ApiUsageLog
+from app.service.auth.session.service import get_valid_session_by_public_id
 from app.service.auth.security.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
-from app.common.config import get_secret_key, ALGORITHM, MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
+from app.common.config import MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
 from app.common.api_config import MAX_USER_REQUESTS_PER_HOUR, MAX_IP_REQUESTS_PER_HOUR
 from app.redis_client import redis_client
 
@@ -216,6 +218,14 @@ def _raise_login_rate_limit(
     raise HTTPException(status_code=429, detail=detail, headers=headers)
 
 
+def _has_active_token_session(db: Session, payload: dict) -> bool:
+    session_public_id = payload.get("session_id")
+    if not session_public_id:
+        return True
+
+    return get_valid_session_by_public_id(db, session_public_id) is not None
+
+
 async def get_current_user(
         request: Request,
         db: Session = Depends(get_db),
@@ -230,7 +240,7 @@ async def get_current_user(
     else:
         token = auth_header.split(" ")[1]
         try:
-            payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+            payload = utils.decode_access_token(token)
             # username = payload.get("sub")
             username = payload.get("sub")  # 从 JWT 中提取邮箱作为唯一标识
             if not username:
@@ -291,7 +301,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
     token = auth_header.split(" ")[1]
     try:
         # 解码 JWT token
-        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+        payload = utils.decode_access_token(token)
         username = payload.get("sub")  # 使用邮箱作为唯一标识
         if not username:
             return None  # Token 无效，返回 None
@@ -357,7 +367,7 @@ async def get_current_admin_user(
 
     token = auth_header.split(" ")[1]
     try:
-        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+        payload = utils.decode_access_token(token)
         username = payload.get("sub")
         role_in_jwt = payload.get("role")  # JWT中的role（不能作为唯一依据）
     except JWTError:
@@ -377,6 +387,124 @@ async def get_current_admin_user(
         # 可选：记录到安全日志表，或触发告警
 
     # ✅ 验证是否为admin（基于数据库中的role）
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return user
+
+
+def _extract_bearer_token(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    return auth_header.split(" ", 1)[1]
+
+
+async def _load_user_from_cache_or_db(db: Session, username: str) -> Optional[models.User]:
+    cached_user = await redis_client.get(f"user:{username}")
+    if cached_user:
+        user_dict = verify_user_data(cached_user)
+        if user_dict:
+            return models.User(**user_dict)
+        await redis_client.delete(f"user:{username}")
+
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        return None
+
+    try:
+        signed_data = sign_user_data(user_to_dict(user))
+        await redis_client.setex(
+            f"user:{username}",
+            CACHE_EXPIRATION_TIME,
+            signed_data,
+        )
+    except Exception as e:
+        print(f"[X] Failed to update user cache: {e}")
+
+    return user
+
+
+async def get_current_user(
+        request: Request,
+        db: Session = Depends(get_db),
+        require_admin: bool = False
+) -> models.User:
+    token = _extract_bearer_token(request)
+    if not token:
+        if not require_admin:
+            return None
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+        if not username or not _has_active_token_session(db, payload):
+            if not require_admin:
+                return None
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        if not require_admin:
+            return None
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = await _load_user_from_cache_or_db(db, username)
+    if not user:
+        return None
+
+    if require_admin and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return user
+
+
+async def get_current_user_for_middleware(request: Request, db: Session):
+    token = _extract_bearer_token(request)
+    if not token:
+        return None
+
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+        if not username or not _has_active_token_session(db, payload):
+            return None
+    except JWTError as e:
+        print(f"JWT decode error: {e}")
+        return None
+
+    return await _load_user_from_cache_or_db(db, username)
+
+
+async def get_current_admin_user(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> models.User:
+    import logging
+
+    logger = logging.getLogger(__name__)
+    token = _extract_bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = utils.decode_access_token(token)
+        username = payload.get("sub")
+        role_in_jwt = payload.get("role")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not _has_active_token_session(db, payload):
+        raise HTTPException(status_code=401, detail="Session is no longer active")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if role_in_jwt and role_in_jwt != user.role:
+        logger.warning(f"[SECURITY] Role mismatch for {username}: JWT={role_in_jwt}, DB={user.role}")
+
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
