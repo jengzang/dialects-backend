@@ -226,13 +226,13 @@ API_ROUTE_CONFIG = {
     },
     "/api/pho_pie_by_value": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/pho_pie_by_status": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
@@ -272,19 +272,19 @@ API_ROUTE_CONFIG = {
     # ===== 其他 tools API =====
     "/api/tools/check/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/tools/merge/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/tools/jyut2ipa/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },

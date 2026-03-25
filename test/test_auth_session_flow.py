@@ -20,6 +20,7 @@ from app.service.auth.core import utils as auth_utils
 from app.service.auth.database.models import Base, RefreshToken, Session, User
 from app.service.auth.session import online_time_guard
 from app.service.auth.session import service as session_service
+from app.service.logging.utils.route_matcher import match_route_config
 
 
 AUTH_ROUTE_PATH = Path(__file__).resolve().parents[1] / "app" / "routes" / "auth.py"
@@ -244,6 +245,28 @@ def test_online_time_guard_fails_open_on_redis_errors(monkeypatch):
 
     assert allowed is True
     assert detail is None
+
+
+def test_file_processing_tools_require_login_via_route_config():
+    for path in (
+        "/api/tools/check/upload",
+        "/api/tools/check/execute",
+        "/api/tools/merge/execute",
+        "/api/tools/jyut2ipa/process",
+    ):
+        config = match_route_config(path)
+        assert config["require_login"] is True
+        assert config["rate_limit"] is True
+
+
+def test_pho_pie_routes_require_login_via_route_config():
+    for path in (
+        "/api/pho_pie_by_value",
+        "/api/pho_pie_by_status",
+    ):
+        config = match_route_config(path)
+        assert config["require_login"] is True
+        assert config["rate_limit"] is True
 
 
 def test_create_session_revokes_orphaned_historical_sessions_without_scheduler(db):
