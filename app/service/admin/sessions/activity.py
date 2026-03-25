@@ -11,10 +11,41 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session as DBSession
 from datetime import datetime
 
+from app.common.time_utils import assume_utc
 from app.service.auth.database.models import Session, RefreshToken
 from app.service.admin.analytics.geo import lookup_ip_location
 from app.service.admin.sessions.core import parse_ip_history
 from app.schemas.auth.session import SessionActivityItem
+
+
+def _normalize_event_timestamp(value: Optional[datetime | str]) -> Optional[datetime]:
+    """
+    Normalize mixed timestamp inputs to aware UTC datetimes.
+
+    Session columns are stored as naive UTC datetimes, while IP history is
+    serialized through Pydantic as timezone-aware Shanghai strings. Sorting a
+    mixed list of naive/aware datetimes raises TypeError, so normalize them
+    before constructing timeline events.
+    """
+    return assume_utc(value)
+
+
+def _append_event(
+    events: List[SessionActivityItem],
+    *,
+    timestamp: Optional[datetime | str],
+    event_type: str,
+    details: str,
+) -> None:
+    normalized_timestamp = _normalize_event_timestamp(timestamp)
+    if normalized_timestamp is None:
+        return
+
+    events.append(SessionActivityItem(
+        timestamp=normalized_timestamp,
+        event_type=event_type,
+        details=details
+    ))
 
 
 def get_session_activity(
@@ -41,11 +72,12 @@ def get_session_activity(
     events: List[SessionActivityItem] = []
 
     # 1. 会话创建事件
-    events.append(SessionActivityItem(
+    _append_event(
+        events,
         timestamp=session.created_at,
         event_type="created",
-        details=f"Session created from {session.first_ip}"
-    ))
+        details=f"Session created from {session.first_ip or 'unknown'}"
+    )
 
     # 2. Token 刷新事件
     tokens = db.query(RefreshToken).filter(
@@ -53,52 +85,56 @@ def get_session_activity(
     ).order_by(RefreshToken.created_at).all()
 
     for token in tokens:
-        events.append(SessionActivityItem(
+        _append_event(
+            events,
             timestamp=token.created_at,
             event_type="refreshed",
             details=f"Token refreshed from {token.ip_address or 'unknown'}"
-        ))
+        )
 
     # 3. IP 变更事件
     ip_history = parse_ip_history(session.ip_history)
     for i, ip_item in enumerate(ip_history):
         if i > 0:  # 跳过第一个 IP（已在创建事件中显示）
             try:
-                timestamp = datetime.fromisoformat(ip_item.timestamp)
                 location = lookup_ip_location(ip_item.ip)
                 location_str = f" ({location})" if location else ""
-                events.append(SessionActivityItem(
-                    timestamp=timestamp,
+                _append_event(
+                    events,
+                    timestamp=ip_item.timestamp,
                     event_type="ip_changed",
                     details=f"IP changed to {ip_item.ip}{location_str}"
-                ))
+                )
             except Exception:
                 pass
 
     # 4. 设备变更事件
     if session.device_changed and session.device_change_count > 0:
         # 使用 last_activity_at 作为设备变更时间的近似值
-        events.append(SessionActivityItem(
+        _append_event(
+            events,
             timestamp=session.last_activity_at,
             event_type="device_changed",
             details=f"Device changed {session.device_change_count} time(s)"
-        ))
+        )
 
     # 5. 可疑标记事件
     if session.is_suspicious:
-        events.append(SessionActivityItem(
+        _append_event(
+            events,
             timestamp=session.last_activity_at,
             event_type="flagged_suspicious",
             details=session.suspicious_reason or "Marked as suspicious"
-        ))
+        )
 
     # 6. 撤销事件
     if session.revoked and session.revoked_at:
-        events.append(SessionActivityItem(
+        _append_event(
+            events,
             timestamp=session.revoked_at,
             event_type="revoked",
             details=f"Reason: {session.revoked_reason or 'unknown'}"
-        ))
+        )
 
     # 按时间戳排序
     events.sort(key=lambda e: e.timestamp)
