@@ -5,7 +5,7 @@ Core search routes:
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -31,6 +31,9 @@ async def search_chars(
     regions: Optional[List[str]] = Query(None, description="分区列表"),
     region_mode: str = Query("yindian", description="分区模式: yindian/map"),
     table_name: str = Query("characters", description="字表名称"),
+    response_mode: Literal["legacy", "compact"] = Query(
+        "legacy", description="响应模式: legacy/compact"
+    ),
     db: Session = Depends(get_db),
     dialects_db: str = Depends(get_dialects_db),
     query_db: str = Depends(get_query_db),
@@ -63,6 +66,7 @@ async def search_chars(
             region_mode=region_mode,
             query_db_path=query_db,
             table=table_name,
+            response_mode=response_mode,
         )
 
         tones_result = await run_in_threadpool(
@@ -73,10 +77,14 @@ async def search_chars(
             region_mode=region_mode,
         )
 
-        return {
-            "result": result,
-            "tones_result": tones_result,
-        }
+        if response_mode == "compact":
+            return {
+                "result": result["result"],
+                "char_meta": result["char_meta"],
+                "tones_result": tones_result,
+            }
+
+        return {"result": result, "tones_result": tones_result}
     finally:
         logger.debug("search_chars completed")
 
