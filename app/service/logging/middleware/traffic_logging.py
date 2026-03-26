@@ -22,9 +22,10 @@ from app.service.auth.core.dependencies import get_current_user_for_middleware
 from app.service.auth.database.models import ApiUsageLog, ApiUsageSummary
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.models import ApiKeywordLog
-from app.common.api_config import RECORD_API, IGNORE_API, MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
+from app.common.api_config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_shanghai_bucket_hour
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
+from app.service.logging.utils.usage_paths import normalize_auth_usage_path, should_record_auth_usage
 
 
 
@@ -595,9 +596,11 @@ def log_detailed_api_to_db(
         response_size: int = 0,
         start_time: float = None
 ):
+    normalized_usage_path = normalize_auth_usage_path(path)
+
     # Step 1: build detailed log and enqueue for background writer
     log = ApiUsageLog(
-        path=path,
+        path=normalized_usage_path,
         duration=duration,
         status_code=status_code,
         ip=ip,
@@ -619,7 +622,7 @@ def log_detailed_api_to_db(
             summary_queue,
             {
                 'user_id': user_id,
-                'path': path,
+                'path': normalized_usage_path,
                 'duration': duration,
                 'request_size': request_size,
                 'response_size': response_size
@@ -667,7 +670,8 @@ def _process_summary_batch(batch: list):
         # Aggregate by (user_id, path) to reduce write amplification.
         aggregated = {}
         for item in batch:
-            key = (item['user_id'], item['path'])
+            normalized_path = normalize_auth_usage_path(item['path'])
+            key = (item['user_id'], normalized_path)
             if key not in aggregated:
                 aggregated[key] = {
                     'count': 0,
@@ -953,7 +957,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             print(f"[ERROR] failed to enqueue usage count: {e}")
 
         await _log_params_if_needed(request, path)
-        if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
+        if not should_record_auth_usage(path):
             return await call_next(request)
 
         # 2. Open a DB session for auth lookup.
