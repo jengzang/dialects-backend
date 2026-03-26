@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from typing import Iterable
 
 from app.common.api_config import IGNORE_API, RECORD_API
@@ -24,12 +25,12 @@ AUTH_USAGE_RUNTIME_PATH_TEMPLATES: list[tuple[str, str]] = [
     ("/api/villages/spatial/hotspots/", "{hotspot_id}"),
     ("/api/villages/spatial/integration/by-character/", "{character}"),
     ("/api/villages/spatial/integration/by-cluster/", "{cluster_id}"),
-    # SQL
-    ("/sql/distinct/", "{db_key}/{table_name}/{column}"),
 ]
 
 
 AUTH_USAGE_MIGRATION_ONLY_TEMPLATES: list[tuple[str, str]] = [
+    # Historical SQL metadata paths that may exist in legacy auth.db summary rows.
+    ("/sql/distinct/", "{db_key}/{table_name}/{column}"),
     # Historical tool task paths that should no longer have been recorded in auth.db,
     # but may still exist in legacy summary rows.
     ("/api/tools/check/download/", "{task_id}"),
@@ -88,11 +89,9 @@ def auth_usage_path_needs_migration(path: str) -> bool:
 
 
 def _path_matches_marker(path: str, marker: str) -> bool:
-    if not marker.startswith("/"):
-        return marker in path
-    if marker.endswith("/"):
-        return path.startswith(marker)
-    return path == marker or path.startswith(f"{marker}/")
+    if "*" in marker:
+        return fnmatchcase(path, marker)
+    return path == marker
 
 
 def should_record_auth_usage(path: str) -> bool:

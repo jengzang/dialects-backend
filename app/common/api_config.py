@@ -17,8 +17,8 @@ API 配置文件
 - 记录每个 API 请求的流量统计
 - 数据包括：请求次数、请求大小、响应大小、响应时间、用户 ID
 - 过滤逻辑：
-  if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
-      跳过记录
+  先匹配 IGNORE_API，再匹配 RECORD_API
+  带 * 才通配，不带 * 则精确匹配
 用途：性能监控、用量统计、用户行为分析
 """
 
@@ -42,21 +42,19 @@ BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
 CLEAR_WEEK = True
 
-# 只记录路径中包含以下词的 API（简单字符串匹配）
+# auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
-    "phonology",  # 可以匹配 "/api/phonology"
-    "get_coordinates",  # 可以匹配 "/api/get_coordinates"
-    "search_tones",  # 可以匹配 "/api/search_tones/"
-    "search_chars",  # 可以匹配 "/api/search_chars/"
-    "compare",  # 可以匹配 "/api/compare/chars"
-    "submit_form",
-    "delete_form",
-    "ZhongGu",
-    "YinWei",
-    "charlist",
+    "/api/phonology*",
+    "/api/get_coordinates",
+    "/api/search_tones/",
+    "/api/search_chars/",
+    "/api/compare/*",
+    "/api/submit_form",
+    "/api/delete_form",
+    "/api/ZhongGu",
+    "/api/YinWei",
+    "/api/charlist",
     "/sql/query",
-    "/sql/query/columns",
-    "/sql/distinct/",
     "/sql/distinct-query",
     "/sql/mutate",
     "/sql/batch-mutate",
@@ -64,20 +62,21 @@ RECORD_API = [
     "/sql/batch-replace-execute",
     "/sql/tree/full",
     "/sql/tree/lazy",
-    "api/tools",
-    "feature_counts",
-    "feature_stats",  # 新增：特征统计接口
-    "pho_pie",        # 新增：音韻餅圖接口
-    "user/custom",
-    "custom_regions",  # 新增：用户自定义区域接口
-    "villages",  # 新增：villagesML 自然村分析接口
+    "/api/tools/*",
+    "/api/feature_counts",
+    "/api/feature_stats",
+    "/api/pho_pie*",
+    "/user/custom/*",
+    "/api/custom_regions",
+    "/api/villages/*",
 ]
 
-# 不記錄帶有以下字段的 API（排除特定路由）
+# auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
 IGNORE_API = [
+    "/sql/query/columns",
     "/sql/query/count",  # keep hourly/daily aggregate only
-    "download",  # 下载类 API（避免记录大量下载请求）
-    "progress",  # 进度查询类 API（避免记录频繁的轮询请求）
+    "/api/tools/*/download/*",
+    "/api/tools/*/progress/*",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============
@@ -387,8 +386,8 @@ API_BLACKLIST = [
 - 记录每个 API 请求的流量统计
 - 数据包括：请求次数、请求大小、响应大小、响应时间、用户 ID
 - 过滤逻辑：
-  if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
-      跳过记录
+  先匹配 IGNORE_API，再匹配 RECORD_API
+  带 * 才通配，不带 * 则精确匹配
 
 用途：性能监控、用量统计、用户行为分析
 

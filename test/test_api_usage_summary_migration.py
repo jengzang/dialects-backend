@@ -87,6 +87,10 @@ def test_normalize_auth_usage_path_examples():
     )
     assert (
         normalize_auth_usage_path("/sql/distinct/query/dialects/abbr")
+        == "/sql/distinct/query/dialects/abbr"
+    )
+    assert (
+        normalize_auth_usage_path_for_migration("/sql/distinct/query/dialects/abbr")
         == "/sql/distinct/{db_key}/{table_name}/{column}"
     )
     assert normalize_auth_usage_path("/api/search_chars/") == "/api/search_chars/"
@@ -100,14 +104,31 @@ def test_normalize_auth_usage_path_examples():
     )
 
 
-def test_should_record_auth_usage_uses_specific_sql_routes_only():
+def test_should_record_auth_usage_uses_exact_and_wildcard_rules():
+    assert should_record_auth_usage("/api/phonology") is True
+    assert should_record_auth_usage("/api/phonology_matrix") is True
+    assert should_record_auth_usage("/api/phonology_classification_matrix") is True
+    assert should_record_auth_usage("/api/get_coordinates") is True
+    assert should_record_auth_usage("/api/get_coordinates/extra") is False
+    assert should_record_auth_usage("/api/search_chars/") is True
+    assert should_record_auth_usage("/api/search_chars") is False
+    assert should_record_auth_usage("/api/compare/chars") is True
+    assert should_record_auth_usage("/api/compare/ZhongGu") is True
+    assert should_record_auth_usage("/api/custom_regions") is True
+    assert should_record_auth_usage("/user/custom/all") is True
+    assert should_record_auth_usage("/api/villages/village/complete/282728") is True
+    assert should_record_auth_usage("/api/tools/check/run") is True
     assert should_record_auth_usage("/sql/query") is True
+    assert should_record_auth_usage("/sql/query/columns") is False
+    assert should_record_auth_usage("/sql/distinct/query/dialects/abbr") is False
+    assert should_record_auth_usage("/sql/distinct-query") is True
     assert should_record_auth_usage("/sql/mutate") is True
     assert should_record_auth_usage("/sql/tree/lazy") is True
     assert should_record_auth_usage("/sql/query/count") is False
     assert should_record_auth_usage("/sql/querying") is False
     assert should_record_auth_usage("/foo/sql/query/bar") is False
     assert should_record_auth_usage("/api/tools/check/download/abc") is False
+    assert should_record_auth_usage("/api/tools/praat/jobs/progress/123") is False
     assert should_record_auth_usage("/emp/lang2sql") is False
 
 
