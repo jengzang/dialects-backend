@@ -9,6 +9,7 @@ from app.routes.core.matrix import router as matrix_router
 from app.routes.core.new_pho import router as new_pho_router
 from app.routes.geo.get_regions import router as region_router
 from app.routes.geo.get_partitions import router as partitions_router
+from app.routes.geo.locations import router as locations_router
 from app.routes.geo.batch_match import router as batch_match_router
 from app.routes.geo.get_coordinates import router as coordinates_router
 from app.routes.user.form_submit import router as form_router
@@ -34,6 +35,7 @@ def setup_routes(app: FastAPI):
     app.include_router(matrix_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(new_pho_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(partitions_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(locations_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(region_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(batch_match_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(coordinates_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
