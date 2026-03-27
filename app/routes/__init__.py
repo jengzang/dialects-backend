@@ -45,7 +45,7 @@ def setup_routes(app: FastAPI):
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(auth_router, prefix="/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
 

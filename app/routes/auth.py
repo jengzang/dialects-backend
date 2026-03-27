@@ -26,7 +26,7 @@ from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def _load_active_user_from_token(
@@ -225,7 +225,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 已废弃，使用 /auth/report-activity 代替
+    # service.touch_activity(user)  # 已废弃，使用 /api/auth/report-activity 代替
     return user
 
 

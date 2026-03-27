@@ -14,6 +14,9 @@ from app.service.auth.database import models
 from app.service.admin.analytics.geo import lookup_ip_location
 
 
+LOGIN_PATHS = ('/login', '/auth/login', '/api/auth/login')
+
+
 def get_success_login_logs(db: Session, query: str) -> Optional[List[Dict[str, Any]]]:
     """
     获取成功登录日志
@@ -38,7 +41,7 @@ def get_success_login_logs(db: Session, query: str) -> Optional[List[Dict[str, A
 
     # 查询该用户的成功登录日志
     logs = db.query(models.ApiUsageLog).filter(
-        models.ApiUsageLog.path == '/login',
+        models.ApiUsageLog.path.in_(LOGIN_PATHS),
         models.ApiUsageLog.user_id == user.id
     ).all()
 
@@ -86,6 +89,7 @@ def get_failed_login_logs(db: Session, query: str) -> Optional[List[Dict[str, An
 
     # 查询该用户的失败登录日志
     logs = db.query(models.ApiUsageLog).filter(
+        models.ApiUsageLog.path.in_(LOGIN_PATHS),
         models.ApiUsageLog.status_code != 200,
         models.ApiUsageLog.user_id == user.id
     ).all()

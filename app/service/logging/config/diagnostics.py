@@ -6,7 +6,6 @@ from app.common.config import _RUN_TYPE
 
 DIAGNOSTIC_INCLUDE_PREFIXES = (
     "/api/",
-    "/auth/",
     "/sql/",
     "/admin/",
 )

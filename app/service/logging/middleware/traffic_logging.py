@@ -1192,7 +1192,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
         method = request.method.upper()
         capture_diagnostics = should_capture_diagnostic_path(path)
         record_auth_usage = should_record_auth_usage(path)
-        should_include_summary = path != "/auth/login"
+        should_include_summary = path != "/api/auth/login"
 
         try:
             update_count(path)

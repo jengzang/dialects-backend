@@ -46,7 +46,7 @@ class UserResponse(BaseModel):
     usage_summary: List[ApiUsageStat] = []
 
 
-# /auth/me 專用響應體（不包含敏感安全信息）
+# /api/auth/me 專用響應體（不包含敏感安全信息）
 class UserMeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -72,7 +72,7 @@ GET /admin/user-sessions/online-users?threshold_minutes=30
 #### 1. **Token 刷新时（主要更新机制）**
 
 **触发条件**：
-- 前端调用 `POST /auth/refresh` 刷新 access token
+- 前端调用 `POST /api/auth/refresh` 刷新 access token
 - 通常每 30 分钟刷新一次（access token 过期前）
 
 **更新逻辑**（`app/auth/session_service.py:261`）：

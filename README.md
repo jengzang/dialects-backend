@@ -3092,7 +3092,7 @@ python run.py -r MINE
 
 这部分和最近改动最相关的点包括：
 
-- `/auth/login` 的 usage/detail/diagnostic 行为调整
+- `/api/auth/login` 的 usage/detail/diagnostic 行为调整
 - 用户排行榜仍从这里暴露
 
 ### 6.5 管理后台路由
@@ -3240,7 +3240,7 @@ python run.py -r MINE
 当前 include prefixes：
 
 - `/api/`
-- `/auth/`
+- `/api/auth/`
 - `/sql/`
 - `/admin/`
 
@@ -3380,7 +3380,7 @@ python run.py -r MINE
 
 当前 `RECORD_API` 中比较值得关注的包括：
 
-- `/auth/login`
+- `/api/auth/login`
 - `/api/phonology*`
 - `/api/get_coordinates`
 - `/api/search_tones/`
@@ -3849,7 +3849,7 @@ python run.py -r MINE
 - 打开 `/docs`
 - 检查 `locations/detail`
 - 检查 `locations/partitions`
-- 检查 `/auth/login`
+- 检查 `/api/auth/login`
 - 检查一个核心只读 API
 
 ### 14.3 本地开发时最值得优先确认的数据库
@@ -3870,7 +3870,7 @@ python run.py -r MINE
 如果这个库有问题，常见表象包括：
 
 - 登录失败但前端无明确解释
-- `/auth/leaderboard` 数据异常
+- `/api/auth/leaderboard` 数据异常
 - 某些用户明明调用过 API，但排行榜没有变化
 - 登录限流的 `Retry-After` 不合理
 
@@ -4646,9 +4646,9 @@ python run.py -r MINE
 
 当前必须注意：
 
-- `/auth/login` 已经去掉了旧的 `duration=0` 手工 usage 日志
+- `/api/auth/login` 已经去掉了旧的 `duration=0` 手工 usage 日志
 - 登录限流仍依赖 `ApiUsageLog` 的历史记录
-- `Retry-After` 计算同时兼容旧 `/login` 和当前 `/auth/login`
+- `Retry-After` 计算同时兼容旧 `/login` 和当前 `/api/auth/login`
 
 所以如果你再动登录逻辑，应该优先核对：
 
@@ -4909,8 +4909,4 @@ README 里最容易随着时间失真的内容包括：
 - 本地调试脚本、命令和观察点
 
 ---
-
-
-
-
 

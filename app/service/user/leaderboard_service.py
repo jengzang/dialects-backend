@@ -30,6 +30,12 @@ PHO_PIE_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+LOCATIONS_RULE: RuleConfig = {
+    "paths": ["/api/locations/detail", "/api/locations/partitions"],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
 # Category definitions support exact path matching plus optional prefix rules.
 CATEGORY_RULES: Dict[str, RuleConfig] = {
     "category_音韻查詢": {
@@ -81,7 +87,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/sql/tree/full",
             "/api/get_coordinates",
         ],
-        "prefixes": ["/api/villages/"],
+        "prefixes": ["/api/villages/","/api/locations/"],
         "exclude_prefixes": ["/api/villages/admin/"],
     },
 }
@@ -89,6 +95,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
+    "endpoint_group_locations": LOCATIONS_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
