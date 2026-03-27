@@ -7,7 +7,6 @@ from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
 from app.service.auth.core.dependencies import check_login_rate_limit
-from app.service.auth.database.models import ApiUsageLog
 from app.service.auth.core import utils
 from app.service.auth.core.service import update_user_profile, models
 from app.service.auth.session.service import (
@@ -91,47 +90,14 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
 
     # [OK] 檢查 IP 是否超過登入次數限制
     check_login_rate_limit(db, client_ip)
-    agent = request.headers.get("user-agent", "")
     try:
         user = service.authenticate_user(db, form_data.username, form_data.password, login_ip=client_ip)
     except PermissionError:
         # [X] 驗證失敗也記 log
-        db.add(ApiUsageLog(
-            user_id=None,
-            path="/login",
-            duration=0,
-            status_code=403,
-            ip=client_ip,
-            called_at=datetime.utcnow(),
-            user_agent=agent
-        ))
-        db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
     except ValueError:
-        db.add(ApiUsageLog(
-            user_id=None,
-            path="/login",
-            duration=0,
-            status_code=401,
-            ip=client_ip,
-            called_at=datetime.utcnow(),
-            user_agent=agent
-        ))
-        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # [OK] 成功登入後也寫入一筆記錄
-    db.add(ApiUsageLog(
-        user_id=user.id,
-        path="/login",
-        duration=0,
-        status_code=200,
-        ip=client_ip,
-        called_at=datetime.utcnow()
-    ))
-    db.commit()
-
-    # ✅ 创建session而非直接创建token
     device_info = request.headers.get("User-Agent", "Unknown")
     ip_address = client_ip
 
@@ -148,8 +114,6 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         "token_type": "bearer",
         "expires_in": 30 * 60  # 30 minutes in seconds
     }
-
-
 # Token refresh endpoint
 @router.post("/refresh", response_model=schemas.TokenPair)
 def refresh(

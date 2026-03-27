@@ -63,3 +63,6 @@ deploy_statics.sh
 route_analysis_report.txt
 temp_*.txt
 temp_*.json
+
+# Ignore local test work by default; tracked tests remain tracked.
+/test/

@@ -164,35 +164,6 @@ async def _rollback_rate_limit_member(key: Optional[str], member: Optional[str])
         print(f"[WARN] Redis 限流回滚失败 ({key}): {e}")
 
 
-def _get_login_retry_after_seconds(
-    db: Session,
-    *,
-    ip: str,
-    login_attempts: int,
-) -> Optional[int]:
-    """
-    Estimate when the next login attempt can pass the 1-minute sliding window.
-
-    Login rate-limit checks happen before writing the current attempt, so
-    `login_attempts` only counts already-recorded rows.
-    """
-    overflow = login_attempts - MAX_LOGIN_PER_MINUTE + 1
-    if overflow <= 0:
-        overflow = 1
-
-    target_row = db.query(ApiUsageLog.called_at).filter(
-        ApiUsageLog.ip == ip,
-        ApiUsageLog.path == "/login",
-    ).order_by(ApiUsageLog.called_at.asc()).offset(overflow - 1).first()
-
-    if not target_row or not target_row[0]:
-        return None
-
-    release_at = target_row[0] + timedelta(minutes=1)
-    retry_after_seconds = int((release_at - datetime.utcnow()).total_seconds())
-    return max(1, retry_after_seconds)
-
-
 def _raise_login_rate_limit(
     db: Session,
     *,
@@ -665,14 +636,42 @@ async def check_api_usage_limit(
         # Redis 故障時降級：記錄警告但不阻斷服務
         print(f"[WARN] Redis 限流失敗，降級為不限流: {e}")
         pass
+def _get_login_retry_after_seconds(
+    db: Session,
+    *,
+    ip: str,
+    login_attempts: int,
+) -> Optional[int]:
+    """
+    Estimate when the next login attempt can pass the 1-minute sliding window.
+
+    Login rate-limit checks happen before writing the current attempt, so
+    `login_attempts` only counts already-recorded rows.
+    """
+    overflow = login_attempts - MAX_LOGIN_PER_MINUTE + 1
+    if overflow <= 0:
+        overflow = 1
+
+    target_row = db.query(ApiUsageLog.called_at).filter(
+        ApiUsageLog.ip == ip,
+        ApiUsageLog.path.in_(["/login", "/auth/login"]),
+    ).order_by(ApiUsageLog.called_at.asc()).offset(overflow - 1).first()
+
+    if not target_row or not target_row[0]:
+        return None
+
+    release_at = target_row[0] + timedelta(minutes=1)
+    retry_after_seconds = int((release_at - datetime.utcnow()).total_seconds())
+    return max(1, retry_after_seconds)
+
 
 def check_login_rate_limit(db: Session, ip: str):
     one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
 
     login_attempts = db.query(ApiUsageLog).filter(
         ApiUsageLog.ip == ip,
-        ApiUsageLog.path == "/login",  # 僅計算登入路徑
-        ApiUsageLog.called_at >= one_minute_ago
+        ApiUsageLog.path.in_(["/login", "/auth/login"]),
+        ApiUsageLog.called_at >= one_minute_ago,
     ).count()
 
     if login_attempts >= MAX_LOGIN_PER_MINUTE:

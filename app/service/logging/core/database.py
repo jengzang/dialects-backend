@@ -5,6 +5,7 @@
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker
 from app.common.path import LOGS_DATABASE_URL
+from app.service.logging.core.models import ApiDiagnosticEvent
 
 engine = create_engine(
     LOGS_DATABASE_URL,
@@ -114,6 +115,14 @@ def migrate_hourly_daily_stats(db):
 
     db.commit()
     print("[Migration] Hourly and daily stats migration completed")
+
+
+def migrate_api_diagnostic_events():
+    """Ensure the logs.db diagnostic-event table and indexes exist."""
+    ApiDiagnosticEvent.__table__.create(bind=engine, checkfirst=True)
+    for index in ApiDiagnosticEvent.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)
+    print("[Migration] api_diagnostic_events table ready")
 
 
 # 先迁移表结构

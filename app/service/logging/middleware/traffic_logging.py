@@ -3,6 +3,7 @@ import asyncio
 # import io
 import json
 # import os
+import traceback
 import threading
 import multiprocessing  # Needed for cross-thread logging queues.
 import time
@@ -21,10 +22,25 @@ from app.service.auth.database.connection import get_db
 from app.service.auth.core.dependencies import get_current_user_for_middleware
 from app.service.auth.database.models import ApiUsageLog, ApiUsageSummary
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
-from app.service.logging.core.models import ApiKeywordLog
+from app.service.logging.core.models import ApiDiagnosticEvent, ApiKeywordLog
 from app.common.api_config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_shanghai_bucket_hour
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
+from app.service.logging.config.diagnostics import (
+    DIAGNOSTIC_BODY_METHODS,
+    MAX_DIAGNOSTIC_BODY_BYTES,
+    SLOW_API_THRESHOLD_MS,
+)
+from app.service.logging.utils.diagnostics import (
+    normalize_diagnostic_route,
+    serialize_diagnostic_headers,
+    serialize_query_params,
+    should_capture_diagnostic_path,
+    summarize_request_body,
+    summarize_response_preview,
+    summarize_stack_trace,
+)
+from app.service.logging.utils.path_templates import normalize_route_path
 from app.service.logging.utils.usage_paths import normalize_auth_usage_path, should_record_auth_usage
 
 
@@ -123,6 +139,12 @@ def normalize_api_path(path: str) -> str:
 
 
 # === Queue setup ===
+# Keep a local wrapper so existing statistics code can continue calling
+# normalize_api_path while sharing the central route-template helper.
+def _legacy_normalize_api_path_unused(path: str) -> str:
+    return normalize_route_path(path)
+
+
 # Use multiprocessing.Queue so background workers can share queues safely.
 # keyword_queue = queue.Queue()  # Legacy text-file queue, no longer used.
 log_queue = multiprocessing.Queue(maxsize=2000)  # ApiUsageLog -> auth.db
@@ -131,6 +153,7 @@ statistics_queue = multiprocessing.Queue(maxsize=3000)  # API statistics -> logs
 html_visit_queue = multiprocessing.Queue(maxsize=1000)  # HTML visit stats -> logs.db
 summary_queue = multiprocessing.Queue(maxsize=1000)  # ApiUsageSummary -> auth.db
 online_time_queue = multiprocessing.Queue(maxsize=1000)  # Online time reports -> auth.db
+diagnostic_queue = multiprocessing.Queue(maxsize=1000)  # ApiDiagnosticEvent -> logs.db
 
 QUEUE_PUT_TIMEOUT_SECONDS = 0.05  # Backpressure wait time before dropping.
 
@@ -147,16 +170,64 @@ def _enqueue_with_backpressure(q, item, queue_name: str) -> bool:
         return False
 
 
+def enqueue_diagnostic_event_non_blocking(event: ApiDiagnosticEvent) -> bool:
+    """Enqueue one diagnostic event without blocking the request path."""
+    return _enqueue_with_backpressure(diagnostic_queue, event, "diagnostic_queue")
+
+
+def _build_diagnostic_notes(content_type: str, *, request_size: int, response_size: int) -> str:
+    payload = {
+        "slow_threshold_ms": SLOW_API_THRESHOLD_MS,
+        "content_type": content_type or "",
+        "request_size": request_size,
+        "response_size": response_size,
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 # === Request parameter logging for logs.db ===
 async def _capture_request_body(request: Request) -> bytes:
     """Read request body and restore stream for downstream handlers."""
     body = await request.body()
 
     async def receive():
-        return {"type": "http.request", "body": body}
+        return {"type": "http.request", "body": body, "more_body": False}
 
     request._receive = receive
     return body
+
+
+def _attach_diagnostic_body_capture(request: Request):
+    """
+    Tee request-body chunks into a bounded buffer while downstream consumes them.
+
+    This avoids eagerly reading the full body for every mutating API request.
+    """
+    original_receive = request._receive
+    captured = bytearray()
+    total_size = 0
+    truncated = False
+
+    async def receive():
+        nonlocal total_size, truncated
+        message = await original_receive()
+        if message.get("type") == "http.request":
+            chunk = message.get("body", b"") or b""
+            if chunk:
+                total_size += len(chunk)
+                remaining = MAX_DIAGNOSTIC_BODY_BYTES - len(captured)
+                if remaining > 0:
+                    captured.extend(chunk[:remaining])
+                if len(chunk) > remaining:
+                    truncated = True
+        return message
+
+    request._receive = receive
+
+    def get_state():
+        return bytes(captured), truncated, total_size
+
+    return get_state
 
 
 async def _log_params_if_needed(request: Request, path: str):
@@ -273,7 +344,55 @@ def keyword_log_writer():
             db.rollback()
         finally:
             db.close()
+def diagnostic_event_writer():
+    """Background worker that batches diagnostic events to logs.db."""
+    batch = []
+    batch_size = 25
 
+    while True:
+        try:
+            item = diagnostic_queue.get(timeout=1)
+            if item is None:
+                break
+
+            batch.append(item)
+
+            if len(batch) >= batch_size:
+                db = LogsSessionLocal()
+                try:
+                    db.bulk_save_objects(batch)
+                    db.commit()
+                    batch = []
+                except Exception as e:
+                    print(f"[X] failed to flush diagnostic event batch: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+        except Empty:
+            if batch:
+                db = LogsSessionLocal()
+                try:
+                    db.bulk_save_objects(batch)
+                    db.commit()
+                    batch = []
+                except Exception as e:
+                    print(f"[X] failed to flush diagnostic event batch: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+        except Exception as e:
+            print(f"[X] diagnostic_event_writer failed: {e}")
+
+    if batch:
+        db = LogsSessionLocal()
+        try:
+            db.bulk_save_objects(batch)
+            db.commit()
+        except Exception as e:
+            print(f"[X] failed to flush diagnostic event batch: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 
 def statistics_writer():
@@ -594,7 +713,8 @@ def log_detailed_api_to_db(
         user_id: int = None,
         request_size: int = 0,
         response_size: int = 0,
-        start_time: float = None
+        start_time: float = None,
+        include_summary: bool = True,
 ):
     normalized_usage_path = normalize_auth_usage_path(path)
 
@@ -617,7 +737,7 @@ def log_detailed_api_to_db(
     _enqueue_with_backpressure(log_queue, log, "log_queue")
 
     # Step 2: enqueue ApiUsageSummary update
-    if user_id:
+    if user_id and include_summary:
         _enqueue_with_backpressure(
             summary_queue,
             {
@@ -822,7 +942,8 @@ async def log_detailed_api_to_db_async(
         user_id: int = None,
         request_size: int = 0,
         response_size: int = 0,
-        start_time: float = None
+        start_time: float = None,
+        include_summary: bool = True,
 ):
     """Run detailed API logging in a worker thread without blocking the request."""
     await asyncio.to_thread(
@@ -836,8 +957,82 @@ async def log_detailed_api_to_db_async(
         user_id,
         request_size,
         response_size,
-        start_time
+        start_time,
+        include_summary,
     )
+
+
+def enqueue_diagnostic_event(
+        *,
+        path: str,
+        method: str,
+        status_code: int | None,
+        duration_ms: int,
+        user_id: int | None,
+        username: str | None,
+        ip: str | None,
+        user_agent: str | None,
+        referer: str | None,
+        request_headers_json: str,
+        query_params_json: str,
+        request_body_text: str,
+        request_body_truncated: bool,
+        request_size: int,
+        response_size: int,
+        response_started: bool,
+        response_completed: bool,
+        phase_hint: str,
+        exception_type: str | None = None,
+        exception_message: str | None = None,
+        stack_trace_text: str | None = None,
+        response_preview_text: str | None = None,
+        content_type: str = "",
+):
+    is_error = (status_code or 500) >= 400 or bool(exception_type)
+    is_slow = duration_ms > SLOW_API_THRESHOLD_MS
+    if not is_error and not is_slow:
+        return
+
+    if is_error and is_slow:
+        event_type = "error_and_slow"
+    elif is_error:
+        event_type = "error"
+    else:
+        event_type = "slow"
+
+    event = ApiDiagnosticEvent(
+        occurred_at=now_utc_naive(),
+        event_type=event_type,
+        path=path,
+        route_template=normalize_diagnostic_route(path),
+        method=method,
+        status_code=status_code,
+        duration_ms=duration_ms,
+        user_id=user_id,
+        username=username,
+        ip=ip,
+        user_agent=user_agent,
+        referer=referer,
+        request_headers_json=request_headers_json,
+        query_params_json=query_params_json,
+        request_body_text=request_body_text,
+        request_body_truncated=bool(request_body_truncated),
+        request_size=request_size,
+        response_size=response_size,
+        response_started=bool(response_started),
+        response_completed=bool(response_completed),
+        phase_hint=phase_hint,
+        exception_type=exception_type,
+        exception_message=exception_message,
+        stack_trace_text=stack_trace_text,
+        response_preview_text=response_preview_text,
+        notes_json=_build_diagnostic_notes(
+            content_type,
+            request_size=request_size,
+            response_size=response_size,
+        ),
+    )
+    enqueue_diagnostic_event_non_blocking(event)
 
 
 # app/service/api_logger.py
@@ -855,6 +1050,7 @@ def start_api_logger_workers():
 
         threading.Thread(target=keyword_log_writer, daemon=True).start()
 
+        threading.Thread(target=diagnostic_event_writer, daemon=True).start()
 
         threading.Thread(target=statistics_writer, daemon=True).start()
 
@@ -879,6 +1075,11 @@ def stop_api_logger_workers():
     """Stop all background logging workers."""
     try:
         keyword_log_queue.put_nowait(None)
+    except:
+        pass
+
+    try:
+        diagnostic_queue.put_nowait(None)
     except:
         pass
 
@@ -913,7 +1114,15 @@ def stop_api_logger_workers():
 class StreamingResponseWrapper:
     """Wrap a streaming response so we can cap and measure output size."""
 
-    def __init__(self, iterator, content_type, user_role, max_size, response, on_complete_callback=None):
+    def __init__(
+            self,
+            iterator,
+            content_type,
+            user_role,
+            max_size,
+            response,
+            on_complete_callback=None,
+    ):
         self.iterator = iterator
         self.content_type = content_type
         self.user_role = user_role
@@ -921,13 +1130,22 @@ class StreamingResponseWrapper:
         self.response = response
         self.total_size = 0
         self.on_complete_callback = on_complete_callback
+        self.response_started = False
+        self.response_completed = False
+        self.exception = None
+        self.preview_bytes = bytearray()
 
     async def __aiter__(self):
         """Iterate streamed chunks while tracking response size."""
+        self.response_started = True
         try:
             async for chunk in self.iterator:
-                chunk_size = len(chunk)
+                chunk_bytes = chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+                chunk_size = len(chunk_bytes)
                 self.total_size += chunk_size
+                if len(self.preview_bytes) < 4096:
+                    remaining = 4096 - len(self.preview_bytes)
+                    self.preview_bytes.extend(chunk_bytes[:remaining])
                 # Stop streaming once the response exceeds the configured limit.
                 if self.total_size > self.max_size:
                     raise HTTPException(
@@ -937,6 +1155,10 @@ class StreamingResponseWrapper:
 
 
                 yield chunk
+            self.response_completed = True
+        except Exception as exc:
+            self.exception = exc
+            raise
 
         finally:
             # Notify the completion callback after the iterator finishes.
@@ -947,82 +1169,225 @@ class StreamingResponseWrapper:
 
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        start_time = time.time()  # Capture request start time as early as possible.
-
-
+        start_time = time.time()
         path = request.url.path
+        method = request.method.upper()
+        capture_diagnostics = should_capture_diagnostic_path(path)
+        record_auth_usage = should_record_auth_usage(path)
+        should_include_summary = path != "/auth/login"
+
         try:
             update_count(path)
         except Exception as e:
             print(f"[ERROR] failed to enqueue usage count: {e}")
 
         await _log_params_if_needed(request, path)
-        if not should_record_auth_usage(path):
+        if not capture_diagnostics and not record_auth_usage:
             return await call_next(request)
 
-        # 2. Open a DB session for auth lookup.
-        # next(get_db()) is safe here because we always close it in finally.
-        db = next(get_db())
         user = None
-        try:
+        if capture_diagnostics or record_auth_usage:
+            db = next(get_db())
+            try:
+                user = await get_current_user_for_middleware(request, db=db)
+            except Exception as e:
+                print(f"Middleware Auth Error: {e}")
+                user = None
+            finally:
+                db.close()
 
-            user = await get_current_user_for_middleware(request, db=db)
-        except Exception as e:
-            print(f"Middleware Auth Error: {e}")
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent")
+        referer = request.headers.get("Referer")
+        content_type = request.headers.get("Content-Type", "")
+        content_length = request.headers.get("Content-Length")
+        request_body_text = ""
+        request_body_truncated = False
+        diagnostic_body_state = None
+        resolved_diagnostic_body = False
 
-            user = None
-        finally:
+        should_capture_request_body = capture_diagnostics and method in DIAGNOSTIC_BODY_METHODS
+        if should_capture_request_body:
+            diagnostic_body_state = _attach_diagnostic_body_capture(request)
 
-            db.close()
-
-        # 5. Estimate request size.
-        cl = request.headers.get("Content-Length")
-
-        if cl is not None and cl.isdigit():
-            request_size = int(cl)
+        if content_length is not None and content_length.isdigit():
+            request_size = int(content_length)
+        elif method == "GET":
+            request_size = len(request.url.path) + len(request.url.query)
         else:
+            request_size = 0
 
-            if request.method == "GET":
-                url_size = len(request.url.path) + len(request.url.query)
-                request_size = url_size
+        if capture_diagnostics:
+            request_headers_json = serialize_diagnostic_headers(request.headers)
+            query_params_json = serialize_query_params(request.scope.get("query_string", b""))
+        else:
+            request_headers_json = ""
+            query_params_json = ""
+
+        def resolve_diagnostic_request_body():
+            nonlocal request_body_text, request_body_truncated, request_size, resolved_diagnostic_body
+
+            if resolved_diagnostic_body or not capture_diagnostics:
+                return
+
+            resolved_diagnostic_body = True
+            if diagnostic_body_state is None:
+                request_body_text = ""
+                request_body_truncated = False
+                return
+
+            request_body, body_capture_truncated, captured_body_size = diagnostic_body_state()
+            if request_size == 0 and captured_body_size:
+                request_size = captured_body_size
+
+            if request_body:
+                request_body_text, summarize_truncated = summarize_request_body(
+                    request_body,
+                    content_type,
+                    request_size,
+                )
+                request_body_truncated = body_capture_truncated or summarize_truncated
             else:
-                # For non-GET requests we read the request body directly.
-                request_body = await request.body()
-                request_size = len(request_body)
+                request_body_text = ""
+                request_body_truncated = False
 
-
-        response = await call_next(request)
-
-
-        max_size = MAX_ANONYMOUS_SIZE if user is None else (
-            float('inf') if user.role == "admin" else MAX_USER_SIZE
-        )
-
-        # 8. Defer log persistence until streaming has completed.
-        async def on_streaming_complete(wrapper):
-            """Record logs after streaming responses finish."""
-            # Compute duration after the full response body has been sent.
+        try:
+            response = await call_next(request)
+        except Exception as exc:
             duration = time.time() - start_time
+            duration_ms = int(round(duration * 1000))
+            stack_trace_text = summarize_stack_trace(traceback.format_exc())
+            status_code = 500
 
-            # Use the wrapper's tracked size for streamed responses.
+            if record_auth_usage:
+                await log_detailed_api_to_db_async(
+                    path=path,
+                    duration=duration,
+                    status_code=status_code,
+                    ip=client_ip,
+                    user_agent=user_agent,
+                    referer=referer,
+                    user_id=user.id if user else None,
+                    request_size=request_size,
+                    response_size=0,
+                    start_time=start_time,
+                    include_summary=should_include_summary,
+                )
 
+            if capture_diagnostics:
+                resolve_diagnostic_request_body()
+                enqueue_diagnostic_event(
+                    path=path,
+                    method=method,
+                    status_code=status_code,
+                    duration_ms=duration_ms,
+                    user_id=user.id if user else None,
+                    username=getattr(user, "username", None),
+                    ip=client_ip,
+                    user_agent=user_agent,
+                    referer=referer,
+                    request_headers_json=request_headers_json,
+                    query_params_json=query_params_json,
+                    request_body_text=request_body_text,
+                    request_body_truncated=request_body_truncated,
+                    request_size=request_size,
+                    response_size=0,
+                    response_started=False,
+                    response_completed=False,
+                    phase_hint="exception_before_response",
+                    exception_type=exc.__class__.__name__,
+                    exception_message=str(exc),
+                    stack_trace_text=stack_trace_text,
+                    response_preview_text="",
+                    content_type=content_type,
+                )
 
-            response_size = wrapper.total_size
+            raise
 
-
-            await log_detailed_api_to_db_async(
-                path=request.url.path,
-                duration=duration,
-                status_code=response.status_code,
-                ip=request.client.host,
-                user_agent=request.headers.get("User-Agent"),
-                referer=request.headers.get("Referer"),
-                user_id=user.id if user else None,
-                request_size=request_size,
-                response_size=response_size,
-                start_time=start_time
+        if record_auth_usage:
+            max_size = MAX_ANONYMOUS_SIZE if user is None else (
+                float('inf') if user.role == "admin" else MAX_USER_SIZE
             )
+        else:
+            max_size = float('inf')
 
+        async def on_streaming_complete(wrapper):
+            duration = time.time() - start_time
+            duration_ms = int(round(duration * 1000))
+            response_size = wrapper.total_size
+            effective_status_code = response.status_code
+            exception_type = None
+            exception_message = None
+            stack_trace_text = ""
+            response_preview_text = ""
+            phase_hint = "completed"
+
+            if wrapper.exception is not None:
+                exception_type = wrapper.exception.__class__.__name__
+                exception_message = str(wrapper.exception)
+                if isinstance(wrapper.exception, HTTPException):
+                    effective_status_code = wrapper.exception.status_code
+                elif effective_status_code < 400:
+                    effective_status_code = 500
+                stack_trace_text = summarize_stack_trace(
+                    "".join(
+                        traceback.format_exception(
+                            wrapper.exception.__class__,
+                            wrapper.exception,
+                            wrapper.exception.__traceback__,
+                        )
+                    )
+                )
+                phase_hint = "streaming"
+
+            if effective_status_code >= 400:
+                response_preview_text = summarize_response_preview(
+                    bytes(wrapper.preview_bytes),
+                    response.headers.get("Content-Type", ""),
+                )
+
+            if record_auth_usage:
+                await log_detailed_api_to_db_async(
+                    path=path,
+                    duration=duration,
+                    status_code=effective_status_code,
+                    ip=client_ip,
+                    user_agent=user_agent,
+                    referer=referer,
+                    user_id=user.id if user else None,
+                    request_size=request_size,
+                    response_size=response_size,
+                    start_time=start_time,
+                    include_summary=should_include_summary,
+                )
+
+            if capture_diagnostics:
+                resolve_diagnostic_request_body()
+                enqueue_diagnostic_event(
+                    path=path,
+                    method=method,
+                    status_code=effective_status_code,
+                    duration_ms=duration_ms,
+                    user_id=user.id if user else None,
+                    username=getattr(user, "username", None),
+                    ip=client_ip,
+                    user_agent=user_agent,
+                    referer=referer,
+                    request_headers_json=request_headers_json,
+                    query_params_json=query_params_json,
+                    request_body_text=request_body_text,
+                    request_body_truncated=request_body_truncated,
+                    request_size=request_size,
+                    response_size=response_size,
+                    response_started=wrapper.response_started,
+                    response_completed=wrapper.response_completed,
+                    phase_hint=phase_hint,
+                    exception_type=exception_type,
+                    exception_message=exception_message,
+                    stack_trace_text=stack_trace_text,
+                    response_preview_text=response_preview_text,
+                    content_type=response.headers.get("Content-Type", ""),
+                )
 
         wrapper = StreamingResponseWrapper(
             iterator=response.body_iterator,
@@ -1030,12 +1395,10 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             user_role=user.role if user else None,
             max_size=max_size,
             response=response,
-            on_complete_callback=on_streaming_complete
+            on_complete_callback=on_streaming_complete,
         )
 
-
         response.body_iterator = wrapper
-
         return response
 
 # Historical JSON-file logger kept for reference.

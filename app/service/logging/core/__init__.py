@@ -2,7 +2,7 @@
 日誌系統核心模塊
 """
 from .database import engine, SessionLocal
-from .models import ApiVisitLog, ApiKeywordLog, ApiStatistics
+from .models import ApiVisitLog, ApiKeywordLog, ApiStatistics, ApiDiagnosticEvent
 
 __all__ = [
     'engine',
@@ -10,4 +10,5 @@ __all__ = [
     'ApiVisitLog',
     'ApiKeywordLog',
     'ApiStatistics',
+    'ApiDiagnosticEvent',
 ]

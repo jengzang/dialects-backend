@@ -44,6 +44,7 @@ CLEAR_WEEK = True
 
 # auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
+    "/auth/login",
     "/api/phonology*",
     "/api/get_coordinates",
     "/api/search_tones/",
