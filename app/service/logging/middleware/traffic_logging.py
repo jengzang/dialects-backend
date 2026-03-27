@@ -28,6 +28,8 @@ from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_sha
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
 from app.service.logging.config.diagnostics import (
     DIAGNOSTIC_BODY_METHODS,
+    DIAGNOSTIC_CAPTURE_MODE,
+    DIAGNOSTIC_QUEUE_MAXSIZE,
     MAX_DIAGNOSTIC_BODY_BYTES,
     SLOW_API_THRESHOLD_MS,
 )
@@ -153,7 +155,7 @@ statistics_queue = multiprocessing.Queue(maxsize=3000)  # API statistics -> logs
 html_visit_queue = multiprocessing.Queue(maxsize=1000)  # HTML visit stats -> logs.db
 summary_queue = multiprocessing.Queue(maxsize=1000)  # ApiUsageSummary -> auth.db
 online_time_queue = multiprocessing.Queue(maxsize=1000)  # Online time reports -> auth.db
-diagnostic_queue = multiprocessing.Queue(maxsize=1000)  # ApiDiagnosticEvent -> logs.db
+diagnostic_queue = multiprocessing.Queue(maxsize=DIAGNOSTIC_QUEUE_MAXSIZE)  # ApiDiagnosticEvent -> logs.db
 
 QUEUE_PUT_TIMEOUT_SECONDS = 0.05  # Backpressure wait time before dropping.
 
@@ -990,15 +992,27 @@ def enqueue_diagnostic_event(
 ):
     is_error = (status_code or 500) >= 400 or bool(exception_type)
     is_slow = duration_ms > SLOW_API_THRESHOLD_MS
-    if not is_error and not is_slow:
-        return
-
-    if is_error and is_slow:
-        event_type = "error_and_slow"
-    elif is_error:
-        event_type = "error"
+    if DIAGNOSTIC_CAPTURE_MODE == "all":
+        if is_error and is_slow:
+            event_type = "error_and_slow"
+        elif is_error:
+            event_type = "error"
+        elif is_slow:
+            event_type = "slow"
+        else:
+            event_type = "normal"
     else:
-        event_type = "slow"
+        if not is_error and not is_slow:
+            return
+        if is_error and is_slow:
+            event_type = "error_and_slow"
+        elif is_error:
+            event_type = "error"
+        else:
+            event_type = "slow"
+
+    if not event_type:
+        return
 
     event = ApiDiagnosticEvent(
         occurred_at=now_utc_naive(),
