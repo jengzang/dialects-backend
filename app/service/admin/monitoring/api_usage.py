@@ -17,6 +17,9 @@ from app.service.auth.database import models
 from app.service.admin.analytics.geo import lookup_ip_location
 
 
+LOGIN_PATHS = ('/login', '/auth/login', '/api/auth/login')
+
+
 def extract_device_info(user_agent: str) -> tuple:
     """
     提取设备信息（操作系统和浏览器）
@@ -110,7 +113,7 @@ def get_user_api_detail(db: Session, query: str) -> Optional[Dict[str, Any]]:
 
     api_logs = db.query(models.ApiUsageLog).filter(
         models.ApiUsageLog.user_id == user.id,
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     ).all()
 
     api_logs.sort(key=lambda log: log.called_at, reverse=True)
@@ -151,7 +154,7 @@ def get_all_api_usage(
         models.User,
         models.ApiUsageLog.user_id == models.User.id
     ).filter(
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     )
 
     # 搜索过滤
@@ -247,7 +250,7 @@ def _get_api_usage_stats(db: Session, search: Optional[str] = None) -> Dict[str,
         models.User,
         models.ApiUsageLog.user_id == models.User.id
     ).filter(
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     )
 
     if search:

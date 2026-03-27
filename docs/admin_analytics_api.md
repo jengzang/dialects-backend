@@ -600,7 +600,7 @@ Or test individual endpoints using curl:
 
 ```bash
 # Login
-TOKEN=$(curl -X POST "http://localhost:5000/auth/login" \
+TOKEN=$(curl -X POST "http://localhost:5000/api/auth/login" \
   -d "username=admin&password=admin" | jq -r '.access_token')
 
 # Test dashboard

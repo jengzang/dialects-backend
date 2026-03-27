@@ -66,8 +66,8 @@ Relevant facts:
 
 The current backend already supports:
 
-- `POST /auth/register`
-- `POST /auth/login`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
 - local login by `username` or `email`
 - session-based access/refresh token model
 
@@ -323,7 +323,7 @@ This becomes a two-step registration.
 
 Endpoint:
 
-- `POST /auth/register/email/start`
+- `POST /api/auth/register/email/start`
 
 Input:
 
@@ -342,7 +342,7 @@ No `users` row is created yet.
 
 Endpoint:
 
-- `GET /auth/register/email/verify`
+- `GET /api/auth/register/email/verify`
 
 Behavior:
 
@@ -356,7 +356,7 @@ At this point the identity proof is done, but the account is not yet complete.
 
 Endpoint:
 
-- `POST /auth/register/complete`
+- `POST /api/auth/register/complete`
 
 Input:
 
@@ -379,7 +379,7 @@ Behavior:
 
 ### Step A: start
 
-- `GET /auth/oauth/google/start`
+- `GET /api/auth/oauth/google/start`
 
 Behavior:
 
@@ -388,7 +388,7 @@ Behavior:
 
 ### Step B: callback
 
-- `GET /auth/oauth/google/callback`
+- `GET /api/auth/oauth/google/callback`
 
 Behavior:
 
@@ -421,7 +421,7 @@ If no Google identity exists:
 
 Use the same:
 
-- `POST /auth/register/complete`
+- `POST /api/auth/register/complete`
 
 The ticket tells the backend this is a Google-pending registration.
 
@@ -430,7 +430,7 @@ The ticket tells the backend this is a Google-pending registration.
 
 ### Step A: start
 
-- `GET /auth/oauth/wechat/start`
+- `GET /api/auth/oauth/wechat/start`
 
 Behavior:
 
@@ -439,7 +439,7 @@ Behavior:
 
 ### Step B: callback
 
-- `GET /auth/oauth/wechat/callback`
+- `GET /api/auth/oauth/wechat/callback`
 
 Behavior:
 
@@ -472,7 +472,7 @@ Because WeChat may not provide email, this flow must support accounts with:
 
 Keep local login in one endpoint for compatibility:
 
-- `POST /auth/login`
+- `POST /api/auth/login`
 
 Input stays compatible with:
 
@@ -507,8 +507,8 @@ That means:
 
 Endpoints:
 
-- `GET /auth/bind/google/start`
-- `GET /auth/bind/google/callback`
+- `GET /api/auth/bind/google/start`
+- `GET /api/auth/bind/google/callback`
 
 Behavior:
 
@@ -530,8 +530,8 @@ If safe:
 
 Endpoints:
 
-- `GET /auth/bind/wechat/start`
-- `GET /auth/bind/wechat/callback`
+- `GET /api/auth/bind/wechat/start`
+- `GET /api/auth/bind/wechat/callback`
 
 Same conflict behavior as Google.
 
@@ -540,8 +540,8 @@ Same conflict behavior as Google.
 
 Endpoints:
 
-- `POST /auth/bind/email/start`
-- `GET /auth/bind/email/verify`
+- `POST /api/auth/bind/email/start`
+- `GET /api/auth/bind/email/verify`
 
 Behavior:
 
@@ -555,7 +555,7 @@ Behavior:
 
 Endpoint:
 
-- `GET /auth/me/identities`
+- `GET /api/auth/me/identities`
 
 Returns:
 
@@ -656,34 +656,34 @@ Later, the codebase can gradually move to querying `user_auth_identities`.
 
 Public:
 
-- `POST /auth/register/email/start`
-- `GET /auth/register/email/verify`
-- `POST /auth/register/complete`
-- `GET /auth/oauth/google/start`
-- `GET /auth/oauth/google/callback`
-- `GET /auth/oauth/wechat/start`
-- `GET /auth/oauth/wechat/callback`
+- `POST /api/auth/register/email/start`
+- `GET /api/auth/register/email/verify`
+- `POST /api/auth/register/complete`
+- `GET /api/auth/oauth/google/start`
+- `GET /api/auth/oauth/google/callback`
+- `GET /api/auth/oauth/wechat/start`
+- `GET /api/auth/oauth/wechat/callback`
 
 Authenticated:
 
-- `GET /auth/bind/google/start`
-- `GET /auth/bind/google/callback`
-- `GET /auth/bind/wechat/start`
-- `GET /auth/bind/wechat/callback`
-- `POST /auth/bind/email/start`
-- `GET /auth/bind/email/verify`
-- `GET /auth/me/identities`
+- `GET /api/auth/bind/google/start`
+- `GET /api/auth/bind/google/callback`
+- `GET /api/auth/bind/wechat/start`
+- `GET /api/auth/bind/wechat/callback`
+- `POST /api/auth/bind/email/start`
+- `GET /api/auth/bind/email/verify`
+- `GET /api/auth/me/identities`
 
 ## 10.2 Existing endpoints to keep
 
-- `POST /auth/login`
-- `POST /auth/logout`
-- `POST /auth/refresh`
-- `GET /auth/me`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `POST /api/auth/refresh`
+- `GET /api/auth/me`
 
 ## 10.3 Existing endpoint that should become compatibility-only
 
-- `POST /auth/register`
+- `POST /api/auth/register`
 
 Recommended treatment:
 
@@ -804,7 +804,7 @@ Keep admin search working with:
 
 Second phase can extend search to provider identity metadata if needed.
 
-### 13.3 `/auth/me`
+### 13.3 `/api/auth/me`
 
 Eventually should return:
 
@@ -906,7 +906,7 @@ This is the recommended order if/when the team actually implements this plan.
 ### Phase 2: local auth compatibility refactor
 
 - update login resolution to use identity table
-- keep existing `/auth/login`
+- keep existing `/api/auth/login`
 
 ### Phase 3: email registration v2
 
@@ -964,4 +964,3 @@ This gives the project:
 - reasonable backward compatibility
 - lower rollout risk for production users
 - a clean path to future auth expansion
-

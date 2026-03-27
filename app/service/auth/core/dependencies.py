@@ -652,9 +652,11 @@ def _get_login_retry_after_seconds(
     if overflow <= 0:
         overflow = 1
 
+    login_paths = ["/login", "/auth/login", "/api/auth/login"]
+
     target_row = db.query(ApiUsageLog.called_at).filter(
         ApiUsageLog.ip == ip,
-        ApiUsageLog.path.in_(["/login", "/auth/login"]),
+        ApiUsageLog.path.in_(login_paths),
     ).order_by(ApiUsageLog.called_at.asc()).offset(overflow - 1).first()
 
     if not target_row or not target_row[0]:
@@ -667,10 +669,11 @@ def _get_login_retry_after_seconds(
 
 def check_login_rate_limit(db: Session, ip: str):
     one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
+    login_paths = ["/login", "/auth/login", "/api/auth/login"]
 
     login_attempts = db.query(ApiUsageLog).filter(
         ApiUsageLog.ip == ip,
-        ApiUsageLog.path.in_(["/login", "/auth/login"]),
+        ApiUsageLog.path.in_(login_paths),
         ApiUsageLog.called_at >= one_minute_ago,
     ).count()
 

@@ -44,11 +44,12 @@ CLEAR_WEEK = True
 
 # auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
-    "/auth/login",
+    "/api/auth/login",
     "/api/phonology*",
     "/api/get_coordinates",
     "/api/search_tones/",
     "/api/search_chars/",
+    "/api/locations/*",
     "/api/compare/*",
     "/api/submit_form",
     "/api/delete_form",
@@ -298,30 +299,6 @@ API_ROUTE_CONFIG = {
         "log_body": True,
     },
 
-    # # ===== Admin 会话管理 API =====
-    # "/admin/user-sessions/*": {
-    #     "rate_limit": True,  # 启用限流（防止管理员滥用）
-    #     "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
-    #     "log_params": True,  # 记录参数（用于审计）
-    #     "log_body": True,  # 记录请求体（用于审计）
-    # },
-
-    # # ===== 用户排行榜 API =====
-    # "/auth/leaderboard": {
-    #     "rate_limit": True,  # 启用限流（防止频繁查询）
-    #     "require_login": True,  # 要求登录（只有登录用户才能查看排行）
-    #     "log_params": False,  # 不记录参数（GET 请求无参数）
-    #     "log_body": False,  # 不记录请求体（GET 请求无 body）
-    # },
-
-    # # ===== 用户自定义区域 API =====
-    # "/api/custom_regions": {
-    #     "rate_limit": False,  # 启用限流（防止滥用）
-    #     "require_login": True,  # 要求登录（需要用户身份）
-    #     "log_params": True,  # 记录参数（用于分析用户使用习惯）
-    #     "log_body": True,  # 记录请求体（用于分析用户创建的区域）
-    # },
-
     # ===== villagesML 自然村分析 API =====
     "/api/villages/*": {
         "rate_limit": True,  # 启用限流（防止滥用）
@@ -356,7 +333,7 @@ API_DEFAULT_CONFIG = {
 # 这些路由完全跳过 ApiLoggingMiddleware 检查
 # 用于静态文件、认证页面等不需要日志记录的路由
 API_WHITELIST = [
-    "/auth/*",  # 认证相关（登录、注册等）
+    "/api/auth/*",  # 认证相关（登录、注册等）
     "/__ping",  # 健康检查
     "/",  # 首页
     "/admin",  # 管理页面
