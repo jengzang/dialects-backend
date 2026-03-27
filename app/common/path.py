@@ -12,11 +12,11 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # database路徑依賴
 QUERY_DB_PATH = os.path.join(BASE_DIR, "data", "query_dialects.db")
-QUERY_DB_ADMIN = os.path.join(BASE_DIR, "data", "query_admin.db")
+QUERY_DB_ADMIN = os.path.join(BASE_DIR, "data", "query_user.db")
 QUERY_DB_USER = os.path.join(BASE_DIR, "data", "query_user.db")
 
 DIALECTS_DB_PATH = os.path.join(BASE_DIR, "data", "dialects_all.db")
-DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_admin.db")
+DIALECTS_DB_ADMIN = os.path.join(BASE_DIR, "data", "dialects_user.db")
 DIALECTS_DB_USER = os.path.join(BASE_DIR, "data", "dialects_user.db")
 
 CHARACTERS_DB_PATH = os.path.join(BASE_DIR, "data", "characters.db")
