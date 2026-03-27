@@ -300,7 +300,7 @@ def report_online_time(
         raise HTTPException(status_code=429, detail=limit_detail)
 
     # Queue the accepted heartbeat; persistence remains asynchronous.
-    from app.service.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
+    from app.service.logging.stats.online_time_pipeline import enqueue_online_time_non_blocking
     accepted = enqueue_online_time_non_blocking({
         'user_id': user.id,
         'session_id': session_id,

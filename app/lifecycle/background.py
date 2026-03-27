@@ -21,9 +21,7 @@ def _periodic_cleanup(stop_event: threading.Event) -> None:
 
 
 def start_background_services() -> None:
-    from app.service.logging.middleware.traffic_logging import (
-        start_api_logger_workers,
-    )
+    from app.service.logging.core.workers import start_api_logger_workers
     from app.service.logging.tasks import start_scheduler
 
     global _cleanup_thread, _cleanup_stop_event
@@ -48,9 +46,7 @@ def start_background_services() -> None:
 
 
 def stop_background_services() -> None:
-    from app.service.logging.middleware.traffic_logging import (
-        stop_api_logger_workers,
-    )
+    from app.service.logging.core.workers import stop_api_logger_workers
     from app.service.logging.tasks import stop_scheduler
 
     global _cleanup_thread, _cleanup_stop_event
