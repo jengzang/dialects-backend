@@ -1,7 +1,7 @@
 """
 Praat acoustic analysis API routes (task_manager version).
 """
-from fastapi import APIRouter, UploadFile, File, Form, Depends, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pathlib import Path
@@ -27,13 +27,7 @@ from .utils.validators import (
     MAX_DURATION_S
 )
 from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id
-from app.service.logging.dependencies.limiter import ApiLimiter
-
-router = APIRouter(
-    prefix="/api/tools/praat",
-    tags=["Praat Acoustic Analysis"],
-    dependencies=[Depends(ApiLimiter)]
-)
+router = APIRouter()
 
 
 def _save_upload_file(src_file, dst_path: Path) -> None:

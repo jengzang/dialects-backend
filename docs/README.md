@@ -52,6 +52,7 @@ Process notes, intermediate plans, checklists, quickstarts, code review notes, a
 
 ### Other Active Implementation Docs
 
+- [implementation/tools/module_development_guide.md](implementation/tools/module_development_guide.md): Tools 目录模块接入、`file_manager`、`task_manager` 与统一路由挂载指南。
 - [implementation/semantic/subcategory_api_update.md](implementation/semantic/subcategory_api_update.md)
 - [implementation/subset/compare_api_update.md](implementation/subset/compare_api_update.md)
 - [implementation/township/filter_guide.md](implementation/township/filter_guide.md)

@@ -25,7 +25,6 @@ from .user import router as user_router
 from app.service.logging import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
-from app.tools.praat.routes import router as praat_router
 from app.service.logging.dependencies import ApiLimiter
 from app.villagesML import setup_villages_routes
 
@@ -49,9 +48,6 @@ def setup_routes(app: FastAPI):
     app.include_router(auth_router, prefix="/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
-
-    # Praat acoustic analysis
-    app.include_router(praat_router, dependencies=[Depends(ApiLimiter)])
 
     setup_tools_routes(app)
     setup_sql_routes(app)
