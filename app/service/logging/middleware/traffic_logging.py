@@ -26,6 +26,7 @@ from app.service.logging.core.models import ApiDiagnosticEvent, ApiKeywordLog
 from app.common.api_config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_shanghai_bucket_hour
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
+from app.service.logging.config import ENABLE_API_KEYWORD_LOGGING
 from app.service.logging.config.diagnostics import (
     DIAGNOSTIC_BODY_METHODS,
     DIAGNOSTIC_CAPTURE_MODE,
@@ -237,6 +238,9 @@ async def _log_params_if_needed(request: Request, path: str):
     Keep legacy logs.db parameter logging logic:
     - route-based params/body logging
     """
+    if not ENABLE_API_KEYWORD_LOGGING:
+        return
+
     if should_skip_route(path):
         return
 
@@ -1061,8 +1065,8 @@ def start_api_logger_workers():
         if _workers_started:
             return
 
-
-        threading.Thread(target=keyword_log_writer, daemon=True).start()
+        if ENABLE_API_KEYWORD_LOGGING:
+            threading.Thread(target=keyword_log_writer, daemon=True).start()
 
         threading.Thread(target=diagnostic_event_writer, daemon=True).start()
 
