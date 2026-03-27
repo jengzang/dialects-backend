@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gunicorn config.
 
 Master process:
@@ -15,69 +15,57 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from app.lifecycle import (
+    cleanup_worker_process,
+    start_background_services,
+    stop_background_services,
+)
+
 
 def on_starting(server):
     """
-    在 Gunicorn 主进程启动时执行（只执行一次）
-    在这里启动后台线程，所有 worker 进程将通过 multiprocessing.Queue 共享这些队列
+    Run once in the Gunicorn master process.
     """
-    from app.service.logging.tasks import start_scheduler
-    from app.service.logging.middleware.traffic_logging import start_api_logger_workers
-
     print("=" * 60)
     print("[Gunicorn Master] starting background workers...")
     print("=" * 60)
 
-    # 启动日志后台线程（在主进程中，使用 multiprocessing.Queue 与 worker 通信）
-    start_api_logger_workers()
-
-    # 启动定时任务调度器
-    start_scheduler()
+    start_background_services()
 
     print("=" * 60)
     print("[Gunicorn Master] background workers started")
-    print("  - 6 logging threads (using multiprocessing.Queue)")
-    print("  - 1 scheduler")
+    print("  - logging workers")
+    print("  - scheduler")
     print("=" * 60)
 
 
 def post_worker_init(worker):
-    """Worker 初始化时执行（不再启动日志线程）"""
+    """Worker initialization hook."""
     print(f"[Worker {worker.pid}] initialized")
 
 
 def worker_exit(server, worker):
-    """Worker 退出时清理资源"""
+    """Clean up per-worker resources."""
     print(f"[Worker {worker.pid}] exiting, cleaning up resources...")
 
     try:
-        from app.sql.db_pool import close_all_pools
-        close_all_pools()
+        cleanup_worker_process()
     except Exception as e:
         print(f"[Worker {worker.pid}] close_all_pools failed: {e}")
 
 
 def on_exit(server):
     """
-    在 Gunicorn 主进程退出时执行
-    停止所有后台线程
+    Stop background services in the Gunicorn master process.
     """
-    from app.service.logging.tasks import stop_scheduler
-    from app.service.logging.middleware.traffic_logging import stop_api_logger_workers
-
     print("=" * 60)
     print("[Gunicorn Master] stopping background workers...")
     print("=" * 60)
 
     try:
-        stop_api_logger_workers()
+        stop_background_services()
     except Exception as e:
-        print(f"[Gunicorn Master] stop_api_logger_workers failed: {e}")
-
-    try:
-        stop_scheduler()
-    except Exception as e:
-        print(f"[Gunicorn Master] stop_scheduler failed: {e}")
+        print(f"[Gunicorn Master] stop_background_services failed: {e}")
 
     print("=" * 60)
     print("[Gunicorn Master] background workers stopped")
