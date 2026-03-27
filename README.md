@@ -52,20 +52,52 @@
 ## 📊 项目统计
 
 > [!NOTE]
-> 本节中的数量型统计更适合视为历史快照，而不是严格实时值。  
-> 如果与当前代码、当前数据库结构或本文后半部分的 2026-03 维护附录冲突，请以后者与实际代码实现为准。
+> 本节已按 **2026-03-27** 当前仓库与 `data/*.db` 实际内容重新整理。  
+> 其中“路由数量”按源码中的 FastAPI / APIRouter 装饰器扫描统计，“数据库数量/表数”按当前本地 `data/` 目录快照统计；后续若继续扩展模块或数据库，请同步更新本节。
 
+| 指标 | 当前数值 | 统计口径 |
+|------|------|------|
+| **Python 文件数** | 298 个 | 扫描仓库内 `.py` 文件，已排除 `.venv` 与 `__pycache__` |
+| **Python 代码行数** | 52,133 行 | 按当前仓库 Python 文件逐个计行 |
+| **HTTP 路由声明数** | 282 个 | 按 `@router.get/post/...`、`@app.get/post/...` 装饰器统计 |
+| **依赖包数量** | 66 个 | 按 `requirements.txt` 的有效依赖行统计 |
+| **SQLite 数据库文件数** | 13 个 | 按 `data/*.db` 统计，包含 0 字节占位库 |
+| **SQLite 表总数** | 103 个 | 按所有 `.db` 中非 `sqlite_%` 表累加 |
+| **当前版本** | 2.0.1 | README 当前维护版本号 |
+| **最后更新** | 2026-03-27 | 本节最后核对日期 |
 
-| 指标 | 数值 |
+### 路由规模拆分（按源码目录统计）
+
+| 模块 | 路由数 |
 |------|------|
-| **代码总行数** | ~40,600 行 |
-| **Python 文件数** | 231 个 |
-| **API 端点数量** | 234 个（公开 23 + 用户 53 + 管理员 39 + VillagesML 107 + 其他 12）|
-| **依赖包数量** | 64 个 |
-| **数据库数量** | 9 个 SQLite 数据库 |
-| **数据库表数** | 65+ 个表（含 VillagesML 45 张预计算表）|
-| **当前版本** | 2.0.1 |
-| **最后更新** | 2026-03-27 |
+| `app/routes/core` | 16 |
+| `app/routes/geo` | 7 |
+| `app/routes/user` | 11 |
+| `app/routes/auth.py` | 9 |
+| `app/routes/index.py` | 9 |
+| `app/routes/admin` | 68 |
+| `app/routes/logging` | 14 |
+| `app/sql` | 14 |
+| `app/tools` | 27 |
+| `app/villagesML` | 107 |
+
+### 当前数据库文件概览
+
+| 数据库 | 表数 | 说明 |
+|------|------|------|
+| `auth.db` | 8 | 用户、会话、usage、登录日志等 |
+| `logs.db` | 5 | 访问统计、HTML 访问、关键词、诊断事件等 |
+| `characters.db` | 6 | 中古音、字符位置、上古音等核心查询数据 |
+| `dialects_admin.db` | 1 | 管理侧方言数据 |
+| `dialects_user.db` | 1 | 用户侧方言数据 |
+| `query_admin.db` | 1 | 管理侧查询表 |
+| `query_user.db` | 1 | 用户侧查询表 |
+| `supplements.db` | 9 | 用户补充数据、自定义分区等 |
+| `villages.db` | 68 | VillagesML 预计算结果与分析表 |
+| `yubao.db` | 2 | 语保相关数据 |
+| `yc_spoken.db` | 1 | 语料/口语相关数据 |
+| `query.db` | 0 | 当前为空占位库 |
+| `query_dialects.db` | 0 | 当前为空占位库 |
 
 ---
 
@@ -150,71 +182,133 @@ gunicorn -c gunicorn_config.py app.main:app
 ### 架构图
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              FastAPI 应用入口（main.py）                 │
-│         Uvicorn ASGI Server / Gunicorn Workers          │
-└────────────┬────────────────────────────────────────────┘
-             │
-    ┌────────┴─────────┐
-    │                  │
-    V                  V
-┌──────────────┐  ┌─────────────────────────────────────┐
-│  认证系统     │  │       业务逻辑模块                   │
-│ JWT + bcrypt │  │  - 音韵查询 (phonology)              │
-│ Token 刷新   │  │  - 地理信息 (geo)                    │
-│ 权限管理     │  │  - 自定义数据 (custom)               │
-│ 会话追踪 ⭐  │  │  - 工具模块 (tools)                  │
-└──────────────┘  │  - 管理员功能 (admin)                │
-                  │  - VillagesML 机器学习 ⭐            │
-                  └─────────────────────────────────────┘
-    │
-    V
-┌─────────────────────────────────────────────────────────┐
-│                    中间件层                              │
-│  - TrafficLoggingMiddleware (流量统计)                  │
-│  - ApiLoggingMiddleware (API 日志)                      │
-│  - GZipMiddleware (响应压缩)                            │
-│  - CORSMiddleware (跨域支持)                            │
-└────────────┬────────────────────────────────────────────┘
-             │
-    ┌────────┴─────────┐
-    │                  │
-    V                  V
-┌──────────────┐  ┌─────────────────────────────────────┐
-│ SQLite 数据库 │  │         Redis 缓存层                 │
-│ (9个数据库)⭐ │  │  - 用户信息缓存 (1小时)              │
-│ - auth.db    │  │  - 权限缓存 (10分钟)                 │
-│ - logs.db    │  │  - 方言数据缓存 (内存)               │
-│ - dialects.db│  │  - 会话管理                          │
-│ - villages.db⭐│  │  - 设备追踪 ⭐                      │
-│ - ...        │  └─────────────────────────────────────┘
-└──────────────┘
-    │
-    V
-┌─────────────────────────────────────────────────────────┐
-│              后台异步处理系统                            │
-│  - 6 个日志队列（批量写入）                              │
-│  - APScheduler 定时任务（统计聚合、日志清理）            │
-│  - 分析数据聚合（用户行为、RFM、异常检测）⭐             │
-│  - 文件清理线程（临时文件、过期数据）                     │
-│  - 连接池管理（5-10个连接）                              │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       FastAPI 应用入口（app/main.py）                │
+│      create_app() + lifespan() + Uvicorn / Gunicorn Worker          │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │
+                               V
+┌──────────────────────────────────────────────────────────────────────┐
+│                           生命周期启动层                             │
+│  run_process_startup()                                               │
+│  - 初始化 SQLite 连接池                                               │
+│  - 检查 supplements.db / logs.db 结构                                │
+│  - 自动创建 logs.db 诊断表                                            │
+│  - 清理旧工具临时目录                                                 │
+│  - 预热方言缓存                                                       │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │
+                               V
+┌──────────────────────────────────────────────────────────────────────┐
+│                              中间件层                                │
+│  - RequestLogMiddleware                                              │
+│    - auth.db usage/detail 记录                                       │
+│    - logs.db hourly/daily 统计                                       │
+│    - API 诊断事件（error / slow / MINE 全量模式）                    │
+│  - GZipMiddleware                                                    │
+│  - CORSMiddleware                                                    │
+│  - EXE 模式请求期打印抑制中间件                                      │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │
+          ┌────────────────────┼────────────────────┐
+          │                    │                    │
+          V                    V                    V
+┌─────────────────┐  ┌──────────────────────┐  ┌────────────────────────┐
+│ 认证与用户层     │  │ 核心业务路由层        │  │ 扩展业务路由层          │
+│ /auth            │  │ /api, /sql, /logs    │  │ /admin, /user,         │
+│ JWT / Session    │  │ phonology / geo /    │  │ /api/tools, /api/      │
+│ Refresh Token    │  │ compare / search     │  │ villages/*             │
+└─────────────────┘  │ SQL API / logs API    │  └────────────────────────┘
+                     └────────────┬───────────┘
+                                  │
+                                  V
+┌──────────────────────────────────────────────────────────────────────┐
+│                              服务层                                  │
+│  - auth service / session / permission                              │
+│  - geo service / query service / compare / matrix                   │
+│  - tools service（check / jyut2ipa / merge / praat）                │
+│  - logging service（stats / diagnostics / usage paths）             │
+│  - VillagesML service                                               │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │
+          ┌────────────────────┼────────────────────┐
+          │                    │                    │
+          V                    V                    V
+┌─────────────────┐  ┌──────────────────────┐  ┌────────────────────────┐
+│ auth.db         │  │ logs.db              │  │ 业务 SQLite 数据库      │
+│ - users         │  │ - api_usage_hourly   │  │ - characters.db        │
+│ - sessions      │  │ - api_usage_daily    │  │ - query_user/admin.db  │
+│ - api_usage_*   │  │ - api_visit_log      │  │ - dialects_user/admin  │
+│ - login logs    │  │ - api_keyword_log    │  │ - supplements.db       │
+└─────────────────┘  │ - api_diagnostic_events│ │ - villages.db          │
+                     └──────────────────────┘  │ - yubao.db / yc_spoken │
+                                               └────────────────────────┘
+                               │
+                               V
+┌──────────────────────────────────────────────────────────────────────┐
+│                         后台服务与异步写入                           │
+│  - start_api_logger_workers()                                       │
+│  - APScheduler 定时任务                                              │
+│  - periodic_cleanup 线程                                             │
+│  - 7 条主要队列：                                                    │
+│    log_queue / summary_queue / statistics_queue / html_visit_queue  │
+│    online_time_queue / diagnostic_queue / keyword_log_queue*        │
+│  * keyword_log_queue 当前默认关闭，不再默认采集 ApiKeywordLog        │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 应用生命周期
 
 #### 启动流程
-1. **初始化数据库连接池**（5-10 个连接，WAL 模式）
-2. **清理旧临时文件**（12 小时前的 Praat 临时文件）
-3. **预热方言数据缓存**（加载常用方言数据到内存）
-4. **启动后台线程**（单进程模式：6 个日志队列写入线程）
-5. **启动定时任务**（APScheduler：统计聚合、日志清理）
+1. **初始化数据库连接池**
+   - `query_admin`
+   - `query_user`
+   - `dialects_admin`
+   - `dialects_user`
+   - `characters.db`
+2. **检查与迁移本地数据库结构**
+   - `supplements.db` 用户区划表
+   - `logs.db` hourly/daily 统计表
+   - `logs.db` `api_diagnostic_events`
+3. **清理旧工具任务目录**
+   - 启动时清理超过 12 小时的临时任务目录
+4. **预热方言缓存**
+   - 预热 admin/user 两套方言缓存
+   - 同时预热“仅有效简称”和“全量简称”两种视图
+5. **启动后台服务**
+   - API 日志写入 worker
+   - APScheduler
+   - 周期性工具文件清理线程
 
 #### 关闭流程
-1. **停止后台线程**（停止日志队列处理）
-2. **刷新待处理数据**（将队列中剩余数据写入数据库）
-3. **关闭数据库连接池**
-4. **关闭 Redis 连接**
+1. **停止后台线程与调度器**
+   - 停止日志 worker
+   - 停止 scheduler
+   - 停止 periodic cleanup 线程
+2. **刷新待处理队列**
+   - 尽量把剩余 usage/statistics/diagnostics 写回数据库
+3. **关闭 Redis**
+4. **关闭 SQLite 连接池**
+
+### 当前日志与统计链路说明
+
+- `auth.db` 主要承担用户、会话、usage 与排行榜相关统计。
+- `logs.db` 主要承担访问统计、HTML 访问统计、诊断日志与历史关键词日志。
+- 当前新的 API 诊断日志系统与 `auth.db` usage 逻辑已经解耦：
+  - 默认只记录 `error / slow / error_and_slow`
+  - 仅在 `MINE` 模式下显式打开配置时，才进入全量诊断记录
+- `api_keyword_log` 实时采集当前默认关闭，以减少请求路径上的参数解析与 body 读取成本。
+
+### 当前 tools 挂载规则
+
+- `check`
+- `jyut2ipa`
+- `merge`
+- `praat`
+
+现在都统一通过 [`app/tools/__init__.py`](app/tools/__init__.py) 注册。
+
+也就是说，`praat` 虽然内部目录结构更复杂，但在主应用挂载方式上已经不再是特例。
 
 ---
 
@@ -1279,12 +1373,21 @@ ffmpeg -i input.mp3 -ar 16000 -ac 1 -f wav output.wav
 
 ## 📡 API 接口文档
 
-系统共有 **234 个 API 端点**，按权限和功能分类：
+当前仓库按源码装饰器扫描，共有 **282 个 HTTP 路由声明**。  
+如果只看 API/页面入口的大致模块分布，可按当前目录结构理解为：
 
-- 🔓 **公开接口**：23 个（无需登录）
-- 🔑 **用户接口**：53 个（需要登录）
-- 👑 **管理员接口**：51 个（需要管理员权限）
-- 🏘️ **VillagesML 接口**：107 个（机器学习分析）
+- `app/routes/core`：16
+- `app/routes/geo`：7
+- `app/routes/user`：11
+- `app/routes/auth.py`：9
+- `app/routes/index.py`：9
+- `app/routes/admin`：68
+- `app/routes/logging`：14
+- `app/sql`：14
+- `app/tools`：27
+- `app/villagesML`：107
+
+这里的统计口径与上文“项目统计”保持一致，都是按源码中的路由装饰器声明数计算，而不是运行期 OpenAPI 动态导出数。
 
 ### 接口分类概览
 
@@ -1333,19 +1436,23 @@ ffmpeg -i input.mp3 -ar 16000 -ac 1 -f wav output.wav
 
 ### 数据库文件说明
 
-系统使用 **9 个 SQLite 数据库**，分为管理员数据库、用户数据库和机器学习数据库。
+当前 `data/` 目录下共有 **13 个 SQLite 数据库文件**（含 2 个空占位库），而不是早期版本中的 9 个。
 
 | 数据库文件 | 用途 | 访问权限 | 主要表 |
 |-----------|------|----------|--------|
-| `auth.db` | 用户认证系统 | 管理员 | users, refresh_tokens, api_usage_logs |
-| `logs.db` | API 日志统计 | 管理员 | api_visit_log, api_keyword_log, api_statistics |
-| `dialects_admin.db` | 方言数据（管理员） | 管理员 | dialect_points, phonology_data |
-| `dialects.db` | 方言数据（用户） | 用户 | dialect_points, phonology_data |
-| `characters_admin.db` | 字符数据库（管理员） | 管理员 | characters, pronunciations |
-| `characters.db` | 字符数据库（用户） | 用户 | characters, pronunciations |
-| `custom_admin.db` | 自定义数据（管理员） | 管理员 | custom_data, metadata |
-| `custom.db` | 自定义数据（用户） | 用户 | user_queries, custom_data |
-| `villages.db` ⭐ | VillagesML 机器学习 | 用户 | 45 张预计算表（字符、语义、空间、模式等） |
+| `auth.db` | 用户认证、会话、usage、登录日志 | 管理员 | users, refresh_tokens, api_usage_logs, api_usage_summary |
+| `logs.db` | API 统计与诊断日志 | 管理员 | api_usage_hourly, api_usage_daily, api_visit_log, api_keyword_log, api_diagnostic_events |
+| `query_admin.db` | 管理侧查询数据 | 管理员 | query |
+| `query_user.db` | 用户侧查询数据 | 用户 | query |
+| `dialects_admin.db` | 管理侧方言数据 | 管理员 | dialects |
+| `dialects_user.db` | 用户侧方言数据 | 用户 | dialects |
+| `characters.db` | 字符、中古音、上古音等核心查询数据 | 用户/管理员共用 | characters, old_chinese 等 |
+| `supplements.db` | 用户补充数据、自定义分区、自定义区块 | 用户/管理员 | user_regions, custom_regions 等 |
+| `villages.db` ⭐ | VillagesML 机器学习分析结果 | 用户/管理员 | 68 张分析/预计算表 |
+| `yubao.db` | 语保相关数据 | 用户/管理员 | 语保业务表 |
+| `yc_spoken.db` | 语料/口语相关数据 | 用户/管理员 | spoken 相关表 |
+| `query.db` | 空占位库 | - | 当前无表 |
+| `query_dialects.db` | 空占位库 | - | 当前无表 |
 
 ### 核心表结构
 
@@ -2217,7 +2324,7 @@ curl -X POST "http://localhost:5000/admin/sql/vacuum" \
 - **Pydantic 2.11.7** - 数据验证和序列化
 
 ### 数据库
-- **SQLite 3** - 轻量级关系型数据库（8 个数据库）
+- **SQLite 3** - 轻量级关系型数据库（当前仓库默认包含 13 个 SQLite 数据库文件）
 - **SQLAlchemy 2.0.43** - Python SQL 工具包和 ORM
 - **Redis 7.1.0** - 内存数据库（缓存和会话）
 
@@ -2252,6 +2359,10 @@ curl -X POST "http://localhost:5000/admin/sql/vacuum" \
 ---
 
 ## 🏗️ 项目结构
+
+> [!NOTE]
+> 下方目录树用于帮助快速理解仓库的大致分层与职责，并不试图精确枚举每一个当前文件。  
+> 若与仓库当前真实结构存在细节差异，请以 `app/`、`data/`、`docs/` 目录中的实际文件为准。
 
 ```plaintext
 backend-fastapi/
@@ -2365,14 +2476,19 @@ backend-fastapi/
 │   └── s2t.py                    # 简繁转换工具
 │
 ├── data/                         # 数据文件
-│   ├── auth.db                   # 用户认证数据库
-│   ├── logs.db                   # 日志数据库
-│   ├── characters.db             # 汉字数据库（用户）
-│   ├── characters_admin.db       # 汉字数据库（管理员）
-│   ├── dialects.db               # 方言数据库（用户）
-│   ├── dialects_admin.db         # 方言数据库（管理员）
-│   ├── custom.db                 # 自定义数据库（用户）
-│   ├── custom_admin.db           # 自定义数据库（管理员）
+│   ├── auth.db                   # 用户认证与 usage 数据库
+│   ├── logs.db                   # logs/统计/诊断数据库
+│   ├── characters.db             # 汉字、字位、古音等数据
+│   ├── dialects_admin.db         # 方言管理员库
+│   ├── dialects_user.db          # 方言用户库
+│   ├── query_admin.db            # 查询管理员库
+│   ├── query_user.db             # 查询用户库
+│   ├── query.db                  # 历史/兼容查询库
+│   ├── query_dialects.db         # 占位查询库（当前无表）
+│   ├── supplements.db            # 补充数据与用户补充表
+│   ├── villages.db               # VillagesML 数据库
+│   ├── yubao.db                  # 语保相关数据库
+│   ├── yc_spoken.db              # 粤语口语相关数据库
 │   └── dependency/               # 依赖数据文件
 │
 ├── logs/                         # 日志文件目录
