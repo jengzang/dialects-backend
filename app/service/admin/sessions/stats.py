@@ -278,6 +278,8 @@ def get_analytics(
     ).all()
 
     for log in api_logs:
+        if not log.called_at:
+            continue
         date_str = to_shanghai_datetime(log.called_at).date().isoformat()
         dau_dict[date_str].add(log.user_id)
 
