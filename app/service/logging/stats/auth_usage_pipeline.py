@@ -61,9 +61,9 @@ def log_detailed_api_to_db(
     path: str,
     duration: float,
     status_code: int,
-    ip: str,
-    user_agent: str,
-    referer: str,
+    ip: str | None,
+    user_agent: str | None,
+    referer: str | None,
     user_id: int = None,
     request_size: int = 0,
     response_size: int = 0,
@@ -82,7 +82,7 @@ def log_detailed_api_to_db(
         user_id=user_id,
         request_size=request_size,
         response_size=response_size,
-        called_at=datetime.utcfromtimestamp(start_time) if start_time else None
+        called_at=datetime.utcfromtimestamp(start_time) if start_time is not None else datetime.utcnow()
     )
 
     enqueue_with_backpressure(log_queue, log, "log_queue")
@@ -105,9 +105,9 @@ async def log_detailed_api_to_db_async(
     path: str,
     duration: float,
     status_code: int,
-    ip: str,
-    user_agent: str,
-    referer: str,
+    ip: str | None,
+    user_agent: str | None,
+    referer: str | None,
     user_id: int = None,
     request_size: int = 0,
     response_size: int = 0,
