@@ -5,7 +5,6 @@ from datetime import datetime
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.common.api_config import MAX_ANONYMOUS_SIZE, MAX_USER_SIZE
 from app.service.auth.core.dependencies import get_current_user_for_middleware
 from app.service.auth.database.connection import get_db
 from app.service.logging.config import ENABLE_API_KEYWORD_LOGGING
@@ -437,12 +436,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
 
             raise
 
-        if record_auth_usage:
-            max_size = MAX_ANONYMOUS_SIZE if user is None else (
-                float("inf") if user.role == "admin" else MAX_USER_SIZE
-            )
-        else:
-            max_size = float("inf")
+        max_size = float("inf")
 
         async def on_streaming_complete(wrapper):
             duration = time.time() - start_time
