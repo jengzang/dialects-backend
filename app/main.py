@@ -1,4 +1,5 @@
 # app/main.py
+import asyncio
 import os
 import threading
 import time
@@ -69,7 +70,12 @@ async def lifespan(app: FastAPI):
             print("[SKIP] Worker process skips background service shutdown")
 
         print("[STOP] App shutting down...")
-        await shutdown_process_resources()
+        try:
+            await shutdown_process_resources()
+        except asyncio.CancelledError:
+            print("[WARN] Shutdown cancelled while releasing process resources")
+        except KeyboardInterrupt:
+            print("[WARN] Shutdown interrupted while releasing process resources")
 
 
 def create_app() -> FastAPI:
