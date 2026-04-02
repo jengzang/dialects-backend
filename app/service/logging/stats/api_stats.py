@@ -1,4 +1,4 @@
-﻿"""
+"""
 API usage stats service.
 """
 
@@ -6,14 +6,16 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from app.common.path import LOGS_DATABASE_PATH
+from app.common.path import LOGS_DATABASE_PATH, USER_DATABASE_PATH
+from app.common.time_utils import shanghai_to_utc_naive
 
 
 def _to_db_time(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.isoformat(sep=" ", timespec="seconds")
+        normalized = shanghai_to_utc_naive(value)
+        return normalized.isoformat(sep=" ", timespec="seconds") if normalized else None
     return str(value)
 
 
@@ -52,12 +54,20 @@ def _safe_count(cursor: sqlite3.Cursor, query: str, params: tuple = ()) -> int:
         return 0
 
 
+def _connect_api_usage_db() -> sqlite3.Connection:
+    return sqlite3.connect(USER_DATABASE_PATH)
+
+
+def _connect_logs_db() -> sqlite3.Connection:
+    return sqlite3.connect(LOGS_DATABASE_PATH)
+
+
 def get_api_usage_stats(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Get API usage counters with schema fallback."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
+    db = _connect_api_usage_db()
     try:
         cursor = db.cursor()
 
@@ -130,9 +140,11 @@ def get_api_usage_stats(
 
 def get_stats_summary() -> Dict[str, Any]:
     """Get summary stats with missing-table fallback."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
+    usage_db = _connect_api_usage_db()
+    logs_db = _connect_logs_db()
     try:
-        cursor = db.cursor()
+        usage_cursor = usage_db.cursor()
+        logs_cursor = logs_db.cursor()
 
         total_api_calls = 0
         unique_users = 0
@@ -140,39 +152,39 @@ def get_stats_summary() -> Dict[str, Any]:
         total_keyword_searches = 0
         total_page_visits = 0
 
-        if _table_exists(cursor, "api_usage_logs"):
-            total_api_calls = _safe_count(cursor, "SELECT COUNT(*) FROM api_usage_logs")
+        if _table_exists(usage_cursor, "api_usage_logs"):
+            total_api_calls = _safe_count(usage_cursor, "SELECT COUNT(*) FROM api_usage_logs")
 
-            if _column_exists(cursor, "api_usage_logs", "user_id"):
+            if _column_exists(usage_cursor, "api_usage_logs", "user_id"):
                 unique_users = _safe_count(
-                    cursor,
+                    usage_cursor,
                     "SELECT COUNT(DISTINCT user_id) FROM api_usage_logs WHERE user_id IS NOT NULL",
                 )
 
             ip_column = _pick_first_existing_column(
-                cursor, "api_usage_logs", ["ip", "ip_address"]
+                usage_cursor, "api_usage_logs", ["ip", "ip_address"]
             )
             if ip_column:
                 unique_ips = _safe_count(
-                    cursor,
+                    usage_cursor,
                     f"SELECT COUNT(DISTINCT {ip_column}) FROM api_usage_logs",
                 )
 
-        if _table_exists(cursor, "api_keyword_log"):
+        if _table_exists(logs_cursor, "api_keyword_log"):
             total_keyword_searches = _safe_count(
-                cursor, "SELECT COUNT(*) FROM api_keyword_log"
+                logs_cursor, "SELECT COUNT(*) FROM api_keyword_log"
             )
 
-        if _table_exists(cursor, "api_visit_log"):
-            has_date = _column_exists(cursor, "api_visit_log", "date")
+        if _table_exists(logs_cursor, "api_visit_log"):
+            has_date = _column_exists(logs_cursor, "api_visit_log", "date")
             if has_date:
                 total_page_visits = _safe_count(
-                    cursor,
+                    logs_cursor,
                     "SELECT COALESCE(SUM(count), 0) FROM api_visit_log WHERE date IS NULL",
                 )
             else:
                 total_page_visits = _safe_count(
-                    cursor,
+                    logs_cursor,
                     "SELECT COALESCE(SUM(count), 0) FROM api_visit_log",
                 )
 
@@ -184,7 +196,8 @@ def get_stats_summary() -> Dict[str, Any]:
             "unique_ips": unique_ips,
         }
     finally:
-        db.close()
+        usage_db.close()
+        logs_db.close()
 
 
 def get_field_stats(field: str) -> Dict[str, Any]:
@@ -193,7 +206,7 @@ def get_field_stats(field: str) -> Dict[str, Any]:
     if field not in allowed_fields:
         raise ValueError(f"Invalid field: {field}. Allowed fields: {allowed_fields}")
 
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
+    db = _connect_api_usage_db()
     try:
         cursor = db.cursor()
 

@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.common.time_utils import to_shanghai_iso
 from app.service.auth.database.models import User, ApiUsageSummary
 
 
@@ -63,7 +64,7 @@ def get_user_segments(db: Session, include_users: bool = False) -> dict:
             "total_calls": total_calls,
             "total_duration": round(total_duration, 2),
             "days_inactive": days_inactive,
-            "last_seen": user.last_seen.isoformat() if user.last_seen else None
+            "last_seen": to_shanghai_iso(user.last_seen) if user.last_seen else None
         }
 
         # Classify

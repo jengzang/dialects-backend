@@ -630,9 +630,6 @@ def get_ngram_tendency(
 
 
 @router.get("/significance")
-
-
-@router.get("/significance")
 def get_ngram_significance(
     ngram: Optional[str] = Query(None, description="N-gram"),
     region_level: str = Query("county", description="区域级别"),

@@ -4,11 +4,19 @@ import secrets
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Optional
-from jose import jwt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Request
 
-from app.common.config import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, get_secret_key, ALGORITHM, AUDIENCE, ISSUER
+from app.common.config import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    get_old_secret_keys,
+    get_secret_key,
+    ALGORITHM,
+    AUDIENCE,
+    ISSUER,
+)
 
 # 可选：SMTP 配置（留空则退化为控制台打印）
 SMTP_HOST: Optional[str] = None      # 如 "smtp.gmail.com"
@@ -69,8 +77,22 @@ def create_access_token(subject: str, role: str = "user", session_id: str = None
     return jwt.encode(payload, get_secret_key(), algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> dict:
-    # 给 2 分钟余量，解决轻微时钟漂移/容器启动时差
-    return jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+    # First try the active key. Only fall back to older valid keys when the
+    # current key cannot decode the token, so the common path avoids extra I/O.
+    current_key = get_secret_key()
+    try:
+        return jwt.decode(token, current_key, algorithms=[ALGORITHM])
+    except JWTError as first_error:
+        seen_keys = {current_key}
+        for old_key in get_old_secret_keys():
+            if not old_key or old_key in seen_keys:
+                continue
+            seen_keys.add(old_key)
+            try:
+                return jwt.decode(token, old_key, algorithms=[ALGORITHM])
+            except JWTError:
+                continue
+        raise first_error
 
 # ===== Refresh Token Functions =====
 def create_refresh_token() -> str:

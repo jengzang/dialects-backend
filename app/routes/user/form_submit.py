@@ -1,7 +1,7 @@
-﻿# routes/form_submit.py
+# routes/form_submit.py
 """
-[PKG] 璺敱妯″锛氳檿鐞?/api/submit_form 鎻愪氦鐢ㄦ埗濉鐨勮獮闊宠硣鏂欍€?"""
-
+Routes for custom form submission APIs.
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional

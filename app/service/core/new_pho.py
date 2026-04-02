@@ -48,7 +48,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                     query_metadata.append(
                         {
                             "query_string": query_string,
-                            "display_name": convert_path_str(query_string),
+                            "display_name": convert_path_str(query_string, table_name=table),
                         }
                     )
             else:
@@ -56,7 +56,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                 query_metadata.append(
                     {
                         "query_string": path_string,
-                        "display_name": convert_path_str(path_string),
+                        "display_name": convert_path_str(path_string, table_name=table),
                     }
                 )
         else:
@@ -64,7 +64,7 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
             query_metadata.append(
                 {
                     "query_string": path_string,
-                    "display_name": convert_path_str(path_string),
+                    "display_name": convert_path_str(path_string, table_name=table),
                 }
             )
 
@@ -84,6 +84,10 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                         "query": metadata["display_name"],
                         "char_count": len(characters),
                         "chars": characters,
+                        # Backward-compatible aliases for callers not migrated yet.
+                        "字数": len(characters),
+                        "汉字": characters,
+                        "漢字": characters,
                     }
                 )
     else:
@@ -99,6 +103,10 @@ def process_chars_status(path_strings, column, combine_query, exclude_columns=No
                         "query": metadata["display_name"],
                         "char_count": len(characters),
                         "chars": characters,
+                        # Backward-compatible aliases for callers not migrated yet.
+                        "字数": len(characters),
+                        "汉字": characters,
+                        "漢字": characters,
                     }
                 )
 
@@ -132,8 +140,8 @@ def _run_dialect_analysis_sync(
         path_str = item.get("query", "unknown_query")
         path_chars = (
             item.get("chars")
+            or item.get("汉字")
             or item.get("漢字")
-            or item.get("姹夊瓧")
             or []
         )
 
@@ -153,7 +161,7 @@ def _run_dialect_analysis_sync(
 
     return all_results
 
-# --- 1. 鐢熸垚鍞竴鐨?Cache Key ---
+# Cache key builder
 def generate_cache_key(
     path_strings: Any,
     column: Any,
@@ -180,23 +188,23 @@ def generate_cache_key(
     key_str = json.dumps(key_data, sort_keys=True, ensure_ascii=False)
     return "charlist:" + hashlib.md5(key_str.encode("utf-8")).hexdigest()
 
-# 绶╁瓨璁€鍙?(Async)
+# Cache read (async)
 async def get_cache(key: str) -> Optional[List[Dict]]:
     try:
-        # [OK] 鍔犱笂 await
+        # Async Redis read
         cached_val = await redis_client.get(key)
         if cached_val:
-            print(f"馃敟 [Redis Cache] Hit: {key}")
+            print(f"[Redis Cache] Hit: {key}")
             return json.loads(cached_val)
     except Exception as e:
         print(f"[X] Redis Read Error: {e}")
     return None
 
 
-# 绶╁瓨瀵叆 (Async)
+# Cache write (async)
 async def set_cache(key: str, data: List[Dict], expire_seconds: int = 600):
     try:
-        # [OK] 鍔犱笂 await
+        # Async Redis write
         await redis_client.set(key, json.dumps(data), ex=expire_seconds)
         print(f"[SAVE] [Redis Cache] Set: {key}")
     except Exception as e:

@@ -52,6 +52,9 @@ def get_recent_trends(
     trends_data = {}
 
     for log in logs:
+        if not log.called_at:
+            continue
+
         if granularity == "day":
             time_key = log.called_at.strftime("%Y-%m-%d")
         else:  # hour

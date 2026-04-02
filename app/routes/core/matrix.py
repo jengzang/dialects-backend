@@ -1,11 +1,10 @@
 import asyncio
 import json
 
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.common.path import DIALECTS_DB_ADMIN
 from app.redis_client import redis_client
-from app.routes.core.phonology import router
 from app.schemas import PhonologyMatrixRequest, PhonologyClassificationMatrixRequest, PhoPieRequest
 from app.service.core.matrix import (
     build_phonology_classification_matrix,
@@ -15,70 +14,45 @@ from app.service.core.matrix import (
 )
 from app.sql.db_selector import get_dialects_db
 
+router = APIRouter()
 
-@router.post("/phonology_matrix")
-async def phonology_matrix(
-    payload: PhonologyMatrixRequest,
-    dialects_db: str = Depends(get_dialects_db)
-):
-    """
-    获取指定地点的声母-韵母-汉字交叉表数据
 
-    Request Body:
-    {
-        "locations": ["東莞莞城", "雲浮富林"]  // 可選，不傳則獲取所有地點
-    }
-
-    返回格式适合前端生成表格：
-    - 横坐标：声母
-    - 纵坐标：韵母
-    - 表内显示：按声调分行的汉字
-    """
-    # 限流和日志记录已由中间件和依赖注入自动处理
-
+async def _fetch_phonology_matrix(locations: list[str] | None, dialects_db: str):
+    """Shared implementation for GET/POST /phonology_matrix."""
     try:
-        # 数据库路径已通过依赖注入自动选择
-        # 根据数据库路径判断类型（用于缓存键）
         db_type = "admin" if dialects_db == DIALECTS_DB_ADMIN else "user"
+        locations = locations or []
 
-        locations = payload.locations
-
-        # 構建緩存鍵（包含地點信息）
-        if locations and len(locations) > 0:
-            # 對地點列表排序以確保緩存鍵一致
+        if locations:
             sorted_locs = sorted(locations)
             locs_key = ",".join(sorted_locs)
             cache_key = f"phonology_matrix:{db_type}:{locs_key}"
         else:
-            # 獲取所有地點
             cache_key = f"phonology_matrix:{db_type}:all"
 
-        # 尝试从 Redis 获取缓存
         cached_data = await redis_client.get(cache_key)
         if cached_data:
             print(f"[CACHE HIT] {cache_key}")
             return json.loads(cached_data)
 
-        print(f"[CACHE MISS] {cache_key} - 查询数据库")
+        print(f"[CACHE MISS] {cache_key} - querying database")
 
-        # 从数据库查询
         result = await asyncio.to_thread(
             get_all_phonology_matrices,
             locations=locations,
-            db_path=dialects_db
+            db_path=dialects_db,
         )
 
         if not result or not result.get("data"):
             raise HTTPException(
                 status_code=404,
-                detail="No data found for the specified locations"
+                detail="No data found for the specified locations",
             )
 
-        # 存入 Redis 缓存（1小时过期）
         await redis_client.setex(
             cache_key,
-            3600,  # 1小时
-            json.dumps(result, ensure_ascii=False)
+            3600,
+            json.dumps(result, ensure_ascii=False),
         )
         print(f"[CACHE SET] {cache_key}")
 
@@ -90,14 +64,32 @@ async def phonology_matrix(
         print(f"[ERROR] {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal Server Error: {str(e)}"
+            detail=f"Internal Server Error: {str(e)}",
         )
+
+
+@router.get("/phonology_matrix")
+async def phonology_matrix(
+    locations: list[str] | None = Query(None),
+    dialects_db: str = Depends(get_dialects_db),
+):
+    """GET matrix query interface."""
+    return await _fetch_phonology_matrix(locations, dialects_db)
+
+
+@router.post("/phonology_matrix")
+async def phonology_matrix_post(
+    payload: PhonologyMatrixRequest,
+    dialects_db: str = Depends(get_dialects_db),
+):
+    """Backward-compatible POST matrix query interface."""
+    return await _fetch_phonology_matrix(payload.locations, dialects_db)
 
 
 @router.post("/phonology_classification_matrix")
 async def api_phonology_classification_matrix(
     payload: PhonologyClassificationMatrixRequest,
-    dialects_db: str = Depends(get_dialects_db)
+    dialects_db: str = Depends(get_dialects_db),
 ):
     """
     創建音韻特徵分類矩陣
@@ -108,9 +100,6 @@ async def api_phonology_classification_matrix(
     # 限流和日志记录已由中间件和依赖注入自动处理
 
     try:
-        # 数据库路径已通过依赖注入自动选择
-
-        # 在線程池中運行（避免阻塞）
         result = await asyncio.to_thread(
             build_phonology_classification_matrix,
             locations=payload.locations,
@@ -119,7 +108,7 @@ async def api_phonology_classification_matrix(
             vertical_column=payload.vertical_column,
             cell_row_column=payload.cell_row_column,
             dialect_db_path=dialects_db,
-            table=payload.table_name  # [NEW] 傳入表名
+            table=payload.table_name,
         )
 
         return result
@@ -130,13 +119,14 @@ async def api_phonology_classification_matrix(
         print(f"[ERROR] {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal Server Error: {str(e)}"
+            detail=f"Internal Server Error: {str(e)}",
         )
+
 
 @router.post("/pho_pie_by_value")
 async def api_pho_pie_by_value(
     payload: PhoPieRequest,
-    dialects_db: str = Depends(get_dialects_db)
+    dialects_db: str = Depends(get_dialects_db),
 ):
     """
     音值視角餅圖數據。
@@ -164,7 +154,7 @@ async def api_pho_pie_by_value(
 @router.post("/pho_pie_by_status")
 async def api_pho_pie_by_status(
     payload: PhoPieRequest,
-    dialects_db: str = Depends(get_dialects_db)
+    dialects_db: str = Depends(get_dialects_db),
 ):
     """
     地位視角餅圖數據。

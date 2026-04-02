@@ -176,6 +176,21 @@ async def compare_zhonggu(
     from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 
     try:
+        def _extract_chars(cached_items):
+            chars = []
+            for item in cached_items or []:
+                values = (
+                    item.get("chars")
+                    or item.get("汉字")
+                    or item.get("漢字")
+                    or []
+                )
+                if isinstance(values, list):
+                    chars.extend(values)
+                elif values:
+                    chars.append(values)
+            return chars
+
         async def _resolve_chars(path_strings, column, combine_query, exclude_columns):
             cache_key = generate_cache_key(
                 path_strings,
@@ -292,13 +307,22 @@ async def compare_zhonggu(
             }
 
         # === Step 4: 收集所有汉字 ===
-        chars1 = []
-        for item in cached_char_result1:
-            chars1.extend(item.get('汉字', []))
+        chars1 = _extract_chars(cached_char_result1)
 
-        chars2 = []
-        for item in cached_char_result2:
-            chars2.extend(item.get('汉字', []))
+        chars2 = _extract_chars(cached_char_result2)
+
+        if not chars1:
+            return {
+                "status": "empty",
+                "message": "第一组无符合条件的汉字",
+                "data": []
+            }
+        if not chars2:
+            return {
+                "status": "empty",
+                "message": "第二组无符合条件的汉字",
+                "data": []
+            }
 
         chars1_unique = list(dict.fromkeys(chars1))
         chars2_unique = list(dict.fromkeys(chars2))
@@ -344,6 +368,3 @@ async def compare_zhonggu(
         raise HTTPException(status_code=500, detail=f"compare_zhonggu failed: {e}")
     finally:
         print("compare_zhonggu")
-
-
-

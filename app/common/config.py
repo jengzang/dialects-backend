@@ -9,6 +9,7 @@ _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
 # SECRET_KEY管理（延迟加载）
 _SECRET_KEY_CACHE = None
 _SECRET_KEY_LOADED = False
+_ENV_SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 
 def get_secret_key() -> str:
     """获取SECRET_KEY（延迟加载）"""
@@ -25,6 +26,12 @@ def get_secret_key() -> str:
         print(f"[CONFIG] ✅ Loaded SECRET_KEY from database: {_SECRET_KEY_CACHE[:20]}...")
         return _SECRET_KEY_CACHE
     except Exception as e:
+        if _ENV_SECRET_KEY:
+            _SECRET_KEY_CACHE = _ENV_SECRET_KEY
+            _SECRET_KEY_LOADED = True
+            print("[CONFIG] ⚠️  Using SECRET_KEY from environment fallback")
+            return _SECRET_KEY_CACHE
+
         # Fallback: 使用临时密钥（仅用于初次迁移）
         print(f"[CONFIG] ⚠️  Failed to load SECRET_KEY from database: {e}")
         print("[CONFIG] ⚠️  Using temporary fallback key")

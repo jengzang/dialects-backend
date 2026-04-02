@@ -63,7 +63,10 @@ def _check_write_permission(auth_db: Optional[Session], user: Optional["User"], 
     """检查写权限（带缓存）"""
     # 延迟导入避免循环依赖
     from app.service.auth.database.models import UserDbPermission
-    from app.service.auth.core import get_cached_permission_sync, set_cached_permission_sync
+    from app.service.auth.security.permission_cache import (
+        get_cached_permission_sync,
+        set_cached_permission_sync,
+    )
 
     # 管理员拥有所有权限
     if user and user.role == "admin":

@@ -5,9 +5,11 @@
 
 from fastapi import FastAPI, Depends
 from app.routes.core.phonology import router as phonology_router
+from app.routes.core.matrix import router as matrix_router
 from app.routes.core.new_pho import router as new_pho_router
 from app.routes.geo.get_regions import router as region_router
 from app.routes.geo.get_partitions import router as partitions_router
+from app.routes.geo.locations import router as locations_router
 from app.routes.geo.batch_match import router as batch_match_router
 from app.routes.geo.get_coordinates import router as coordinates_router
 from app.routes.user.form_submit import router as form_router
@@ -23,15 +25,16 @@ from .user import router as user_router
 from app.service.logging import setup_logs_routes
 from ..sql import setup_sql_routes
 from app.tools import setup_tools_routes
-from app.tools.praat.routes import router as praat_router
 from app.service.logging.dependencies import ApiLimiter
 from app.villagesML import setup_villages_routes
 
 
 def setup_routes(app: FastAPI):
     app.include_router(phonology_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(matrix_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(new_pho_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(partitions_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(locations_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(region_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(batch_match_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(coordinates_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
@@ -42,12 +45,9 @@ def setup_routes(app: FastAPI):
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(auth_router, prefix="/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
-
-    # Praat acoustic analysis
-    app.include_router(praat_router, dependencies=[Depends(ApiLimiter)])
 
     setup_tools_routes(app)
     setup_sql_routes(app)

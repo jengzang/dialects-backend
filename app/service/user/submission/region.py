@@ -9,6 +9,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from app.common.time_utils import to_shanghai_iso
 from app.service.user.core.models import UserRegion
 
 
@@ -246,7 +247,7 @@ def get_region_statistics(db: Session) -> dict:
             "username": r.username,
             "region_name": r.region_name,
             "action": "updated" if r.updated_at > r.created_at else "created",
-            "timestamp": r.updated_at.isoformat()
+            "timestamp": to_shanghai_iso(r.updated_at)
         }
         for r in recent
     ]
@@ -273,7 +274,7 @@ def create_region_admin(
 ) -> UserRegion:
     """管理员为任意用户创建区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -318,7 +319,7 @@ def update_region_admin(
 ) -> UserRegion:
     """管理员更新任意用户的区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -355,7 +356,7 @@ def update_region_admin(
 def delete_region_admin(db: Session, username: str, created_at: str) -> bool:
     """管理员删除任意用户的区域"""
     from app.service.auth.database.models import User
-    from app.service.auth.core import SessionLocal as SessionLocal_user
+    from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 
     # 查找用户
     session_user = SessionLocal_user()
@@ -404,4 +405,3 @@ def batch_delete_regions_admin(db: Session, regions: List[dict]) -> tuple[int, L
             })
 
     return deleted_count, failed
-

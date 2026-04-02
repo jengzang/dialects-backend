@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from app.service.auth.database.connection import get_db
-from app.service.auth.core.dependencies import get_current_user, check_api_usage_limit
+from app.service.auth.core.dependencies import get_current_user, check_api_usage_limit, rate_limit_debug
 from app.service.auth.database.models import User
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
 from app.common.config import REQUIRE_LOGIN
@@ -56,9 +56,30 @@ async def api_limiter_dependency(
     # print(f"[ApiLimiter] {user_info}, IP: {ip_address}, 需要登录: {require_login}")
 
     try:
-        await check_api_usage_limit(db, user, require_login, ip_address=ip_address)
+        rate_limit_debug(
+            "entry",
+            path=path,
+            ip=ip_address,
+            user_id=user.id if user else None,
+            require_login=require_login,
+        )
+        await check_api_usage_limit(db, user, require_login, ip_address=ip_address, path=path)
+        rate_limit_debug(
+            "allowed",
+            path=path,
+            ip=ip_address,
+            user_id=user.id if user else None,
+        )
         # print(f"[ApiLimiter] ✅ 限流检查通过")
     except HTTPException as e:
+        rate_limit_debug(
+            "http_exception",
+            path=path,
+            ip=ip_address,
+            user_id=user.id if user else None,
+            status_code=e.status_code,
+            detail=e.detail,
+        )
         print(f"[ApiLimiter] rate limit check failed: {e.detail}")
         # 限流异常直接抛出
         raise

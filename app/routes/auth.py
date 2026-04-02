@@ -7,10 +7,18 @@ from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
 from app.service.auth.core.dependencies import check_login_rate_limit
-from app.service.auth.database.models import ApiUsageLog
 from app.service.auth.core import utils
 from app.service.auth.core.service import update_user_profile, models
-from app.service.auth.session.service import create_session, refresh_session  # ✅ 导入session服务
+from app.service.auth.session.service import (
+    create_session,
+    get_valid_session_by_public_id,
+    issue_access_token_for_session,
+    refresh_session,
+    resolve_refresh_token_for_exchange,
+    revoke_session_by_public_id,
+    revoke_user_sessions,
+)
+from app.service.auth.session.online_time_guard import check_online_time_report_limits
 from app.schemas import auth as schemas
 from app.service.auth.core import service
 from app.service.auth.database.connection import get_db
@@ -18,7 +26,38 @@ from app.common.config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+def _load_active_user_from_token(
+    db: Session,
+    token: str,
+    *,
+    include_usage_summary: bool = False,
+):
+    try:
+        payload = utils.decode_access_token(token)
+    except JWTError as e:
+        print("JWTError:", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token (no subject)")
+
+    session_public_id = payload.get("session_id")
+    if session_public_id and not get_valid_session_by_public_id(db, session_public_id):
+        raise HTTPException(status_code=401, detail="Session is no longer active")
+
+    query = db.query(models.User)
+    if include_usage_summary:
+        query = query.options(joinedload(models.User.usage_summary))
+
+    user = query.filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user, payload
 
 
 # 注册：根据开关决定是否要求邮箱验证；生成验证链接并发送
@@ -51,47 +90,14 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
 
     # [OK] 檢查 IP 是否超過登入次數限制
     check_login_rate_limit(db, client_ip)
-    agent = request.headers.get("user-agent", "")
     try:
         user = service.authenticate_user(db, form_data.username, form_data.password, login_ip=client_ip)
     except PermissionError:
         # [X] 驗證失敗也記 log
-        db.add(ApiUsageLog(
-            user_id=None,
-            path="/login",
-            duration=0,
-            status_code=403,
-            ip=client_ip,
-            called_at=datetime.utcnow(),
-            user_agent=agent
-        ))
-        db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
     except ValueError:
-        db.add(ApiUsageLog(
-            user_id=None,
-            path="/login",
-            duration=0,
-            status_code=401,
-            ip=client_ip,
-            called_at=datetime.utcnow(),
-            user_agent=agent
-        ))
-        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # [OK] 成功登入後也寫入一筆記錄
-    db.add(ApiUsageLog(
-        user_id=user.id,
-        path="/login",
-        duration=0,
-        status_code=200,
-        ip=client_ip,
-        called_at=datetime.utcnow()
-    ))
-    db.commit()
-
-    # ✅ 创建session而非直接创建token
     device_info = request.headers.get("User-Agent", "Unknown")
     ip_address = client_ip
 
@@ -108,8 +114,6 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         "token_type": "bearer",
         "expires_in": 30 * 60  # 30 minutes in seconds
     }
-
-
 # Token refresh endpoint
 @router.post("/refresh", response_model=schemas.TokenPair)
 def refresh(
@@ -121,17 +125,34 @@ def refresh(
     Exchange refresh token for new access + refresh token pair.
     Implements token rotation for security.
     """
-    # Validate refresh token
-    token_obj = service.validate_refresh_token(db, refresh_token)
+    ip_address = utils.extract_client_ip(request)
+    device_info = request.headers.get("User-Agent", "Unknown")
+
+    token_obj, reused = resolve_refresh_token_for_exchange(
+        db,
+        refresh_token,
+        ip_address=ip_address,
+        device_info=device_info,
+    )
     if not token_obj:
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired refresh token"
         )
 
-    # ✅ 使用session_service刷新
-    ip_address = utils.extract_client_ip(request)
-    device_info = request.headers.get("User-Agent", "Unknown")
+    if reused:
+        if not token_obj.session or not token_obj.user:
+            raise HTTPException(
+                status_code=401,
+                detail="Refresh token session is invalid"
+            )
+
+        return {
+            "access_token": issue_access_token_for_session(token_obj.user, token_obj.session),
+            "refresh_token": token_obj.token,
+            "token_type": "bearer",
+            "expires_in": 30 * 60
+        }
 
     new_access_token, new_refresh_token = refresh_session(
         db=db,
@@ -180,6 +201,12 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 # ========== Me（恢复 & 最小化改动）==========
 @router.get("/me", response_model=schemas.UserMeResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(
+        db,
+        token,
+        include_usage_summary=True,
+    )
+    return user
     try:
         payload = utils.decode_access_token(token)  # 解码 token
         username = payload.get("sub")
@@ -198,7 +225,7 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 已废弃，使用 /auth/report-activity 代替
+    # service.touch_activity(user)  # 已废弃，使用 /api/auth/report-activity 代替
     return user
 
 
@@ -211,24 +238,21 @@ def logout(
     db: Session = Depends(get_db)
 ):
     """Logout user and revoke tokens"""
-    try:
-        payload = utils.decode_access_token(token)
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Invalid token (no subject)")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Accumulate online time
-    session_seconds, total_seconds = service.logout_user(db, user)
+    user, payload = _load_active_user_from_token(db, token)
+    session_public_id = payload.get("session_id")
+    current_session = (
+        get_valid_session_by_public_id(db, session_public_id)
+        if session_public_id else None
+    )
+    session_seconds = current_session.total_online_seconds if current_session else 0
+    total_seconds = user.total_online_seconds or 0
 
     # Revoke tokens
     if logout_all:
+        revoke_user_sessions(db, user.id, reason="logout_all")
         service.revoke_all_user_tokens(db, user.id)
+    elif session_public_id:
+        revoke_session_by_public_id(db, session_public_id, reason="logout")
     elif refresh_token:
         service.revoke_single_token(db, refresh_token)
 
@@ -242,10 +266,15 @@ def logout(
 # ========== Report Online Time ==========
 @router.post("/report-online-time")
 def report_online_time(
+    request: Request,
     seconds: int = Body(..., embed=True, ge=1, le=3600),  # 1秒到1小时
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    user, payload = _load_active_user_from_token(db, token)
+    session_id = payload.get("session_id")
+    ip_address = utils.extract_client_ip(request)
+
     """
     前端上报在线时长（使用队列实现非阻塞写入）
 
@@ -262,28 +291,27 @@ def report_online_time(
     - reported_seconds: 本次上报的秒数
     - total_online_seconds: 用户总在线时长（秒，可能略有延迟）
     """
-    try:
-        payload = utils.decode_access_token(token)
-        username = payload.get("sub")
-        session_id = payload.get("session_id")  # ✅ 从JWT获取session_id
+    allowed, limit_detail = check_online_time_report_limits(
+        session_id=session_id,
+        user_id=user.id,
+        ip_address=ip_address,
+    )
+    if not allowed:
+        raise HTTPException(status_code=429, detail=limit_detail)
 
-        if not username:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # ✅ 非阻塞入队，队列满时后台兜底写入
-    from app.service.logging.middleware.traffic_logging import enqueue_online_time_non_blocking
-    enqueue_online_time_non_blocking({
+    # Queue the accepted heartbeat; persistence remains asynchronous.
+    from app.service.logging.stats.online_time_pipeline import enqueue_online_time_non_blocking
+    accepted = enqueue_online_time_non_blocking({
         'user_id': user.id,
         'session_id': session_id,
         'seconds': seconds,
         'timestamp': datetime.utcnow()
     })
+    if not accepted:
+        raise HTTPException(
+            status_code=503,
+            detail="Online time tracker is busy, please retry shortly",
+        )
 
     # Return immediately (non-blocking)
     return {
@@ -302,6 +330,8 @@ async def update_profile(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    current_user, _ = _load_active_user_from_token(db, token)
+
     try:
         payload = utils.decode_access_token(token)
         token_username = payload.get("sub")
@@ -335,17 +365,22 @@ def get_leaderboard(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    user, _ = _load_active_user_from_token(db, token)
+
     """
     Get comprehensive leaderboard rankings for current user.
 
-    Returns all 18 ranking metrics in a single response:
+    Returns category, grouped, and endpoint ranking metrics in a single response:
     - online_time: Total online time ranking
     - total_queries: Total API queries ranking
     - category_音韻查詢: Phonology queries category
     - category_字調查詢: Character/tone queries category
     - category_音系分析: System analysis category
     - category_工具使用: Tools usage category
-    - endpoint_*: Individual endpoint rankings (13 endpoints)
+    - category_其他查询: Other queries category, including villagesML aggregate
+    - endpoint_group_villages_ml: Aggregated villagesML ranking
+    - endpoint_group_pho_pie: Aggregated pho_pie ranking
+    - endpoint_*: Individual endpoint rankings
 
     Each ranking includes:
     - rank: User's rank (null if no activity)

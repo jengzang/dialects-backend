@@ -5,10 +5,12 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, Field
+
+from app.schemas.base import ShanghaiBaseModel
 
 
-class InformationBase(BaseModel):
+class InformationBase(ShanghaiBaseModel):
     簡稱: str
     音典分區: str
     經緯度: str
@@ -20,18 +22,17 @@ class InformationBase(BaseModel):
     user_id: Optional[int] = None  # 后端自动填充，不需要用户传递
     created_at: Optional[datetime] = None  # 后端自动生成
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class EditRequest(BaseModel):
+class EditRequest(ShanghaiBaseModel):
     username: str
     created_at: str
 
 
 # ===== Custom Region Admin Schemas =====
 
-class AdminRegionCreate(BaseModel):
+class AdminRegionCreate(ShanghaiBaseModel):
     """管理员为任意用户创建区域"""
     username: str
     region_name: str = Field(..., min_length=1, max_length=200)
@@ -39,7 +40,7 @@ class AdminRegionCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
 
 
-class AdminRegionUpdate(BaseModel):
+class AdminRegionUpdate(ShanghaiBaseModel):
     """管理员更新任意用户的区域"""
     username: str
     region_name: str  # 当前区域名
@@ -48,13 +49,13 @@ class AdminRegionUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
 
 
-class AdminRegionDelete(BaseModel):
+class AdminRegionDelete(ShanghaiBaseModel):
     """管理员删除任意用户的区域"""
     username: str
     created_at: str
 
 
-class AdminRegionResponse(BaseModel):
+class AdminRegionResponse(ShanghaiBaseModel):
     """管理员视图的区域响应"""
     id: int
     user_id: int
@@ -67,7 +68,7 @@ class AdminRegionResponse(BaseModel):
     updated_at: datetime
 
 
-class AdminRegionListResponse(BaseModel):
+class AdminRegionListResponse(ShanghaiBaseModel):
     """分页区域列表响应"""
     total: int
     skip: int
@@ -75,7 +76,7 @@ class AdminRegionListResponse(BaseModel):
     data: list[AdminRegionResponse]
 
 
-class UserRegionCount(BaseModel):
+class UserRegionCount(ShanghaiBaseModel):
     """用户区域数量统计"""
     username: str
     region_count: int

@@ -1,108 +1,109 @@
-"""
-数据库连接池管理器
-使用 SQLite 连接池优化数据库访问性能
-"""
+"""SQLite connection pool utilities."""
+
 import sqlite3
 import threading
-from queue import Queue, Empty
 from contextlib import contextmanager
-from typing import Optional
-import time
+from queue import Empty, Queue
+from typing import Iterator
 
 
 class SQLiteConnectionPool:
-    """SQLite 连接池"""
+    """Simple SQLite connection pool with shutdown-aware cleanup."""
 
     def __init__(self, db_path: str, pool_size: int = 10, timeout: float = 30.0):
-        """
-        初始化连接池
-
-        Args:
-            db_path: 数据库文件路径
-            pool_size: 连接池大小
-            timeout: 获取连接的超时时间（秒）
-        """
         self.db_path = db_path
         self.pool_size = pool_size
         self.timeout = timeout
-        self._pool = Queue(maxsize=pool_size)
+        self._pool: Queue[sqlite3.Connection] = Queue(maxsize=pool_size)
         self._lock = threading.Lock()
         self._created_count = 0
+        self._closing = False
+        self._all_conns: set[sqlite3.Connection] = set()
 
-        # 预创建连接
         for _ in range(pool_size):
             self._pool.put(self._create_connection())
             self._created_count += 1
 
     def _create_connection(self) -> sqlite3.Connection:
-        """创建新的数据库连接"""
+        if self._closing:
+            raise RuntimeError("Cannot create SQLite connections while the pool is closing")
+
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        # 优化 SQLite 性能
-        conn.execute("PRAGMA journal_mode=WAL")  # 使用 WAL 模式提升并发性能
-        conn.execute("PRAGMA synchronous=NORMAL")  # 平衡性能和安全
-        conn.execute("PRAGMA cache_size=-16000")  # 16MB 缓存（优化内存使用）
-        conn.execute("PRAGMA temp_store=MEMORY")  # 临时表存储在内存
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-16000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        self._all_conns.add(conn)
         return conn
 
     @contextmanager
-    def get_connection(self):
-        """
-        获取连接（上下文管理器）
-
-        Usage:
-            with pool.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM table")
-        """
+    def get_connection(self) -> Iterator[sqlite3.Connection]:
         conn = None
         try:
-            # 尝试从池中获取连接
+            if self._closing:
+                raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
+
             try:
                 conn = self._pool.get(timeout=self.timeout)
             except Empty:
-                # 如果池中没有连接且未达到最大连接数，创建新连接
                 with self._lock:
-                    if self._created_count < self.pool_size * 2:  # 允许动态扩展到2倍
+                    if self._closing:
+                        raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
+                    if self._created_count < self.pool_size * 2:
                         conn = self._create_connection()
                         self._created_count += 1
                     else:
-                        raise TimeoutError(f"无法在 {self.timeout} 秒内获取数据库连接")
+                        raise TimeoutError(
+                            f"Timed out after {self.timeout} seconds waiting for a SQLite connection"
+                        )
 
             yield conn
-
         finally:
-            # 归还连接到池中
-            if conn is not None:
+            if conn is None:
+                return
+
+            if self._closing:
+                self._discard_connection(conn)
+                return
+
+            try:
+                conn.execute("SELECT 1")
+                self._pool.put(conn, block=False)
+            except Exception:
+                self._discard_connection(conn)
                 try:
-                    # 检查连接是否仍然有效
-                    conn.execute("SELECT 1")
-                    self._pool.put(conn, block=False)
-                except (sqlite3.Error, Exception):
-                    # 连接已损坏，创建新连接补充到池中
-                    try:
-                        conn.close()
-                    except:
-                        pass
-                    try:
+                    if not self._closing:
                         new_conn = self._create_connection()
                         self._pool.put(new_conn, block=False)
-                    except:
-                        pass
+                except Exception:
+                    pass
 
-    def close_all(self):
-        """关闭所有连接"""
+    def _discard_connection(self, conn: sqlite3.Connection) -> None:
+        try:
+            conn.close()
+        except KeyboardInterrupt:
+            print(f"[WARN] Shutdown interrupted while closing SQLite connection: {self.db_path}")
+        except Exception as exc:
+            print(f"[WARN] Failed to close SQLite connection: {self.db_path}: {exc}")
+        finally:
+            self._all_conns.discard(conn)
+
+    def close_all(self) -> None:
+        self._closing = True
+
         while not self._pool.empty():
             try:
                 conn = self._pool.get_nowait()
-                conn.close()
-            except (Empty, Exception):
+            except Empty:
                 break
+            self._discard_connection(conn)
+
+        for conn in list(self._all_conns):
+            self._discard_connection(conn)
 
 
 class DatabasePoolManager:
-    """数据库连接池管理器（单例模式）"""
-
     _instance = None
     _lock = threading.Lock()
 
@@ -118,51 +119,28 @@ class DatabasePoolManager:
         if self._initialized:
             return
 
-        self._pools = {}
+        self._pools: dict[str, SQLiteConnectionPool] = {}
         self._initialized = True
 
     def get_pool(self, db_path: str, pool_size: int = 10) -> SQLiteConnectionPool:
-        """
-        获取或创建指定数据库的连接池
-
-        Args:
-            db_path: 数据库文件路径
-            pool_size: 连接池大小
-
-        Returns:
-            SQLiteConnectionPool 实例
-        """
         if db_path not in self._pools:
             with self._lock:
                 if db_path not in self._pools:
                     self._pools[db_path] = SQLiteConnectionPool(db_path, pool_size)
         return self._pools[db_path]
 
-    def close_all(self):
-        """关闭所有连接池"""
+    def close_all(self) -> None:
         for pool in self._pools.values():
             pool.close_all()
         self._pools.clear()
 
 
-# 全局连接池管理器实例
 db_pool_manager = DatabasePoolManager()
 
 
 def get_db_pool(db_path: str, pool_size: int = 10) -> SQLiteConnectionPool:
-    """
-    获取数据库连接池的便捷函数
-
-    Args:
-        db_path: 数据库文件路径
-        pool_size: 连接池大小
-
-    Returns:
-        SQLiteConnectionPool 实例
-    """
     return db_pool_manager.get_pool(db_path, pool_size)
 
 
-def close_all_pools():
-    """关闭所有数据库连接池"""
+def close_all_pools() -> None:
     db_pool_manager.close_all()

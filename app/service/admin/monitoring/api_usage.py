@@ -10,6 +10,7 @@ API使用统计业务逻辑层
 
 注意：此模块不依赖FastAPI，可在任何地方调用
 """
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, desc, asc
@@ -17,7 +18,10 @@ from app.service.auth.database import models
 from app.service.admin.analytics.geo import lookup_ip_location
 
 
-def extract_device_info(user_agent: str) -> tuple:
+LOGIN_PATHS = ('/login', '/auth/login', '/api/auth/login')
+
+
+def extract_device_info(user_agent: Optional[str]) -> tuple:
     """
     提取设备信息（操作系统和浏览器）
 
@@ -29,33 +33,50 @@ def extract_device_info(user_agent: str) -> tuple:
     """
     os = "Unknown OS"
     browser = "Unknown Browser"
+    ua = user_agent or ""
 
-    if "iPhone" in user_agent or "iPad" in user_agent:
+    if "iPhone" in ua or "iPad" in ua:
         os = "iOS"
         browser = "Safari"
-    elif "Android" in user_agent:
+    elif "Android" in ua:
         os = "Android"
         browser = "Chrome"
-    elif "Windows" in user_agent:
+    elif "Windows" in ua:
         os = "Windows"
         browser = "Chrome"
-    elif "Macintosh" in user_agent:
+    elif "Macintosh" in ua:
         os = "Mac OS"
         browser = "Safari"
-    elif "Linux" in user_agent:
+    elif "Linux" in ua:
         os = "Linux"
         browser = "Firefox"
 
-    if "Chrome" in user_agent:
+    if "Chrome" in ua:
         browser = "Chrome"
-    elif "Firefox" in user_agent:
+    elif "Firefox" in ua:
         browser = "Firefox"
-    elif "Safari" in user_agent:
+    elif "Safari" in ua:
         browser = "Safari"
-    elif "Edge" in user_agent:
+    elif "Edge" in ua:
         browser = "Edge"
 
     return os, browser
+
+
+def _called_at_sort_key(called_at: Optional[datetime]) -> tuple[int, datetime]:
+    """
+    Build a stable sort key for possibly-null timestamps.
+
+    Null timestamps are pushed to the end when sorting descending.
+    """
+    return (1 if called_at else 0, called_at or datetime.min)
+
+
+def _format_called_at(called_at: Optional[datetime]) -> str:
+    """Format timestamps defensively for admin responses."""
+    if not called_at:
+        return ""
+    return called_at.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_api_usage_summary(db: Session, query: str) -> Optional[List]:
@@ -110,10 +131,10 @@ def get_user_api_detail(db: Session, query: str) -> Optional[Dict[str, Any]]:
 
     api_logs = db.query(models.ApiUsageLog).filter(
         models.ApiUsageLog.user_id == user.id,
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     ).all()
 
-    api_logs.sort(key=lambda log: log.called_at, reverse=True)
+    api_logs.sort(key=lambda log: _called_at_sort_key(log.called_at), reverse=True)
 
     # 返回 API 使用记录
     return {"user": user.username, "api_logs": api_logs}
@@ -151,7 +172,7 @@ def get_all_api_usage(
         models.User,
         models.ApiUsageLog.user_id == models.User.id
     ).filter(
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     )
 
     # 搜索过滤
@@ -210,7 +231,7 @@ def get_all_api_usage(
             "duration": log.duration,
             "os": os,
             "browser": browser,
-            "called_at": log.called_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "called_at": _format_called_at(log.called_at),
             "request_size": log.request_size,
             "response_size": log.response_size,
         })
@@ -247,7 +268,7 @@ def _get_api_usage_stats(db: Session, search: Optional[str] = None) -> Dict[str,
         models.User,
         models.ApiUsageLog.user_id == models.User.id
     ).filter(
-        models.ApiUsageLog.path != '/login'
+        ~models.ApiUsageLog.path.in_(LOGIN_PATHS)
     )
 
     if search:

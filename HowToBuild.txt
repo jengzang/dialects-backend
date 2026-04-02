@@ -65,6 +65,7 @@ scp dialects_user.db root@47.115.57.138:/srv/myapp/data
 scp dialects_admin.db root@47.115.57.138:/srv/myapp/data
 scp query_user.db root@47.115.57.138:/srv/myapp/data
 scp query_admin.db root@47.115.57.138:/srv/myapp/data
+scp characters.db root@47.115.57.138:/srv/myapp/data
 scp semantic_lexicon_v4_hybrid.json root@47.115.57.138:/srv/myapp/data
 
 

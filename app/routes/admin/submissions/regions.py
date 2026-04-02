@@ -18,6 +18,7 @@ import json
 
 from app.service.user.core.database import get_db
 from app.service.user.submission import region
+from app.common.time_utils import to_shanghai_iso
 from app.schemas.admin.submissions import (
     AdminRegionListResponse,
     AdminRegionCreate,
@@ -39,7 +40,7 @@ async def get_all_regions(
 ):
     """获取所有用户的自定义区域（分页）"""
     try:
-        data, total = region_service.get_all_regions_admin(db, skip, limit, search)
+        data, total = region.get_all_regions_admin(db, skip, limit, search)
         return AdminRegionListResponse(total=total, skip=skip, limit=limit, data=data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
@@ -76,7 +77,7 @@ async def get_region_counts(db: Session = Depends(get_db)):
 async def get_statistics(db: Session = Depends(get_db)):
     """获取区域统计信息"""
     try:
-        stats = region_service.get_region_statistics(db)
+        stats = region.get_region_statistics(db)
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
@@ -91,22 +92,22 @@ async def create_region(
 ):
     """管理员为任意用户创建区域"""
     try:
-        region = region.create_region_admin(
+        region_record = region.create_region_admin(
             db, data.username, data.region_name, data.locations, data.description
         )
-        locations = json.loads(region.locations)
+        locations = json.loads(region_record.locations)
         return {
             "success": True,
             "region": {
-                "id": region.id,
-                "user_id": region.user_id,
-                "username": region.username,
-                "region_name": region.region_name,
+                "id": region_record.id,
+                "user_id": region_record.user_id,
+                "username": region_record.username,
+                "region_name": region_record.region_name,
                 "locations": locations,
                 "location_count": len(locations),
-                "description": region.description,
-                "created_at": region.created_at.isoformat(),
-                "updated_at": region.updated_at.isoformat()
+                "description": region_record.description,
+                "created_at": to_shanghai_iso(region_record.created_at),
+                "updated_at": to_shanghai_iso(region_record.updated_at)
             }
         }
     except ValueError as e:
@@ -122,23 +123,23 @@ async def update_region(
 ):
     """管理员更新任意用户的区域"""
     try:
-        region = region.update_region_admin(
+        region_record = region.update_region_admin(
             db, data.username, data.region_name,
             data.new_region_name, data.locations, data.description
         )
-        locations = json.loads(region.locations)
+        locations = json.loads(region_record.locations)
         return {
             "success": True,
             "region": {
-                "id": region.id,
-                "user_id": region.user_id,
-                "username": region.username,
-                "region_name": region.region_name,
+                "id": region_record.id,
+                "user_id": region_record.user_id,
+                "username": region_record.username,
+                "region_name": region_record.region_name,
                 "locations": locations,
                 "location_count": len(locations),
-                "description": region.description,
-                "created_at": region.created_at.isoformat(),
-                "updated_at": region.updated_at.isoformat()
+                "description": region_record.description,
+                "created_at": to_shanghai_iso(region_record.created_at),
+                "updated_at": to_shanghai_iso(region_record.updated_at)
             }
         }
     except ValueError as e:
@@ -178,7 +179,7 @@ async def batch_delete_regions(
     """批量删除区域"""
     try:
         regions_data = [{"username": r.username, "created_at": r.created_at} for r in regions]
-        deleted_count, failed = region_service.batch_delete_regions_admin(db, regions_data)
+        deleted_count, failed = region.batch_delete_regions_admin(db, regions_data)
         return {
             "success": True,
             "deleted_count": deleted_count,

@@ -405,18 +405,22 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     return pd.DataFrame(results)
 
 
-def convert_path_str(path_str: str) -> str:
+def convert_path_str(path_str: str, table_name: str = "characters") -> str:
         """
         將格式 [莊]{組}[宕]{攝} 轉換為：
-        - 若值在 AMBIG_VALUES 中（有歧義），保留 {欄位} → 莊組
+        - 若值在該表的 ambig_values 中（有歧義），保留 {欄位} → 莊組
         - 否則只保留值 → 宕
-        最終以 - 串接
+        最終以 · 串接
         """
+        from app.common.constants import TABLE_COLUMN_SCHEMAS
+        schema = TABLE_COLUMN_SCHEMAS.get(table_name, TABLE_COLUMN_SCHEMAS["characters"])
+        ambig = schema.get("ambig_values", AMBIG_VALUES)
+
         items = re.findall(r'[\[\{](.*?)[\]\}]', path_str)
         pairs = []
         for i in range(0, len(items), 2):
             val, col = items[i], items[i + 1]
-            if val in AMBIG_VALUES:
+            if val in ambig:
                 pairs.append(val + col)
             else:
                 pairs.append(val)
@@ -477,7 +481,7 @@ def run_status(
                         path_str, db_path=db_path, table=table
                     )
                     # simplified_input = ''.join(re.findall(r'\[(.*?)\]', path_str))
-                    simplified_input = convert_path_str(path_str)
+                    simplified_input = convert_path_str(path_str, table_name=table)
                     # print(f"path_str0{path_str}")
                     # print(f"simpilfied0_input{simplified_input}")
                     path_results.append({
@@ -564,7 +568,7 @@ def run_status(
                         path_str, db_path=db_path, table=table
                     )
                     # simplified_input = ''.join(re.findall(r'\[(.*?)\]', path_str))
-                    simplified_input = convert_path_str(path_str)
+                    simplified_input = convert_path_str(path_str, table_name=table)
                     # print(f"path_str{path_str}")
                     # print(f"simpilfied_input{simplified_input}")
                     path_results.append({

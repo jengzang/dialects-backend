@@ -17,8 +17,8 @@ API 配置文件
 - 记录每个 API 请求的流量统计
 - 数据包括：请求次数、请求大小、响应大小、响应时间、用户 ID
 - 过滤逻辑：
-  if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
-      跳过记录
+  先匹配 IGNORE_API，再匹配 RECORD_API
+  带 * 才通配，不带 * 则精确匹配
 用途：性能监控、用量统计、用户行为分析
 """
 
@@ -42,32 +42,43 @@ BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
 CLEAR_WEEK = True
 
-# 只记录路径中包含以下词的 API（简单字符串匹配）
+# auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
-    "phonology",  # 可以匹配 "/api/phonology"
-    "get_coordinates",  # 可以匹配 "/api/get_coordinates"
-    "search_tones",  # 可以匹配 "/api/search_tones/"
-    "search_chars",  # 可以匹配 "/api/search_chars/"
-    "compare",  # 可以匹配 "/api/compare/chars"
-    "submit_form",
-    "delete_form",
-    "ZhongGu",
-    "YinWei",
-    "charlist",
-    "sql",
-    "api/tools",
-    "feature_counts",
-    "feature_stats",  # 新增：特征统计接口
-    "pho_pie",        # 新增：音韻餅圖接口
-    "user/custom",
-    "custom_regions",  # 新增：用户自定义区域接口
-    "villages",  # 新增：villagesML 自然村分析接口
+    "/api/auth/login",
+    "/api/phonology*",
+    "/api/get_coordinates",
+    "/api/search_tones/",
+    "/api/search_chars/",
+    "/api/locations/*",
+    "/api/compare/*",
+    "/api/submit_form",
+    "/api/delete_form",
+    "/api/ZhongGu",
+    "/api/YinWei",
+    "/api/charlist",
+    "/sql/query",
+    "/sql/distinct-query",
+    "/sql/mutate",
+    "/sql/batch-mutate",
+    "/sql/batch-replace-preview",
+    "/sql/batch-replace-execute",
+    "/sql/tree/full",
+    "/sql/tree/lazy",
+    "/api/tools/*",
+    "/api/feature_counts",
+    "/api/feature_stats",
+    "/api/pho_pie*",
+    "/user/custom/*",
+    "/api/custom_regions",
+    "/api/villages/*",
 ]
 
-# 不記錄帶有以下字段的 API（排除特定路由）
+# auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
 IGNORE_API = [
-    "download",  # 下载类 API（避免记录大量下载请求）
-    "progress",  # 进度查询类 API（避免记录频繁的轮询请求）
+    "/sql/query/columns",
+    "/sql/query/count",  # keep hourly/daily aggregate only
+    "/api/tools/*/download/*",
+    "/api/tools/*/progress/*",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============
@@ -176,6 +187,11 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": False,  # GET 请求无 body
+    }, "/sql/query/count": {
+        "rate_limit": False,  # 不参与 Redis 限流/计数
+        "require_login": False,
+        "log_params": False,  # 不记录详细参数
+        "log_body": False,
     }, "/sql/*": {
         "rate_limit": True,
         "require_login": False,
@@ -220,13 +236,13 @@ API_ROUTE_CONFIG = {
     },
     "/api/pho_pie_by_value": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/pho_pie_by_status": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
@@ -266,46 +282,22 @@ API_ROUTE_CONFIG = {
     # ===== 其他 tools API =====
     "/api/tools/check/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/tools/merge/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
     "/api/tools/jyut2ipa/*": {
         "rate_limit": True,
-        "require_login": False,
+        "require_login": True,
         "log_params": True,
         "log_body": True,
     },
-
-    # # ===== Admin 会话管理 API =====
-    # "/admin/user-sessions/*": {
-    #     "rate_limit": True,  # 启用限流（防止管理员滥用）
-    #     "require_login": True,  # 要求登录（已通过 dependencies 保护，但保持一致性）
-    #     "log_params": True,  # 记录参数（用于审计）
-    #     "log_body": True,  # 记录请求体（用于审计）
-    # },
-
-    # # ===== 用户排行榜 API =====
-    # "/auth/leaderboard": {
-    #     "rate_limit": True,  # 启用限流（防止频繁查询）
-    #     "require_login": True,  # 要求登录（只有登录用户才能查看排行）
-    #     "log_params": False,  # 不记录参数（GET 请求无参数）
-    #     "log_body": False,  # 不记录请求体（GET 请求无 body）
-    # },
-
-    # # ===== 用户自定义区域 API =====
-    # "/api/custom_regions": {
-    #     "rate_limit": False,  # 启用限流（防止滥用）
-    #     "require_login": True,  # 要求登录（需要用户身份）
-    #     "log_params": True,  # 记录参数（用于分析用户使用习惯）
-    #     "log_body": True,  # 记录请求体（用于分析用户创建的区域）
-    # },
 
     # ===== villagesML 自然村分析 API =====
     "/api/villages/*": {
@@ -341,7 +333,7 @@ API_DEFAULT_CONFIG = {
 # 这些路由完全跳过 ApiLoggingMiddleware 检查
 # 用于静态文件、认证页面等不需要日志记录的路由
 API_WHITELIST = [
-    "/auth/*",  # 认证相关（登录、注册等）
+    "/api/auth/*",  # 认证相关（登录、注册等）
     "/__ping",  # 健康检查
     "/",  # 首页
     "/admin",  # 管理页面
@@ -372,8 +364,8 @@ API_BLACKLIST = [
 - 记录每个 API 请求的流量统计
 - 数据包括：请求次数、请求大小、响应大小、响应时间、用户 ID
 - 过滤逻辑：
-  if any(k in path for k in IGNORE_API) or not any(k in path for k in RECORD_API):
-      跳过记录
+  先匹配 IGNORE_API，再匹配 RECORD_API
+  带 * 才通配，不带 * 则精确匹配
 
 用途：性能监控、用量统计、用户行为分析
 

@@ -1,12 +1,13 @@
 """Session管理服务"""
 import uuid
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
+from sqlalchemy import and_, exists
 from sqlalchemy.orm import Session as DBSession
 
 from app.service.auth.database.models import User, Session, RefreshToken
-from app.service.auth.core.utils import create_token_pair, create_refresh_token
+from app.service.auth.core.utils import create_access_token, create_token_pair, create_refresh_token
 from app.common.auth_config import (
     REFRESH_TOKEN_EXPIRE_DAYS,
     MAX_TOKENS_PER_SESSION,
@@ -15,6 +16,271 @@ from app.common.auth_config import (
     SUSPICIOUS_DEVICE_CHANGES,
     IP_HISTORY_LIMIT
 )
+
+REFRESH_REUSE_GRACE_SECONDS = 30
+
+
+def _now_utc_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _session_expiry_from(now: Optional[datetime] = None) -> datetime:
+    base = now or _now_utc_naive()
+    return base + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+
+def _has_active_refresh_token(
+    db: DBSession,
+    session_id: int,
+    now: Optional[datetime] = None,
+) -> bool:
+    current_time = now or _now_utc_naive()
+    return db.query(RefreshToken.id).filter(
+        RefreshToken.session_id == session_id,
+        RefreshToken.revoked == False,
+        RefreshToken.expires_at > current_time
+    ).first() is not None
+
+
+def active_refresh_token_exists_clause(now: Optional[datetime] = None):
+    current_time = now or _now_utc_naive()
+    return exists().where(and_(
+        RefreshToken.session_id == Session.id,
+        RefreshToken.revoked == False,
+        RefreshToken.expires_at > current_time,
+    ))
+
+
+def _revoke_session_record(
+    db: DBSession,
+    session: Session,
+    *,
+    reason: str,
+    revoked_at: Optional[datetime] = None,
+) -> None:
+    current_time = revoked_at or _now_utc_naive()
+    session.revoked = True
+    session.revoked_at = current_time
+    session.revoked_reason = reason
+
+    db.query(RefreshToken).filter(
+        RefreshToken.session_id == session.id,
+        RefreshToken.revoked == False
+    ).update({"revoked": True}, synchronize_session=False)
+
+
+def reconcile_user_sessions(
+    db: DBSession,
+    user_id: int,
+    *,
+    now: Optional[datetime] = None,
+) -> int:
+    """
+    Revoke stale sessions that should no longer count as active.
+
+    This repairs historical data where logout revoked refresh tokens but left the
+    session itself active, which would otherwise keep occupying the per-user
+    session quota until the daily cleanup job ran.
+    """
+    current_time = now or _now_utc_naive()
+    sessions = db.query(Session).filter(
+        Session.user_id == user_id,
+        Session.revoked == False
+    ).all()
+
+    changed = 0
+    for session in sessions:
+        if session.expires_at <= current_time:
+            _revoke_session_record(
+                db,
+                session,
+                reason="expired",
+                revoked_at=current_time,
+            )
+            changed += 1
+            continue
+
+        if not _has_active_refresh_token(db, session.id, current_time):
+            _revoke_session_record(
+                db,
+                session,
+                reason="token_inactive",
+                revoked_at=current_time,
+            )
+            changed += 1
+
+    return changed
+
+
+def get_user_active_sessions(
+    db: DBSession,
+    user_id: int,
+    *,
+    now: Optional[datetime] = None,
+) -> list[Session]:
+    current_time = now or _now_utc_naive()
+    return db.query(Session).filter(
+        Session.user_id == user_id,
+        Session.revoked == False,
+        Session.expires_at > current_time,
+        active_refresh_token_exists_clause(current_time),
+    ).order_by(Session.last_activity_at.desc()).all()
+
+
+def get_valid_session_by_public_id(
+    db: DBSession,
+    public_session_id: str,
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[Session]:
+    current_time = now or _now_utc_naive()
+    session = db.query(Session).filter(
+        Session.session_id == public_session_id,
+    ).first()
+
+    if not session:
+        return None
+    if session.revoked or session.expires_at <= current_time:
+        return None
+
+    return session
+
+
+def issue_access_token_for_session(user: User, session: Session) -> str:
+    return create_access_token(user.username, user.role, session.session_id)
+
+
+def _matches_refresh_request(
+    token: RefreshToken,
+    ip_address: str,
+    device_info: str,
+) -> bool:
+    if (
+        token.ip_address and ip_address and
+        token.ip_address not in ("0.0.0.0", "", None) and
+        ip_address not in ("0.0.0.0", "", None) and
+        token.ip_address != ip_address
+    ):
+        return False
+
+    if (
+        token.device_info and device_info and
+        token.device_info != "Unknown" and
+        device_info != "Unknown" and
+        token.device_info != device_info
+    ):
+        return False
+
+    return True
+
+
+def resolve_refresh_token_for_exchange(
+    db: DBSession,
+    token: str,
+    *,
+    ip_address: str,
+    device_info: str,
+) -> Tuple[Optional[RefreshToken], bool]:
+    """
+    Resolve a refresh token for exchange.
+
+    Returns `(refresh_token, reused)` where `reused=True` means the caller sent
+    a recently rotated token and should receive the already-issued replacement
+    token instead of rotating again. This makes refresh idempotent across
+    duplicate requests and multi-tab races.
+    """
+    now = _now_utc_naive()
+    token_obj = db.query(RefreshToken).filter(
+        RefreshToken.token == token
+    ).first()
+
+    if not token_obj:
+        return None, False
+
+    if token_obj.revoked:
+        if not token_obj.replaced_by:
+            return None, False
+
+        replacement = db.query(RefreshToken).filter(
+            RefreshToken.token == token_obj.replaced_by
+        ).first()
+
+        if not replacement:
+            return None, False
+
+        age_seconds = (
+            (now - replacement.created_at).total_seconds()
+            if replacement.created_at else None
+        )
+        if (
+            replacement.revoked or
+            replacement.expires_at <= now or
+            replacement.user_id != token_obj.user_id or
+            replacement.session_id != token_obj.session_id or
+            age_seconds is None or
+            age_seconds > REFRESH_REUSE_GRACE_SECONDS or
+            not _matches_refresh_request(replacement, ip_address, device_info)
+        ):
+            return None, False
+
+        session = replacement.session
+        if session and (session.revoked or session.expires_at <= now):
+            return None, False
+
+        return replacement, True
+
+    if token_obj.expires_at <= now:
+        return None, False
+
+    session = token_obj.session
+    if session and (session.revoked or session.expires_at <= now):
+        return None, False
+
+    return token_obj, False
+
+
+def revoke_session_by_public_id(
+    db: DBSession,
+    public_session_id: str,
+    *,
+    reason: str = "logout",
+) -> bool:
+    session = db.query(Session).filter(
+        Session.session_id == public_session_id
+    ).first()
+    if not session:
+        return False
+
+    _revoke_session_record(db, session, reason=reason)
+    db.commit()
+    return True
+
+
+def revoke_user_sessions(
+    db: DBSession,
+    user_id: int,
+    *,
+    reason: str = "logout_all",
+) -> int:
+    sessions = db.query(Session).filter(
+        Session.user_id == user_id,
+        Session.revoked == False,
+    ).all()
+
+    if not sessions:
+        return 0
+
+    revoked_at = _now_utc_naive()
+    for session in sessions:
+        _revoke_session_record(
+            db,
+            session,
+            reason=reason,
+            revoked_at=revoked_at,
+        )
+
+    db.commit()
+    return len(sessions)
 
 
 def _get_best_ip_address(
@@ -69,7 +335,7 @@ def should_update_session(session: Session) -> bool:
     if not session.last_activity_at:
         return True
 
-    time_since_update = datetime.utcnow() - session.last_activity_at
+    time_since_update = datetime.now(timezone.utc).replace(tzinfo=None) - session.last_activity_at
     return time_since_update.total_seconds() > 300  # 5 minutes
 
 
@@ -84,7 +350,19 @@ def create_session(
     创建新会话
     返回: (session, access_token, refresh_token)
     """
+    now = _now_utc_naive()
     session_id = str(uuid.uuid4())
+
+    reconcile_user_sessions(db, user.id, now=now)
+    active_sessions = get_user_active_sessions(db, user.id, now=now)
+    if len(active_sessions) >= MAX_SESSIONS_PER_USER:
+        least_active_session = active_sessions[-1]
+        _revoke_session_record(
+            db,
+            least_active_session,
+            reason="max_sessions_exceeded",
+            revoked_at=now,
+        )
 
     # Apply intelligent IP fallback (only when needed)
     best_ip = _get_best_ip_address(db, user, ip_address)
@@ -94,7 +372,7 @@ def create_session(
     if best_ip and best_ip != "0.0.0.0":
         ip_history_data.append({
             "ip": best_ip,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now.isoformat()
         })
 
     # 创建session记录
@@ -102,30 +380,19 @@ def create_session(
         session_id=session_id,
         user_id=user.id,
         username=user.username,
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        created_at=now,
+        expires_at=_session_expiry_from(now),
         first_ip=best_ip,
         current_ip=best_ip,
         device_info=device_info,
         first_device_info=device_info,  # ✅ 记录首次设备
         device_fingerprint=device_fingerprint,
         ip_history=json.dumps(ip_history_data),
-        current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
-        last_seen=datetime.utcnow()  # ✅ Initialize last_seen
+        current_session_started_at=now,  # ✅ Initialize timestamp
+        last_seen=now  # ✅ Initialize last_seen
     )
     db.add(session)
     db.flush()  # 获取session.id
-
-    # ✅ 限制每个用户的session数量（最多MAX_SESSIONS_PER_USER个）
-    user_sessions = db.query(Session).filter(
-        Session.user_id == user.id,
-        Session.revoked == False
-    ).order_by(Session.last_activity_at.desc()).all()
-
-    if len(user_sessions) >= MAX_SESSIONS_PER_USER:
-        # 撤销最不活跃的session
-        least_active_session = user_sessions[-1]
-        revoke_session(db, least_active_session.id, reason="max_sessions_exceeded")
 
     # 生成token
     token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
@@ -159,8 +426,11 @@ def refresh_session(
     刷新token并更新session
     返回: (new_access_token, new_refresh_token)
     """
+    now = _now_utc_naive()
     session = old_refresh_token.session
     user = old_refresh_token.user
+
+    reconcile_user_sessions(db, user.id, now=now)
 
     # ✅ 处理旧token（没有session）的情况
     if session is None:
@@ -172,16 +442,16 @@ def refresh_session(
             session_id=f"migrated-{user.id}-{uuid.uuid4().hex[:8]}",
             user_id=user.id,
             username=user.username,
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=now,
+            expires_at=_session_expiry_from(now),
             first_ip=best_ip,
             current_ip=best_ip,
             device_info=device_info,
             first_device_info=device_info,
             ip_history=json.dumps([]),
             refresh_count=0,
-            current_session_started_at=datetime.utcnow(),  # ✅ Initialize timestamp
-            last_seen=datetime.utcnow()  # ✅ Initialize last_seen
+            current_session_started_at=now,  # ✅ Initialize timestamp
+            last_seen=now  # ✅ Initialize last_seen
         )
         db.add(session)
         db.flush()  # 获取session.id
@@ -202,21 +472,22 @@ def refresh_session(
             if not session.ip_history or session.ip_history == "[]":
                 session.ip_history = json.dumps([{
                     "ip": session.current_ip,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": now.isoformat(),
                     "event": "backfilled"
                 }])
 
     # ✅ BACKFILL: Initialize timestamp fields for migrated sessions
     if not session.current_session_started_at:
-        session.current_session_started_at = datetime.utcnow()
+        session.current_session_started_at = now
         print(f"[BACKFILL] Initialized current_session_started_at for session {session.id}")
 
     if not session.last_seen:
-        session.last_seen = datetime.utcnow()
+        session.last_seen = now
         print(f"[BACKFILL] Initialized last_seen for session {session.id}")
 
     # Apply fallback for new current_ip (if extraction failed)
     new_current_ip = _get_best_ip_address(db, user, ip_address)
+    session.expires_at = _session_expiry_from(now)
 
     # ✅ Check if IP or device changed
     ip_changed = (new_current_ip != session.current_ip)
@@ -237,7 +508,7 @@ def refresh_session(
 
             # 更新IP历史
             ip_history = json.loads(session.ip_history or "[]")
-            ip_history.append({"ip": new_current_ip, "timestamp": datetime.utcnow().isoformat()})
+            ip_history.append({"ip": new_current_ip, "timestamp": now.isoformat()})
             session.ip_history = json.dumps(ip_history[-IP_HISTORY_LIMIT:])  # 保留最近N条
 
             # 检测可疑活动
@@ -257,13 +528,7 @@ def refresh_session(
 
         # Update timestamps and counters
         session.refresh_count += 1
-        session.last_activity_at = datetime.utcnow()
-        session.last_seen = datetime.utcnow()
-        session.current_session_started_at = datetime.utcnow()
-
-        # ✅ Update User table (kept as per user requirement)
-        user.last_seen = datetime.utcnow()
-        user.current_session_started_at = datetime.utcnow()
+        session.last_activity_at = now
 
     # 创建新token对
     token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
@@ -303,14 +568,5 @@ def revoke_session(db: DBSession, session_id: int, reason: str = "manual"):
     """撤销session及其所有token"""
     session = db.query(Session).filter(Session.id == session_id).first()
     if session:
-        session.revoked = True
-        session.revoked_at = datetime.utcnow()
-        session.revoked_reason = reason
-
-        # 撤销所有关联token
-        db.query(RefreshToken).filter(
-            RefreshToken.session_id == session_id,
-            RefreshToken.revoked == False
-        ).update({"revoked": True})
-
+        _revoke_session_record(db, session, reason=reason)
         db.commit()

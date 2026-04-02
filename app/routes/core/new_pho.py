@@ -90,13 +90,7 @@ async def analyze_zhonggu(
 
     custom_data = []
     if payload.include_custom and user is not None:
-        # 從結果中提取實際出現的特徵名稱（特徵類別欄位去重）
-        need_features = list({
-            record.get("特徵類別")
-            for group in analysis_results
-            for record in group
-            if record.get("特徵類別") and record.get("特徵類別") != "無"
-        })
+        need_features = list({item["query"] for item in cached_char_result if item.get("query")})
         if need_features:
             custom_data = await run_in_threadpool(
                 get_from_submission,
@@ -105,6 +99,7 @@ async def analyze_zhonggu(
                 need_features,
                 user,
                 custom_db,
+                payload.features,
             )
 
     return {

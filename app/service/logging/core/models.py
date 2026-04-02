@@ -4,7 +4,7 @@
 用于替代原有的 txt 文件日志
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Index
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Text, Index
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -97,3 +97,54 @@ class ApiStatistics(Base):
 
     def __repr__(self):
         return f"<ApiStatistics(type={self.stat_type}, date={self.date}, category={self.category}, item={self.item}, count={self.count})>"
+
+
+class ApiDiagnosticEvent(Base):
+    """Single-request diagnostic event for error and slow API investigations."""
+
+    __tablename__ = "api_diagnostic_events"
+
+    id = Column(Integer, primary_key=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)
+
+    event_type = Column(String(32), nullable=False, index=True)
+    path = Column(String(255), nullable=False, index=True)
+    route_template = Column(String(255), nullable=True, index=True)
+    method = Column(String(16), nullable=False)
+    status_code = Column(Integer, nullable=True, index=True)
+    duration_ms = Column(Integer, nullable=False, index=True)
+
+    user_id = Column(Integer, nullable=True, index=True)
+    username = Column(String(50), nullable=True)
+    ip = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    referer = Column(String(255), nullable=True)
+
+    request_headers_json = Column(Text, nullable=True)
+    query_params_json = Column(Text, nullable=True)
+    request_body_text = Column(Text, nullable=True)
+    request_body_truncated = Column(Boolean, nullable=False, default=False)
+
+    request_size = Column(Integer, nullable=False, default=0)
+    response_size = Column(Integer, nullable=False, default=0)
+
+    response_started = Column(Boolean, nullable=False, default=False)
+    response_completed = Column(Boolean, nullable=False, default=False)
+    phase_hint = Column(String(64), nullable=True)
+
+    exception_type = Column(String(255), nullable=True)
+    exception_message = Column(Text, nullable=True)
+    stack_trace_text = Column(Text, nullable=True)
+
+    response_preview_text = Column(Text, nullable=True)
+    notes_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_api_diag_event_time", "occurred_at"),
+        Index("idx_api_diag_event_type_time", "event_type", "occurred_at"),
+        Index("idx_api_diag_path_time", "path", "occurred_at"),
+        Index("idx_api_diag_route_time", "route_template", "occurred_at"),
+        Index("idx_api_diag_status_time", "status_code", "occurred_at"),
+        Index("idx_api_diag_duration", "duration_ms"),
+        Index("idx_api_diag_user_time", "user_id", "occurred_at"),
+    )

@@ -42,6 +42,14 @@ class DummySyncRedis:
         """模拟 delete 操作，什么都不做"""
         pass
 
+    def incr(self, key):
+        """模拟 incr 操作，返回允许通过的初始计数。"""
+        return 1
+
+    def expire(self, key, time):
+        """模拟 expire 操作，什么都不做"""
+        pass
+
 
 # ============ 根据运行模式创建 Redis 客户端 ============
 if _RUN_TYPE == 'WEB':

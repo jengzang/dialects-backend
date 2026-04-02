@@ -9,7 +9,19 @@ from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.sql.db_pool import get_db_pool
 
 
-def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_USER, region_mode='yindian', query_db_path=QUERY_DB_USER, table="characters"):
+VALID_RESPONSE_MODES = {"legacy", "compact"}
+
+
+def search_characters(
+    chars,
+    locations=None,
+    regions=None,
+    db_path=DIALECTS_DB_USER,
+    region_mode='yindian',
+    query_db_path=QUERY_DB_USER,
+    table="characters",
+    response_mode="legacy",
+):
     """
     Args:
         db_path: 方言数据库路径（用于查询实际读音数据）
@@ -20,6 +32,11 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
     from app.common.constants import validate_table_name, get_table_schema
     if not validate_table_name(table):
         raise HTTPException(status_code=400, detail=f"無效的表名：{table}")
+    if response_mode not in VALID_RESPONSE_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無效的 response_mode：{response_mode}",
+        )
 
     schema = get_table_schema(table)
 
@@ -49,6 +66,7 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
     clean_str = ''.join(dict.fromkeys(all_candidate_chars))  # 去重
 
     result = []
+    char_meta = {}
 
     # [NEW] 使用连接池
     dialect_pool = get_db_pool(db_path)
@@ -102,7 +120,10 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                 is_multi = False
                 if schema.get("has_multi_status", False):
                     multi_status_col = schema.get("multi_status_column", "多地位標記")
-                    is_multi = any(row.get(multi_status_col) == 1 for row in rows)
+                    is_multi = any(
+                        multi_status_col in row.keys() and str(row[multi_status_col]) == "1"
+                        for row in rows
+                    )
                 char2is_multi[char] = is_multi
 
                 for row in rows:
@@ -111,6 +132,29 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                     positions.append(f"{parts},{meta}")
 
                 char2positions[char] = positions
+
+    # [NEW] 批量查询 old_chinese 地位信息
+    old_chinese_pool = get_db_pool(CHARACTERS_DB_PATH)
+    char2old_positions = {}
+
+    with old_chinese_pool.get_connection() as oc_conn:
+        oc_cursor = oc_conn.cursor()
+        if clean_str:
+            char_placeholders = ','.join('?' * len(clean_str))
+            oc_query = f"""
+                SELECT 漢字, 韻部, 韻母, 聲母組, 聲母, 聲調
+                FROM old_chinese
+                WHERE 漢字 IN ({char_placeholders})
+            """
+            oc_cursor.execute(oc_query, clean_str)
+            for row in oc_cursor.fetchall():
+                hz = row['漢字']
+                part1 = '·'.join(str(v) for v in [row['韻部'], row['韻母']] if v is not None)
+                part2 = '·'.join(str(v) for v in [row['聲母組'], row['聲母'], row['聲調']] if v is not None)
+                pos = ','.join(p for p in [part1, part2] if p)
+                if hz not in char2old_positions:
+                    char2old_positions[hz] = []
+                char2old_positions[hz].append(pos)
 
     # [OK] 优化：批量查询方言数据（消除N×M次查询）
     char2loc2data = {}  # {char: {location: [rows]}}
@@ -196,6 +240,12 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
 
                 # 第三步：为每个有效候选字构建结果
                 for candidate in valid_candidates:
+                    if response_mode == "compact" and candidate not in char_meta:
+                        char_meta[candidate] = {
+                            "positions": char2positions.get(candidate, []),
+                            "old_position": char2old_positions.get(candidate, []),
+                        }
+
                     for location in all_locations:
                         # 获取该候选字在该地点的方言数据
                         dialect_results = char2loc2data.get(candidate, {}).get(location, [])
@@ -227,16 +277,26 @@ def search_characters(chars, locations=None, regions=None, db_path=DIALECTS_DB_U
                         notes = ['; '.join(sorted(syllable2notes[syl])) if syllable2notes[syl] else '_'
                                  for syl in syllables]
 
-                        result.append({
-                            'char': candidate,  # 返回候选字（不是原字）
+                        row = {
+                            'char': candidate,
                             '音节': syllables,
                             'location': location,
-                            'positions': char2positions.get(candidate, []),
                             'notes': notes
-                        })
+                        }
+                        if response_mode == "legacy":
+                            row['positions'] = char2positions.get(candidate, [])
+                            row['old_position'] = char2old_positions.get(candidate, [])
+
+                        result.append(row)
 
         finally:
             pass  # 连接池会自动管理连接
+
+    if response_mode == "compact":
+        return {
+            "result": result,
+            "char_meta": char_meta,
+        }
 
     return result
 

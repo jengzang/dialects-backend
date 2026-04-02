@@ -1,16 +1,15 @@
 """
-访问统计业务逻辑
-
-提供页面访问统计、历史记录等功能的纯业务逻辑实现
+Visit statistics business logic.
 """
 
 import sqlite3
-from typing import List, Dict, Any, Optional
-from datetime import date, timedelta
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 
 from starlette.concurrency import run_in_threadpool
 
 from app.common.path import LOGS_DATABASE_PATH
+from app.common.time_utils import today_shanghai, to_shanghai_iso
 from app.sql.db_pool import get_db_pool
 
 
@@ -25,23 +24,23 @@ def _sync_total_visits() -> int:
 
 def _sync_today_visits() -> int:
     pool = get_db_pool(LOGS_DATABASE_PATH)
-    today = date.today()
+    today = today_shanghai()
     tomorrow = today + timedelta(days=1)
     with pool.get_connection() as conn:
         result = conn.execute(
             "SELECT SUM(count) FROM api_visit_log WHERE date >= ? AND date < ?",
-            (today.isoformat(), tomorrow.isoformat())
+            (today.isoformat(), tomorrow.isoformat()),
         ).fetchone()
     return result[0] if result and result[0] else 0
 
 
 async def get_total_visits() -> int:
-    """获取总访问量"""
+    """Get total visits."""
     return await run_in_threadpool(_sync_total_visits)
 
 
 async def get_today_visits() -> int:
-    """获取今日访问量"""
+    """Get today's visits using Asia/Shanghai day boundaries."""
     return await run_in_threadpool(_sync_today_visits)
 
 
@@ -50,27 +49,14 @@ def get_visit_history(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
 ) -> Dict[str, Any]:
-    """
-    获取访问历史
-
-    Args:
-        path: 筛选特定路径
-        start_date: 开始日期 YYYY-MM-DD
-        end_date: 结束日期 YYYY-MM-DD
-        limit: 返回数量
-        offset: 分页偏移
-
-    Returns:
-        包含 total, offset, limit, data 的字典
-    """
+    """Get daily visit history."""
     db = sqlite3.connect(LOGS_DATABASE_PATH)
     cursor = db.cursor()
 
-    # 构建查询条件
     where_clauses = ["date IS NOT NULL"]
-    params = []
+    params: list[Any] = []
 
     if path:
         where_clauses.append("path = ?")
@@ -86,7 +72,6 @@ def get_visit_history(
 
     where_clause = " AND ".join(where_clauses)
 
-    # 查询总数
     count_query = f"""
         SELECT COUNT(*)
         FROM api_visit_log
@@ -95,7 +80,6 @@ def get_visit_history(
     cursor.execute(count_query, params)
     total = cursor.fetchone()[0]
 
-    # 查询数据
     data_query = f"""
         SELECT id, path, date, count, updated_at
         FROM api_visit_log
@@ -116,45 +100,33 @@ def get_visit_history(
             {
                 "id": row[0],
                 "path": row[1],
-                "date": row[2][:10] if row[2] else None,  # 只取日期部分
+                "date": row[2][:10] if row[2] else None,
                 "count": row[3],
-                "updated_at": row[4]
+                "updated_at": to_shanghai_iso(row[4], sep=" "),
             }
             for row in rows
-        ]
+        ],
     }
 
 
-def get_visits_by_path(
-    days: Optional[int] = None,
-    limit: int = 20
-) -> List[Dict[str, Any]]:
-    """
-    按路径统计访问量
-
-    Args:
-        days: 最近N天（可选）
-        limit: 返回数量限制
-
-    Returns:
-        路径访问统计列表，每项包含 path, visit_count, percentage
-    """
+def get_visits_by_path(days: Optional[int] = None, limit: int = 20) -> List[Dict[str, Any]]:
+    """Get visit counts grouped by path."""
     db = sqlite3.connect(LOGS_DATABASE_PATH)
     cursor = db.cursor()
 
-    # 构建查询
+    start_date = None
     if days:
+        start_date = (today_shanghai() - timedelta(days=days)).isoformat()
         query = """
             SELECT path, SUM(count) as total_visits
             FROM api_visit_log
-            WHERE date IS NOT NULL AND date >= date('now', '-' || ? || ' days')
+            WHERE date IS NOT NULL AND date >= ?
             GROUP BY path
             ORDER BY total_visits DESC
             LIMIT ?
         """
-        params = (days, limit)
+        params = (start_date, limit)
     else:
-        # 查询总计（date IS NULL）
         query = """
             SELECT path, count as total_visits
             FROM api_visit_log
@@ -167,15 +139,14 @@ def get_visits_by_path(
     cursor.execute(query, params)
     rows = cursor.fetchall()
 
-    # 计算总访问量用于百分比
-    if days:
+    if days and start_date is not None:
         cursor.execute(
             """
             SELECT SUM(count)
             FROM api_visit_log
-            WHERE date IS NOT NULL AND date >= date('now', '-' || ? || ' days')
+            WHERE date IS NOT NULL AND date >= ?
             """,
-            (days,)
+            (start_date,),
         )
     else:
         cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
@@ -188,7 +159,7 @@ def get_visits_by_path(
         {
             "path": row[0],
             "visit_count": row[1],
-            "percentage": round(row[1] / total * 100, 2) if total > 0 else 0
+            "percentage": round(row[1] / total * 100, 2) if total > 0 else 0,
         }
         for row in rows
     ]
