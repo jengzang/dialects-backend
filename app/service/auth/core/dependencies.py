@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -17,7 +18,9 @@ from app.common.api_config import MAX_USER_REQUESTS_PER_HOUR, MAX_IP_REQUESTS_PE
 from app.redis_client import redis_client
 
 
+logger = logging.getLogger(__name__)
 RATE_LIMIT_DEBUG = os.getenv("RATE_LIMIT_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
+_LEGACY_SESSIONLESS_TOKEN_WARNINGS: set[tuple[str, str]] = set()
 
 
 def user_to_dict(user: models.User) -> dict:
@@ -46,6 +49,24 @@ def rate_limit_debug(event: str, **fields) -> None:
             continue
         parts.append(f"{key}={value}")
     print("[RATE_LIMIT]", " ".join(parts))
+
+
+def warn_legacy_token_without_session(*, username: Optional[str], source: str) -> None:
+    """
+    Warn once per process when compatibility code accepts a legacy token that
+    cannot participate in per-session revocation.
+    """
+    warning_key = (source, username or "<unknown>")
+    if warning_key in _LEGACY_SESSIONLESS_TOKEN_WARNINGS:
+        return
+
+    _LEGACY_SESSIONLESS_TOKEN_WARNINGS.add(warning_key)
+    logger.warning(
+        "Accepted legacy access token without session_id in %s for compatibility; "
+        "per-session logout will only take effect after token expiry (user=%s)",
+        source,
+        username or "<unknown>",
+    )
 
 
 def _format_reset_at(unix_ts: int) -> str:
@@ -410,7 +431,16 @@ async def get_current_user(
     try:
         payload = utils.decode_access_token(token)
         username = payload.get("sub")
-        if not username or not _has_active_token_session(db, payload):
+        if not username:
+            if not require_admin:
+                return None
+            raise HTTPException(status_code=401, detail="Invalid token")
+        if not payload.get("session_id"):
+            warn_legacy_token_without_session(
+                username=username,
+                source="get_current_user",
+            )
+        if not _has_active_token_session(db, payload):
             if not require_admin:
                 return None
             raise HTTPException(status_code=401, detail="Invalid token")
@@ -437,7 +467,14 @@ async def get_current_user_for_middleware(request: Request, db: Session):
     try:
         payload = utils.decode_access_token(token)
         username = payload.get("sub")
-        if not username or not _has_active_token_session(db, payload):
+        if not username:
+            return None
+        if not payload.get("session_id"):
+            warn_legacy_token_without_session(
+                username=username,
+                source="get_current_user_for_middleware",
+            )
+        if not _has_active_token_session(db, payload):
             return None
     except JWTError as e:
         print(f"JWT decode error: {e}")
@@ -450,9 +487,6 @@ async def get_current_admin_user(
     request: Request,
     db: Session = Depends(get_db)
 ) -> models.User:
-    import logging
-
-    logger = logging.getLogger(__name__)
     token = _extract_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -466,6 +500,11 @@ async def get_current_admin_user(
 
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
+    if not payload.get("session_id"):
+        warn_legacy_token_without_session(
+            username=username,
+            source="get_current_admin_user",
+        )
     if not _has_active_token_session(db, payload):
         raise HTTPException(status_code=401, detail="Session is no longer active")
 

@@ -6,7 +6,10 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session, joinedload
 
-from app.service.auth.core.dependencies import check_login_rate_limit
+from app.service.auth.core.dependencies import (
+    check_login_rate_limit,
+    warn_legacy_token_without_session,
+)
 from app.service.auth.core import utils
 from app.service.auth.core.service import update_user_profile, models
 from app.service.auth.session.service import (
@@ -46,6 +49,11 @@ def _load_active_user_from_token(
         raise HTTPException(status_code=401, detail="Invalid token (no subject)")
 
     session_public_id = payload.get("session_id")
+    if not session_public_id:
+        warn_legacy_token_without_session(
+            username=username,
+            source="_load_active_user_from_token",
+        )
     if session_public_id and not get_valid_session_by_public_id(db, session_public_id):
         raise HTTPException(status_code=401, detail="Session is no longer active")
 

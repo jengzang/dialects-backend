@@ -3,6 +3,7 @@ from typing import Optional
 import multiprocessing  # [FIX] 改用跨进程队列
 import queue  # [FIX] 用于 queue.Empty 异常
 import threading
+import warnings
 from collections import defaultdict
 
 from fastapi import HTTPException
@@ -333,6 +334,12 @@ def accumulate_online_time(user: models.User, seconds: int) -> None:
 
 # --- 簽發 token ---
 def issue_token_for_user(user: models.User, minutes: int = utils.ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
+    warnings.warn(
+        "issue_token_for_user issues a legacy access token without session_id; "
+        "prefer create_session() or issue_access_token_for_session().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return utils.create_access_token(subject=user.username, expires_minutes=minutes)
 
 
@@ -467,4 +474,3 @@ def revoke_single_token(db: Session, token: str):
         models.RefreshToken.token == token
     ).update({"revoked": True})
     db.commit()
-
