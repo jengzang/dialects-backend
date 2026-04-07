@@ -62,13 +62,19 @@ def get_user_sessions(
     return result
 
 
-@router.post("/revoke/{token_id}")
+@router.post("/revoke/{token_id}", deprecated=True)
 def revoke_session(
     token_id: int,
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):
-    """Revoke specific refresh token (kick user from specific device)"""
+    """
+    Legacy endpoint: revoke a refresh token only.
+
+    Note: the current access token can still remain valid until its normal
+    expiry. Prefer /admin/user-sessions/{session_id}/revoke for immediate
+    session-level revocation.
+    """
     result = token_service.revoke_token(db, token_id)
 
     if not result["success"]:
@@ -90,7 +96,13 @@ def revoke_all_user_sessions(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):
-    """Revoke all refresh tokens for user (force logout all devices)"""
+    """
+    Legacy endpoint: revoke all refresh tokens for a user.
+
+    Existing access tokens can still remain valid until they expire naturally.
+    Prefer /admin/user-sessions/revoke-user/{user_id} for immediate
+    session-level revocation.
+    """
     result = token_service.revoke_user_tokens(db, user_id)
 
     if not result["success"]:
