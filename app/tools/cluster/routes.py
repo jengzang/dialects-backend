@@ -11,7 +11,7 @@ from app.service.geo.match_input_tip import match_locations_batch_all
 from app.sql.db_selector import get_dialects_db, get_query_db
 from app.tools.task_manager import task_manager
 
-from .core import (
+from .service.cluster_service import (
     build_task_summary,
     get_cluster_result,
     get_task_status_payload,
