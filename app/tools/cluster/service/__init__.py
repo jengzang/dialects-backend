@@ -1,8 +1,8 @@
 """
-Cluster service exports.
+Cluster service package.
 """
 
-from .service.cluster_service import (
+from .cluster_service import (
     build_cluster_result,
     build_task_summary,
     get_cluster_result,

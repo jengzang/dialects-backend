@@ -1,5 +1,5 @@
 """
-Cluster request/response schemas.
+Cluster request and task-status schemas.
 """
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 class ClusterSourceMode(str, Enum):
@@ -26,6 +26,19 @@ class ClusterAlgorithm(str, Enum):
     DBSCAN = "dbscan"
     KMEANS = "kmeans"
     GMM = "gmm"
+
+
+class ClusterMetricMode(str, Enum):
+    CORRESPONDENCE = "correspondence"
+    SYSTEM_PROFILE = "system_profile"
+    HOMOPHONY_EMBEDDING = "homophony_embedding"
+    HYBRID_PHONOLOGY = "hybrid_phonology"
+
+
+class ClusterPhonemeMode(str, Enum):
+    INTRA_GROUP = "intra_group"
+    ANCHORED_INVENTORY = "anchored_inventory"
+    SHARED_REQUEST_IDENTITY = "shared_request_identity"
 
 
 class AgglomerativeLinkage(str, Enum):
@@ -60,7 +73,7 @@ class ClusterGroupRequest(BaseModel):
     compare_dimension: ClusterCompareDimension
     group_weight: float = Field(default=1.0, gt=0)
     use_phonetic_values: bool = False
-    phonetic_value_weight: float = Field(default=1.0, ge=0.0)
+    phonetic_value_weight: float = Field(default=0.2, ge=0.0, le=1.0)
 
     @field_validator("table_name")
     @classmethod
@@ -123,6 +136,11 @@ class ClusterGroupRequest(BaseModel):
 
 class ClusterConfigRequest(BaseModel):
     algorithm: ClusterAlgorithm
+    phoneme_mode: ClusterPhonemeMode = ClusterPhonemeMode.INTRA_GROUP
+    metric_mode: Optional[ClusterMetricMode] = Field(
+        default=None,
+        description="Deprecated legacy field. Use phoneme_mode instead.",
+    )
     n_clusters: Optional[int] = Field(default=None, ge=2, le=100)
     linkage: AgglomerativeLinkage = AgglomerativeLinkage.AVERAGE
     eps: float = Field(default=0.5, gt=0.0, le=10.0)
@@ -141,10 +159,39 @@ class ClusterConfigRequest(BaseModel):
 
 class ClusterJobCreateRequest(BaseModel):
     groups: List[ClusterGroupRequest] = Field(..., min_length=1)
-    locations: List[str] = Field(default_factory=list)
-    regions: List[str] = Field(default_factory=list)
-    region_mode: str = Field(default="yindian", description="yindian or map")
+    locations: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("locations", "location"),
+    )
+    regions: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("regions", "region"),
+    )
+    region_mode: str = Field(
+        default="yindian",
+        validation_alias=AliasChoices("region_mode", "regiontype", "regionType"),
+        description="yindian or map",
+    )
+    include_special_locations: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "include_special_locations",
+            "includeSpecialLocations",
+        ),
+        description="是否保留域外方音/歷史音/標準語/民語漢字音等特殊點；默認 false 會過濾",
+    )
     clustering: ClusterConfigRequest
+
+    @field_validator("locations", "regions", mode="before")
+    @classmethod
+    def normalize_locations_regions_input(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        return [str(value)]
 
     @field_validator("locations", "regions")
     @classmethod
@@ -172,12 +219,4 @@ class ClusterJobStatusResponse(BaseModel):
     message: str
     created_at: float
     updated_at: float
-    summary: Optional[dict] = None
-
-
-class ClusterJobCreateResponse(BaseModel):
-    task_id: str
-    status: str
-    progress: float
-    message: str
     summary: Optional[dict] = None
