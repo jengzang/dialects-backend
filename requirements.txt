@@ -67,6 +67,7 @@ scipy>=1.10.0
 # villagesML machine learning dependencies
 scikit-learn>=1.3.0
 networkx>=3.0
+numba>=0.62.0
 
 # Performance optimization for string matching
 rapidfuzz>=3.0.0

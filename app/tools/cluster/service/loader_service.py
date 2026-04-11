@@ -268,26 +268,41 @@ def load_dialect_rows(
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
-        for loc_batch in chunked(list(locations), 80):
-            for char_batch in chunked(list(chars), 240):
-                loc_placeholders = ",".join("?" * len(loc_batch))
-                char_placeholders = ",".join("?" * len(char_batch))
-                query = f"""
-                    SELECT 簡稱, 漢字, 聲母, 韻母, 聲調
-                    FROM dialects
-                    WHERE 簡稱 IN ({loc_placeholders})
-                      AND 漢字 IN ({char_placeholders})
-                """
-                cursor.execute(query, list(loc_batch) + list(char_batch))
-                for row in cursor.fetchall():
-                    location = row[0]
-                    char = row[1]
-                    if row[2]:
-                        data[location][char]["initial"].add(str(row[2]).strip())
-                    if row[3]:
-                        data[location][char]["final"].add(str(row[3]).strip())
-                    if row[4]:
-                        data[location][char]["tone"].add(str(row[4]).strip())
+        cursor.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp_cluster_locations(value TEXT PRIMARY KEY)"
+        )
+        cursor.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp_cluster_chars(value TEXT PRIMARY KEY)"
+        )
+        cursor.execute("DELETE FROM temp_cluster_locations")
+        cursor.execute("DELETE FROM temp_cluster_chars")
+        cursor.executemany(
+            "INSERT OR IGNORE INTO temp_cluster_locations(value) VALUES (?)",
+            ((str(location),) for location in locations),
+        )
+        cursor.executemany(
+            "INSERT OR IGNORE INTO temp_cluster_chars(value) VALUES (?)",
+            ((str(char),) for char in chars),
+        )
+        cursor.execute(
+            """
+            SELECT d.簡稱, d.漢字, d.聲母, d.韻母, d.聲調
+            FROM dialects AS d
+            INNER JOIN temp_cluster_locations AS l
+                ON l.value = d.簡稱
+            INNER JOIN temp_cluster_chars AS c
+                ON c.value = d.漢字
+            """
+        )
+        for row in cursor.fetchall():
+            location = row[0]
+            char = row[1]
+            if row[2]:
+                data[location][char]["initial"].add(str(row[2]).strip())
+            if row[3]:
+                data[location][char]["final"].add(str(row[3]).strip())
+            if row[4]:
+                data[location][char]["tone"].add(str(row[4]).strip())
     return data
 
 
