@@ -8,6 +8,18 @@ import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+try:
+    from numba import njit, prange
+    from numba.typed import List as NumbaList
+    NUMBA_AVAILABLE = True
+except Exception:  # pragma: no cover - optional accelerator
+    def njit(*args, **kwargs):  # type: ignore[misc]
+        def decorator(func):
+            return func
+        return decorator
+    prange = range
+    NumbaList = None
+    NUMBA_AVAILABLE = False
 
 from app.tools.cluster.config import (
     DEFAULT_ANCHOR_WEIGHT,
@@ -18,6 +30,144 @@ from app.tools.cluster.config import (
     INTRA_STRUCT_WEIGHT,
 )
 from app.tools.cluster.utils import dedupe
+
+
+@njit(cache=True)
+def _compute_intra_group_distance_numba(
+    token_ids_a: np.ndarray,
+    token_ids_b: np.ndarray,
+    token_count: int,
+) -> float:
+    shared_total = 0
+    for index in range(token_ids_a.shape[0]):
+        if token_ids_a[index] >= 0 and token_ids_b[index] >= 0:
+            shared_total += 1
+    if shared_total <= 0:
+        return INTRA_CORR_WEIGHT
+
+    map_x = np.full(token_count, -1, dtype=np.int32)
+    map_y = np.full(token_count, -1, dtype=np.int32)
+    inverse_x = np.empty(shared_total, dtype=np.int32)
+    inverse_y = np.empty(shared_total, dtype=np.int32)
+
+    size_x = 0
+    size_y = 0
+    position = 0
+    for index in range(token_ids_a.shape[0]):
+        token_a = token_ids_a[index]
+        token_b = token_ids_b[index]
+        if token_a < 0 or token_b < 0:
+            continue
+
+        slot_x = map_x[token_a]
+        if slot_x < 0:
+            slot_x = size_x
+            map_x[token_a] = slot_x
+            size_x += 1
+
+        slot_y = map_y[token_b]
+        if slot_y < 0:
+            slot_y = size_y
+            map_y[token_b] = slot_y
+            size_y += 1
+
+        inverse_x[position] = slot_x
+        inverse_y[position] = slot_y
+        position += 1
+
+    count_x = np.zeros(size_x, dtype=np.int32)
+    count_y = np.zeros(size_y, dtype=np.int32)
+    count_xy = np.zeros(size_x * size_y, dtype=np.int32)
+    for index in range(shared_total):
+        slot_x = inverse_x[index]
+        slot_y = inverse_y[index]
+        count_x[slot_x] += 1
+        count_y[slot_y] += 1
+        count_xy[slot_x * size_y + slot_y] += 1
+
+    h_y_given_x = 0.0
+    h_x_given_y = 0.0
+    same_both = 0.0
+    for slot_x in range(size_x):
+        for slot_y in range(size_y):
+            freq = count_xy[slot_x * size_y + slot_y]
+            if freq <= 0:
+                continue
+            prob_xy = freq / float(shared_total)
+            prob_y_given_x = freq / float(count_x[slot_x])
+            prob_x_given_y = freq / float(count_y[slot_y])
+            h_y_given_x -= prob_xy * math.log(prob_y_given_x + DIST_EPSILON)
+            h_x_given_y -= prob_xy * math.log(prob_x_given_y + DIST_EPSILON)
+            same_both += freq * (freq - 1.0) / 2.0
+
+    normalizer = math.log(max(size_x, size_y, 2))
+    if normalizer <= 0.0:
+        d_corr = 0.0
+    else:
+        d_corr = 0.5 * (h_y_given_x + h_x_given_y) / normalizer
+        if d_corr < 0.0:
+            d_corr = 0.0
+        elif d_corr > 1.0:
+            d_corr = 1.0
+
+    if shared_total < 2:
+        d_struct = 0.0
+    else:
+        total_pairs = shared_total * (shared_total - 1.0) / 2.0
+        same_a = 0.0
+        same_b = 0.0
+        for slot_x in range(size_x):
+            freq = count_x[slot_x]
+            same_a += freq * (freq - 1.0) / 2.0
+        for slot_y in range(size_y):
+            freq = count_y[slot_y]
+            same_b += freq * (freq - 1.0) / 2.0
+        mismatch = same_a + same_b - 2.0 * same_both
+        d_struct = mismatch / total_pairs if total_pairs > 0.0 else 0.0
+        if d_struct < 0.0:
+            d_struct = 0.0
+        elif d_struct > 1.0:
+            d_struct = 1.0
+
+    return INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
+
+
+@njit(cache=True, parallel=True)
+def _build_total_distance_matrix_intra_group_numba(
+    token_matrices,
+    present_count_matrices,
+    token_counts: np.ndarray,
+    group_weights: np.ndarray,
+) -> np.ndarray:
+    group_count = len(token_matrices)
+    size = present_count_matrices[0].shape[0]
+    matrix = np.zeros((size, size), dtype=np.float64)
+    for i in prange(size):
+        for j in range(i + 1, size):
+            total = 0.0
+            weight_sum = 0.0
+            for group_index in range(group_count):
+                present_count_a = present_count_matrices[group_index][i]
+                present_count_b = present_count_matrices[group_index][j]
+                if present_count_a == 0 and present_count_b == 0:
+                    continue
+
+                weight = group_weights[group_index]
+                weight_sum += weight
+                if present_count_a == 0 or present_count_b == 0:
+                    total += weight
+                    continue
+
+                total += weight * _compute_intra_group_distance_numba(
+                    token_matrices[group_index][i],
+                    token_matrices[group_index][j],
+                    int(token_counts[group_index]),
+                )
+
+            distance = total / weight_sum if weight_sum > 0.0 else 1.0
+            matrix[i, j] = distance
+            matrix[j, i] = distance
+    return matrix
 
 
 def build_dimension_token_catalogs(
@@ -66,10 +216,11 @@ def build_group_model(
     char_count = len(resolved_chars)
     token_to_id = dimension_catalog["token_to_id"]
     location_models: Dict[str, Dict[str, Any]] = {}
+    token_matrix = np.full((len(locations), char_count), -1, dtype=np.int32)
+    present_char_counts = np.zeros(len(locations), dtype=np.int32)
 
-    for location in locations:
+    for location_index, location in enumerate(locations):
         location_char_data = dialect_data.get(location, {})
-        token_ids = np.full(char_count, -1, dtype=np.int32)
         present_char_count = 0
 
         for index, char in enumerate(resolved_chars):
@@ -82,10 +233,11 @@ def build_group_model(
                 continue
 
             present_char_count += 1
-            token_ids[index] = token_to_id["|".join(normalized_values)]
+            token_matrix[location_index, index] = token_to_id["|".join(normalized_values)]
 
+        present_char_counts[location_index] = present_char_count
         location_models[location] = {
-            "token_ids": token_ids,
+            "token_ids": token_matrix[location_index],
             "present_char_count": present_char_count,
             "coverage": (
                 float(present_char_count / char_count)
@@ -113,6 +265,8 @@ def build_group_model(
         **group,
         "token_catalog": dimension_catalog,
         "locations": location_models,
+        "token_matrix": token_matrix,
+        "present_char_counts": present_char_counts,
         "effective_locations": effective_locations,
         "coverage_ratio": (
             float(len(effective_locations) / len(locations)) if locations else 0.0
@@ -522,6 +676,31 @@ def build_total_distance_matrix(
     block_size: int = 64,
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     size = len(locations)
+    if (
+        NUMBA_AVAILABLE
+        and phoneme_mode == "intra_group"
+        and all(not bool(group["use_phonetic_values"]) for group in group_models)
+    ):
+        token_matrices = NumbaList()
+        present_count_matrices = NumbaList()
+        token_counts = np.empty(len(group_models), dtype=np.int32)
+        group_weights = np.empty(len(group_models), dtype=np.float64)
+        for group_index, group in enumerate(group_models):
+            token_matrices.append(group["token_matrix"])
+            present_count_matrices.append(group["present_char_counts"])
+            token_counts[group_index] = len(group["token_catalog"]["tokens"])
+            group_weights[group_index] = float(group["group_weight"])
+        matrix = _build_total_distance_matrix_intra_group_numba(
+            token_matrices,
+            present_count_matrices,
+            token_counts,
+            group_weights,
+        )
+        return matrix, {
+            "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
+            "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
+        }
+
     matrix = np.zeros((size, size), dtype=float)
     shared_alignment_cache: Optional[Dict[Tuple[str, int, int], Dict[str, Any]]] = (
         {} if phoneme_mode == "shared_request_identity" else None
