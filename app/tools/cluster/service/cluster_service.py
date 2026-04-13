@@ -12,6 +12,13 @@ import numpy as np
 
 from app.common.path import DIALECTS_DB_USER
 from app.tools.cluster.config import DEFAULT_PHONEME_MODE
+from app.tools.cluster.service.cache_service import (
+    annotate_cluster_result_cache,
+    build_cluster_job_hash,
+    clear_inflight_task_id,
+    get_cached_cluster_result,
+    set_cached_cluster_result,
+)
 from app.tools.cluster.service.distance_service import (
     build_dimension_bucket_models,
     build_dimension_token_catalogs,
@@ -21,6 +28,7 @@ from app.tools.cluster.service.distance_service import (
 from app.tools.cluster.service.loader_service import (
     load_dialect_rows,
     load_dimension_inventory_profiles,
+    load_location_details,
 )
 from app.tools.cluster.service.pipeline_service import (
     choose_execution_space,
@@ -67,11 +75,18 @@ def build_cluster_result(
     phoneme_mode = clustering.get("phoneme_mode", DEFAULT_PHONEME_MODE)
     legacy_metric_mode = clustering.get("metric_mode")
     matched_locations = snapshot["location_resolution"]["matched_locations"]
-    location_details = snapshot["location_resolution"].get("location_details") or {}
     all_chars = dedupe(char for group in groups for char in group["resolved_chars"])
+    requested_dimensions = sorted(
+        {group["compare_dimension"] for group in groups if group.get("compare_dimension")}
+    )
 
     load_start = time.perf_counter()
-    dialect_data = load_dialect_rows(matched_locations, all_chars, dialects_db)
+    dialect_data = load_dialect_rows(
+        matched_locations,
+        all_chars,
+        dialects_db,
+        requested_dimensions=requested_dimensions,
+    )
     performance["load_rows_ms"] = round((time.perf_counter() - load_start) * 1000.0, 3)
 
     encode_start = time.perf_counter()
@@ -146,6 +161,12 @@ def build_cluster_result(
     )
     algorithm = clustering["algorithm"]
     execution_space = choose_execution_space(algorithm=algorithm)
+    location_detail_start = time.perf_counter()
+    location_details = load_location_details(matched_locations, dialects_db)
+    performance["location_details_ms"] = round(
+        (time.perf_counter() - location_detail_start) * 1000.0,
+        3,
+    )
 
     labels: np.ndarray
     assignments: List[Dict[str, Any]]
@@ -265,9 +286,37 @@ def run_cluster_job(
             message="缺少聚类任务快照",
         )
         return
+    job_hash = (task.get("data") or {}).get("job_hash") or build_cluster_job_hash(
+        snapshot,
+        dialects_db,
+    )
 
     try:
         if is_cancel_requested(task_id):
+            clear_inflight_task_id(job_hash, task_id=task_id)
+            return
+
+        cached_result = get_cached_cluster_result(job_hash)
+        if cached_result is not None:
+            result = annotate_cluster_result_cache(
+                cached_result,
+                job_hash=job_hash,
+                cache_hit=True,
+                cache_source="result",
+            )
+            result_path = write_result(task_id, result)
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                message="聚类结果命中缓存",
+                data={
+                    "result_path": str(result_path),
+                    "summary": build_task_summary(snapshot, result=result),
+                    "job_hash": job_hash,
+                },
+            )
+            clear_inflight_task_id(job_hash, task_id=task_id)
             return
 
         task_manager.update_task(
@@ -278,7 +327,15 @@ def run_cluster_job(
         )
 
         result = build_cluster_result(snapshot, dialects_db=dialects_db)
+        result = annotate_cluster_result_cache(
+            result,
+            job_hash=job_hash,
+            cache_hit=False,
+            cache_source="none",
+        )
+        set_cached_cluster_result(job_hash, result)
         if is_cancel_requested(task_id):
+            clear_inflight_task_id(job_hash, task_id=task_id)
             return
 
         task_manager.update_task(
@@ -293,11 +350,13 @@ def run_cluster_job(
             status=TaskStatus.COMPLETED,
             progress=100.0,
             message="聚类任务已完成",
-            data={
-                "result_path": str(result_path),
-                "summary": build_task_summary(snapshot, result=result),
-            },
+                data={
+                    "result_path": str(result_path),
+                    "summary": build_task_summary(snapshot, result=result),
+                    "job_hash": job_hash,
+                },
         )
+        clear_inflight_task_id(job_hash, task_id=task_id)
     except Exception as exc:
         logger.exception("cluster job failed: %s", exc)
         if is_cancel_requested(task_id):
@@ -306,6 +365,7 @@ def run_cluster_job(
                 status="canceled",
                 message="聚类任务已取消",
             )
+            clear_inflight_task_id(job_hash, task_id=task_id)
             return
         task_manager.update_task(
             task_id,
@@ -313,6 +373,7 @@ def run_cluster_job(
             error=str(exc),
             message=f"聚类任务失败: {exc}",
         )
+        clear_inflight_task_id(job_hash, task_id=task_id)
 
 
 __all__ = [

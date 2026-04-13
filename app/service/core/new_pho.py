@@ -1,6 +1,7 @@
 ﻿import itertools
 
-from app.redis_client import redis_client
+from app.redis_client import redis_client, sync_redis_client
+from app.common.config import _RUN_TYPE
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.service.core.status_arrange_pho import query_characters_by_path, query_by_status, convert_path_str
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER
@@ -194,7 +195,8 @@ async def get_cache(key: str) -> Optional[List[Dict]]:
         # Async Redis read
         cached_val = await redis_client.get(key)
         if cached_val:
-            print(f"[Redis Cache] Hit: {key}")
+            if _RUN_TYPE == "WEB":
+                print(f"[Redis Cache] Hit: {key}")
             return json.loads(cached_val)
     except Exception as e:
         print(f"[X] Redis Read Error: {e}")
@@ -205,11 +207,38 @@ async def get_cache(key: str) -> Optional[List[Dict]]:
 async def set_cache(key: str, data: List[Dict], expire_seconds: int = 600):
     try:
         # Async Redis write
-        await redis_client.set(key, json.dumps(data), ex=expire_seconds)
-        print(f"[SAVE] [Redis Cache] Set: {key}")
+        await redis_client.set(key, json.dumps(data, ensure_ascii=False), ex=expire_seconds)
+        if _RUN_TYPE == "WEB":
+            print(f"[SAVE] [Redis Cache] Set: {key}")
     except Exception as e:
         print(f"[X] Redis Write Error: {e}")
 
 
+def get_cache_sync(key: str) -> Optional[Any]:
+    try:
+        cached_val = sync_redis_client.get(key)
+        if cached_val:
+            if _RUN_TYPE == "WEB":
+                print(f"[Redis Cache] Hit(sync): {key}")
+            return json.loads(cached_val)
+    except Exception as e:
+        print(f"[X] Redis Read Error(sync): {e}")
+    return None
+
+
+def set_cache_sync(key: str, data: Any, expire_seconds: int = 600):
+    try:
+        sync_redis_client.set(key, json.dumps(data, ensure_ascii=False), ex=expire_seconds)
+        if _RUN_TYPE == "WEB":
+            print(f"[SAVE] [Redis Cache] Set(sync): {key}")
+    except Exception as e:
+        print(f"[X] Redis Write Error(sync): {e}")
+
+
+def delete_cache_sync(key: str):
+    try:
+        sync_redis_client.delete(key)
+    except Exception as e:
+        print(f"[X] Redis Delete Error(sync): {e}")
 
 

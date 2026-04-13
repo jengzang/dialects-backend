@@ -12,30 +12,33 @@ from typing import Any, Dict, Optional, Sequence
 
 from app.common.constants import get_table_schema, validate_table_name
 from app.common.path import CHARACTERS_DB_PATH
-from app.redis_client import sync_redis_client
-from app.service.core.new_pho import generate_cache_key, process_chars_status
+from app.service.core.new_pho import (
+    generate_cache_key,
+    get_cache_sync,
+    process_chars_status,
+    set_cache_sync,
+)
 from app.sql.db_pool import get_db_pool
-from app.tools.cluster.config import CACHE_TTL_SECONDS, FEATURE_COLUMN_MAP, TONE_SLOT_COLUMNS
+from app.tools.cluster.config import (
+    CACHE_TTL_SECONDS,
+    FEATURE_COLUMN_MAP,
+    LOADER_CACHE_MAX_CHARS,
+    LOADER_CACHE_MAX_LOCATIONS,
+    LOADER_CACHE_MAX_PAYLOAD_BYTES,
+    LOADER_CACHE_TTL_SECONDS,
+    TONE_SLOT_COLUMNS,
+)
 from app.tools.cluster.utils import chunked, dedupe, parse_coordinates, quote_identifier, safe_text
 
 logger = logging.getLogger(__name__)
 
 
 def cache_get_json(key: str) -> Optional[Any]:
-    try:
-        cached = sync_redis_client.get(key)
-        if cached:
-            return json.loads(cached)
-    except Exception as exc:
-        logger.warning("cluster cache read failed: %s", exc)
-    return None
+    return get_cache_sync(key)
 
 
 def cache_set_json(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
-    try:
-        sync_redis_client.set(key, json.dumps(value, ensure_ascii=False), ex=ttl)
-    except Exception as exc:
-        logger.warning("cluster cache write failed: %s", exc)
+    set_cache_sync(key, value, expire_seconds=ttl)
 
 
 def build_filters_cache_key(group: Dict[str, Any]) -> str:
@@ -179,6 +182,50 @@ def resolve_preset_filter_chars(
     }
 
 
+def load_location_filter_details(
+    locations: Sequence[str],
+    db_path: str,
+) -> Dict[str, Dict[str, Any]]:
+    details: Dict[str, Dict[str, Any]] = {}
+    if not locations:
+        return details
+
+    columns = ["簡稱", "音典分區", "地圖集二分區"]
+    quoted_columns = ", ".join(quote_identifier(column) for column in columns)
+
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        for batch in chunked(list(locations), 120):
+            placeholders = ",".join("?" * len(batch))
+            cursor.execute(
+                f"""
+                SELECT {quoted_columns}
+                FROM dialects
+                WHERE 簡稱 IN ({placeholders})
+                """,
+                list(batch),
+            )
+            for row in cursor.fetchall():
+                location = safe_text(row[0])
+                if not location:
+                    continue
+                details[location] = {
+                    "location": location,
+                    "yindian_region": safe_text(row[1]),
+                    "map_region": safe_text(row[2]),
+                }
+
+    for location in locations:
+        if location not in details:
+            details[location] = {
+                "location": location,
+                "yindian_region": None,
+                "map_region": None,
+            }
+    return details
+
+
 def load_location_details(
     locations: Sequence[str],
     db_path: str,
@@ -254,16 +301,102 @@ def load_location_details(
     return details
 
 
+def _can_cache_loader_payload(
+    locations: Sequence[str],
+    chars: Sequence[str],
+) -> bool:
+    return (
+        len(locations) <= LOADER_CACHE_MAX_LOCATIONS
+        and len(chars) <= LOADER_CACHE_MAX_CHARS
+    )
+
+
+def _build_loader_cache_key(
+    locations: Sequence[str],
+    chars: Sequence[str],
+    db_path: str,
+    resolved_dimensions: Sequence[str],
+) -> str:
+    payload = {
+        "db": str(db_path),
+        "locations": list(locations),
+        "chars": list(chars),
+        "dimensions": list(resolved_dimensions),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return "cluster:loader:v1:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _serialize_dialect_data(
+    data: Dict[str, Dict[str, Dict[str, set[str]]]],
+) -> Dict[str, Dict[str, Dict[str, list[str]]]]:
+    serialized: Dict[str, Dict[str, Dict[str, list[str]]]] = {}
+    for location, char_map in data.items():
+        serialized[location] = {}
+        for char, dimension_map in char_map.items():
+            serialized[location][char] = {
+                dimension: sorted(values)
+                for dimension, values in dimension_map.items()
+                if values
+            }
+    return serialized
+
+
+def _deserialize_dialect_data(
+    payload: Dict[str, Dict[str, Dict[str, Sequence[str]]]],
+) -> Dict[str, Dict[str, Dict[str, set[str]]]]:
+    deserialized: Dict[str, Dict[str, Dict[str, set[str]]]] = defaultdict(
+        lambda: defaultdict(lambda: {"initial": set(), "final": set(), "tone": set()})
+    )
+    for location, char_map in payload.items():
+        for char, dimension_map in char_map.items():
+            for dimension, values in dimension_map.items():
+                if dimension in FEATURE_COLUMN_MAP:
+                    deserialized[location][char][dimension] = {
+                        str(value).strip()
+                        for value in values or []
+                        if str(value).strip()
+                    }
+    return deserialized
+
+
 def load_dialect_rows(
     locations: Sequence[str],
     chars: Sequence[str],
     db_path: str,
+    requested_dimensions: Optional[Sequence[str]] = None,
 ) -> Dict[str, Dict[str, Dict[str, set[str]]]]:
     data: Dict[str, Dict[str, Dict[str, set[str]]]] = defaultdict(
         lambda: defaultdict(lambda: {"initial": set(), "final": set(), "tone": set()})
     )
     if not locations or not chars:
         return data
+
+    resolved_dimensions = [
+        dimension
+        for dimension in sorted(set(requested_dimensions or FEATURE_COLUMN_MAP.keys()))
+        if dimension in FEATURE_COLUMN_MAP
+    ]
+    if not resolved_dimensions:
+        return data
+
+    loader_cache_key: Optional[str] = None
+    if _can_cache_loader_payload(locations, chars):
+        loader_cache_key = _build_loader_cache_key(
+            locations,
+            chars,
+            db_path,
+            resolved_dimensions,
+        )
+        cached_payload = cache_get_json(loader_cache_key)
+        if isinstance(cached_payload, dict):
+            return _deserialize_dialect_data(cached_payload)
+
+    selected_columns = ["簡稱", "漢字"] + [
+        quote_identifier(FEATURE_COLUMN_MAP[dimension])
+        for dimension in resolved_dimensions
+    ]
+    select_clause = ", ".join(selected_columns)
 
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
@@ -285,24 +418,37 @@ def load_dialect_rows(
             ((str(char),) for char in chars),
         )
         cursor.execute(
-            """
-            SELECT d.簡稱, d.漢字, d.聲母, d.韻母, d.聲調
-            FROM dialects AS d
-            INNER JOIN temp_cluster_locations AS l
-                ON l.value = d.簡稱
-            INNER JOIN temp_cluster_chars AS c
-                ON c.value = d.漢字
+            f"""
+            SELECT {select_clause}
+            FROM dialects
+            WHERE 簡稱 IN (SELECT value FROM temp_cluster_locations)
+              AND 漢字 IN (SELECT value FROM temp_cluster_chars)
             """
         )
         for row in cursor.fetchall():
             location = row[0]
             char = row[1]
-            if row[2]:
-                data[location][char]["initial"].add(str(row[2]).strip())
-            if row[3]:
-                data[location][char]["final"].add(str(row[3]).strip())
-            if row[4]:
-                data[location][char]["tone"].add(str(row[4]).strip())
+            for offset, dimension in enumerate(resolved_dimensions, start=2):
+                raw_value = row[offset]
+                if raw_value:
+                    data[location][char][dimension].add(str(raw_value).strip())
+
+    if loader_cache_key:
+        serialized_payload = _serialize_dialect_data(data)
+        payload_bytes = len(
+            json.dumps(
+                serialized_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        if payload_bytes <= LOADER_CACHE_MAX_PAYLOAD_BYTES:
+            cache_set_json(
+                loader_cache_key,
+                serialized_payload,
+                ttl=LOADER_CACHE_TTL_SECONDS,
+            )
     return data
 
 
