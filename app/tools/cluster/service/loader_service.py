@@ -12,11 +12,10 @@ from typing import Any, Dict, Optional, Sequence
 
 from app.common.constants import get_table_schema, validate_table_name
 from app.common.path import CHARACTERS_DB_PATH
-from app.service.core.new_pho import (
-    generate_cache_key,
-    get_cache_sync,
-    process_chars_status,
-    set_cache_sync,
+from app.service.core.new_pho import generate_cache_key, process_chars_status
+from app.tools.cluster.service.cache_service import (
+    get_cluster_cache_sync,
+    set_cluster_cache_sync,
 )
 from app.sql.db_pool import get_db_pool
 from app.tools.cluster.config import (
@@ -34,11 +33,11 @@ logger = logging.getLogger(__name__)
 
 
 def cache_get_json(key: str) -> Optional[Any]:
-    return get_cache_sync(key)
+    return get_cluster_cache_sync(key)
 
 
 def cache_set_json(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
-    set_cache_sync(key, value, expire_seconds=ttl)
+    set_cluster_cache_sync(key, value, expire_seconds=ttl)
 
 
 def build_filters_cache_key(group: Dict[str, Any]) -> str:
