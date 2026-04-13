@@ -18,6 +18,15 @@ from .service.cluster_service import (
     resolve_cluster_job_snapshot,
     run_cluster_job,
 )
+from .service.cache_service import (
+    annotate_cluster_result_cache,
+    build_cluster_job_hash,
+    clear_inflight_task_id,
+    get_cached_cluster_result,
+    get_inflight_task_id,
+    set_inflight_task_id,
+)
+from .service.task_service import write_result
 from .schemas import (
     ClusterJobCreateRequest,
     ClusterJobCreateResponse,
@@ -58,13 +67,66 @@ async def create_cluster_job(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"解析聚类请求失败: {exc}")
 
+    job_hash = build_cluster_job_hash(snapshot, dialects_db)
+    cached_result = get_cached_cluster_result(job_hash)
+    if cached_result is not None:
+        task_id = task_manager.create_task(
+            "cluster",
+            {
+                "snapshot": snapshot,
+                "summary": build_task_summary(snapshot),
+                "job_hash": job_hash,
+            },
+        )
+        result = annotate_cluster_result_cache(
+            cached_result,
+            job_hash=job_hash,
+            cache_hit=True,
+            cache_source="result",
+        )
+        result_path = write_result(task_id, result)
+        summary = build_task_summary(snapshot, result=result)
+        task_manager.update_task(
+            task_id,
+            status="completed",
+            progress=100.0,
+            message="聚类结果命中缓存",
+            data={
+                "result_path": str(result_path),
+                "summary": summary,
+                "job_hash": job_hash,
+            },
+        )
+        return ClusterJobCreateResponse(
+            task_id=task_id,
+            status="completed",
+            progress=100.0,
+            message="聚类结果命中缓存",
+            summary=summary,
+        )
+
+    inflight_task_id = get_inflight_task_id(job_hash)
+    if inflight_task_id:
+        inflight_payload = get_task_status_payload(inflight_task_id)
+        if inflight_payload and inflight_payload.get("status") in {"pending", "processing"}:
+            return ClusterJobCreateResponse(
+                task_id=inflight_task_id,
+                status=str(inflight_payload.get("status")),
+                progress=float(inflight_payload.get("progress", 0.0)),
+                message=str(inflight_payload.get("message") or ""),
+                summary=inflight_payload.get("summary"),
+            )
+        clear_inflight_task_id(job_hash, task_id=inflight_task_id)
+
     task_id = task_manager.create_task(
         "cluster",
         {
             "snapshot": snapshot,
             "summary": build_task_summary(snapshot),
+            "job_hash": job_hash,
         },
     )
+    set_inflight_task_id(job_hash, task_id)
     task_manager.update_task(
         task_id,
         progress=0.0,

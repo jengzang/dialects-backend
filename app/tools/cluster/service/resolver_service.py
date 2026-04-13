@@ -13,7 +13,7 @@ from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.tools.cluster.config import DEFAULT_FILTERED_YINDIAN_REGIONS, FEATURE_COLUMN_MAP
 from app.tools.cluster.service.loader_service import (
-    load_location_details,
+    load_location_filter_details,
     resolve_preset_filter_chars,
     resolve_preset_path_chars,
 )
@@ -136,7 +136,7 @@ def resolve_locations(
         if success_flag == 1
         for abbr in abbrs
     )
-    location_details_all = load_location_details(matched_locations, query_db)
+    location_details_all = load_location_filter_details(matched_locations, query_db)
     filtered_special_locations: List[str] = []
     if not include_special_locations:
         filtered_special_locations = [
