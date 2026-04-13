@@ -132,6 +132,243 @@ def _compute_intra_group_distance_numba(
     return INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
 
 
+@njit(cache=True)
+def _build_alignment_model_numba(
+    token_ids_a: np.ndarray,
+    token_ids_b: np.ndarray,
+    token_count: int,
+):
+    shared_total = 0
+    used_x = np.zeros(token_count, dtype=np.uint8)
+    used_y = np.zeros(token_count, dtype=np.uint8)
+    for index in range(token_ids_a.shape[0]):
+        if token_ids_a[index] >= 0 and token_ids_b[index] >= 0:
+            shared_total += 1
+            used_x[token_ids_a[index]] = 1
+            used_y[token_ids_b[index]] = 1
+
+    lookup_x = np.full(token_count, -1, dtype=np.int32)
+    lookup_y = np.full(token_count, -1, dtype=np.int32)
+    if shared_total <= 0:
+        return (
+            np.zeros((0, 0), dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+            lookup_x,
+            lookup_y,
+        )
+
+    size_x = 0
+    size_y = 0
+    for token_id in range(token_count):
+        if used_x[token_id] == 1:
+            lookup_x[token_id] = size_x
+            size_x += 1
+        if used_y[token_id] == 1:
+            lookup_y[token_id] = size_y
+            size_y += 1
+
+    count_x = np.zeros(size_x, dtype=np.int32)
+    count_y = np.zeros(size_y, dtype=np.int32)
+    count_xy = np.zeros((size_x, size_y), dtype=np.int32)
+    for index in range(token_ids_a.shape[0]):
+        token_a = token_ids_a[index]
+        token_b = token_ids_b[index]
+        if token_a < 0 or token_b < 0:
+            continue
+        slot_x = lookup_x[token_a]
+        slot_y = lookup_y[token_b]
+        count_x[slot_x] += 1
+        count_y[slot_y] += 1
+        count_xy[slot_x, slot_y] += 1
+
+    return count_xy, count_x, count_y, lookup_x, lookup_y
+
+
+@njit(cache=True)
+def _conditional_entropy_distance_with_model_numba(
+    token_ids_a: np.ndarray,
+    token_ids_b: np.ndarray,
+    model_count_xy: np.ndarray,
+    model_count_x: np.ndarray,
+    model_count_y: np.ndarray,
+    model_lookup_x: np.ndarray,
+    model_lookup_y: np.ndarray,
+) -> float:
+    total = 0
+    for index in range(token_ids_a.shape[0]):
+        if token_ids_a[index] >= 0 and token_ids_b[index] >= 0:
+            total += 1
+    if total <= 0:
+        return 1.0
+
+    normalizer = math.log(max(model_count_x.shape[0], model_count_y.shape[0], 2))
+    if normalizer <= 0.0:
+        return 0.0
+
+    inv_total = 1.0 / float(total)
+    h_y_given_x = 0.0
+    h_x_given_y = 0.0
+    for index in range(token_ids_a.shape[0]):
+        token_a = token_ids_a[index]
+        token_b = token_ids_b[index]
+        if token_a < 0 or token_b < 0:
+            continue
+
+        row = -1
+        col = -1
+        if token_a < model_lookup_x.shape[0]:
+            row = model_lookup_x[token_a]
+        if token_b < model_lookup_y.shape[0]:
+            col = model_lookup_y[token_b]
+
+        prob_y_given_x = 0.0
+        prob_x_given_y = 0.0
+        if row >= 0 and col >= 0:
+            freq = float(model_count_xy[row, col])
+            if model_count_x[row] > 0:
+                prob_y_given_x = freq / float(model_count_x[row])
+            if model_count_y[col] > 0:
+                prob_x_given_y = freq / float(model_count_y[col])
+        h_y_given_x -= inv_total * math.log(prob_y_given_x + DIST_EPSILON)
+        h_x_given_y -= inv_total * math.log(prob_x_given_y + DIST_EPSILON)
+
+    value = 0.5 * (h_y_given_x + h_x_given_y) / normalizer
+    if value < 0.0:
+        return 0.0
+    if value > 1.0:
+        return 1.0
+    return value
+
+
+@njit(cache=True)
+def _compute_group_distance_anchored_numba(
+    token_ids_a: np.ndarray,
+    token_ids_b: np.ndarray,
+    token_count: int,
+    signatures_a: np.ndarray,
+    signatures_b: np.ndarray,
+    anchor_weight: float,
+) -> float:
+    count_xy, count_x, count_y, lookup_x, lookup_y = _build_alignment_model_numba(
+        token_ids_a,
+        token_ids_b,
+        token_count,
+    )
+    shared_total = int(np.sum(count_x))
+    if shared_total <= 0:
+        return ((1.0 - anchor_weight) * INTRA_CORR_WEIGHT) + anchor_weight
+
+    size_x = count_x.shape[0]
+    size_y = count_y.shape[0]
+    slot_token_x = np.empty(size_x, dtype=np.int32)
+    slot_token_y = np.empty(size_y, dtype=np.int32)
+    for token_id in range(token_count):
+        slot_x = lookup_x[token_id]
+        if slot_x >= 0:
+            slot_token_x[slot_x] = token_id
+        slot_y = lookup_y[token_id]
+        if slot_y >= 0:
+            slot_token_y[slot_y] = token_id
+
+    h_y_given_x = 0.0
+    h_x_given_y = 0.0
+    same_both = 0.0
+    for slot_x in range(size_x):
+        for slot_y in range(size_y):
+            freq = count_xy[slot_x, slot_y]
+            if freq <= 0:
+                continue
+            prob_xy = freq / float(shared_total)
+            prob_y_given_x = freq / float(count_x[slot_x])
+            prob_x_given_y = freq / float(count_y[slot_y])
+            h_y_given_x -= prob_xy * math.log(prob_y_given_x + DIST_EPSILON)
+            h_x_given_y -= prob_xy * math.log(prob_x_given_y + DIST_EPSILON)
+            same_both += freq * (freq - 1.0) / 2.0
+
+    normalizer = math.log(max(size_x, size_y, 2))
+    if normalizer <= 0.0:
+        d_corr = 0.0
+    else:
+        d_corr = 0.5 * (h_y_given_x + h_x_given_y) / normalizer
+        if d_corr < 0.0:
+            d_corr = 0.0
+        elif d_corr > 1.0:
+            d_corr = 1.0
+
+    if shared_total < 2:
+        d_struct = 0.0
+    else:
+        total_pairs = shared_total * (shared_total - 1.0) / 2.0
+        same_a = 0.0
+        same_b = 0.0
+        for slot_x in range(size_x):
+            freq = count_x[slot_x]
+            same_a += freq * (freq - 1.0) / 2.0
+        for slot_y in range(size_y):
+            freq = count_y[slot_y]
+            same_b += freq * (freq - 1.0) / 2.0
+        mismatch = same_a + same_b - 2.0 * same_both
+        d_struct = mismatch / total_pairs if total_pairs > 0.0 else 0.0
+        if d_struct < 0.0:
+            d_struct = 0.0
+        elif d_struct > 1.0:
+            d_struct = 1.0
+
+    d_intra = INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
+
+    inv_total_x = 1.0 / float(np.sum(count_x))
+    inv_total_y = 1.0 / float(np.sum(count_y))
+    dist_a_to_b = 0.0
+    for slot_x in range(size_x):
+        best_slot_y = -1
+        best_freq = -1
+        for slot_y in range(size_y):
+            freq = count_xy[slot_x, slot_y]
+            if freq > best_freq:
+                best_freq = freq
+                best_slot_y = slot_y
+        if best_slot_y < 0:
+            dist_a_to_b += count_x[slot_x] * inv_total_x
+            continue
+        token_a = slot_token_x[slot_x]
+        token_b = slot_token_y[best_slot_y]
+        diff0 = signatures_a[token_a, 0] - signatures_b[token_b, 0]
+        diff1 = signatures_a[token_a, 1] - signatures_b[token_b, 1]
+        value = math.sqrt(diff0 * diff0 + diff1 * diff1) / math.sqrt(2.0)
+        if value < 0.0:
+            value = 0.0
+        elif value > 1.0:
+            value = 1.0
+        dist_a_to_b += (count_x[slot_x] * inv_total_x) * value
+
+    dist_b_to_a = 0.0
+    for slot_y in range(size_y):
+        best_slot_x = -1
+        best_freq = -1
+        for slot_x in range(size_x):
+            freq = count_xy[slot_x, slot_y]
+            if freq > best_freq:
+                best_freq = freq
+                best_slot_x = slot_x
+        if best_slot_x < 0:
+            dist_b_to_a += count_y[slot_y] * inv_total_y
+            continue
+        token_b = slot_token_y[slot_y]
+        token_a = slot_token_x[best_slot_x]
+        diff0 = signatures_b[token_b, 0] - signatures_a[token_a, 0]
+        diff1 = signatures_b[token_b, 1] - signatures_a[token_a, 1]
+        value = math.sqrt(diff0 * diff0 + diff1 * diff1) / math.sqrt(2.0)
+        if value < 0.0:
+            value = 0.0
+        elif value > 1.0:
+            value = 1.0
+        dist_b_to_a += (count_y[slot_y] * inv_total_y) * value
+
+    d_anchor = 0.5 * (dist_a_to_b + dist_b_to_a)
+    return ((1.0 - anchor_weight) * d_intra) + (anchor_weight * d_anchor)
+
+
 @njit(cache=True, parallel=True)
 def _build_total_distance_matrix_intra_group_numba(
     token_matrices,
@@ -162,6 +399,110 @@ def _build_total_distance_matrix_intra_group_numba(
                     token_matrices[group_index][i],
                     token_matrices[group_index][j],
                     int(token_counts[group_index]),
+                )
+
+            distance = total / weight_sum if weight_sum > 0.0 else 1.0
+            matrix[i, j] = distance
+            matrix[j, i] = distance
+    return matrix
+
+
+@njit(cache=True, parallel=True)
+def _build_total_distance_matrix_anchored_numba(
+    token_matrices,
+    present_count_matrices,
+    token_counts: np.ndarray,
+    group_weights: np.ndarray,
+    anchor_signatures,
+    anchor_weight: float,
+) -> np.ndarray:
+    group_count = len(token_matrices)
+    size = present_count_matrices[0].shape[0]
+    matrix = np.zeros((size, size), dtype=np.float64)
+    for i in prange(size):
+        for j in range(i + 1, size):
+            total = 0.0
+            weight_sum = 0.0
+            for group_index in range(group_count):
+                present_count_a = present_count_matrices[group_index][i]
+                present_count_b = present_count_matrices[group_index][j]
+                if present_count_a == 0 and present_count_b == 0:
+                    continue
+
+                weight = group_weights[group_index]
+                weight_sum += weight
+                if present_count_a == 0 or present_count_b == 0:
+                    total += weight
+                    continue
+
+                total += weight * _compute_group_distance_anchored_numba(
+                    token_matrices[group_index][i],
+                    token_matrices[group_index][j],
+                    int(token_counts[group_index]),
+                    anchor_signatures[group_index][i],
+                    anchor_signatures[group_index][j],
+                    anchor_weight,
+                )
+
+            distance = total / weight_sum if weight_sum > 0.0 else 1.0
+            matrix[i, j] = distance
+            matrix[j, i] = distance
+    return matrix
+
+
+@njit(cache=True, parallel=True)
+def _build_total_distance_matrix_shared_single_dim_numba(
+    token_matrices,
+    present_count_matrices,
+    token_counts: np.ndarray,
+    group_weights: np.ndarray,
+    bucket_token_matrix: np.ndarray,
+    bucket_token_count: int,
+    shared_identity_weight: float,
+) -> np.ndarray:
+    group_count = len(token_matrices)
+    size = present_count_matrices[0].shape[0]
+    matrix = np.zeros((size, size), dtype=np.float64)
+    for i in prange(size):
+        for j in range(i + 1, size):
+            model_count_xy, model_count_x, model_count_y, model_lookup_x, model_lookup_y = (
+                _build_alignment_model_numba(
+                    bucket_token_matrix[i],
+                    bucket_token_matrix[j],
+                    bucket_token_count,
+                )
+            )
+            total = 0.0
+            weight_sum = 0.0
+            for group_index in range(group_count):
+                present_count_a = present_count_matrices[group_index][i]
+                present_count_b = present_count_matrices[group_index][j]
+                if present_count_a == 0 and present_count_b == 0:
+                    continue
+
+                weight = group_weights[group_index]
+                weight_sum += weight
+                if present_count_a == 0 or present_count_b == 0:
+                    total += weight
+                    continue
+
+                d_intra = _compute_intra_group_distance_numba(
+                    token_matrices[group_index][i],
+                    token_matrices[group_index][j],
+                    int(token_counts[group_index]),
+                )
+                d_shared = _conditional_entropy_distance_with_model_numba(
+                    token_matrices[group_index][i],
+                    token_matrices[group_index][j],
+                    model_count_xy,
+                    model_count_x,
+                    model_count_y,
+                    model_lookup_x,
+                    model_lookup_y,
+                )
+                total += weight * (
+                    ((1.0 - shared_identity_weight) * d_intra)
+                    + (shared_identity_weight * d_shared)
                 )
 
             distance = total / weight_sum if weight_sum > 0.0 else 1.0
@@ -667,17 +1008,44 @@ def build_dimension_bucket_models(
     return bucket_models
 
 
+def build_anchor_signature_matrices(
+    dimensions: Sequence[str],
+    locations: Sequence[str],
+    inventory_profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]],
+    dimension_catalogs: Dict[str, Dict[str, Any]],
+) -> Dict[str, np.ndarray]:
+    signature_matrices: Dict[str, np.ndarray] = {}
+    for dimension in dimensions:
+        token_catalog = dimension_catalogs[dimension]
+        token_count = len(token_catalog["tokens"])
+        matrix = np.zeros((len(locations), token_count, 2), dtype=np.float64)
+        for location_index, location in enumerate(locations):
+            inventory_profile = inventory_profiles.get(location, {}).get(dimension, {})
+            for token_id in range(token_count):
+                signature = token_anchor_signature_by_id(
+                    token_id,
+                    inventory_profile,
+                    token_catalog,
+                )
+                matrix[location_index, token_id, 0] = float(signature[0])
+                matrix[location_index, token_id, 1] = float(signature[1])
+        signature_matrices[dimension] = matrix
+    return signature_matrices
+
+
 def build_total_distance_matrix(
     group_models: Sequence[Dict[str, Any]],
     locations: Sequence[str],
     phoneme_mode: str,
     inventory_profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]],
     bucket_models: Dict[str, Dict[str, Any]],
+    force_python: bool = False,
     block_size: int = 64,
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     size = len(locations)
     if (
         NUMBA_AVAILABLE
+        and not force_python
         and phoneme_mode == "intra_group"
         and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
@@ -700,6 +1068,78 @@ def build_total_distance_matrix(
             "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
             "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
         }
+
+    if (
+        NUMBA_AVAILABLE
+        and not force_python
+        and phoneme_mode == "anchored_inventory"
+        and all(not bool(group["use_phonetic_values"]) for group in group_models)
+    ):
+        dimension_catalogs = {
+            group["compare_dimension"]: group["token_catalog"] for group in group_models
+        }
+        signature_matrices = build_anchor_signature_matrices(
+            dimensions=sorted({group["compare_dimension"] for group in group_models}),
+            locations=locations,
+            inventory_profiles=inventory_profiles,
+            dimension_catalogs=dimension_catalogs,
+        )
+        token_matrices = NumbaList()
+        present_count_matrices = NumbaList()
+        anchor_signatures = NumbaList()
+        token_counts = np.empty(len(group_models), dtype=np.int32)
+        group_weights = np.empty(len(group_models), dtype=np.float64)
+        for group_index, group in enumerate(group_models):
+            token_matrices.append(group["token_matrix"])
+            present_count_matrices.append(group["present_char_counts"])
+            anchor_signatures.append(signature_matrices[group["compare_dimension"]])
+            token_counts[group_index] = len(group["token_catalog"]["tokens"])
+            group_weights[group_index] = float(group["group_weight"])
+        matrix = _build_total_distance_matrix_anchored_numba(
+            token_matrices,
+            present_count_matrices,
+            token_counts,
+            group_weights,
+            anchor_signatures,
+            DEFAULT_ANCHOR_WEIGHT,
+        )
+        return matrix, {
+            "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
+            "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
+        }
+
+    if (
+        NUMBA_AVAILABLE
+        and not force_python
+        and phoneme_mode == "shared_request_identity"
+        and all(not bool(group["use_phonetic_values"]) for group in group_models)
+    ):
+        unique_dimensions = sorted({group["compare_dimension"] for group in group_models})
+        if len(unique_dimensions) == 1:
+            bucket_model = bucket_models.get(unique_dimensions[0])
+            if bucket_model is not None:
+                token_matrices = NumbaList()
+                present_count_matrices = NumbaList()
+                token_counts = np.empty(len(group_models), dtype=np.int32)
+                group_weights = np.empty(len(group_models), dtype=np.float64)
+                for group_index, group in enumerate(group_models):
+                    token_matrices.append(group["token_matrix"])
+                    present_count_matrices.append(group["present_char_counts"])
+                    token_counts[group_index] = len(group["token_catalog"]["tokens"])
+                    group_weights[group_index] = float(group["group_weight"])
+                matrix = _build_total_distance_matrix_shared_single_dim_numba(
+                    token_matrices,
+                    present_count_matrices,
+                    token_counts,
+                    group_weights,
+                    bucket_model["token_matrix"],
+                    len(bucket_model["token_catalog"]["tokens"]),
+                    DEFAULT_SHARED_IDENTITY_WEIGHT,
+                )
+                return matrix, {
+                    "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
+                    "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
+                }
 
     matrix = np.zeros((size, size), dtype=float)
     shared_alignment_cache: Optional[Dict[Tuple[str, int, int], Dict[str, Any]]] = (
