@@ -67,7 +67,7 @@ async def create_cluster_job(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"解析聚类请求失败: {exc}")
 
-    job_hash = build_cluster_job_hash(snapshot, dialects_db)
+    job_hash = build_cluster_job_hash(snapshot, dialects_db, query_db)
     cached_result = get_cached_cluster_result(job_hash)
     if cached_result is not None:
         task_id = task_manager.create_task(
@@ -76,6 +76,7 @@ async def create_cluster_job(
                 "snapshot": snapshot,
                 "summary": build_task_summary(snapshot),
                 "job_hash": job_hash,
+                "query_db": query_db,
             },
         )
         result = annotate_cluster_result_cache(
@@ -95,6 +96,9 @@ async def create_cluster_job(
                 "result_path": str(result_path),
                 "summary": summary,
                 "job_hash": job_hash,
+                "query_db": query_db,
+                "execution_time_ms": (result.get("metadata") or {}).get("execution_time_ms"),
+                "performance": (result.get("metadata") or {}).get("performance"),
             },
         )
         return ClusterJobCreateResponse(
@@ -124,6 +128,7 @@ async def create_cluster_job(
             "snapshot": snapshot,
             "summary": build_task_summary(snapshot),
             "job_hash": job_hash,
+            "query_db": query_db,
         },
     )
     set_inflight_task_id(job_hash, task_id)
@@ -133,7 +138,7 @@ async def create_cluster_job(
         message="聚类任务已创建，等待执行",
     )
 
-    background_tasks.add_task(run_cluster_job, task_id, dialects_db)
+    background_tasks.add_task(run_cluster_job, task_id, dialects_db, query_db)
 
     return ClusterJobCreateResponse(
         task_id=task_id,
