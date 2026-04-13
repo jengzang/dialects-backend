@@ -451,13 +451,18 @@ def _build_total_distance_matrix_anchored_numba(
 
 
 @njit(cache=True, parallel=True)
-def _build_total_distance_matrix_shared_single_dim_numba(
+def _build_total_distance_matrix_shared_multi_dim_numba(
     token_matrices,
     present_count_matrices,
     token_counts: np.ndarray,
     group_weights: np.ndarray,
-    bucket_token_matrix: np.ndarray,
-    bucket_token_count: int,
+    group_dimension_ids: np.ndarray,
+    bucket_initial_matrix: np.ndarray,
+    bucket_initial_count: int,
+    bucket_final_matrix: np.ndarray,
+    bucket_final_count: int,
+    bucket_tone_matrix: np.ndarray,
+    bucket_tone_count: int,
     shared_identity_weight: float,
 ) -> np.ndarray:
     group_count = len(token_matrices)
@@ -465,12 +470,38 @@ def _build_total_distance_matrix_shared_single_dim_numba(
     matrix = np.zeros((size, size), dtype=np.float64)
     for i in prange(size):
         for j in range(i + 1, size):
-            model_count_xy, model_count_x, model_count_y, model_lookup_x, model_lookup_y = (
-                _build_alignment_model_numba(
-                    bucket_token_matrix[i],
-                    bucket_token_matrix[j],
-                    bucket_token_count,
-                )
+            (
+                initial_count_xy,
+                initial_count_x,
+                initial_count_y,
+                initial_lookup_x,
+                initial_lookup_y,
+            ) = _build_alignment_model_numba(
+                bucket_initial_matrix[i],
+                bucket_initial_matrix[j],
+                bucket_initial_count,
+            )
+            (
+                final_count_xy,
+                final_count_x,
+                final_count_y,
+                final_lookup_x,
+                final_lookup_y,
+            ) = _build_alignment_model_numba(
+                bucket_final_matrix[i],
+                bucket_final_matrix[j],
+                bucket_final_count,
+            )
+            (
+                tone_count_xy,
+                tone_count_x,
+                tone_count_y,
+                tone_lookup_x,
+                tone_lookup_y,
+            ) = _build_alignment_model_numba(
+                bucket_tone_matrix[i],
+                bucket_tone_matrix[j],
+                bucket_tone_count,
             )
             total = 0.0
             weight_sum = 0.0
@@ -491,6 +522,24 @@ def _build_total_distance_matrix_shared_single_dim_numba(
                     token_matrices[group_index][j],
                     int(token_counts[group_index]),
                 )
+                model_count_xy = final_count_xy
+                model_count_x = final_count_x
+                model_count_y = final_count_y
+                model_lookup_x = final_lookup_x
+                model_lookup_y = final_lookup_y
+                dimension_id = int(group_dimension_ids[group_index])
+                if dimension_id == 0:
+                    model_count_xy = initial_count_xy
+                    model_count_x = initial_count_x
+                    model_count_y = initial_count_y
+                    model_lookup_x = initial_lookup_x
+                    model_lookup_y = initial_lookup_y
+                elif dimension_id == 2:
+                    model_count_xy = tone_count_xy
+                    model_count_x = tone_count_x
+                    model_count_y = tone_count_y
+                    model_lookup_x = tone_lookup_x
+                    model_lookup_y = tone_lookup_y
                 d_shared = _conditional_entropy_distance_with_model_numba(
                     token_matrices[group_index][i],
                     token_matrices[group_index][j],
@@ -1033,6 +1082,41 @@ def build_anchor_signature_matrices(
     return signature_matrices
 
 
+def build_shared_bucket_matrix_inputs(
+    locations: Sequence[str],
+    bucket_models: Dict[str, Dict[str, Any]],
+) -> Tuple[
+    np.ndarray,
+    int,
+    np.ndarray,
+    int,
+    np.ndarray,
+    int,
+]:
+    empty_matrix = np.full((len(locations), 0), -1, dtype=np.int32)
+
+    def resolve_dimension(dimension: str) -> Tuple[np.ndarray, int]:
+        bucket_model = bucket_models.get(dimension)
+        if bucket_model is None:
+            return empty_matrix, 0
+        return (
+            bucket_model["token_matrix"],
+            len(bucket_model["token_catalog"]["tokens"]),
+        )
+
+    initial_matrix, initial_count = resolve_dimension("initial")
+    final_matrix, final_count = resolve_dimension("final")
+    tone_matrix, tone_count = resolve_dimension("tone")
+    return (
+        initial_matrix,
+        initial_count,
+        final_matrix,
+        final_count,
+        tone_matrix,
+        tone_count,
+    )
+
+
 def build_total_distance_matrix(
     group_models: Sequence[Dict[str, Any]],
     locations: Sequence[str],
@@ -1114,32 +1198,44 @@ def build_total_distance_matrix(
         and phoneme_mode == "shared_request_identity"
         and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
-        unique_dimensions = sorted({group["compare_dimension"] for group in group_models})
-        if len(unique_dimensions) == 1:
-            bucket_model = bucket_models.get(unique_dimensions[0])
-            if bucket_model is not None:
-                token_matrices = NumbaList()
-                present_count_matrices = NumbaList()
-                token_counts = np.empty(len(group_models), dtype=np.int32)
-                group_weights = np.empty(len(group_models), dtype=np.float64)
-                for group_index, group in enumerate(group_models):
-                    token_matrices.append(group["token_matrix"])
-                    present_count_matrices.append(group["present_char_counts"])
-                    token_counts[group_index] = len(group["token_catalog"]["tokens"])
-                    group_weights[group_index] = float(group["group_weight"])
-                matrix = _build_total_distance_matrix_shared_single_dim_numba(
-                    token_matrices,
-                    present_count_matrices,
-                    token_counts,
-                    group_weights,
-                    bucket_model["token_matrix"],
-                    len(bucket_model["token_catalog"]["tokens"]),
-                    DEFAULT_SHARED_IDENTITY_WEIGHT,
-                )
-                return matrix, {
-                    "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
-                    "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
-                }
+        token_matrices = NumbaList()
+        present_count_matrices = NumbaList()
+        token_counts = np.empty(len(group_models), dtype=np.int32)
+        group_weights = np.empty(len(group_models), dtype=np.float64)
+        group_dimension_ids = np.empty(len(group_models), dtype=np.int32)
+        dimension_to_id = {"initial": 0, "final": 1, "tone": 2}
+        for group_index, group in enumerate(group_models):
+            token_matrices.append(group["token_matrix"])
+            present_count_matrices.append(group["present_char_counts"])
+            token_counts[group_index] = len(group["token_catalog"]["tokens"])
+            group_weights[group_index] = float(group["group_weight"])
+            group_dimension_ids[group_index] = dimension_to_id[group["compare_dimension"]]
+        (
+            bucket_initial_matrix,
+            bucket_initial_count,
+            bucket_final_matrix,
+            bucket_final_count,
+            bucket_tone_matrix,
+            bucket_tone_count,
+        ) = build_shared_bucket_matrix_inputs(locations, bucket_models)
+        matrix = _build_total_distance_matrix_shared_multi_dim_numba(
+            token_matrices,
+            present_count_matrices,
+            token_counts,
+            group_weights,
+            group_dimension_ids,
+            bucket_initial_matrix,
+            bucket_initial_count,
+            bucket_final_matrix,
+            bucket_final_count,
+            bucket_tone_matrix,
+            bucket_tone_count,
+            DEFAULT_SHARED_IDENTITY_WEIGHT,
+        )
+        return matrix, {
+            "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
+            "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
+        }
 
     matrix = np.zeros((size, size), dtype=float)
     shared_alignment_cache: Optional[Dict[Tuple[str, int, int], Dict[str, Any]]] = (

@@ -18,7 +18,7 @@ from app.tools.cluster.service.distance_service import (  # noqa: E402
 )
 
 
-def build_fixture():
+def build_single_dimension_fixture():
     locations = ["A", "B", "C"]
     groups = [
         {
@@ -108,8 +108,135 @@ def build_fixture():
     return locations, group_models, inventory_profiles, bucket_models
 
 
-def assert_matrix_close(mode: str):
-    locations, group_models, inventory_profiles, bucket_models = build_fixture()
+def build_mixed_dimension_fixture():
+    locations = ["A", "B", "C"]
+    groups = [
+        {
+            "label": "g_final",
+            "source_mode": "preset",
+            "table_name": "characters",
+            "compare_dimension": "final",
+            "group_weight": 1.0,
+            "use_phonetic_values": False,
+            "phonetic_value_weight": 0.0,
+            "resolved_chars": ["甲", "乙", "丙"],
+        },
+        {
+            "label": "g_initial",
+            "source_mode": "preset",
+            "table_name": "characters",
+            "compare_dimension": "initial",
+            "group_weight": 1.0,
+            "use_phonetic_values": False,
+            "phonetic_value_weight": 0.0,
+            "resolved_chars": ["丁", "戊", "己"],
+        },
+        {
+            "label": "g_tone",
+            "source_mode": "preset",
+            "table_name": "characters",
+            "compare_dimension": "tone",
+            "group_weight": 1.0,
+            "use_phonetic_values": False,
+            "phonetic_value_weight": 0.0,
+            "resolved_chars": ["庚", "辛", "壬"],
+        },
+    ]
+    dialect_data = {
+        "A": {
+            "甲": {"final": {"an"}},
+            "乙": {"final": {"an"}},
+            "丙": {"final": {"ia"}},
+            "丁": {"initial": {"p"}},
+            "戊": {"initial": {"p"}},
+            "己": {"initial": {"m"}},
+            "庚": {"tone": {"55"}},
+            "辛": {"tone": {"55"}},
+            "壬": {"tone": {"21"}},
+        },
+        "B": {
+            "甲": {"final": {"en"}},
+            "乙": {"final": {"en"}},
+            "丙": {"final": {"ie"}},
+            "丁": {"initial": {"b"}},
+            "戊": {"initial": {"b"}},
+            "己": {"initial": {"m"}},
+            "庚": {"tone": {"44"}},
+            "辛": {"tone": {"44"}},
+            "壬": {"tone": {"21"}},
+        },
+        "C": {
+            "甲": {"final": {"en"}},
+            "乙": {"final": {"ie"}},
+            "丙": {"final": {"en"}},
+            "丁": {"initial": {"b"}},
+            "戊": {"initial": {"m"}},
+            "己": {"initial": {"b"}},
+            "庚": {"tone": {"44"}},
+            "辛": {"tone": {"21"}},
+            "壬": {"tone": {"44"}},
+        },
+    }
+    inventory_profiles = {
+        "A": {
+            "final": {
+                "an": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "ia": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "initial": {
+                "p": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "m": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "tone": {
+                "55": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "21": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+        },
+        "B": {
+            "final": {
+                "en": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "ie": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "initial": {
+                "b": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "m": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "tone": {
+                "44": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "21": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+        },
+        "C": {
+            "final": {
+                "en": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "ie": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "initial": {
+                "b": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "m": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+            "tone": {
+                "44": {"share": 2.0 / 3.0, "rank_pct": 0.0},
+                "21": {"share": 1.0 / 3.0, "rank_pct": 1.0},
+            },
+        },
+    }
+    dimension_catalogs = build_dimension_token_catalogs(groups, dialect_data)
+    group_models = [
+        build_group_model(group, locations, dialect_data, dimension_catalogs[group["compare_dimension"]])
+        for group in groups
+    ]
+    bucket_models = build_dimension_bucket_models(
+        groups,
+        locations,
+        dialect_data,
+        dimension_catalogs,
+    )
+    return locations, group_models, inventory_profiles, bucket_models
+
+
+def assert_matrix_close(mode: str, fixture_builder):
+    locations, group_models, inventory_profiles, bucket_models = fixture_builder()
     matrix_fast, params_fast = build_total_distance_matrix(
         group_models=group_models,
         locations=locations,
@@ -135,8 +262,11 @@ def assert_matrix_close(mode: str):
 
 def main():
     for mode in ["intra_group", "anchored_inventory", "shared_request_identity"]:
-        assert_matrix_close(mode)
-        print(f"{mode}: OK")
+        assert_matrix_close(mode, build_single_dimension_fixture)
+        print(f"single-dimension {mode}: OK")
+    for mode in ["intra_group", "anchored_inventory", "shared_request_identity"]:
+        assert_matrix_close(mode, build_mixed_dimension_fixture)
+        print(f"mixed-dimension {mode}: OK")
 
 
 if __name__ == "__main__":
