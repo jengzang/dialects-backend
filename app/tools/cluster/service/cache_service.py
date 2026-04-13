@@ -51,7 +51,11 @@ def _hash_payload(payload: Dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def build_cluster_job_hash(snapshot: Dict[str, Any], dialects_db: str) -> str:
+def build_cluster_job_hash(
+    snapshot: Dict[str, Any],
+    dialects_db: str,
+    query_db: Optional[str] = None,
+) -> str:
     normalized_groups = []
     for group in snapshot.get("groups") or []:
         normalized_groups.append(
@@ -72,6 +76,7 @@ def build_cluster_job_hash(snapshot: Dict[str, Any], dialects_db: str) -> str:
         ),
         "clustering": snapshot.get("clustering") or {},
         "dialects_db": str(dialects_db),
+        "query_db": str(query_db or ""),
     }
     return _hash_payload(normalized_payload)
 

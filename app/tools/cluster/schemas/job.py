@@ -220,3 +220,5 @@ class ClusterJobStatusResponse(BaseModel):
     created_at: float
     updated_at: float
     summary: Optional[dict] = None
+    execution_time_ms: Optional[int] = None
+    performance: Optional[dict] = None

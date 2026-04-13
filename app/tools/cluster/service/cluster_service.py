@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from app.common.path import DIALECTS_DB_USER
+from app.common.path import DIALECTS_DB_USER, QUERY_DB_USER
 from app.tools.cluster.config import DEFAULT_PHONEME_MODE
 from app.tools.cluster.service.cache_service import (
     annotate_cluster_result_cache,
@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 def build_cluster_result(
     snapshot: Dict[str, Any],
     dialects_db: str = DIALECTS_DB_USER,
+    query_db: str = QUERY_DB_USER,
 ) -> Dict[str, Any]:
     start_time = time.perf_counter()
     performance = dict(snapshot.get("performance") or {})
@@ -162,7 +163,7 @@ def build_cluster_result(
     algorithm = clustering["algorithm"]
     execution_space = choose_execution_space(algorithm=algorithm)
     location_detail_start = time.perf_counter()
-    location_details = load_location_details(matched_locations, dialects_db)
+    location_details = load_location_details(matched_locations, query_db)
     performance["location_details_ms"] = round(
         (time.perf_counter() - location_detail_start) * 1000.0,
         3,
@@ -272,6 +273,7 @@ def build_cluster_result(
 def run_cluster_job(
     task_id: str,
     dialects_db: str = DIALECTS_DB_USER,
+    query_db: str = QUERY_DB_USER,
 ):
     task = task_manager.get_task(task_id)
     if not task:
@@ -286,9 +288,11 @@ def run_cluster_job(
             message="缺少聚类任务快照",
         )
         return
-    job_hash = (task.get("data") or {}).get("job_hash") or build_cluster_job_hash(
+    task_data = task.get("data") or {}
+    job_hash = task_data.get("job_hash") or build_cluster_job_hash(
         snapshot,
         dialects_db,
+        query_db,
     )
 
     try:
@@ -314,6 +318,8 @@ def run_cluster_job(
                     "result_path": str(result_path),
                     "summary": build_task_summary(snapshot, result=result),
                     "job_hash": job_hash,
+                    "execution_time_ms": (result.get("metadata") or {}).get("execution_time_ms"),
+                    "performance": (result.get("metadata") or {}).get("performance"),
                 },
             )
             clear_inflight_task_id(job_hash, task_id=task_id)
@@ -326,7 +332,11 @@ def run_cluster_job(
             message="正在读取方言数据并构建聚类输入",
         )
 
-        result = build_cluster_result(snapshot, dialects_db=dialects_db)
+        result = build_cluster_result(
+            snapshot,
+            dialects_db=dialects_db,
+            query_db=query_db,
+        )
         result = annotate_cluster_result_cache(
             result,
             job_hash=job_hash,
@@ -354,6 +364,8 @@ def run_cluster_job(
                     "result_path": str(result_path),
                     "summary": build_task_summary(snapshot, result=result),
                     "job_hash": job_hash,
+                    "execution_time_ms": (result.get("metadata") or {}).get("execution_time_ms"),
+                    "performance": (result.get("metadata") or {}).get("performance"),
                 },
         )
         clear_inflight_task_id(job_hash, task_id=task_id)

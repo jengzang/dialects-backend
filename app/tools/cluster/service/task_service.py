@@ -43,6 +43,8 @@ def get_task_status_payload(task_id: str) -> Optional[Dict[str, Any]]:
         "created_at": float(task.get("created_at", 0.0)),
         "updated_at": float(task.get("updated_at", 0.0)),
         "summary": (task.get("data") or {}).get("summary"),
+        "execution_time_ms": (task.get("data") or {}).get("execution_time_ms"),
+        "performance": (task.get("data") or {}).get("performance"),
     }
 
 
