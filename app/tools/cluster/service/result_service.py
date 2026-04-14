@@ -1,5 +1,7 @@
 """
-Cluster result shaping services.
+cluster 结果整形层。
+
+前面的 service 主要产出的是内部中间态，这一层负责把它们拼成前端直接可用的结果 JSON。
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from app.tools.cluster.utils import dedupe, public_location_detail
 
 
 def build_task_summary(snapshot: Dict[str, Any], result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """构建任务摘要，用于创建任务后的回执和任务轮询。"""
     location_resolution = snapshot.get("location_resolution") or {}
     groups = snapshot.get("groups") or []
     clustering = snapshot.get("clustering") or {}
@@ -50,6 +53,7 @@ def build_group_diagnostics(
     matched_locations: Sequence[str],
     effective_locations: Sequence[str],
 ) -> List[Dict[str, Any]]:
+    """为每个 group 输出覆盖率、缺失地点、权重和告警等诊断信息。"""
     diagnostics: List[Dict[str, Any]] = []
     for group in group_models:
         missing_locations = [
@@ -86,6 +90,7 @@ def build_assignments(
     extra_values: Optional[np.ndarray] = None,
     extra_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """把每个地点映射到聚类标签，并附带展示字段与附加指标。"""
     assignments: List[Dict[str, Any]] = []
     for index, location in enumerate(locations):
         location_detail = public_location_detail(location_details.get(location, {"location": location}))
@@ -114,6 +119,7 @@ def collect_cluster_warnings(
     dropped_locations: Sequence[str],
     group_diagnostics: Sequence[Dict[str, Any]],
 ) -> List[str]:
+    """汇总并去重所有全局与分组级别的告警。"""
     warnings: List[str] = []
     if legacy_metric_mode:
         warnings.append(
@@ -151,6 +157,7 @@ def build_result_payload(
     warnings: List[str],
     location_details: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
+    """生成最终结果 JSON，作为 `/result` 接口直接返回的数据结构。"""
     cluster_count = len({label for label in labels.tolist() if label != -1})
     public_location_details = {
         location: public_location_detail(detail)

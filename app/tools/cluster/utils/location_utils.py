@@ -1,5 +1,8 @@
 """
-Cluster helpers for location and tone payload shaping.
+地点展示字段与调类轮廓相关工具。
+
+聚类计算本身主要依赖 dialect 行中的音系数据，但前端结果展示仍需要行政区、
+经纬度、音典分区、调类信息等字段，因此统一在这里做整形。
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from .common import safe_text
 
 
 def parse_coordinates(raw_value: Any) -> Optional[Dict[str, float]]:
+    """把数据库中的 `经纬度` 文本解析成经度/纬度对象。"""
     text = safe_text(raw_value)
     if not text or "," not in text:
         return None
@@ -30,6 +34,13 @@ def parse_coordinates(raw_value: Any) -> Optional[Dict[str, float]]:
 
 
 def normalize_tone_contour(raw_value: Any) -> List[float]:
+    """
+    把调值字符串压成固定 4 维向量。
+
+    返回格式是：
+    - 第 1 维固定为 1，表示该调类存在；
+    - 后 3 维分别表示起点 / 中点 / 终点，且归一化到 0~1。
+    """
     text = safe_text(raw_value)
     if not text:
         return [0.0, 0.0, 0.0, 0.0]
@@ -60,6 +71,7 @@ def normalize_tone_contour(raw_value: Any) -> List[float]:
 
 
 def build_tone_system_vector(location_detail: Optional[Dict[str, Any]]) -> np.ndarray:
+    """把一个地点的所有调类槽位拼成统一长度的调系向量。"""
     if not location_detail:
         return np.zeros(len(TONE_SLOT_COLUMNS) * 4, dtype=float)
 
@@ -71,6 +83,7 @@ def build_tone_system_vector(location_detail: Optional[Dict[str, Any]]) -> np.nd
 
 
 def public_location_detail(location_detail: Dict[str, Any]) -> Dict[str, Any]:
+    """筛出允许返回给前端的地点详情字段。"""
     return {
         "location": location_detail.get("location"),
         "province": location_detail.get("province"),

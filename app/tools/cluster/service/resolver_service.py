@@ -1,5 +1,10 @@
 """
-Cluster request resolution services.
+cluster 请求解析层。
+
+它的目标是把“前端较自由的输入”变成后续计算可以稳定复用的 snapshot：
+- group 最终要变成明确的 `resolved_chars`；
+- 地点 / 分区最终要变成明确的地点简称列表；
+- 同时记录过滤特殊点、匹配数量、性能信息等元数据。
 """
 
 from __future__ import annotations
@@ -21,6 +26,12 @@ from app.tools.cluster.utils import dedupe, now_ms
 
 
 def normalize_char_input(raw_value: Any) -> List[str]:
+    """
+    把各种形态的字集输入压平为单字列表。
+
+    支持单个字符串、数组，以及带有逗号/顿号/斜杠/空白分隔的混合文本。
+    最终返回顺序去重后的单字列表。
+    """
     if raw_value is None:
         return []
 
@@ -45,11 +56,21 @@ def normalize_char_input(raw_value: Any) -> List[str]:
 
 
 def build_group_label(group: Dict[str, Any], index: int) -> str:
+    """优先使用用户传入标签；否则生成稳定的默认组名。"""
     label = str(group.get("label") or "").strip()
     return label or f"group_{index + 1}"
 
 
 def resolve_group_sync(group: Dict[str, Any], index: int) -> Dict[str, Any]:
+    """
+    同步解析一个 group。
+
+    字集来源的优先级是：
+    1. `resolved_chars`：调用方已给出最终字集；
+    2. `custom_chars`：直接由用户输入自定义字串；
+    3. `path_strings`：按 charlist 规则解析，并复用现有缓存；
+    4. `filters`：兼容旧式结构化筛选。
+    """
     label = build_group_label(group, index)
 
     if group.get("resolved_chars") is not None:
@@ -101,10 +122,12 @@ def resolve_group_sync(group: Dict[str, Any], index: int) -> Dict[str, Any]:
 
 
 async def resolve_cluster_groups(groups: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """批量解析所有 group；当前只是同步逻辑的异步壳。"""
     return [resolve_group_sync(group, index) for index, group in enumerate(groups)]
 
 
 def is_default_filtered_location(location_detail: Optional[Dict[str, Any]]) -> bool:
+    """判断一个地点是否属于默认应过滤的特殊点。"""
     if not location_detail:
         return False
     return (location_detail.get("yindian_region") or "") in DEFAULT_FILTERED_YINDIAN_REGIONS
@@ -119,6 +142,15 @@ def resolve_locations(
     requested_locations_raw: Optional[Sequence[str]] = None,
     requested_regions_raw: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
+    """
+    解析地点与分区输入，得到最终参与聚类的地点简称列表。
+
+    这里会：
+    - 先把 region 扩展成地点简称候选；
+    - 再走精确匹配；
+    - 按默认规则过滤特殊点；
+    - 同时保留过滤前后的计数，方便前端解释结果。
+    """
     expanded_inputs = query_dialect_abbreviations(
         region_input=list(regions or []),
         location_sequence=list(locations or []),
@@ -176,6 +208,13 @@ async def resolve_cluster_job_snapshot(
     payload: Dict[str, Any],
     query_db: str = QUERY_DB_USER,
 ) -> Dict[str, Any]:
+    """
+    生成 cluster 任务的 snapshot。
+
+    snapshot 是整个任务的冻结输入：
+    - 后台计算只依赖 snapshot，不再重新读原始请求；
+    - 结果缓存与 inflight 去重也以 snapshot 为基础。
+    """
     start_time = time.perf_counter()
     groups = await resolve_cluster_groups(payload.get("groups") or [])
     empty_groups = [group["label"] for group in groups if not group["resolved_chars"]]

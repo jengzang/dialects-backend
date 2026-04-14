@@ -1,5 +1,11 @@
 """
-Dialect clustering tool routes.
+cluster HTTP 路由入口。
+
+这一层不参与具体音系计算，主要负责：
+- 请求参数与依赖注入；
+- 创建后台任务；
+- 结果缓存命中与 inflight 去重；
+- 对外暴露任务状态、结果和删除接口。
 """
 
 from __future__ import annotations
@@ -43,6 +49,16 @@ async def create_cluster_job(
     query_db: str = Depends(get_query_db),
     dialects_db: str = Depends(get_dialects_db),
 ):
+    """
+    创建一个新的聚类任务。
+
+    处理顺序是：
+    1. 先把前端输入的地点做标准化匹配；
+    2. 再把 group 和地点解析成稳定的 snapshot；
+    3. 用 snapshot 生成 job_hash，优先查结果缓存；
+    4. 若已有完全相同的任务在跑，则直接复用已有 task_id；
+    5. 否则创建后台任务，由 `run_cluster_job()` 真正执行聚类。
+    """
     payload_dict = payload.model_dump(mode="json")
     payload_dict["requested_locations_raw"] = list(payload.locations or [])
     payload_dict["requested_regions_raw"] = list(payload.regions or [])
@@ -151,6 +167,7 @@ async def create_cluster_job(
 
 @router.get("/jobs/{task_id}", response_model=ClusterJobStatusResponse)
 async def get_cluster_job_status(task_id: str):
+    """返回任务当前的进度、摘要与性能分段信息。"""
     payload = get_task_status_payload(task_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -159,6 +176,7 @@ async def get_cluster_job_status(task_id: str):
 
 @router.get("/jobs/{task_id}/result")
 async def get_cluster_job_result(task_id: str):
+    """读取已完成任务的最终结果 JSON。"""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -171,6 +189,7 @@ async def get_cluster_job_result(task_id: str):
 
 @router.delete("/jobs/{task_id}")
 async def delete_cluster_job(task_id: str):
+    """删除任务记录；这里只清理任务系统，不回滚历史结果文件。"""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")

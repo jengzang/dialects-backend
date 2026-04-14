@@ -1,5 +1,13 @@
 """
-Cluster phoneme-distance modeling services.
+cluster 音系距离建模层。
+
+这是整个 cluster 功能里最核心、也最容易看迷糊的一层。
+它负责三件事：
+1. 把地点-汉字-读音集合编码成 token id 矩阵；
+2. 按三种 phoneme_mode 计算地点两两之间的音系距离；
+3. 在满足条件时切到 numba 快路径，加速大规模请求。
+
+这里说的“距离矩阵”始终指语言样本之间的音系距离，不是地理空间距离。
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ try:
     from numba.typed import List as NumbaList
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional accelerator
+    # numba 不可用时，保留同名装饰器桩函数，让 Python 回退路径仍能工作。
     def njit(*args, **kwargs):  # type: ignore[misc]
         def decorator(func):
             return func
@@ -38,6 +47,16 @@ def _compute_intra_group_distance_numba(
     token_ids_b: np.ndarray,
     token_count: int,
 ) -> float:
+    """
+    numba 版组内距离计算。
+
+    组内距离由两部分组成：
+    - d_corr：A/B 在这组字上的对应关系是否稳定；
+    - d_struct：A/B 在这组字上的同音结构是否一致。
+
+    最终返回：
+    `0.85 * d_corr + 0.15 * d_struct`
+    """
     shared_total = 0
     for index in range(token_ids_a.shape[0]):
         if token_ids_a[index] >= 0 and token_ids_b[index] >= 0:
@@ -45,6 +64,7 @@ def _compute_intra_group_distance_numba(
     if shared_total <= 0:
         return INTRA_CORR_WEIGHT
 
+    # 先把“全局 token id”压成当前 A/B 对比里用到的局部槽位，后续计数更紧凑。
     map_x = np.full(token_count, -1, dtype=np.int32)
     map_y = np.full(token_count, -1, dtype=np.int32)
     inverse_x = np.empty(shared_total, dtype=np.int32)
@@ -75,6 +95,7 @@ def _compute_intra_group_distance_numba(
         inverse_y[position] = slot_y
         position += 1
 
+    # count_x / count_y / count_xy 就是后续条件熵和同音结构距离的基础统计量。
     count_x = np.zeros(size_x, dtype=np.int32)
     count_y = np.zeros(size_y, dtype=np.int32)
     count_xy = np.zeros(size_x * size_y, dtype=np.int32)
@@ -138,6 +159,16 @@ def _build_alignment_model_numba(
     token_ids_b: np.ndarray,
     token_count: int,
 ):
+    """
+    numba 版对齐模型构建。
+
+    它会从两个地点共享覆盖的 token 中抽取出：
+    - 一维边际计数 `count_x` / `count_y`
+    - 二维联合计数 `count_xy`
+    - 原 token id 到局部槽位的 lookup
+
+    这个结构既可用于 anchored，也可用于 shared identity。
+    """
     shared_total = 0
     used_x = np.zeros(token_count, dtype=np.uint8)
     used_y = np.zeros(token_count, dtype=np.uint8)
@@ -195,6 +226,13 @@ def _conditional_entropy_distance_with_model_numba(
     model_lookup_x: np.ndarray,
     model_lookup_y: np.ndarray,
 ) -> float:
+    """
+    基于“外部提供的对齐模型”计算条件熵距离。
+
+    shared_request_identity 的关键就在这里：
+    当前 group 的小字集不自己建模型，而是借用同维度 bucket 的共享模型来衡量
+    “这个 group 在整个请求上下文里是否仍保持同样的对应身份”。
+    """
     total = 0
     for index in range(token_ids_a.shape[0]):
         if token_ids_a[index] >= 0 and token_ids_b[index] >= 0:
@@ -250,6 +288,13 @@ def _compute_group_distance_anchored_numba(
     signatures_b: np.ndarray,
     anchor_weight: float,
 ) -> float:
+    """
+    numba 版 anchored_inventory 距离。
+
+    它先算普通组内距离 `d_intra`，再根据地点内部库存画像求 `d_anchor`，
+    最终返回：
+    `(1 - anchor_weight) * d_intra + anchor_weight * d_anchor`
+    """
     count_xy, count_x, count_y, lookup_x, lookup_y = _build_alignment_model_numba(
         token_ids_a,
         token_ids_b,
@@ -259,6 +304,7 @@ def _compute_group_distance_anchored_numba(
     if shared_total <= 0:
         return ((1.0 - anchor_weight) * INTRA_CORR_WEIGHT) + anchor_weight
 
+    # lookup 只知道“token -> 槽位”，这里再反推出“槽位 -> token”，便于查锚点签名。
     size_x = count_x.shape[0]
     size_y = count_y.shape[0]
     slot_token_x = np.empty(size_x, dtype=np.int32)
@@ -317,6 +363,7 @@ def _compute_group_distance_anchored_numba(
 
     d_intra = INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
 
+    # 对每个 token 找最稳的映射对象，再比较两边库存画像里的 share / rank 差异。
     inv_total_x = 1.0 / float(np.sum(count_x))
     inv_total_y = 1.0 / float(np.sum(count_y))
     dist_a_to_b = 0.0
@@ -376,6 +423,7 @@ def _build_total_distance_matrix_intra_group_numba(
     token_counts: np.ndarray,
     group_weights: np.ndarray,
 ) -> np.ndarray:
+    """numba 版 `intra_group` 全矩阵构建。"""
     group_count = len(token_matrices)
     size = present_count_matrices[0].shape[0]
     matrix = np.zeros((size, size), dtype=np.float64)
@@ -391,6 +439,7 @@ def _build_total_distance_matrix_intra_group_numba(
 
                 weight = group_weights[group_index]
                 weight_sum += weight
+                # 其中一边完全缺失时，按该组最远距离 1.0 处理。
                 if present_count_a == 0 or present_count_b == 0:
                     total += weight
                     continue
@@ -416,6 +465,7 @@ def _build_total_distance_matrix_anchored_numba(
     anchor_signatures,
     anchor_weight: float,
 ) -> np.ndarray:
+    """numba 版 `anchored_inventory` 全矩阵构建。"""
     group_count = len(token_matrices)
     size = present_count_matrices[0].shape[0]
     matrix = np.zeros((size, size), dtype=np.float64)
@@ -465,11 +515,20 @@ def _build_total_distance_matrix_shared_multi_dim_numba(
     bucket_tone_count: int,
     shared_identity_weight: float,
 ) -> np.ndarray:
+    """
+    numba 版 `shared_request_identity` 全矩阵构建。
+
+    和旧逻辑一致，这里按维度分别建共享 bucket：
+    - 声母 group 只和声母 bucket 对齐；
+    - 韵母 group 只和韵母 bucket 对齐；
+    - 声调 group 只和声调 bucket 对齐。
+    """
     group_count = len(token_matrices)
     size = present_count_matrices[0].shape[0]
     matrix = np.zeros((size, size), dtype=np.float64)
     for i in prange(size):
         for j in range(i + 1, size):
+            # 对当前地点对 (i, j) 来说，同一维度的共享模型只需要构建一次。
             (
                 initial_count_xy,
                 initial_count_x,
@@ -522,6 +581,7 @@ def _build_total_distance_matrix_shared_multi_dim_numba(
                     token_matrices[group_index][j],
                     int(token_counts[group_index]),
                 )
+                # 默认先落在 final；再按 group 的维度切换到对应 bucket。
                 model_count_xy = final_count_xy
                 model_count_x = final_count_x
                 model_count_y = final_count_y
@@ -564,6 +624,12 @@ def build_dimension_token_catalogs(
     groups: Sequence[Dict[str, Any]],
     dialect_data: Dict[str, Dict[str, Dict[str, set[str]]]],
 ) -> Dict[str, Dict[str, Any]]:
+    """
+    为每个维度建立 token catalog。
+
+    这里的 token 不是单个读音值，而是“某个字在该地点该维度上的读音集合”，
+    例如一个字有多个韵母读法时，会先规范化为稳定排序后的复合 token。
+    """
     dimensions = sorted({group["compare_dimension"] for group in groups})
     tokens_by_dimension: Dict[str, set[str]] = {dimension: set() for dimension in dimensions}
 
@@ -601,6 +667,14 @@ def build_group_model(
     dialect_data: Dict[str, Dict[str, Dict[str, set[str]]]],
     dimension_catalog: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """
+    把单个 group 编码成可参与距离计算的结构。
+
+    核心产物是：
+    - `token_matrix`：地点 x 汉字 的 token id 矩阵；
+    - `present_char_counts`：每个地点在该组实际覆盖了多少字；
+    - `locations[*].token_ids`：便于 Python 回退路径直接读取。
+    """
     dimension = group["compare_dimension"]
     resolved_chars = list(group["resolved_chars"])
     char_count = len(resolved_chars)
@@ -614,6 +688,7 @@ def build_group_model(
         present_char_count = 0
 
         for index, char in enumerate(resolved_chars):
+            # 每个单元格存的是“规范化后的读音集合 token id”，缺失则保留为 -1。
             values = set(location_char_data.get(char, {}).get(dimension, set()))
             if not values:
                 continue
@@ -670,6 +745,15 @@ def build_alignment_info(
     token_ids_b: np.ndarray,
     include_lookup: bool = False,
 ) -> Dict[str, Any]:
+    """
+    为一对地点构建对齐统计信息。
+
+    它是 Python 回退路径里最基础的中间结构，包含：
+    - `count_xy`：联合计数；
+    - `count_x / count_y`：边际计数；
+    - `map_a_to_b / map_b_to_a`：按最大频次得到的粗映射；
+    - 可选的 token -> 槽位索引，用于 shared identity 投影。
+    """
     shared_mask = (token_ids_a >= 0) & (token_ids_b >= 0)
     total = int(np.count_nonzero(shared_mask))
     if total <= 0:
@@ -731,6 +815,7 @@ def conditional_entropy_distance_from_counts(
     count_y: np.ndarray,
     total: int,
 ) -> float:
+    """根据联合计数与边际计数计算条件熵距离。"""
     if total <= 0:
         return 1.0
 
@@ -758,6 +843,7 @@ def pair_relation_distance_from_counts(
     count_y: np.ndarray,
     total: int,
 ) -> float:
+    """根据“同音/异音成对关系”计算结构差异距离。"""
     if total < 2:
         return 0.0
 
@@ -780,6 +866,12 @@ def conditional_entropy_distance_with_model(
     token_ids_b: np.ndarray,
     model_alignment: Dict[str, Any],
 ) -> float:
+    """
+    使用外部共享模型计算条件熵距离。
+
+    和 `conditional_entropy_distance_from_counts()` 不同，这里并不从当前 group 自己建模，
+    而是把当前 token 投影到“同维度共享 bucket”建出的模型上去评价稳定性。
+    """
     shared_mask = (token_ids_a >= 0) & (token_ids_b >= 0)
     total = int(np.count_nonzero(shared_mask))
     if total <= 0:
@@ -825,6 +917,11 @@ def token_value_distance_by_id(
     token_id_b: int,
     token_catalog: Dict[str, Any],
 ) -> float:
+    """
+    比较两个 token 的实际取值集合差异。
+
+    当 `use_phonetic_values=true` 时，会在音类对应距离之外，再混入这一层集合差异。
+    """
     cache_key = (
         (token_id_a, token_id_b)
         if token_id_a <= token_id_b
@@ -855,6 +952,11 @@ def aligned_value_distance(
     map_b_to_a: np.ndarray,
     token_catalog: Dict[str, Any],
 ) -> float:
+    """
+    根据已经对齐好的 token 映射，计算值集合层面的平均距离。
+
+    这一步不是默认主线，只有显式开启 `use_phonetic_values` 时才参与总距离。
+    """
     total_x = float(np.sum(count_x))
     total_y = float(np.sum(count_y))
     if total_x <= 0 or total_y <= 0:
@@ -892,6 +994,13 @@ def token_anchor_signature_by_id(
     cache: Optional[Dict[Tuple[int, int], np.ndarray]] = None,
     cache_key: Optional[Tuple[int, int]] = None,
 ) -> np.ndarray:
+    """
+    为一个 token 在某地点的库存画像中生成 2 维锚点签名。
+
+    目前这 2 维分别是：
+    - 平均 share：这个 token 在该地点库存中有多常见；
+    - 平均 rank_pct：这个 token 在该地点库存排序里有多核心。
+    """
     if cache is not None and cache_key is not None and cache_key in cache:
         return cache[cache_key]
 
@@ -928,6 +1037,12 @@ def project_model_mapping(
     model_index: Optional[Dict[int, int]],
     model_mapping: np.ndarray,
 ) -> np.ndarray:
+    """
+    把当前 group 的 token id 映射投影到共享模型的 token 空间中。
+
+    shared_request_identity 开启 `use_phonetic_values` 时，需要先做这一步，
+    才能按共享模型给出的映射关系比较值集合差异。
+    """
     if token_ids.size == 0:
         return np.zeros(0, dtype=np.int32)
     if not model_index:
@@ -953,6 +1068,13 @@ def anchor_distance(
     token_catalog: Dict[str, Any],
     signature_cache: Optional[Dict[Tuple[int, int], np.ndarray]] = None,
 ) -> float:
+    """
+    计算 anchored_inventory 里的锚点距离部分。
+
+    直观上，它回答的是：
+    “A 的某个 token 虽然对应到 B 的某个 token，但它们在各自系统内部的
+    频率地位和排序地位是否相近？”
+    """
     total_x = float(np.sum(count_x))
     total_y = float(np.sum(count_y))
     if total_x <= 0 or total_y <= 0:
@@ -968,6 +1090,7 @@ def anchor_distance(
         source_location_key: int,
         target_location_key: int,
     ) -> float:
+        """按 token 频次加权，累计一个方向上的锚点差异。"""
         value = 0.0
         for token_id, freq, matched_token_id in zip(source_token_ids, source_counts, matched_token_ids):
             if int(matched_token_id) < 0:
@@ -1023,6 +1146,14 @@ def build_dimension_bucket_models(
     dialect_data: Dict[str, Dict[str, Dict[str, set[str]]]],
     dimension_catalogs: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Dict[str, Any]]:
+    """
+    为 shared_request_identity 构建“按维度聚合”的 bucket 模型。
+
+    它不是把所有 group 混成一个大组，而是：
+    - 声母 group 共享一个 initial bucket；
+    - 韵母 group 共享一个 final bucket；
+    - 声调 group 共享一个 tone bucket。
+    """
     bucket_models: Dict[str, Dict[str, Any]] = {}
     for dimension in sorted({group["compare_dimension"] for group in groups}):
         union_chars = dedupe(
@@ -1063,6 +1194,7 @@ def build_anchor_signature_matrices(
     inventory_profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]],
     dimension_catalogs: Dict[str, Dict[str, Any]],
 ) -> Dict[str, np.ndarray]:
+    """把 anchored_inventory 所需的锚点签名预先展开成矩阵，供 numba 快路径直接读取。"""
     signature_matrices: Dict[str, np.ndarray] = {}
     for dimension in dimensions:
         token_catalog = dimension_catalogs[dimension]
@@ -1093,6 +1225,7 @@ def build_shared_bucket_matrix_inputs(
     np.ndarray,
     int,
 ]:
+    """把三种维度 bucket 拆成 numba 快路径易消费的矩阵输入。"""
     empty_matrix = np.full((len(locations), 0), -1, dtype=np.int32)
 
     def resolve_dimension(dimension: str) -> Tuple[np.ndarray, int]:
@@ -1126,6 +1259,17 @@ def build_total_distance_matrix(
     force_python: bool = False,
     block_size: int = 64,
 ) -> Tuple[np.ndarray, Dict[str, float]]:
+    """
+    构建整个请求的地点两两音系距离矩阵。
+
+    这是 cluster 的主热点函数。输入是所有 group 的编码结果，输出是：
+    - `matrix[i, j]`：地点 i 和 j 的音系距离；
+    - `phoneme_mode_params`：本次模式下使用到的权重参数。
+
+    实现上分两条路：
+    - 条件满足时走 numba 快路径；
+    - 否则回退到 Python/NumPy 路径。
+    """
     size = len(locations)
     if (
         NUMBA_AVAILABLE
@@ -1133,6 +1277,7 @@ def build_total_distance_matrix(
         and phoneme_mode == "intra_group"
         and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
+        # 纯 intra_group、且不混入值集合距离时，直接走最快的 numba 路径。
         token_matrices = NumbaList()
         present_count_matrices = NumbaList()
         token_counts = np.empty(len(group_models), dtype=np.int32)
@@ -1159,6 +1304,7 @@ def build_total_distance_matrix(
         and phoneme_mode == "anchored_inventory"
         and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
+        # anchored 模式要先把各地点各 token 的锚点签名展开成矩阵。
         dimension_catalogs = {
             group["compare_dimension"]: group["token_catalog"] for group in group_models
         }
@@ -1198,6 +1344,8 @@ def build_total_distance_matrix(
         and phoneme_mode == "shared_request_identity"
         and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
+        # shared_request_identity 的快路径按维度分别使用 shared bucket，
+        # 与当前 Python 逻辑保持一致，不再把所有维度混成一个总 bucket。
         token_matrices = NumbaList()
         present_count_matrices = NumbaList()
         token_counts = np.empty(len(group_models), dtype=np.int32)
@@ -1237,6 +1385,7 @@ def build_total_distance_matrix(
             "shared_identity_weight": DEFAULT_SHARED_IDENTITY_WEIGHT,
         }
 
+    # 以下是 Python 回退路径：逻辑更直观，也方便做等价性对照和调试。
     matrix = np.zeros((size, size), dtype=float)
     shared_alignment_cache: Optional[Dict[Tuple[str, int, int], Dict[str, Any]]] = (
         {} if phoneme_mode == "shared_request_identity" else None
@@ -1245,6 +1394,7 @@ def build_total_distance_matrix(
         {} if phoneme_mode == "anchored_inventory" else None
     )
 
+    # 先把字典结构压成更易遍历的列表结构，减少深层字典索引开销。
     prepared_groups = []
     for group in group_models:
         prepared_groups.append(
@@ -1275,6 +1425,7 @@ def build_total_distance_matrix(
             for dimension in sorted({group["compare_dimension"] for group in group_models})
         }
 
+    # 按 block 扫描矩阵，避免超大请求时 Python 双重循环完全失控。
     for row_start in range(0, size, block_size):
         row_end = min(size, row_start + block_size)
         for col_start in range(row_start, size, block_size):
@@ -1303,6 +1454,7 @@ def build_total_distance_matrix(
                             total += weight * 1.0
                             continue
 
+                        # 先算该组内自己的对齐统计，这是三种模式共同的基础。
                         group_alignment = build_alignment_info(
                             state_a["token_ids"],
                             state_b["token_ids"],
@@ -1326,6 +1478,7 @@ def build_total_distance_matrix(
                         value_map_b_to_a = group_alignment["map_b_to_a"]
 
                         if phoneme_mode == "anchored_inventory":
+                            # anchored：把“系统内库存位置”也混入距离。
                             dimension = group["compare_dimension"]
                             profile_a = inventory_profiles_by_dimension[dimension][i]
                             profile_b = inventory_profiles_by_dimension[dimension][j]
@@ -1346,6 +1499,8 @@ def build_total_distance_matrix(
                                 + DEFAULT_ANCHOR_WEIGHT * d_anchor
                             )
                         elif phoneme_mode == "shared_request_identity":
+                            # shared identity：借助同维度共享 bucket 的对齐模型，
+                            # 判断当前 group 的对应关系在更大请求上下文里是否仍稳定。
                             dimension = group["compare_dimension"]
                             cache_key = (dimension, i, j)
                             if cache_key not in shared_alignment_cache:
@@ -1379,6 +1534,7 @@ def build_total_distance_matrix(
 
                         group_distance = d_phoneme
                         if group["use_phonetic_values"]:
+                            # 若显式要求混入值集合差异，再按 phonetic_value_weight 二次融合。
                             phonetic_weight = group["phonetic_value_weight"]
                             d_value = aligned_value_distance(
                                 group_alignment["count_x"],

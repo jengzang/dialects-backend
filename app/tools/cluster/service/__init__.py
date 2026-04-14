@@ -1,5 +1,8 @@
 """
-Cluster service package.
+cluster service 子包的统一导出层。
+
+内部按 resolver、loader、distance、pipeline、result 等职责拆开，
+这里负责给上层提供更平坦的导入面。
 """
 
 from .cluster_service import (

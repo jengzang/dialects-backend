@@ -1,5 +1,7 @@
 """
-Cluster schema exports.
+cluster 请求/响应 schema 的统一导出层。
+
+路由层只从这里取 schema，不需要分别感知 job/result 文件。
 """
 
 from .job import (

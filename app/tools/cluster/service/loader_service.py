@@ -1,5 +1,10 @@
 """
-Cluster data loading and cache services.
+cluster 数据加载层。
+
+这一层承担三类职责：
+1. 把 group 的字集来源真正解析成字符列表；
+2. 从 `dialects` / `characters` 等表中批量读取聚类所需数据；
+3. 对部分可复用的中间结果做缓存，降低重复请求开销。
 """
 
 from __future__ import annotations
@@ -33,14 +38,17 @@ logger = logging.getLogger(__name__)
 
 
 def cache_get_json(key: str) -> Optional[Any]:
+    """读取 cluster 内部使用的 JSON 缓存。"""
     return get_cluster_cache_sync(key)
 
 
 def cache_set_json(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
+    """写入 cluster 内部使用的 JSON 缓存。"""
     set_cluster_cache_sync(key, value, expire_seconds=ttl)
 
 
 def build_filters_cache_key(group: Dict[str, Any]) -> str:
+    """为旧版 structured filters 输入生成稳定缓存 key。"""
     key_payload = {
         "table_name": group.get("table_name", "characters"),
         "filters": group.get("filters") or {},
@@ -56,6 +64,12 @@ def resolve_preset_path_chars(
     group: Dict[str, Any],
     normalize_char_input,
 ) -> Dict[str, Any]:
+    """
+    解析 charlist 风格的 `path_strings` 输入。
+
+    这里刻意直接复用 `/api/charlist` 同源的 key 生成与解析逻辑，
+    这样 cluster 和 charlist 可以命中同一份 Redis 缓存。
+    """
     path_strings = group.get("path_strings") or []
     cache_key = generate_cache_key(
         path_strings=path_strings,
@@ -98,6 +112,11 @@ def resolve_preset_filter_chars(
     group: Dict[str, Any],
     normalize_char_input,
 ) -> Dict[str, Any]:
+    """
+    兼容旧版 structured filters 输入。
+
+    这条路径仍然保留兼容，但当前前端主路径已经更偏向 charlist 风格输入。
+    """
     table_name = group.get("table_name", "characters")
     filters = group.get("filters") or {}
 
@@ -124,6 +143,7 @@ def resolve_preset_filter_chars(
             "resolver": "structured_filters",
         }
 
+    # OR 在字段内展开，AND 在字段之间合并，保持与旧查询约定一致。
     conditions = []
     params = []
     for column, values in filters.items():
@@ -185,6 +205,13 @@ def load_location_filter_details(
     locations: Sequence[str],
     db_path: str,
 ) -> Dict[str, Dict[str, Any]]:
+    """
+    读取地点过滤阶段需要的最小字段。
+
+    这里只查简称和分区信息，因为 resolver 阶段只需要判断：
+    - 是否命中地点；
+    - 是否属于默认要过滤的特殊点。
+    """
     details: Dict[str, Dict[str, Any]] = {}
     if not locations:
         return details
@@ -229,6 +256,12 @@ def load_location_details(
     locations: Sequence[str],
     db_path: str,
 ) -> Dict[str, Dict[str, Any]]:
+    """
+    读取结果展示所需的地点详情。
+
+    这些字段不参与聚类计算，只用于最后的 assignments / location_details 展示，
+    所以在主流程中会被延后到距离矩阵计算之后再查询。
+    """
     details: Dict[str, Dict[str, Any]] = {}
     if not locations:
         return details
@@ -304,6 +337,7 @@ def _can_cache_loader_payload(
     locations: Sequence[str],
     chars: Sequence[str],
 ) -> bool:
+    """只允许中小请求进入 loader 缓存，避免 Redis 爆大对象。"""
     return (
         len(locations) <= LOADER_CACHE_MAX_LOCATIONS
         and len(chars) <= LOADER_CACHE_MAX_CHARS
@@ -316,6 +350,7 @@ def _build_loader_cache_key(
     db_path: str,
     resolved_dimensions: Sequence[str],
 ) -> str:
+    """根据地点、字集、数据库和维度集合生成 loader 缓存 key。"""
     payload = {
         "db": str(db_path),
         "locations": list(locations),
@@ -329,6 +364,7 @@ def _build_loader_cache_key(
 def _serialize_dialect_data(
     data: Dict[str, Dict[str, Dict[str, set[str]]]],
 ) -> Dict[str, Dict[str, Dict[str, list[str]]]]:
+    """把内部 `set` 结构转成可序列化的列表结构。"""
     serialized: Dict[str, Dict[str, Dict[str, list[str]]]] = {}
     for location, char_map in data.items():
         serialized[location] = {}
@@ -344,6 +380,7 @@ def _serialize_dialect_data(
 def _deserialize_dialect_data(
     payload: Dict[str, Dict[str, Dict[str, Sequence[str]]]],
 ) -> Dict[str, Dict[str, Dict[str, set[str]]]]:
+    """把缓存中的 JSON 结构恢复成内部使用的多层 `set` 结构。"""
     deserialized: Dict[str, Dict[str, Dict[str, set[str]]]] = defaultdict(
         lambda: defaultdict(lambda: {"initial": set(), "final": set(), "tone": set()})
     )
@@ -365,12 +402,23 @@ def load_dialect_rows(
     db_path: str,
     requested_dimensions: Optional[Sequence[str]] = None,
 ) -> Dict[str, Dict[str, Dict[str, set[str]]]]:
+    """
+    批量读取 cluster 需要的方言行数据。
+
+    返回结构固定为：
+    `location -> char -> dimension -> set[str]`
+
+    关键点有两个：
+    1. 只读取当前请求真正用到的维度列；
+    2. SQL 采用 temp table + `IN (SELECT ...)` 形态，避免对 `dialects` 走全表扫描。
+    """
     data: Dict[str, Dict[str, Dict[str, set[str]]]] = defaultdict(
         lambda: defaultdict(lambda: {"initial": set(), "final": set(), "tone": set()})
     )
     if not locations or not chars:
         return data
 
+    # 如果调用方没有显式给维度，就回退到三维全读，以保持兼容。
     resolved_dimensions = [
         dimension
         for dimension in sorted(set(requested_dimensions or FEATURE_COLUMN_MAP.keys()))
@@ -379,6 +427,7 @@ def load_dialect_rows(
     if not resolved_dimensions:
         return data
 
+    # loader 缓存只覆盖中小请求；全量请求即使重复，也不把巨大 payload 写进 Redis。
     loader_cache_key: Optional[str] = None
     if _can_cache_loader_payload(locations, chars):
         loader_cache_key = _build_loader_cache_key(
@@ -391,6 +440,7 @@ def load_dialect_rows(
         if isinstance(cached_payload, dict):
             return _deserialize_dialect_data(cached_payload)
 
+    # SELECT 列动态裁剪，例如只比韵母时就只取 `韻母` 一列。
     selected_columns = ["簡稱", "漢字"] + [
         quote_identifier(FEATURE_COLUMN_MAP[dimension])
         for dimension in resolved_dimensions
@@ -400,6 +450,9 @@ def load_dialect_rows(
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
+        # 先把地点和字集装进临时表，再让主查询走 `IN (SELECT ...)`。
+        # 这样 SQLite 更容易利用 `(簡稱, 漢字, 音節)` 等现有索引，
+        # 避免 temp-table JOIN 触发 `SCAN dialects`。
         cursor.execute(
             "CREATE TEMP TABLE IF NOT EXISTS temp_cluster_locations(value TEXT PRIMARY KEY)"
         )
@@ -432,6 +485,7 @@ def load_dialect_rows(
                 if raw_value:
                     data[location][char][dimension].add(str(raw_value).strip())
 
+    # 只有序列化体积仍在阈值内时才写缓存，继续兜住 Redis 体积风险。
     if loader_cache_key:
         serialized_payload = _serialize_dialect_data(data)
         payload_bytes = len(
@@ -456,6 +510,12 @@ def load_dimension_inventory_profiles(
     dimensions: Sequence[str],
     db_path: str,
 ) -> Dict[str, Dict[str, Dict[str, Dict[str, float]]]]:
+    """
+    读取每个地点在某个维度上的“整体库存画像”。
+
+    anchored_inventory 模式会用它来回答：
+    “某个 token 在该地点内部是高频还是低频、核心还是边缘？”
+    """
     profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {
         location: {} for location in locations
     }
@@ -484,6 +544,7 @@ def load_dimension_inventory_profiles(
                         continue
                     per_location_counts[str(location)][str(raw_value).strip()] = int(count)
 
+            # 对每个地点，把原始频次进一步折算成 share / rank_pct / count 三类指标。
             for location in locations:
                 counter = per_location_counts.get(location, Counter())
                 total = float(sum(counter.values()))
