@@ -1,5 +1,9 @@
 """
-Cluster service facade.
+cluster 主服务编排层。
+
+这是整个聚类工具的核心门面：
+- `build_cluster_result()` 负责把 snapshot 走完整条计算链；
+- `run_cluster_job()` 负责与任务系统、缓存系统衔接。
 """
 
 from __future__ import annotations
@@ -68,6 +72,16 @@ def build_cluster_result(
     dialects_db: str = DIALECTS_DB_USER,
     query_db: str = QUERY_DB_USER,
 ) -> Dict[str, Any]:
+    """
+    根据 snapshot 真正执行一次聚类，并返回完整结果。
+
+    主要阶段如下：
+    1. 读取请求涉及的方言行；
+    2. 把原始字符串集合编码成 token 矩阵；
+    3. 根据 phoneme_mode 构建地点两两音系距离矩阵；
+    4. 调具体聚类器；
+    5. 组装结果 JSON，并记录各阶段耗时。
+    """
     start_time = time.perf_counter()
     performance = dict(snapshot.get("performance") or {})
 
@@ -81,6 +95,7 @@ def build_cluster_result(
         {group["compare_dimension"] for group in groups if group.get("compare_dimension")}
     )
 
+    # 只加载当前请求真正需要的维度，避免无条件读取声母/韵母/声调三列。
     load_start = time.perf_counter()
     dialect_data = load_dialect_rows(
         matched_locations,
@@ -90,6 +105,7 @@ def build_cluster_result(
     )
     performance["load_rows_ms"] = round((time.perf_counter() - load_start) * 1000.0, 3)
 
+    # 把每个地点、每个字的读音集合编码成 token id，后续距离计算才能高效进行。
     encode_start = time.perf_counter()
     dimension_token_catalogs = build_dimension_token_catalogs(groups, dialect_data)
     group_models = [
@@ -121,6 +137,7 @@ def build_cluster_result(
         location for location in matched_locations if location not in effective_locations
     ]
 
+    # anchored_inventory 额外需要每个地点在整个维度上的“库存分布画像”。
     inventory_profiles = {}
     inventory_profiles_start = time.perf_counter()
     if phoneme_mode == "anchored_inventory":
@@ -134,6 +151,7 @@ def build_cluster_result(
         3,
     )
 
+    # shared_request_identity 会把同维度所有请求字合并成 bucket，用于建立共享身份模型。
     bucket_models = {}
     bucket_models_start = time.perf_counter()
     if phoneme_mode == "shared_request_identity":
@@ -148,6 +166,7 @@ def build_cluster_result(
         3,
     )
 
+    # 通常最重的热点在这里：构建地点两两之间的音系距离矩阵。
     distance_start = time.perf_counter()
     distance_matrix, phoneme_mode_params = build_total_distance_matrix(
         group_models=group_models,
@@ -162,6 +181,7 @@ def build_cluster_result(
     )
     algorithm = clustering["algorithm"]
     execution_space = choose_execution_space(algorithm=algorithm)
+    # 行政区、坐标等展示字段不参与聚类本身，因此延后到计算之后再查。
     location_detail_start = time.perf_counter()
     location_details = load_location_details(matched_locations, query_db)
     performance["location_details_ms"] = round(
@@ -275,6 +295,16 @@ def run_cluster_job(
     dialects_db: str = DIALECTS_DB_USER,
     query_db: str = QUERY_DB_USER,
 ):
+    """
+    后台任务执行入口。
+
+    它负责：
+    - 检查 snapshot 是否存在；
+    - 再次尝试命中结果缓存；
+    - 调 `build_cluster_result()`；
+    - 写入结果文件和任务状态；
+    - 在成功、失败、取消三种情况下都清理 inflight 标记。
+    """
     task = task_manager.get_task(task_id)
     if not task:
         return

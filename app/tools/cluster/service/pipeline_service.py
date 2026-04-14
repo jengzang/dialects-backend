@@ -1,5 +1,10 @@
 """
-Cluster execution pipeline services.
+cluster 执行管线中的聚类器调用层。
+
+距离矩阵算出来以后，这一层负责决定：
+- 直接在距离矩阵上聚类；
+- 还是先做 MDS 嵌入，再交给 kmeans / gmm。
+同时也负责输出常见的聚类质量指标。
 """
 
 from __future__ import annotations
@@ -21,12 +26,14 @@ from app.tools.cluster.config import DIST_EPSILON
 
 
 def choose_execution_space(algorithm: str) -> str:
+    """标记当前聚类器实际运行在距离矩阵空间还是嵌入空间。"""
     if algorithm not in {"kmeans", "gmm"}:
         return "distance_matrix"
     return "embedded_distance"
 
 
 def classical_mds(distance_matrix: np.ndarray, n_components: int) -> np.ndarray:
+    """把预计算距离矩阵嵌入到欧氏空间，供 kmeans/gmm 使用。"""
     size = distance_matrix.shape[0]
     if size <= 1:
         return np.zeros((size, 1), dtype=float)
@@ -47,6 +54,7 @@ def classical_mds(distance_matrix: np.ndarray, n_components: int) -> np.ndarray:
 
 
 def prepare_feature_space(matrix: np.ndarray) -> np.ndarray:
+    """对嵌入后的矩阵做标准化，并在高维时进一步 PCA 降维。"""
     if matrix.shape[0] <= 1:
         return matrix
 
@@ -70,6 +78,7 @@ def run_agglomerative(
     n_clusters: int,
     linkage: str,
 ) -> np.ndarray:
+    """直接在预计算距离矩阵上运行层次聚类。"""
     if linkage == "ward":
         raise ValueError("agglomerative linkage 'ward' is not supported for distance matrices")
     try:
@@ -88,6 +97,7 @@ def run_agglomerative(
 
 
 def run_dbscan(distance_matrix: np.ndarray, eps: float, min_samples: int) -> np.ndarray:
+    """直接在预计算距离矩阵上运行 DBSCAN。"""
     model = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
     return model.fit_predict(distance_matrix)
 
@@ -97,6 +107,7 @@ def run_kmeans(
     n_clusters: int,
     random_state: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """对嵌入特征运行 KMeans，并返回到簇中心的距离。"""
     model = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
     labels = model.fit_predict(matrix)
     centroid_distance = np.linalg.norm(matrix - model.cluster_centers_[labels], axis=1)
@@ -108,6 +119,7 @@ def run_gmm(
     n_clusters: int,
     random_state: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """对嵌入特征运行 GMM，并返回最大后验隶属度。"""
     model = GaussianMixture(n_components=n_clusters, random_state=random_state)
     labels = model.fit_predict(matrix)
     membership = model.predict_proba(matrix).max(axis=1)
@@ -119,6 +131,7 @@ def compute_metrics(
     execution_matrix: Optional[np.ndarray] = None,
     distance_matrix: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
+    """统一计算 silhouette、DBI、CH 等聚类指标。"""
     metrics: Dict[str, float] = {}
     unique_labels = sorted(label for label in set(labels.tolist()) if label != -1)
     if len(unique_labels) < 2:
