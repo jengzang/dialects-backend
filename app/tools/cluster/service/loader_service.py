@@ -447,43 +447,37 @@ def load_dialect_rows(
     ]
     select_clause = ", ".join(selected_columns)
 
+    list_locations = list(locations)
+    list_chars = list(chars)
+
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
-        # 先把地点和字集装进临时表，再让主查询走 `IN (SELECT ...)`。
-        # 这样 SQLite 更容易利用 `(簡稱, 漢字, 音節)` 等现有索引，
-        # 避免 temp-table JOIN 触发 `SCAN dialects`。
-        cursor.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS temp_cluster_locations(value TEXT PRIMARY KEY)"
-        )
-        cursor.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS temp_cluster_chars(value TEXT PRIMARY KEY)"
-        )
-        cursor.execute("DELETE FROM temp_cluster_locations")
-        cursor.execute("DELETE FROM temp_cluster_chars")
-        cursor.executemany(
-            "INSERT OR IGNORE INTO temp_cluster_locations(value) VALUES (?)",
-            ((str(location),) for location in locations),
-        )
-        cursor.executemany(
-            "INSERT OR IGNORE INTO temp_cluster_chars(value) VALUES (?)",
-            ((str(char),) for char in chars),
-        )
-        cursor.execute(
-            f"""
-            SELECT {select_clause}
-            FROM dialects
-            WHERE 簡稱 IN (SELECT value FROM temp_cluster_locations)
-              AND 漢字 IN (SELECT value FROM temp_cluster_chars)
-            """
-        )
-        for row in cursor.fetchall():
-            location = row[0]
-            char = row[1]
-            for offset, dimension in enumerate(resolved_dimensions, start=2):
-                raw_value = row[offset]
-                if raw_value:
-                    data[location][char][dimension].add(str(raw_value).strip())
+
+        # 使用 chunked 分区直查，避免 CREATE TEMP TABLE 引发磁盘 I/O 和 SQLite IN(SELECT) 查询规划退化。
+        # SQLite 的参数上限较高，这里将 char/location 维度安全切分，直接走原生参数绑定确保最优覆盖索引。
+        for chars_batch in chunked(list_chars, 10000):
+            chars_placeholders = ",".join("?" * len(chars_batch))
+            for locations_batch in chunked(list_locations, 400):
+                locations_placeholders = ",".join("?" * len(locations_batch))
+
+                query = f"""
+                    SELECT {select_clause}
+                    FROM dialects
+                    WHERE 簡稱 IN ({locations_placeholders})
+                      AND 漢字 IN ({chars_placeholders})
+                """
+                params = list(locations_batch) + list(chars_batch)
+                cursor.execute(query, params)
+
+                for row in cursor.fetchall():
+                    location = row[0]
+                    char = row[1]
+                    char_dict = data[location][char]  # 通过指针引用加速写入，避免深层 defaultdict 多次求值
+                    for offset, dimension in enumerate(resolved_dimensions, start=2):
+                        raw_value = row[offset]
+                        if raw_value:
+                            char_dict[dimension].add(str(raw_value).strip())
 
     # 只有序列化体积仍在阈值内时才写缓存，继续兜住 Redis 体积风险。
     if loader_cache_key:

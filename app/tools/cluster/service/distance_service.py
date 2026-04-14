@@ -41,21 +41,25 @@ from app.tools.cluster.config import (
 from app.tools.cluster.utils import dedupe
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_intra_group_distance_numba(
     token_ids_a: np.ndarray,
     token_ids_b: np.ndarray,
     token_count: int,
+    map_x: np.ndarray,
+    map_y: np.ndarray,
+    inverse_x: np.ndarray,
+    inverse_y: np.ndarray,
+    count_x: np.ndarray,
+    count_y: np.ndarray,
+    count_xy: np.ndarray,
+    max_count_size: int,
+    use_phonetic_values: bool,
+    value_weight: float,
+    value_matrix: np.ndarray,
 ) -> float:
     """
-    numba 版组内距离计算。
-
-    组内距离由两部分组成：
-    - d_corr：A/B 在这组字上的对应关系是否稳定；
-    - d_struct：A/B 在这组字上的同音结构是否一致。
-
-    最终返回：
-    `0.85 * d_corr + 0.15 * d_struct`
+    numba 版组内距离计算（已优化：复用预分配的内存池消除高频 malloc 热点，支持值比对待）。
     """
     shared_total = 0
     for index in range(token_ids_a.shape[0]):
@@ -63,12 +67,6 @@ def _compute_intra_group_distance_numba(
             shared_total += 1
     if shared_total <= 0:
         return INTRA_CORR_WEIGHT
-
-    # 先把“全局 token id”压成当前 A/B 对比里用到的局部槽位，后续计数更紧凑。
-    map_x = np.full(token_count, -1, dtype=np.int32)
-    map_y = np.full(token_count, -1, dtype=np.int32)
-    inverse_x = np.empty(shared_total, dtype=np.int32)
-    inverse_y = np.empty(shared_total, dtype=np.int32)
 
     size_x = 0
     size_y = 0
@@ -95,23 +93,19 @@ def _compute_intra_group_distance_numba(
         inverse_y[position] = slot_y
         position += 1
 
-    # count_x / count_y / count_xy 就是后续条件熵和同音结构距离的基础统计量。
-    count_x = np.zeros(size_x, dtype=np.int32)
-    count_y = np.zeros(size_y, dtype=np.int32)
-    count_xy = np.zeros(size_x * size_y, dtype=np.int32)
     for index in range(shared_total):
         slot_x = inverse_x[index]
         slot_y = inverse_y[index]
         count_x[slot_x] += 1
         count_y[slot_y] += 1
-        count_xy[slot_x * size_y + slot_y] += 1
+        count_xy[slot_x * max_count_size + slot_y] += 1
 
     h_y_given_x = 0.0
     h_x_given_y = 0.0
     same_both = 0.0
     for slot_x in range(size_x):
         for slot_y in range(size_y):
-            freq = count_xy[slot_x * size_y + slot_y]
+            freq = count_xy[slot_x * max_count_size + slot_y]
             if freq <= 0:
                 continue
             prob_xy = freq / float(shared_total)
@@ -149,11 +143,72 @@ def _compute_intra_group_distance_numba(
             d_struct = 0.0
         elif d_struct > 1.0:
             d_struct = 1.0
+            
+    d_intra = INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
 
-    return INTRA_CORR_WEIGHT * d_corr + INTRA_STRUCT_WEIGHT * d_struct
+    if use_phonetic_values and value_weight > 0.0:
+        # 重建映射
+        slot_to_token_x = np.full(size_x, -1, dtype=np.int32)
+        slot_to_token_y = np.full(size_y, -1, dtype=np.int32)
+        for index in range(token_ids_a.shape[0]):
+            tok_a = token_ids_a[index]
+            tok_b = token_ids_b[index]
+            if tok_a >= 0 and tok_b >= 0:
+                slot_to_token_x[map_x[tok_a]] = tok_a
+                slot_to_token_y[map_y[tok_b]] = tok_b
+        
+        dist_a = 0.0
+        for slot_x in range(size_x):
+            best_y = -1
+            best_freq = -1
+            for slot_y in range(size_y):
+                freq = count_xy[slot_x * max_count_size + slot_y]
+                if freq > best_freq:
+                    best_freq = freq
+                    best_y = slot_y
+            if best_y >= 0:
+                tok_a = slot_to_token_x[slot_x]
+                tok_b = slot_to_token_y[best_y]
+                dist_a += (count_x[slot_x] / float(shared_total)) * value_matrix[tok_a, tok_b]
+            else:
+                dist_a += count_x[slot_x] / float(shared_total)
+        
+        dist_b = 0.0
+        for slot_y in range(size_y):
+            best_x = -1
+            best_freq = -1
+            for slot_x in range(size_x):
+                freq = count_xy[slot_x * max_count_size + slot_y]
+                if freq > best_freq:
+                    best_freq = freq
+                    best_x = slot_x
+            if best_x >= 0:
+                tok_a = slot_to_token_x[best_x]
+                tok_b = slot_to_token_y[slot_y]
+                dist_b += (count_y[slot_y] / float(shared_total)) * value_matrix[tok_a, tok_b]
+            else:
+                dist_b += count_y[slot_y] / float(shared_total)
+                
+        d_val = 0.5 * (dist_a + dist_b)
+        d_intra = (1.0 - value_weight) * d_intra + value_weight * d_val
+
+    # 清除内存涂写
+    for index in range(token_ids_a.shape[0]):
+        ta = token_ids_a[index]
+        tb = token_ids_b[index]
+        if ta >= 0: map_x[ta] = -1
+        if tb >= 0: map_y[tb] = -1
+    for index in range(shared_total):
+        sx = inverse_x[index]
+        sy = inverse_y[index]
+        count_x[sx] = 0
+        count_y[sy] = 0
+        count_xy[sx * max_count_size + sy] = 0
+
+    return d_intra
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _build_alignment_model_numba(
     token_ids_a: np.ndarray,
     token_ids_b: np.ndarray,
@@ -216,7 +271,7 @@ def _build_alignment_model_numba(
     return count_xy, count_x, count_y, lookup_x, lookup_y
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _conditional_entropy_distance_with_model_numba(
     token_ids_a: np.ndarray,
     token_ids_b: np.ndarray,
@@ -279,7 +334,7 @@ def _conditional_entropy_distance_with_model_numba(
     return value
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_group_distance_anchored_numba(
     token_ids_a: np.ndarray,
     token_ids_b: np.ndarray,
@@ -416,18 +471,43 @@ def _compute_group_distance_anchored_numba(
     return ((1.0 - anchor_weight) * d_intra) + (anchor_weight * d_anchor)
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, fastmath=True)
 def _build_total_distance_matrix_intra_group_numba(
     token_matrices,
     present_count_matrices,
     token_counts: np.ndarray,
     group_weights: np.ndarray,
+    use_phonetic_values_arr: np.ndarray,
+    value_weights_arr: np.ndarray,
+    value_matrices,
 ) -> np.ndarray:
     """numba 版 `intra_group` 全矩阵构建。"""
     group_count = len(token_matrices)
     size = present_count_matrices[0].shape[0]
+    
+    max_token_count = 0
+    max_char_count = 0
+    for group_index in range(group_count):
+        if token_counts[group_index] > max_token_count:
+            max_token_count = token_counts[group_index]
+        if token_matrices[group_index].shape[1] > max_char_count:
+            max_char_count = token_matrices[group_index].shape[1]
+    
+    max_count_size = max_token_count
+    if max_char_count < max_token_count:
+        max_count_size = max_char_count
+
     matrix = np.zeros((size, size), dtype=np.float64)
     for i in prange(size):
+        # 并行域空间内安全分配单份缓存区
+        map_x_buf = np.full(max_token_count, -1, dtype=np.int32)
+        map_y_buf = np.full(max_token_count, -1, dtype=np.int32)
+        inv_x_buf = np.empty(max_char_count, dtype=np.int32)
+        inv_y_buf = np.empty(max_char_count, dtype=np.int32)
+        cx_buf = np.zeros(max_count_size, dtype=np.int32)
+        cy_buf = np.zeros(max_count_size, dtype=np.int32)
+        cxy_buf = np.zeros(max_count_size * max_count_size, dtype=np.int32)
+        
         for j in range(i + 1, size):
             total = 0.0
             weight_sum = 0.0
@@ -439,7 +519,6 @@ def _build_total_distance_matrix_intra_group_numba(
 
                 weight = group_weights[group_index]
                 weight_sum += weight
-                # 其中一边完全缺失时，按该组最远距离 1.0 处理。
                 if present_count_a == 0 or present_count_b == 0:
                     total += weight
                     continue
@@ -448,6 +527,10 @@ def _build_total_distance_matrix_intra_group_numba(
                     token_matrices[group_index][i],
                     token_matrices[group_index][j],
                     int(token_counts[group_index]),
+                    map_x_buf, map_y_buf, inv_x_buf, inv_y_buf, cx_buf, cy_buf, cxy_buf, max_count_size,
+                    bool(use_phonetic_values_arr[group_index]),
+                    float(value_weights_arr[group_index]),
+                    value_matrices[group_index]
                 )
 
             distance = total / weight_sum if weight_sum > 0.0 else 1.0
@@ -456,7 +539,7 @@ def _build_total_distance_matrix_intra_group_numba(
     return matrix
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, fastmath=True)
 def _build_total_distance_matrix_anchored_numba(
     token_matrices,
     present_count_matrices,
@@ -500,7 +583,7 @@ def _build_total_distance_matrix_anchored_numba(
     return matrix
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True, parallel=True, fastmath=True)
 def _build_total_distance_matrix_shared_multi_dim_numba(
     token_matrices,
     present_count_matrices,
@@ -1275,23 +1358,48 @@ def build_total_distance_matrix(
         NUMBA_AVAILABLE
         and not force_python
         and phoneme_mode == "intra_group"
-        and all(not bool(group["use_phonetic_values"]) for group in group_models)
     ):
         # 纯 intra_group、且不混入值集合距离时，直接走最快的 numba 路径。
         token_matrices = NumbaList()
         present_count_matrices = NumbaList()
         token_counts = np.empty(len(group_models), dtype=np.int32)
         group_weights = np.empty(len(group_models), dtype=np.float64)
+        use_phonetic_values_arr = np.zeros(len(group_models), dtype=np.uint8)
+        value_weights_arr = np.zeros(len(group_models), dtype=np.float64)
+        value_matrices = NumbaList()
+        
         for group_index, group in enumerate(group_models):
             token_matrices.append(group["token_matrix"])
             present_count_matrices.append(group["present_char_counts"])
             token_counts[group_index] = len(group["token_catalog"]["tokens"])
             group_weights[group_index] = float(group["group_weight"])
+            
+            use_val = bool(group.get("use_phonetic_values", False))
+            use_phonetic_values_arr[group_index] = 1 if use_val else 0
+            value_weights_arr[group_index] = float(group.get("phonetic_value_weight", 0.0))
+            
+            # Precompute token_value matrix
+            if use_val:
+                tcat = group["token_catalog"]
+                sz = len(tcat["tokens"])
+                vmat = np.zeros((sz, sz), dtype=np.float64)
+                for _i in range(sz):
+                    for _j in range(_i, sz):
+                        vdist = token_value_distance_by_id(_i, _j, tcat)
+                        vmat[_i, _j] = vdist
+                        vmat[_j, _i] = vdist
+                value_matrices.append(vmat)
+            else:
+                value_matrices.append(np.zeros((1, 1), dtype=np.float64))
+                
         matrix = _build_total_distance_matrix_intra_group_numba(
             token_matrices,
             present_count_matrices,
             token_counts,
             group_weights,
+            use_phonetic_values_arr,
+            value_weights_arr,
+            value_matrices
         )
         return matrix, {
             "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
