@@ -31,6 +31,13 @@ from app.tools.cluster.config import (
     STAGED_RESULT_TTL_SECONDS,
     TASK_TOOL_NAME,
 )
+from app.tools.config import (
+    CLEANUP_METADATA_VERSION,
+    CLEANUP_POLICY_CLUSTER_DISTANCE,
+    CLEANUP_POLICY_CLUSTER_PREPARE,
+    CLEANUP_POLICY_CLUSTER_PREVIEW,
+    CLEANUP_POLICY_CLUSTER_RESULT,
+)
 from app.tools.cluster.service.cache_service import (
     annotate_cluster_result_cache,
     build_cluster_distance_hash,
@@ -58,7 +65,10 @@ from app.tools.cluster.service.cluster_service import (
     build_cluster_prepare_state,
 )
 from app.tools.cluster.service.result_service import build_task_summary
-from app.tools.cluster.service.task_service import get_task_status_payload
+from app.tools.cluster.service.task_service import (
+    get_task_status_payload,
+    touch_cluster_task_cleanup,
+)
 from app.tools.file_manager import file_manager
 from app.tools.task_manager import TaskStatus, task_manager
 
@@ -152,6 +162,49 @@ def _distance_npy_path(distance_hash: str) -> Path:
 
 def _result_json_path(result_hash: str) -> Path:
     return _artifact_stage_dir("result") / f"{result_hash}.json"
+
+
+def _artifact_relative_path(path: Path) -> str:
+    return str(path.relative_to(_artifact_root_dir())).replace(os.sep, "/")
+
+
+def _artifact_size_bytes(paths: List[Path]) -> int:
+    total = 0
+    for path in paths:
+        try:
+            if path.exists():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _build_artifact_meta(
+    *,
+    policy_key: str,
+    artifact_type: str,
+    artifact_key: str,
+    files: List[Path],
+    ttl_seconds: float,
+    created_at: Optional[float] = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    current = float(created_at or _now_ts())
+    return {
+        "version": CLEANUP_METADATA_VERSION,
+        "object_type": "artifact",
+        "policy_key": policy_key,
+        "artifact_type": artifact_type,
+        "artifact_key": artifact_key,
+        "files": [_artifact_relative_path(path) for path in files],
+        "size_bytes": _artifact_size_bytes(files),
+        "created_at": current,
+        "updated_at": current,
+        "last_used_at": current,
+        "last_accessed_at": current,
+        "expires_at": current + ttl_seconds,
+        **extra,
+    }
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -409,18 +462,18 @@ def _result_summary(result: Dict[str, Any], result_hash: str, distance_hash: str
 
 
 def _hash_preview_wrapper(snapshot: Dict[str, Any], preview: Dict[str, Any], prepare_hash: str, *, query_db: str, dialects_db: str) -> Dict[str, Any]:
-    current = _now_ts()
+    preview_path = _preview_json_path(prepare_hash)
     return {
-        "artifact": {
-            "stage": "preview",
-            "prepare_hash": prepare_hash,
-            "created_at": current,
-            "updated_at": current,
-            "last_accessed_at": current,
-            "expires_at": current + STAGED_PREVIEW_TTL_SECONDS,
-            "query_db": str(query_db),
-            "dialects_db": str(dialects_db),
-        },
+        "artifact": _build_artifact_meta(
+            policy_key=CLEANUP_POLICY_CLUSTER_PREVIEW,
+            artifact_type="preview",
+            artifact_key=prepare_hash,
+            files=[preview_path],
+            ttl_seconds=STAGED_PREVIEW_TTL_SECONDS,
+            prepare_hash=prepare_hash,
+            query_db=str(query_db),
+            dialects_db=str(dialects_db),
+        ),
         "snapshot": snapshot,
         "preview": preview,
     }
@@ -434,19 +487,20 @@ def _prepare_wrapper(
     query_db: str,
     dialects_db: str,
 ) -> Dict[str, Any]:
-    current = _now_ts()
+    prepare_json_path = _prepare_json_path(prepare_hash)
+    prepare_npz_path = _prepare_npz_path(prepare_hash)
     return {
-        "artifact": {
-            "stage": "prepare",
-            "prepare_hash": prepare_hash,
-            "created_at": current,
-            "updated_at": current,
-            "last_accessed_at": current,
-            "expires_at": current + STAGED_PREPARE_TTL_SECONDS,
-            "query_db": str(query_db),
-            "dialects_db": str(dialects_db),
-            "summary": _prepare_summary(prepare_state),
-        },
+        "artifact": _build_artifact_meta(
+            policy_key=CLEANUP_POLICY_CLUSTER_PREPARE,
+            artifact_type="prepare",
+            artifact_key=prepare_hash,
+            files=[prepare_json_path, prepare_npz_path],
+            ttl_seconds=STAGED_PREPARE_TTL_SECONDS,
+            prepare_hash=prepare_hash,
+            query_db=str(query_db),
+            dialects_db=str(dialects_db),
+            summary=_prepare_summary(prepare_state),
+        ),
         "snapshot": snapshot,
         "payload": _prepare_json_payload(prepare_state),
     }
@@ -460,21 +514,22 @@ def _distance_wrapper(
     query_db: str,
     dialects_db: str,
 ) -> Dict[str, Any]:
-    current = _now_ts()
+    distance_json_path = _distance_json_path(distance_hash)
+    distance_npy_path = _distance_npy_path(distance_hash)
     return {
-        "artifact": {
-            "stage": "distance",
-            "distance_hash": distance_hash,
-            "prepare_hash": prepare_hash,
-            "phoneme_mode": distance_state.get("phoneme_mode"),
-            "created_at": current,
-            "updated_at": current,
-            "last_accessed_at": current,
-            "expires_at": current + STAGED_DISTANCE_TTL_SECONDS,
-            "query_db": str(query_db),
-            "dialects_db": str(dialects_db),
-            "summary": _distance_summary(distance_state, distance_hash, prepare_hash),
-        },
+        "artifact": _build_artifact_meta(
+            policy_key=CLEANUP_POLICY_CLUSTER_DISTANCE,
+            artifact_type="distance",
+            artifact_key=distance_hash,
+            files=[distance_json_path, distance_npy_path],
+            ttl_seconds=STAGED_DISTANCE_TTL_SECONDS,
+            distance_hash=distance_hash,
+            prepare_hash=prepare_hash,
+            phoneme_mode=distance_state.get("phoneme_mode"),
+            query_db=str(query_db),
+            dialects_db=str(dialects_db),
+            summary=_distance_summary(distance_state, distance_hash, prepare_hash),
+        ),
         "payload": _distance_json_payload(distance_state),
     }
 
@@ -539,19 +594,21 @@ def _ensure_result_metadata(
 ) -> Dict[str, Any]:
     annotated = copy.deepcopy(result)
     metadata = dict(annotated.get("metadata") or {})
-    current = _now_ts()
+    created_at = float(metadata.get("created_at") or metadata.get("artifact_created_at") or _now_ts())
     metadata.update(
-        {
-            "result_hash": result_hash,
-            "distance_hash": distance_hash,
-            "prepare_hash": prepare_hash,
-            "cache_hit": bool(cache_hit),
-            "cache_source": cache_source,
-            "artifact_created_at": metadata.get("artifact_created_at", current),
-            "artifact_updated_at": current,
-            "artifact_last_accessed_at": current,
-            "artifact_expires_at": current + STAGED_RESULT_TTL_SECONDS,
-        }
+        _build_artifact_meta(
+            policy_key=CLEANUP_POLICY_CLUSTER_RESULT,
+            artifact_type="result",
+            artifact_key=result_hash,
+            files=[_result_json_path(result_hash)],
+            ttl_seconds=STAGED_RESULT_TTL_SECONDS,
+            created_at=created_at,
+            result_hash=result_hash,
+            distance_hash=distance_hash,
+            prepare_hash=prepare_hash,
+            cache_hit=bool(cache_hit),
+            cache_source=cache_source,
+        )
     )
     annotated["metadata"] = metadata
     return annotated
@@ -561,8 +618,10 @@ def _touch_preview_artifact(prepare_hash: str) -> Dict[str, Any]:
     wrapper = _read_preview_bundle(prepare_hash)
     current = _now_ts()
     wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_used_at"] = current
     wrapper["artifact"]["last_accessed_at"] = current
     wrapper["artifact"]["expires_at"] = current + STAGED_PREVIEW_TTL_SECONDS
+    wrapper["artifact"]["size_bytes"] = _artifact_size_bytes([_preview_json_path(prepare_hash)])
     _atomic_write_json(_preview_json_path(prepare_hash), wrapper)
     _touch_artifact_parent_dirs("preview")
     return wrapper
@@ -572,8 +631,12 @@ def _touch_prepare_artifact(prepare_hash: str) -> Dict[str, Any]:
     wrapper = _load_json(_prepare_json_path(prepare_hash))
     current = _now_ts()
     wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_used_at"] = current
     wrapper["artifact"]["last_accessed_at"] = current
     wrapper["artifact"]["expires_at"] = current + STAGED_PREPARE_TTL_SECONDS
+    wrapper["artifact"]["size_bytes"] = _artifact_size_bytes(
+        [_prepare_json_path(prepare_hash), _prepare_npz_path(prepare_hash)]
+    )
     _atomic_write_json(_prepare_json_path(prepare_hash), wrapper)
     set_cached_prepare_artifact(prepare_hash, wrapper["artifact"])
     _touch_artifact_parent_dirs("prepare")
@@ -584,8 +647,12 @@ def _touch_distance_artifact(distance_hash: str) -> Dict[str, Any]:
     wrapper = _load_json(_distance_json_path(distance_hash))
     current = _now_ts()
     wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_used_at"] = current
     wrapper["artifact"]["last_accessed_at"] = current
     wrapper["artifact"]["expires_at"] = current + STAGED_DISTANCE_TTL_SECONDS
+    wrapper["artifact"]["size_bytes"] = _artifact_size_bytes(
+        [_distance_json_path(distance_hash), _distance_npy_path(distance_hash)]
+    )
     _atomic_write_json(_distance_json_path(distance_hash), wrapper)
     set_cached_distance_artifact(distance_hash, wrapper["artifact"])
     _touch_artifact_parent_dirs("distance")
@@ -597,9 +664,11 @@ def _touch_result_artifact(result_hash: str) -> Dict[str, Any]:
     result = _load_json(path)
     metadata = dict(result.get("metadata") or {})
     current = _now_ts()
-    metadata["artifact_updated_at"] = current
-    metadata["artifact_last_accessed_at"] = current
-    metadata["artifact_expires_at"] = current + STAGED_RESULT_TTL_SECONDS
+    metadata["updated_at"] = current
+    metadata["last_used_at"] = current
+    metadata["last_accessed_at"] = current
+    metadata["expires_at"] = current + STAGED_RESULT_TTL_SECONDS
+    metadata["size_bytes"] = _artifact_size_bytes([path])
     result["metadata"] = metadata
     _atomic_write_json(path, result)
     _touch_artifact_parent_dirs("result")
@@ -612,7 +681,7 @@ def _read_result_artifact(result_hash: str) -> Dict[str, Any]:
         raise ClusterStageNotFoundError("result_hash 不存在或已过期")
     result = _load_json(path)
     metadata = result.get("metadata") or {}
-    expires_at = float(metadata.get("artifact_expires_at", 0.0) or 0.0)
+    expires_at = float(metadata.get("expires_at", 0.0) or 0.0)
     if expires_at and expires_at <= _now_ts():
         path.unlink(missing_ok=True)
         raise ClusterStageNotFoundError("result artifact 已过期，请重新执行 cluster")
@@ -641,6 +710,8 @@ def build_staged_preview_payload(
                 query_db=query_db,
                 dialects_db=dialects_db,
             )
+            _atomic_write_json(path, wrapper)
+            wrapper["artifact"]["size_bytes"] = _artifact_size_bytes([path])
             _atomic_write_json(path, wrapper)
             _touch_artifact_parent_dirs("preview")
         prepare_ready = False
@@ -716,13 +787,13 @@ def materialize_prepare_artifact(
         )
         _atomic_write_json(_prepare_json_path(prepare_hash), wrapper)
         _atomic_write_npz(_prepare_npz_path(prepare_hash), _prepare_arrays_payload(prepare_state))
-        set_cached_prepare_artifact(prepare_hash, wrapper["artifact"])
+        artifact_meta = _touch_prepare_artifact(prepare_hash)
         _touch_preview_artifact(prepare_hash)
         _touch_artifact_parent_dirs("prepare")
         return {
             "prepare_hash": prepare_hash,
-            "summary": wrapper["artifact"]["summary"],
-            "performance": wrapper["artifact"]["summary"].get("performance"),
+            "summary": artifact_meta["summary"],
+            "performance": artifact_meta["summary"].get("performance"),
             "cache_hit": False,
             "cache_source": "none",
         }
@@ -797,15 +868,15 @@ def materialize_distance_artifact(
             _distance_npy_path(distance_hash),
             np.asarray(distance_state["distance_matrix"], dtype=np.float64),
         )
-        set_cached_distance_artifact(distance_hash, wrapper["artifact"])
+        artifact_meta = _touch_distance_artifact(distance_hash)
         _touch_prepare_artifact(prepare_hash)
         _touch_artifact_parent_dirs("distance")
         return {
             "prepare_hash": prepare_hash,
             "distance_hash": distance_hash,
             "phoneme_mode": phoneme_mode,
-            "summary": wrapper["artifact"]["summary"],
-            "performance": wrapper["artifact"]["summary"].get("performance"),
+            "summary": artifact_meta["summary"],
+            "performance": artifact_meta["summary"].get("performance"),
             "cache_hit": False,
             "cache_source": "none",
         }
@@ -870,6 +941,7 @@ def materialize_result_artifact(
                 cache_source="result",
             )
             _atomic_write_json(result_path, result)
+            result = _touch_result_artifact(result_hash)
             _touch_prepare_artifact(prepare_hash)
             _touch_distance_artifact(distance_hash)
             _touch_artifact_parent_dirs("result")
@@ -906,6 +978,7 @@ def materialize_result_artifact(
         )
         set_cached_cluster_result(result_hash, result)
         _atomic_write_json(result_path, result)
+        result = _touch_result_artifact(result_hash)
         _touch_prepare_artifact(prepare_hash)
         _touch_distance_artifact(distance_hash)
         _touch_artifact_parent_dirs("result")
@@ -945,6 +1018,7 @@ def get_staged_result_by_hash(result_hash: str) -> Dict[str, Any]:
                 cache_source="result",
             )
             _atomic_write_json(path, result)
+            result = _touch_result_artifact(result_hash)
             _touch_artifact_parent_dirs("result")
             return result
     raise ClusterStageNotFoundError("result_hash 不存在或已过期")
@@ -1015,6 +1089,7 @@ def start_prepare_task(prepare_hash: str) -> Tuple[bool, Dict[str, Any]]:
                     "performance": (cached_meta.get("summary") or {}).get("performance"),
                 },
             )
+            touch_cluster_task_cleanup(task_id, "stage_prepare_cached")
             return False, _build_stage_task_response(
                 task_id,
                 stage="prepare",
@@ -1070,6 +1145,7 @@ def run_prepare_task(task_id: str) -> None:
     prepare_hash = str((task.get("data") or {}).get("prepare_hash") or "")
     if not prepare_hash:
         task_manager.update_task(task_id, status=TaskStatus.FAILED, error="Missing prepare_hash")
+        touch_cluster_task_cleanup(task_id, "stage_prepare_missing_hash")
         return
 
     started = time.perf_counter()
@@ -1102,6 +1178,7 @@ def run_prepare_task(task_id: str) -> None:
                 "performance": payload.get("performance"),
             },
         )
+        touch_cluster_task_cleanup(task_id, "stage_prepare_completed")
         clear_prepare_inflight_task_id(prepare_hash, task_id=task_id)
     except Exception as exc:
         task_manager.update_task(
@@ -1110,6 +1187,7 @@ def run_prepare_task(task_id: str) -> None:
             error=str(exc),
             message=f"prepare 阶段失败: {exc}",
         )
+        touch_cluster_task_cleanup(task_id, "stage_prepare_failed")
         clear_prepare_inflight_task_id(prepare_hash, task_id=task_id)
 
 
@@ -1148,6 +1226,7 @@ def start_distance_task(prepare_hash: str, phoneme_mode: Any) -> Tuple[bool, Dic
                     "performance": (cached_meta.get("summary") or {}).get("performance"),
                 },
             )
+            touch_cluster_task_cleanup(task_id, "stage_distance_cached")
             return False, _build_stage_task_response(
                 task_id,
                 stage="distance",
@@ -1240,6 +1319,7 @@ def run_distance_task(task_id: str, phoneme_mode: Any) -> None:
                 "performance": payload.get("performance"),
             },
         )
+        touch_cluster_task_cleanup(task_id, "stage_distance_completed")
         clear_distance_inflight_task_id(distance_hash, task_id=task_id)
     except Exception as exc:
         task_manager.update_task(
@@ -1248,6 +1328,7 @@ def run_distance_task(task_id: str, phoneme_mode: Any) -> None:
             error=str(exc),
             message=f"distance 阶段失败: {exc}",
         )
+        touch_cluster_task_cleanup(task_id, "stage_distance_failed")
         clear_distance_inflight_task_id(distance_hash, task_id=task_id)
 
 
@@ -1296,6 +1377,7 @@ def start_cluster_task(distance_hash: str, clustering_config: Dict[str, Any]) ->
                 "performance": payload.get("performance"),
             },
         )
+        touch_cluster_task_cleanup(task_id, "stage_cluster_cached")
         return False, _build_stage_task_response(
             task_id,
             stage="cluster",
@@ -1388,6 +1470,7 @@ def run_cluster_task(task_id: str, distance_hash: str, clustering_config: Dict[s
                 "performance": payload.get("performance"),
             },
         )
+        touch_cluster_task_cleanup(task_id, "stage_cluster_completed")
         clear_inflight_task_id(result_hash, task_id=task_id)
     except Exception as exc:
         task_manager.update_task(
@@ -1396,6 +1479,7 @@ def run_cluster_task(task_id: str, distance_hash: str, clustering_config: Dict[s
             error=str(exc),
             message=f"cluster 阶段失败: {exc}",
         )
+        touch_cluster_task_cleanup(task_id, "stage_cluster_failed")
         clear_inflight_task_id(result_hash, task_id=task_id)
 
 
@@ -1430,7 +1514,7 @@ def cleanup_cluster_stage_artifacts() -> int:
                 elif stage == "result" and path.suffix == ".json":
                     result = _load_json(path)
                     metadata = result.get("metadata") or {}
-                    expires_at = float(metadata.get("artifact_expires_at", 0.0))
+                    expires_at = float(metadata.get("expires_at", 0.0) or 0.0)
                     if expires_at and expires_at <= current:
                         path.unlink(missing_ok=True)
                         deleted_count += 1

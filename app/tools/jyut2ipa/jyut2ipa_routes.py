@@ -12,7 +12,6 @@ from pathlib import Path
 import asyncio
 import sys
 import os
-import threading
 
 from starlette.responses import StreamingResponse
 
@@ -23,6 +22,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.config import (
+    CLEANUP_POLICY_JYUT2IPA_RESULT,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from .jyut2ipa_core import process_yutping, init_replace_df
 
 # 初始化替换规则DataFrame
@@ -55,7 +58,15 @@ class ProcessResult(BaseModel):
     message: str
 
 
-# ==================== 辅助函数 ====================
+def _touch_jyut2ipa_cleanup(task_id: str, reason: str) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_JYUT2IPA_RESULT,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        reason=reason,
+    )
 
 def find_yutping_column(df: pd.DataFrame) -> Optional[str]:
     """查找粤拼列"""
@@ -65,26 +76,6 @@ def find_yutping_column(df: pd.DataFrame) -> Optional[str]:
         if "粤拼" in col_str or "粵拼" in col_str or "jyutping" in col_str.lower():
             return col
     return None
-
-
-def cleanup_task_resources(task_id: str, tool_name: str):
-    """
-    清理任务的所有资源（文件 + 任务记录）
-
-    Args:
-        task_id: 任务ID
-        tool_name: 工具名称
-    """
-    try:
-        # 清理文件
-        file_manager.delete_task_files(task_id, tool_name)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的文件")
-
-        # 清理任务记录
-        task_manager.delete_task(task_id)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的记录")
-    except Exception as e:
-        print(f"[CLEANUP] 清理任务 {task_id} 时出错: {str(e)}")
 
 
 async def process_file_async(task_id: str, file_path: Path, custom_rules: Optional[list[dict]] = None):
@@ -269,17 +260,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
                 "processed_rows": total_rows
             }
         )
-
-        # 【新增】5分钟后自动清理文件
-        cleanup_delay = 300  # 5分钟 = 300秒
-        cleanup_timer = threading.Timer(
-            cleanup_delay,
-            cleanup_task_resources,
-            args=(task_id, "jyut2ipa")
-        )
-        cleanup_timer.daemon = True
-        cleanup_timer.start()
-        print(f"[CLEANUP] 已设置定时清理：任务 {task_id} 将在 {cleanup_delay} 秒后清理")
+        _touch_jyut2ipa_cleanup(task_id, "conversion_completed")
 
     except Exception as e:
         # 更新任务状态为失败
@@ -289,13 +270,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
             error=str(e),
             message=f"处理失败: {str(e)}"
         )
-
-        # 【新增】失败时立即清理文件（保留任务记录供前端查看错误信息）
-        try:
-            file_manager.delete_task_files(task_id, "jyut2ipa")
-            print(f"[CLEANUP] 处理失败，已清理任务 {task_id} 的文件")
-        except Exception as cleanup_error:
-            print(f"[CLEANUP] 清理失败文件时出错: {str(cleanup_error)}")
+        _touch_jyut2ipa_cleanup(task_id, "conversion_failed")
 
 
 # ==================== API端点 ====================
@@ -342,6 +317,7 @@ async def upload_file(file: UploadFile = File(...)):
                 "file_path": str(file_path)
             }
         )
+        _touch_jyut2ipa_cleanup(task_id, "upload_completed")
 
         return {
             "task_id": task_id,
@@ -356,6 +332,7 @@ async def upload_file(file: UploadFile = File(...)):
             status=TaskStatus.FAILED,
             error=str(e.detail)
         )
+        _touch_jyut2ipa_cleanup(task_id, "upload_failed")
         raise
     except Exception as e:
         task_manager.update_task(
@@ -363,6 +340,7 @@ async def upload_file(file: UploadFile = File(...)):
             status=TaskStatus.FAILED,
             error=str(e)
         )
+        _touch_jyut2ipa_cleanup(task_id, "upload_failed")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
 
 
@@ -460,6 +438,8 @@ async def download_result(task_id: str):
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like
+
+    _touch_jyut2ipa_cleanup(task_id, "result_downloaded")
 
     return StreamingResponse(
         iterfile(),

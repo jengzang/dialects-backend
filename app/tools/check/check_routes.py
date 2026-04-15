@@ -22,6 +22,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.config import (
+    CLEANUP_POLICY_CHECK_WORKSPACE,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from .check_core import 處理自定義編輯指令, 檢查資料格式, 整理並顯示調值
 from .format_convert import (
     process_音典,
@@ -118,6 +122,16 @@ class BatchDeleteRequest(BaseModel):
 
 
 # ==================== 辅助函数 ====================
+
+def _touch_check_cleanup(task_id: str, reason: str) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_CHECK_WORKSPACE,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        reason=reason,
+    )
 
 def find_standard_column(df: pd.DataFrame, standard_name: str) -> Optional[str]:
     """
@@ -386,6 +400,7 @@ async def upload_file(
                 "converted": needs_conversion
             }
         )
+        _touch_check_cleanup(task_id, "upload_completed")
 
         return UploadResponse(
             task_id=task_id,
@@ -406,6 +421,7 @@ async def upload_file(
             status=TaskStatus.FAILED,
             error=str(e)
         )
+        _touch_check_cleanup(task_id, "upload_failed")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
 
 
@@ -515,6 +531,7 @@ async def execute_commands(request: CommandRequest):
                 request.task_id,
                 message=f"已執行指令，成功 {len(results)} 條，失敗 {len(errors)} 條"
             )
+        _touch_check_cleanup(request.task_id, "execute_completed")
 
         return CommandResponse(
             success=len(errors) == 0,
@@ -589,6 +606,7 @@ async def save_changes(request: SaveChangesRequest):
                 "modified_file_path": str(output_path)
             }
         )
+        _touch_check_cleanup(request.task_id, "save_changes")
 
         return {
             "success": True,
@@ -821,6 +839,7 @@ async def update_row(request: UpdateRowRequest):
             request.task_id,
             message=f"已更新第 {request.row} 行"
         )
+        _touch_check_cleanup(request.task_id, "update_row")
 
         return {
             "success": True,
@@ -870,6 +889,11 @@ async def batch_delete(request: BatchDeleteRequest):
 
         # 保存修改后的文件
         df.to_excel(file_path, index=False)
+        task_manager.update_task(
+            request.task_id,
+            message=f"成功删除 {len(df_indices)} 行"
+        )
+        _touch_check_cleanup(request.task_id, "batch_delete")
 
         return {
             "success": True,
@@ -881,5 +905,4 @@ async def batch_delete(request: BatchDeleteRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
-
 

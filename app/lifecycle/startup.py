@@ -66,10 +66,17 @@ def cleanup_old_temp_files() -> None:
     from app.tools.file_manager import file_manager
 
     print("=" * 60)
-    print("[CLEANUP] Removing old temp files (older than 12h)...")
+    print("[CLEANUP] Running startup cleanup...")
     try:
-        deleted_count = file_manager.cleanup_old_files(max_age_hours=12)
-        print(f"[OK] Removed {deleted_count} expired task directories")
+        summary = file_manager.cleanup_once()
+        print(
+            "[OK] Cleanup removed "
+            f"{summary['total_deleted']} objects "
+            f"(tasks={summary['tasks_deleted']}, "
+            f"artifacts={summary['artifacts_deleted']}, "
+            f"capacity={summary['capacity_deleted']}, "
+            f"fallback={summary['fallback_deleted']})"
+        )
     except Exception as exc:
         print(f"[WARN] Temp file cleanup failed: {exc}")
     print("=" * 60)

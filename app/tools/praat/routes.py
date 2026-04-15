@@ -11,6 +11,11 @@ from datetime import datetime
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.config import (
+    CLEANUP_POLICY_PRAAT_UPLOAD,
+    PRAAT_RESULT_READ_TTL_SECONDS,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from .schemas.job import JobCreateRequest, JobCreateResponse, JobStatusResponse
 from .core.audio_processor import (
     detect_audio_format,
@@ -33,6 +38,24 @@ router = APIRouter()
 def _save_upload_file(src_file, dst_path: Path) -> None:
     with open(dst_path, "wb") as f:
         shutil.copyfileobj(src_file, f)
+
+
+def _set_praat_cleanup(
+    task_id: str,
+    *,
+    reason: str,
+    armed: bool,
+    terminal: bool,
+    ttl_seconds: float | None = None,
+) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_PRAAT_UPLOAD,
+        armed=armed,
+        terminal=terminal,
+        ttl_seconds=ttl_seconds,
+        reason=reason,
+    )
 
 
 @router.get("/capabilities")
@@ -194,6 +217,13 @@ async def create_upload(
             "current_job_id": None
         }
     )
+    _set_praat_cleanup(
+        task_id,
+        reason="upload_completed",
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+    )
 
     return {
         "task_id": task_id,
@@ -344,6 +374,12 @@ async def create_job(
     task_data['current_job_id'] = job_id
 
     task_manager.update_task(task_id, data=task_data)
+    _set_praat_cleanup(
+        task_id,
+        reason="job_created",
+        armed=False,
+        terminal=False,
+    )
 
     # Start background analysis
     from .core.job_executor import execute_job_async
@@ -464,6 +500,14 @@ async def get_job_result(
             "timeseries": result.get("timeseries")
         }
 
+    _set_praat_cleanup(
+        task_id,
+        reason="result_read",
+        armed=True,
+        terminal=True,
+        ttl_seconds=PRAAT_RESULT_READ_TTL_SECONDS,
+    )
+
     return JSONResponse(content=result)
 
 
@@ -506,5 +550,12 @@ async def cancel_job(
         if task_data.get('current_job_id') == job_id:
             task_data['current_job_id'] = None
             task_manager.update_task(task_id, data=task_data)
+            _set_praat_cleanup(
+                task_id,
+                reason="job_canceled",
+                armed=True,
+                terminal=True,
+                ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+            )
 
     return {"message": "Job canceled successfully"}
