@@ -5,10 +5,13 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
+from app.common.numba_bootstrap import bootstrap_numba_threading_environment
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
+
+bootstrap_numba_threading_environment()
 
 from app.common.config import _RUN_TYPE
 from app.lifecycle import (

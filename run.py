@@ -4,6 +4,15 @@
 import argparse
 import os
 
+from app.common.numba_bootstrap import (
+    bootstrap_numba_threading_environment,
+    restart_current_python_process_for_numba_environment,
+)
+
+
+# 尽量在任何 numba 相关模块被导入前，先把线程层环境准备好。
+bootstrap_numba_threading_environment()
+
 # === Banner 配置 ===
 _banner_printed = False  # 在启动时打印（只打一次）
 
@@ -91,6 +100,9 @@ def parse_args():
 
 # 启动服务并自动打开浏览器
 if __name__ == "__main__":
+    # macOS 本地若需要 libomp，尽量在真正导入应用前以带环境的新进程重启一次。
+    restart_current_python_process_for_numba_environment()
+
     # 4. 定义打开浏览器的函数
     def _open_browser(url: str):
         time.sleep(5)  # 稍微多等一点点，确保服务启动
