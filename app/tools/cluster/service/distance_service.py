@@ -13,11 +13,13 @@ cluster 音系距离建模层。
 from __future__ import annotations
 
 import math
+import os
+import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 try:
-    from numba import njit, prange
+    from numba import njit, prange, threading_layer
     from numba.typed import List as NumbaList
     NUMBA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional accelerator
@@ -27,6 +29,8 @@ except Exception:  # pragma: no cover - optional accelerator
             return func
         return decorator
     prange = range
+    def threading_layer():  # type: ignore[misc]
+        raise ValueError("Threading layer is not initialized.")
     NumbaList = None
     NUMBA_AVAILABLE = False
 
@@ -39,6 +43,68 @@ from app.tools.cluster.config import (
     INTRA_STRUCT_WEIGHT,
 )
 from app.tools.cluster.utils import dedupe
+
+
+_NUMBA_PARALLEL_CALL_LOCK = threading.RLock()
+_NUMBA_THREADSAFE_BACKEND_AVAILABLE: Optional[bool] = None
+
+
+def _probe_numba_threadsafe_backend_available() -> bool:
+    """
+    判断当前运行环境里是否存在线程安全的 numba parallel 后端。
+
+    现象上，当前环境若只有 workqueue，可单线程跑通，但两个 Python 线程同时调用
+    `@njit(parallel=True)` 会直接被 numba 以 `SIGABRT` 终止。
+    """
+    global _NUMBA_THREADSAFE_BACKEND_AVAILABLE
+    if _NUMBA_THREADSAFE_BACKEND_AVAILABLE is not None:
+        return _NUMBA_THREADSAFE_BACKEND_AVAILABLE
+
+    available = False
+    for module_name in ("numba.np.ufunc.tbbpool", "numba.np.ufunc.omppool"):
+        try:
+            __import__(module_name)
+            available = True
+            break
+        except Exception:
+            continue
+
+    _NUMBA_THREADSAFE_BACKEND_AVAILABLE = available
+    return available
+
+
+def _numba_parallel_calls_require_serialization() -> bool:
+    """
+    `workqueue` 不是线程安全后端。
+
+    因此在只剩 workqueue 的环境里，cluster 虽然仍可使用 numba 快路径，
+    但必须把 parallel kernel 的入口串行化，否则本地多请求/多线程就会直接崩进程。
+    """
+    if not NUMBA_AVAILABLE:
+        return False
+
+    try:
+        active_layer = str(threading_layer() or "").strip().lower()
+    except Exception:
+        active_layer = ""
+
+    if active_layer:
+        return active_layer == "workqueue"
+
+    configured_layer = str(os.getenv("NUMBA_THREADING_LAYER") or "").strip().lower()
+    if configured_layer in {"safe", "threadsafe", "tbb", "omp"}:
+        return False
+    if configured_layer == "workqueue":
+        return True
+
+    return not _probe_numba_threadsafe_backend_available()
+
+
+def _run_numba_parallel_kernel(func, *args):
+    if _numba_parallel_calls_require_serialization():
+        with _NUMBA_PARALLEL_CALL_LOCK:
+            return func(*args)
+    return func(*args)
 
 
 @njit(cache=True, fastmath=True)
@@ -1424,14 +1490,15 @@ def build_total_distance_matrix(
             else:
                 value_matrices.append(np.zeros((1, 1), dtype=np.float64))
                 
-        matrix = _build_total_distance_matrix_intra_group_numba(
+        matrix = _run_numba_parallel_kernel(
+            _build_total_distance_matrix_intra_group_numba,
             token_matrices,
             present_count_matrices,
             token_counts,
             group_weights,
             use_phonetic_values_arr,
             value_weights_arr,
-            value_matrices
+            value_matrices,
         )
         return matrix, {
             "anchor_weight": DEFAULT_ANCHOR_WEIGHT,
@@ -1465,7 +1532,8 @@ def build_total_distance_matrix(
             anchor_signatures.append(signature_matrices[group["compare_dimension"]])
             token_counts[group_index] = len(group["token_catalog"]["tokens"])
             group_weights[group_index] = float(group["group_weight"])
-        matrix = _build_total_distance_matrix_anchored_numba(
+        matrix = _run_numba_parallel_kernel(
+            _build_total_distance_matrix_anchored_numba,
             token_matrices,
             present_count_matrices,
             token_counts,
@@ -1506,7 +1574,8 @@ def build_total_distance_matrix(
             bucket_tone_matrix,
             bucket_tone_count,
         ) = build_shared_bucket_matrix_inputs(locations, bucket_models)
-        matrix = _build_total_distance_matrix_shared_multi_dim_numba(
+        matrix = _run_numba_parallel_kernel(
+            _build_total_distance_matrix_shared_multi_dim_numba,
             token_matrices,
             present_count_matrices,
             token_counts,
