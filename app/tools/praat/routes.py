@@ -58,6 +58,22 @@ def _set_praat_cleanup(
     )
 
 
+def _mark_praat_upload_failed(task_id: str, reason: str, message: str, *, error: object | None = None) -> None:
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.FAILED,
+        message=message,
+        error=str(error or message),
+    )
+    _set_praat_cleanup(
+        task_id,
+        reason=reason,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+    )
+
+
 @router.get("/capabilities")
 async def get_capabilities():
     """
@@ -134,106 +150,120 @@ async def create_upload(
 
     # Get task directory
     task_dir = file_manager.get_task_dir(task_id, "praat")
-
-    # Save original file
-    original_filename = file.filename
-    original_ext = Path(original_filename).suffix.lower()
-    original_path = task_dir / f"original{original_ext}"
-
-    await run_in_threadpool(_save_upload_file, file.file, original_path)
-
-    # Get file size and validate
-    original_size = original_path.stat().st_size
-    validate_upload_file(original_size)
-
-    # Detect format
-    detected_mime = await run_in_threadpool(detect_audio_format, original_path)
-
-    # Normalize audio (mandatory)
-    normalized_path = task_dir / "normalized.wav"
     try:
-        await run_in_threadpool(
-            normalize_audio,
-            input_path=original_path,
-            output_path=normalized_path,
-            target_sr=16000,
-            channels=1
-        )
+        # Save original file
+        original_filename = file.filename
+        original_ext = Path(original_filename).suffix.lower()
+        original_path = task_dir / f"original{original_ext}"
 
-        # Validate normalized audio
-        audio_meta = await run_in_threadpool(detect_audio_format, normalized_path)
-        normalized_meta = {
-            "format": "wav",
-            "sample_rate": audio_meta["sample_rate"],
-            "channels": audio_meta["channels"],
-            "duration_s": audio_meta["duration_s"]
-        }
+        await run_in_threadpool(_save_upload_file, file.file, original_path)
 
-        # Check duration limit
-        if audio_meta["duration_s"] > MAX_DURATION_S:
-            # Clean up
-            file_manager.delete_task_files(task_id, "praat")
-            raise_error(
-                ErrorCode.AUDIO_TOO_LONG,
-                f"Audio duration ({audio_meta['duration_s']:.1f}s) exceeds maximum ({MAX_DURATION_S}s)"
+        # Get file size and validate
+        original_size = original_path.stat().st_size
+        validate_upload_file(original_size)
+
+        # Detect format
+        detected_mime = await run_in_threadpool(detect_audio_format, original_path)
+
+        # Normalize audio (mandatory)
+        normalized_path = task_dir / "normalized.wav"
+        try:
+            await run_in_threadpool(
+                normalize_audio,
+                input_path=original_path,
+                output_path=normalized_path,
+                target_sr=16000,
+                channels=1
             )
 
-    except HTTPException:
-        # Re-raise our own errors
-        raise
-    except Exception as e:
-        # Normalization failed - clean up and error
-        file_manager.delete_task_files(task_id, "praat")
-        raise_error(
-            ErrorCode.AUDIO_DECODE_FAILED,
-            f"Failed to normalize audio: {str(e)}"
+            # Validate normalized audio
+            audio_meta = await run_in_threadpool(detect_audio_format, normalized_path)
+            normalized_meta = {
+                "format": "wav",
+                "sample_rate": audio_meta["sample_rate"],
+                "channels": audio_meta["channels"],
+                "duration_s": audio_meta["duration_s"]
+            }
+
+            if audio_meta["duration_s"] > MAX_DURATION_S:
+                raise_error(
+                    ErrorCode.AUDIO_TOO_LONG,
+                    f"Audio duration ({audio_meta['duration_s']:.1f}s) exceeds maximum ({MAX_DURATION_S}s)"
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise_error(
+                ErrorCode.AUDIO_DECODE_FAILED,
+                f"Failed to normalize audio: {str(e)}"
+            )
+
+        # Delete original if not retained
+        if not retain_original:
+            original_path.unlink()
+            original_path_str = None
+        else:
+            original_path_str = str(original_path.relative_to(task_dir))
+
+        # Update task with upload info
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            data={
+                "upload": {
+                    "source_filename": original_filename,
+                    "detected_mime": detected_mime,
+                    "original_path": original_path_str,
+                    "normalized_path": "normalized.wav",
+                    "audio_metadata": {
+                        "duration_s": audio_meta["duration_s"],
+                        "sample_rate": audio_meta["sample_rate"],
+                        "channels": audio_meta["channels"],
+                        "format": "wav"
+                    }
+                },
+                "jobs": [],
+                "current_job_id": None
+            }
+        )
+        _set_praat_cleanup(
+            task_id,
+            reason="upload_completed",
+            armed=True,
+            terminal=True,
+            ttl_seconds=TASK_CLEANUP_30M_SECONDS,
         )
 
-    # Delete original if not retained
-    if not retain_original:
-        original_path.unlink()
-        original_path_str = None
-    else:
-        original_path_str = str(original_path.relative_to(task_dir))
-
-    # Update task with upload info
-    task_manager.update_task(
-        task_id,
-        status=TaskStatus.COMPLETED,
-        data={
-            "upload": {
-                "source_filename": original_filename,
-                "detected_mime": detected_mime,
-                "original_path": original_path_str,
-                "normalized_path": "normalized.wav",
-                "audio_metadata": {
-                    "duration_s": audio_meta["duration_s"],
-                    "sample_rate": audio_meta["sample_rate"],
-                    "channels": audio_meta["channels"],
-                    "format": "wav"
-                }
+        return {
+            "task_id": task_id,
+            "source_filename": original_filename,
+            "detected_mime": detected_mime,
+            "original_meta": {
+                "size_bytes": original_size
             },
-            "jobs": [],
-            "current_job_id": None
+            "normalized_meta": normalized_meta
         }
-    )
-    _set_praat_cleanup(
-        task_id,
-        reason="upload_completed",
-        armed=True,
-        terminal=True,
-        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
-    )
-
-    return {
-        "task_id": task_id,
-        "source_filename": original_filename,
-        "detected_mime": detected_mime,
-        "original_meta": {
-            "size_bytes": original_size
-        },
-        "normalized_meta": normalized_meta
-    }
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"error": {"message": str(exc.detail)}}
+        message = (
+            (detail.get("error") or {}).get("message")
+            or "Upload failed"
+        )
+        _mark_praat_upload_failed(task_id, "upload_failed", message, error=detail)
+        raise
+    except Exception as exc:
+        _mark_praat_upload_failed(
+            task_id,
+            "upload_failed",
+            f"Upload failed: {exc}",
+            error=exc,
+        )
+        raise_error(
+            ErrorCode.AUDIO_DECODE_FAILED,
+            f"Upload failed: {exc}",
+            status_code=500,
+        )
 
 
 @router.get("/uploads/progress/{task_id}")

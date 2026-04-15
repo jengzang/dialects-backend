@@ -626,35 +626,10 @@ async def download_file(task_id: str):
     """
     task = task_manager.get_task(task_id)
     if not task:
-        # 尝试从文件路径恢复任务信息（如果文件还存在）
-        task_dir = file_manager.get_task_dir(task_id, "check")
-        possible_files = []
-        if task_dir.exists():
-            possible_files = list(task_dir.glob("*.xlsx"))
-            possible_files.extend(list(task_dir.glob("modified_*.xlsx")))
-        
-        if possible_files:
-            # 找到文件，尝试恢复任务
-            file_path = possible_files[0]
-            # 重新创建任务记录
-            recovered_task_id = task_manager.create_task("check", {
-                "filename": file_path.name,
-                "file_path": str(file_path),
-                "recovered": True
-            })
-            # 如果恢复的任务ID不同，说明原任务已彻底丢失
-            if recovered_task_id != task_id:
-                raise HTTPException(
-                    status_code=404, 
-                    detail="任务不存在。任务可能已过期（超过1小时未使用），请重新上传文件。"
-                )
-            task = task_manager.get_task(task_id)
-        
-        if not task:
-            raise HTTPException(
-                status_code=404, 
-                detail="任务不存在。任务可能已过期（超过1小时未使用），请重新上传文件。"
-            )
+        raise HTTPException(
+            status_code=404,
+            detail="任务不存在。任务可能已过期，请重新上传文件。"
+        )
 
     modified_path = task['data'].get("modified_file_path")
     if modified_path and Path(modified_path).exists():
@@ -905,4 +880,3 @@ async def batch_delete(request: BatchDeleteRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
-
