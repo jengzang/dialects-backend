@@ -68,7 +68,8 @@ def run_phonology_analysis(
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
         region_mode='yindian',
-        query_db=QUERY_DB_USER
+        query_db=QUERY_DB_USER,
+        table_name: str = "characters",
 ):
     """
     統一介面函數：根據 mode ('s2p' 或 'p2s') 執行 sta2pho 或 pho2sta。
@@ -89,13 +90,14 @@ def run_phonology_analysis(
         # if not status_inputs:
         #     raise ValueError("🔴 mode='s2p' 時，請提供 status_inputs。")
         return sta2pho(locations, regions, features, status_inputs, db_path_dialect=dialects_db,
-                       region_mode=region_mode, db_path_query=query_db)
+                       region_mode=region_mode, db_path_query=query_db, table=table_name)
 
     elif mode == 'p2s':
         # if not group_inputs :
         #     raise ValueError("🔴 mode='p2s' 時，請提供 group_inputs ")
         return pho2sta(locations, regions, features, group_inputs, pho_values,
-                       dialect_db_path=dialects_db, region_mode=region_mode, query_db_path=query_db)
+                       dialect_db_path=dialects_db, region_mode=region_mode, query_db_path=query_db,
+                       table=table_name)
 
 
     else:

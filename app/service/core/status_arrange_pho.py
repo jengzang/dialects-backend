@@ -459,6 +459,22 @@ def run_status(
     results_summary = []
 
     for s in input_strings:
+        explicit_path = s.strip()
+        if re.fullmatch(r"(?:\[[^\[\]]+\]\{[^\{\}]+\})+", explicit_path):
+            characters, multi_chars = query_characters_by_path(
+                explicit_path,
+                db_path=db_path,
+                table=table,
+            )
+            simplified_input = convert_path_str(explicit_path, table_name=table)
+            path_results = [{
+                "path": simplified_input,
+                "characters": characters,
+                "multi": multi_chars,
+            }]
+            results_summary.append((s, characters, list(set(multi_chars)), path_results))
+            continue
+
         if "-" in s:
             # ➤ 保留原邏輯：含有破折號，直接處理整體
             batch_result = auto_convert_batch(s)
@@ -601,7 +617,8 @@ def sta2pho(
         db_path_char=CHARACTERS_DB_PATH,
         db_path_dialect=DIALECTS_DB_USER,
         region_mode='yindian',
-        db_path_query=QUERY_DB_USER  # 新增：用于查询地点的数据库
+        db_path_query=QUERY_DB_USER,  # 新增：用于查询地点的数据库
+        table="characters",
 ):
     """
     📌 主控函數：對語音條件輸入進行特徵分析，支援多地點與特徵欄位。
@@ -621,49 +638,76 @@ def sta2pho(
     unique_abbrs = list({abbr for res in match_results for abbr in res[0]})
     # print(f"\n📍 完全匹配地點簡稱：{unique_abbrs}")
 
+    from app.common.constants import validate_table_name, get_table_schema
+    if not validate_table_name(table):
+        raise ValueError(f"無效的表名：{table}")
+    schema = get_table_schema(table)
+
     if not test_inputs:
         print("[i] inputs 為空，自動推導條件字串...")
         pool = get_db_pool(db_path_char)
         with pool.get_connection() as conn:
+            table_q = _quote_identifier(table)
             required_columns = set()
-            for feat in features:
-                if feat == "聲母":
-                    required_columns.add("母")
-                elif feat == "韻母":
-                    required_columns.add("攝")
-                elif feat == "聲調":
-                    required_columns.update({"清濁", "調"})
+            if table == "characters":
+                for feat in features:
+                    if feat == "聲母":
+                        required_columns.add("母")
+                    elif feat == "韻母":
+                        required_columns.add("攝")
+                    elif feat == "聲調":
+                        required_columns.update({"清濁", "調"})
+            else:
+                default_grouping = schema.get("default_grouping", {})
+                for feat in features:
+                    required_columns.update(default_grouping.get(feat, []))
 
             if required_columns:
                 select_cols = ", ".join(_quote_identifier(col) for col in sorted(required_columns))
-                df_char = pd.read_sql_query(f"SELECT {select_cols} FROM characters", conn)
+                df_char = pd.read_sql_query(f"SELECT {select_cols} FROM {table_q}", conn)
             else:
                 df_char = pd.DataFrame()
 
         auto_inputs = []
         auto_features = []
 
-        for feat in features:
-            if feat == "聲母":
-                unique_vals = sorted(df_char["母"].dropna().unique())
-                auto_inputs.extend([f"{v}母" for v in unique_vals])
-                auto_features.extend(["聲母"] * len(unique_vals))
+        if table == "characters":
+            for feat in features:
+                if feat == "聲母":
+                    unique_vals = sorted(df_char["母"].dropna().unique())
+                    auto_inputs.extend([f"{v}母" for v in unique_vals])
+                    auto_features.extend(["聲母"] * len(unique_vals))
 
-            elif feat == "韻母":
-                unique_vals = sorted(df_char["攝"].dropna().unique())
-                auto_inputs.extend([f"{v}攝" for v in unique_vals])
-                auto_features.extend(["韻母"] * len(unique_vals))
+                elif feat == "韻母":
+                    unique_vals = sorted(df_char["攝"].dropna().unique())
+                    auto_inputs.extend([f"{v}攝" for v in unique_vals])
+                    auto_features.extend(["韻母"] * len(unique_vals))
 
-            elif feat == "聲調":
-                clean_vals = sorted(df_char["清濁"].dropna().unique())
-                tone_vals = sorted(df_char["調"].dropna().unique())
-                for cv in clean_vals:
-                    for tv in tone_vals:
-                        auto_inputs.append(f"{cv}{tv}")
-                        auto_features.append("聲調")
+                elif feat == "聲調":
+                    clean_vals = sorted(df_char["清濁"].dropna().unique())
+                    tone_vals = sorted(df_char["調"].dropna().unique())
+                    for cv in clean_vals:
+                        for tv in tone_vals:
+                            auto_inputs.append(f"{cv}{tv}")
+                            auto_features.append("聲調")
 
-            else:
-                print(f"[!] 未支持的特徵類型：{feat}，略過")
+                else:
+                    print(f"[!] 未支持的特徵類型：{feat}，略過")
+        else:
+            default_grouping = schema.get("default_grouping", {})
+            for feat in features:
+                group_fields = default_grouping.get(feat, [])
+                if len(group_fields) != 1:
+                    print(f"[!] 表 '{table}' 的特徵 '{feat}' 目前不支持自動生成輸入，略過")
+                    continue
+
+                group_field = group_fields[0]
+                if group_field not in df_char.columns:
+                    continue
+
+                unique_vals = sorted(df_char[group_field].dropna().unique())
+                auto_inputs.extend([f"[{v}]{{{group_field}}}" for v in unique_vals])
+                auto_features.extend([feat] * len(unique_vals))
 
         test_inputs = auto_inputs
         features = auto_features
@@ -677,7 +721,7 @@ def sta2pho(
             print("\n" + "═" * 60)
             # print(f"📘📘 分析輸入：{user_input} 對應特徵：{features[0]}")
 
-            summary = run_status([user_input], db_path=db_path_char)
+            summary = run_status([user_input], db_path=db_path_char, table=table)
             # if not summary[1]:  # 这里检查 summary 中第二个元素
             #     raise HTTPException(status_code=404, detail="[X] 輸入的中古地位不存在")
 
@@ -704,7 +748,7 @@ def sta2pho(
         for user_input, feature in zip(test_inputs, features):
             # print(f"\n📘 分析輸入：{user_input} 對應特徵：{feature}")
 
-            summary = run_status([user_input], db_path=db_path_char)
+            summary = run_status([user_input], db_path=db_path_char, table=table)
             # if not summary[1]:  # 这里检查 summary 中第二个元素
             #     raise HTTPException(status_code=404, detail="[X] 輸入的中古地位不存在")
 
