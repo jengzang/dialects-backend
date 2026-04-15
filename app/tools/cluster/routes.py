@@ -38,23 +38,23 @@ from .service.staged_session_service import (
     ClusterStageConflictError,
     ClusterStageNotFoundError,
     ClusterStageValidationError,
-    create_staged_session,
-    delete_staged_session,
-    get_staged_cluster_result,
-    get_staged_session_payload,
-    run_cluster_stage,
-    run_distance_stage,
-    run_prepare_stage,
-    start_cluster_stage,
-    start_distance_stage,
-    start_prepare_stage,
+    build_staged_preview_payload,
+    get_staged_result_by_hash,
+    run_cluster_task,
+    run_distance_task,
+    run_prepare_task,
+    start_cluster_task,
+    start_distance_task,
+    start_prepare_task,
 )
 from .service.task_service import write_result
 from .schemas import (
     ClusterStageClusterRequest,
     ClusterStageDistanceRequest,
-    ClusterStageSessionCreateRequest,
-    ClusterStageSessionResponse,
+    ClusterStagePrepareRequest,
+    ClusterStagePreviewRequest,
+    ClusterStagePreviewResponse,
+    ClusterStageTaskResponse,
     ClusterJobCreateRequest,
     ClusterJobCreateResponse,
     ClusterJobStatusResponse,
@@ -207,20 +207,20 @@ async def create_cluster_job(
     )
 
 
-@router.post("/staged/sessions", response_model=ClusterStageSessionResponse)
-async def create_cluster_staged_session(
-    payload: ClusterStageSessionCreateRequest,
+@router.post("/staged/preview", response_model=ClusterStagePreviewResponse)
+async def create_cluster_staged_preview(
+    payload: ClusterStagePreviewRequest,
     query_db: str = Depends(get_query_db),
     dialects_db: str = Depends(get_dialects_db),
 ):
-    """创建 staged cluster session，并同步返回 preview。"""
+    """解析输入并返回 preview + prepare_hash。"""
     payload_dict = payload.model_dump(mode="json")
     try:
         snapshot = await _resolve_snapshot_from_payload(
             payload_dict,
             query_db=query_db,
         )
-        return create_staged_session(
+        return build_staged_preview_payload(
             snapshot,
             query_db=query_db,
             dialects_db=dialects_db,
@@ -231,60 +231,36 @@ async def create_cluster_staged_session(
         _raise_stage_http_error(exc)
 
 
-@router.get("/staged/sessions/{session_id}", response_model=ClusterStageSessionResponse)
-async def get_cluster_staged_session(session_id: str):
-    """返回 staged session 当前状态与可继续执行的下一步。"""
-    try:
-        return get_staged_session_payload(session_id)
-    except Exception as exc:
-        _raise_stage_http_error(exc)
-
-
-@router.delete("/staged/sessions/{session_id}")
-async def delete_cluster_staged_session(session_id: str):
-    """删除 staged session 及其所有中间产物。"""
-    try:
-        delete_staged_session(session_id)
-    except Exception as exc:
-        _raise_stage_http_error(exc)
-    return {
-        "session_id": session_id,
-        "status": "deleted",
-        "message": "cluster staged session 已删除",
-    }
-
-
-@router.post("/staged/sessions/{session_id}/prepare", response_model=ClusterStageSessionResponse)
+@router.post("/staged/prepare", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_prepare(
-    session_id: str,
+    payload: ClusterStagePrepareRequest,
     background_tasks: BackgroundTasks,
 ):
     """启动或复用 prepare 阶段。"""
     try:
-        should_enqueue, response_payload = start_prepare_stage(session_id)
+        should_enqueue, response_payload = start_prepare_task(payload.prepare_hash)
         if should_enqueue:
-            background_tasks.add_task(run_prepare_stage, session_id)
+            background_tasks.add_task(run_prepare_task, response_payload["task_id"])
         return response_payload
     except Exception as exc:
         _raise_stage_http_error(exc)
 
 
-@router.post("/staged/sessions/{session_id}/distances", response_model=ClusterStageSessionResponse)
+@router.post("/staged/distances", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_distance(
-    session_id: str,
     payload: ClusterStageDistanceRequest,
     background_tasks: BackgroundTasks,
 ):
     """启动或复用某个 phoneme_mode 的 distance 阶段。"""
     try:
-        should_enqueue, response_payload = start_distance_stage(
-            session_id,
+        should_enqueue, response_payload = start_distance_task(
+            payload.prepare_hash,
             phoneme_mode=payload.phoneme_mode,
         )
         if should_enqueue:
             background_tasks.add_task(
-                run_distance_stage,
-                session_id,
+                run_distance_task,
+                response_payload["task_id"],
                 payload.phoneme_mode,
             )
         return response_payload
@@ -292,26 +268,23 @@ async def start_cluster_staged_distance(
         _raise_stage_http_error(exc)
 
 
-@router.post("/staged/sessions/{session_id}/clusters", response_model=ClusterStageSessionResponse)
+@router.post("/staged/clusters", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_cluster(
-    session_id: str,
     payload: ClusterStageClusterRequest,
     background_tasks: BackgroundTasks,
 ):
     """启动或复用 cluster 阶段。"""
     clustering_config = payload.clustering.model_dump(mode="json")
     try:
-        should_enqueue, response_payload, result_id = start_cluster_stage(
-            session_id,
-            distance_id=payload.distance_id,
+        should_enqueue, response_payload = start_cluster_task(
+            payload.distance_hash,
             clustering_config=clustering_config,
         )
         if should_enqueue:
             background_tasks.add_task(
-                run_cluster_stage,
-                session_id,
-                distance_id=payload.distance_id,
-                result_id=result_id,
+                run_cluster_task,
+                response_payload["task_id"],
+                payload.distance_hash,
                 clustering_config=clustering_config,
             )
         return response_payload
@@ -319,11 +292,11 @@ async def start_cluster_staged_cluster(
         _raise_stage_http_error(exc)
 
 
-@router.get("/staged/sessions/{session_id}/clusters/{result_id}")
-async def get_cluster_staged_result(session_id: str, result_id: str):
-    """读取 staged session 下某个最终聚类结果。"""
+@router.get("/staged/results/{result_hash}")
+async def get_cluster_staged_result(result_hash: str):
+    """按 result_hash 读取 staged 最终聚类结果。"""
     try:
-        return get_staged_cluster_result(session_id, result_id)
+        return get_staged_result_by_hash(result_hash)
     except Exception as exc:
         _raise_stage_http_error(exc)
 

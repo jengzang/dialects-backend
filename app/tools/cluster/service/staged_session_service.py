@@ -1,15 +1,16 @@
 """
-cluster staged session 服务。
+cluster staged token 服务。
 
-这套服务为新的多步确认 API 提供后端状态机，核心职责是：
-- 创建并维护单个 session；
-- 管理 preview / prepare / distance / result 四类中间态文件；
-- 负责阶段依赖、幂等复用、TTL 过期与清理；
-- 复用 cluster 现有核心算法函数，不复制计算逻辑。
+这一层不再维护 session，而是围绕全局 hash artifact 工作：
+- preview 产出并持久化 `prepare_hash` 对应的轻量 snapshot；
+- prepare 基于 `prepare_hash` 生成可复用的编码结果；
+- distance 基于 `prepare_hash + phoneme_mode` 生成距离矩阵；
+- cluster 基于 `distance_hash + clustering` 生成最终 `result_hash`。
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -17,17 +18,39 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from app.common.path import DIALECTS_DB_USER, QUERY_DB_USER
 from app.tools.cluster.config import (
+    STAGED_ARTIFACT_ROOT_DIRNAME,
     STAGED_DISTANCE_TTL_SECONDS,
     STAGED_PREPARE_TTL_SECONDS,
+    STAGED_PREVIEW_TTL_SECONDS,
     STAGED_RESULT_TTL_SECONDS,
-    STAGED_SESSION_TTL_SECONDS,
-    STAGED_TASK_TOOL_NAME,
+    TASK_TOOL_NAME,
+)
+from app.tools.cluster.service.cache_service import (
+    annotate_cluster_result_cache,
+    build_cluster_distance_hash,
+    build_cluster_job_hash,
+    build_cluster_prepare_hash,
+    clear_distance_inflight_task_id,
+    clear_inflight_task_id,
+    clear_prepare_inflight_task_id,
+    get_cached_cluster_result,
+    get_cached_distance_artifact,
+    get_cached_prepare_artifact,
+    get_distance_inflight_task_id,
+    get_inflight_task_id,
+    get_prepare_inflight_task_id,
+    set_cached_cluster_result,
+    set_cached_distance_artifact,
+    set_cached_prepare_artifact,
+    set_distance_inflight_task_id,
+    set_inflight_task_id,
+    set_prepare_inflight_task_id,
 )
 from app.tools.cluster.service.cluster_service import (
     build_cluster_distance_state,
@@ -35,43 +58,39 @@ from app.tools.cluster.service.cluster_service import (
     build_cluster_prepare_state,
 )
 from app.tools.cluster.service.result_service import build_task_summary
+from app.tools.cluster.service.task_service import get_task_status_payload
 from app.tools.file_manager import file_manager
 from app.tools.task_manager import TaskStatus, task_manager
 
 
 class ClusterStageError(Exception):
-    """staged session 的统一基类异常。"""
+    """staged token 的统一基类异常。"""
 
 
 class ClusterStageNotFoundError(ClusterStageError):
-    """session 或 artifact 不存在。"""
+    """缺少上游 hash artifact。"""
 
 
 class ClusterStageConflictError(ClusterStageError):
-    """阶段顺序、依赖或并发状态冲突。"""
+    """上游阶段仍在处理中，当前无法继续。"""
 
 
 class ClusterStageValidationError(ClusterStageError):
     """阶段参数不合法。"""
 
 
-_SESSION_LOCKS: Dict[str, threading.Lock] = {}
-_SESSION_LOCKS_GUARD = threading.Lock()
-_UNSET = object()
+ProgressCallback = Callable[[float, str, Optional[Dict[str, float]]], None]
+_ARTIFACT_LOCKS: Dict[str, threading.Lock] = {}
+_ARTIFACT_LOCKS_GUARD = threading.Lock()
 
 
-def _get_session_lock(session_id: str) -> threading.Lock:
-    with _SESSION_LOCKS_GUARD:
-        lock = _SESSION_LOCKS.get(session_id)
+def _get_artifact_lock(key: str) -> threading.Lock:
+    with _ARTIFACT_LOCKS_GUARD:
+        lock = _ARTIFACT_LOCKS.get(key)
         if lock is None:
             lock = threading.Lock()
-            _SESSION_LOCKS[session_id] = lock
+            _ARTIFACT_LOCKS[key] = lock
         return lock
-
-
-def _drop_session_lock(session_id: str) -> None:
-    with _SESSION_LOCKS_GUARD:
-        _SESSION_LOCKS.pop(session_id, None)
 
 
 def _now_ts() -> float:
@@ -88,49 +107,51 @@ def _normalize_phoneme_mode(phoneme_mode: Any) -> str:
     return str(_enum_value(phoneme_mode) or "")
 
 
-def _stable_hash(payload: Dict[str, Any]) -> str:
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+def _artifact_root_dir() -> Path:
+    root = file_manager.get_tool_dir(TASK_TOOL_NAME) / STAGED_ARTIFACT_ROOT_DIRNAME
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
-def _session_dir(session_id: str) -> Path:
-    return file_manager.get_task_dir(session_id, STAGED_TASK_TOOL_NAME)
+def _artifact_stage_dir(stage: str) -> Path:
+    stage_dir = _artifact_root_dir() / stage
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    return stage_dir
 
 
-def _session_manifest_path(session_id: str) -> Path:
-    return _session_dir(session_id) / "session.json"
+def _touch_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    os.utime(path, None)
 
 
-def _preview_path(session_id: str) -> Path:
-    return _session_dir(session_id) / "preview.json"
+def _touch_artifact_parent_dirs(stage: str) -> None:
+    _touch_dir(file_manager.get_tool_dir(TASK_TOOL_NAME))
+    _touch_dir(_artifact_root_dir())
+    _touch_dir(_artifact_stage_dir(stage))
 
 
-def _prepare_json_path(session_id: str) -> Path:
-    return _session_dir(session_id) / "prepare" / "prepare.json"
+def _preview_json_path(prepare_hash: str) -> Path:
+    return _artifact_stage_dir("preview") / f"{prepare_hash}.json"
 
 
-def _prepare_npz_path(session_id: str) -> Path:
-    return _session_dir(session_id) / "prepare" / "prepare.npz"
+def _prepare_json_path(prepare_hash: str) -> Path:
+    return _artifact_stage_dir("prepare") / f"{prepare_hash}.json"
 
 
-def _distance_json_path(session_id: str, artifact_id: str) -> Path:
-    return _session_dir(session_id) / "distances" / f"{artifact_id}.json"
+def _prepare_npz_path(prepare_hash: str) -> Path:
+    return _artifact_stage_dir("prepare") / f"{prepare_hash}.npz"
 
 
-def _distance_npy_path(session_id: str, artifact_id: str) -> Path:
-    return _session_dir(session_id) / "distances" / f"{artifact_id}.npy"
+def _distance_json_path(distance_hash: str) -> Path:
+    return _artifact_stage_dir("distance") / f"{distance_hash}.json"
 
 
-def _result_json_path(session_id: str, artifact_id: str) -> Path:
-    return _session_dir(session_id) / "results" / f"{artifact_id}.json"
+def _distance_npy_path(distance_hash: str) -> Path:
+    return _artifact_stage_dir("distance") / f"{distance_hash}.npy"
 
 
-def _relative_to_session(session_id: str, path: Path) -> str:
-    return str(path.relative_to(_session_dir(session_id)))
-
-
-def _resolve_session_relative_path(session_id: str, relative_path: str) -> Path:
-    return _session_dir(session_id) / relative_path
+def _result_json_path(result_hash: str) -> Path:
+    return _artifact_stage_dir("result") / f"{result_hash}.json"
 
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -161,84 +182,21 @@ def _load_json(path: Path) -> Dict[str, Any]:
         return json.load(handle)
 
 
-def _update_session_task(
-    session_id: str,
-    *,
-    status: Optional[Any] = None,
-    progress: Optional[float] = None,
-    message: Optional[str] = None,
-    active_stage: Optional[str] = None,
-    execution_time_ms: Any = _UNSET,
-    performance: Any = _UNSET,
-    error: Optional[str] = None,
-) -> None:
-    data: Dict[str, Any] = {"active_stage": active_stage}
-    if execution_time_ms is not _UNSET:
-        data["execution_time_ms"] = execution_time_ms
-    if performance is not _UNSET:
-        data["performance"] = performance
-
-    kwargs: Dict[str, Any] = {"data": data}
-    if status is not None:
-        kwargs["status"] = status
-    if progress is not None:
-        kwargs["progress"] = progress
-    if message is not None:
-        kwargs["message"] = message
-    if error is not None:
-        kwargs["error"] = error
-    task_manager.update_task(session_id, **kwargs)
-
-
-def _make_stage_progress_callback(session_id: str, active_stage: str):
-    def _callback(
-        fraction: float,
-        message: str,
-        performance: Optional[Dict[str, float]] = None,
-    ) -> None:
-        _update_session_task(
-            session_id,
-            status=TaskStatus.PROCESSING,
-            progress=round(5.0 + (90.0 * max(0.0, min(1.0, float(fraction)))), 1),
-            message=message,
-            active_stage=active_stage,
-            performance=performance,
-        )
-
-    return _callback
-
-
-def _task_exists(session_id: str) -> bool:
-    return task_manager.get_task(session_id) is not None
-
-
-def _load_session_manifest(session_id: str) -> Dict[str, Any]:
-    if not _task_exists(session_id):
-        raise ClusterStageNotFoundError("staged session 不存在")
-    path = _session_manifest_path(session_id)
-    if not path.exists():
-        raise ClusterStageNotFoundError("staged session manifest 不存在")
-    return _load_json(path)
-
-
-def _save_session_manifest(session_id: str, manifest: Dict[str, Any]) -> None:
-    manifest["updated_at"] = _now_ts()
-    _atomic_write_json(_session_manifest_path(session_id), manifest)
-
-
-def _normalize_artifact_summary(summary: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if summary is None:
-        return None
-    return json.loads(json.dumps(summary, ensure_ascii=False))
+def _artifact_expired(meta: Optional[Dict[str, Any]], *, current_ts: Optional[float] = None) -> bool:
+    if not meta:
+        return True
+    expires_at = meta.get("expires_at")
+    if expires_at is None:
+        return False
+    return float(expires_at) <= (current_ts or _now_ts())
 
 
 def _build_preview(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     location_resolution = snapshot.get("location_resolution") or {}
     groups = snapshot.get("groups") or []
-    unique_chars = []
+    unique_chars: List[str] = []
     for group in groups:
         unique_chars.extend(group.get("resolved_chars") or [])
-    unique_chars = list(dict.fromkeys(unique_chars))
     requested_dimensions = sorted(
         {group.get("compare_dimension") for group in groups if group.get("compare_dimension")}
     )
@@ -250,272 +208,11 @@ def _build_preview(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     return {
         **build_task_summary(snapshot),
-        "unique_char_count": len(unique_chars),
+        "unique_char_count": len(dict.fromkeys(unique_chars)),
         "requested_dimensions": requested_dimensions,
         "estimated_pair_count": estimated_pair_count,
         "estimated_dense_matrix_mb": estimated_dense_matrix_mb,
-        "available_actions": ["prepare"],
     }
-
-
-def _artifact_expired(artifact: Optional[Dict[str, Any]], now_ts: Optional[float] = None) -> bool:
-    if not artifact:
-        return True
-    if str(artifact.get("status") or "") != "completed":
-        return False
-    expires_at = artifact.get("expires_at")
-    if expires_at is None:
-        return False
-    current = _now_ts() if now_ts is None else now_ts
-    return float(expires_at) <= current
-
-
-def _touch_session(manifest: Dict[str, Any], *, current_ts: Optional[float] = None) -> None:
-    now_value = _now_ts() if current_ts is None else current_ts
-    manifest["last_accessed_at"] = now_value
-    manifest["expires_at"] = now_value + STAGED_SESSION_TTL_SECONDS
-
-
-def _touch_artifact(
-    artifact: Dict[str, Any],
-    *,
-    ttl_seconds: int,
-    current_ts: Optional[float] = None,
-) -> None:
-    now_value = _now_ts() if current_ts is None else current_ts
-    artifact["last_accessed_at"] = now_value
-    artifact["updated_at"] = now_value
-    artifact["expires_at"] = now_value + ttl_seconds
-
-
-def _delete_paths(session_id: str, relative_paths: Iterable[str]) -> None:
-    for relative_path in relative_paths:
-        path = _resolve_session_relative_path(session_id, relative_path)
-        if path.exists():
-            path.unlink()
-
-
-def _prepare_artifact_template(session_id: str, current_ts: float) -> Dict[str, Any]:
-    return {
-        "artifact_id": "prepare",
-        "stage": "prepare",
-        "status": "processing",
-        "created_at": current_ts,
-        "updated_at": current_ts,
-        "last_accessed_at": current_ts,
-        "expires_at": current_ts + STAGED_PREPARE_TTL_SECONDS,
-        "dependency_ids": [],
-        "summary": None,
-        "file_paths": {
-            "json": _relative_to_session(session_id, _prepare_json_path(session_id)),
-            "npz": _relative_to_session(session_id, _prepare_npz_path(session_id)),
-        },
-    }
-
-
-def _distance_artifact_id(phoneme_mode: str) -> str:
-    return f"distance_{phoneme_mode}"
-
-
-def _distance_artifact_template(
-    session_id: str,
-    *,
-    artifact_id: str,
-    phoneme_mode: str,
-    current_ts: float,
-) -> Dict[str, Any]:
-    return {
-        "artifact_id": artifact_id,
-        "stage": "distance",
-        "status": "processing",
-        "created_at": current_ts,
-        "updated_at": current_ts,
-        "last_accessed_at": current_ts,
-        "expires_at": current_ts + STAGED_DISTANCE_TTL_SECONDS,
-        "dependency_ids": ["prepare"],
-        "summary": {
-            "phoneme_mode": phoneme_mode,
-        },
-        "file_paths": {
-            "json": _relative_to_session(session_id, _distance_json_path(session_id, artifact_id)),
-            "npy": _relative_to_session(session_id, _distance_npy_path(session_id, artifact_id)),
-        },
-    }
-
-
-def _result_artifact_id(distance_id: str, clustering_config: Dict[str, Any]) -> str:
-    result_hash = _stable_hash(
-        {
-            "distance_id": distance_id,
-            "clustering": clustering_config,
-        }
-    )[:16]
-    return f"result_{result_hash}"
-
-
-def _result_artifact_template(
-    session_id: str,
-    *,
-    artifact_id: str,
-    distance_id: str,
-    clustering_config: Dict[str, Any],
-    current_ts: float,
-) -> Dict[str, Any]:
-    return {
-        "artifact_id": artifact_id,
-        "stage": "cluster",
-        "status": "processing",
-        "created_at": current_ts,
-        "updated_at": current_ts,
-        "last_accessed_at": current_ts,
-        "expires_at": current_ts + STAGED_RESULT_TTL_SECONDS,
-        "dependency_ids": ["prepare", distance_id],
-        "summary": {
-            "distance_id": distance_id,
-            "clustering": clustering_config,
-        },
-        "file_paths": {
-            "json": _relative_to_session(session_id, _result_json_path(session_id, artifact_id)),
-        },
-    }
-
-
-def _prune_manifest_temp_files(session_id: str, manifest: Dict[str, Any]) -> None:
-    referenced = {
-        "session.json",
-        "preview.json",
-        "task_info.json",
-    }
-    prepare_artifact = manifest.get("prepare")
-    if prepare_artifact:
-        referenced.update((prepare_artifact.get("file_paths") or {}).values())
-    for artifact in (manifest.get("distances") or {}).values():
-        referenced.update((artifact.get("file_paths") or {}).values())
-    for artifact in (manifest.get("results") or {}).values():
-        referenced.update((artifact.get("file_paths") or {}).values())
-
-    session_dir = _session_dir(session_id)
-    for path in session_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        relative_path = str(path.relative_to(session_dir))
-        if relative_path in referenced:
-            continue
-        if ".tmp" in path.name:
-            path.unlink(missing_ok=True)
-
-
-def _remove_prepare_and_distances(session_id: str, manifest: Dict[str, Any]) -> bool:
-    changed = False
-    prepare_artifact = manifest.get("prepare")
-    if prepare_artifact:
-        _delete_paths(session_id, (prepare_artifact.get("file_paths") or {}).values())
-        manifest["prepare"] = None
-        changed = True
-    distances = manifest.get("distances") or {}
-    for artifact in distances.values():
-        _delete_paths(session_id, (artifact.get("file_paths") or {}).values())
-        changed = True
-    manifest["distances"] = {}
-    return changed
-
-
-def _expire_session_artifacts(session_id: str, manifest: Dict[str, Any]) -> bool:
-    current = _now_ts()
-    changed = False
-
-    prepare_artifact = manifest.get("prepare")
-    if prepare_artifact and _artifact_expired(prepare_artifact, current):
-        changed = _remove_prepare_and_distances(session_id, manifest) or changed
-
-    distances = dict(manifest.get("distances") or {})
-    for artifact_id, artifact in distances.items():
-        if _artifact_expired(artifact, current):
-            _delete_paths(session_id, (artifact.get("file_paths") or {}).values())
-            manifest["distances"].pop(artifact_id, None)
-            changed = True
-
-    results = dict(manifest.get("results") or {})
-    for artifact_id, artifact in results.items():
-        if _artifact_expired(artifact, current):
-            _delete_paths(session_id, (artifact.get("file_paths") or {}).values())
-            manifest["results"].pop(artifact_id, None)
-            changed = True
-
-    if changed:
-        _prune_manifest_temp_files(session_id, manifest)
-    return changed
-
-
-def _find_processing_artifact(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    prepare_artifact = manifest.get("prepare")
-    if prepare_artifact and str(prepare_artifact.get("status") or "") == "processing":
-        return prepare_artifact
-
-    for artifact in (manifest.get("distances") or {}).values():
-        if str(artifact.get("status") or "") == "processing":
-            return artifact
-
-    for artifact in (manifest.get("results") or {}).values():
-        if str(artifact.get("status") or "") == "processing":
-            return artifact
-    return None
-
-
-def _task_status(session_id: str) -> str:
-    task = task_manager.get_task(session_id)
-    if not task:
-        return ""
-    raw_status = task.get("status")
-    if hasattr(raw_status, "value"):
-        return str(raw_status.value)
-    return str(raw_status or "")
-
-
-def _validate_no_conflicting_processing(
-    manifest: Dict[str, Any],
-    *,
-    expected_stage: str,
-    expected_artifact_id: str,
-) -> None:
-    processing_artifact = _find_processing_artifact(manifest)
-    if not processing_artifact:
-        return
-
-    task_status = _task_status(manifest["session_id"])
-    if task_status != TaskStatus.PROCESSING.value:
-        # 旧 processing 标记已失效，允许后续重跑。
-        processing_artifact["status"] = "failed"
-        processing_artifact["updated_at"] = _now_ts()
-        processing_artifact["error"] = "检测到过期的 processing 状态，已标记为 failed"
-        return
-
-    if (
-        str(processing_artifact.get("stage")) == expected_stage
-        and str(processing_artifact.get("artifact_id")) == expected_artifact_id
-    ):
-        return
-    raise ClusterStageConflictError(
-        f"当前 session 正在执行 {processing_artifact.get('stage')} 阶段，请等待完成后再继续"
-    )
-
-
-def _ensure_valid_prepare(manifest: Dict[str, Any]) -> Dict[str, Any]:
-    prepare_artifact = manifest.get("prepare")
-    if not prepare_artifact or str(prepare_artifact.get("status") or "") != "completed":
-        raise ClusterStageConflictError("prepare 尚未完成，请先执行 prepare 阶段")
-    if _artifact_expired(prepare_artifact):
-        raise ClusterStageConflictError("prepare 已过期，请重新执行 prepare 阶段")
-    return prepare_artifact
-
-
-def _ensure_valid_distance(manifest: Dict[str, Any], distance_id: str) -> Dict[str, Any]:
-    artifact = (manifest.get("distances") or {}).get(distance_id)
-    if not artifact or str(artifact.get("status") or "") != "completed":
-        raise ClusterStageConflictError("distance 尚未完成，请先执行对应的 distance 阶段")
-    if _artifact_expired(artifact):
-        raise ClusterStageConflictError("distance 已过期，请重新执行对应的 distance 阶段")
-    return artifact
 
 
 def _serialize_dimension_catalogs(dimension_catalogs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -626,63 +323,6 @@ def _prepare_json_payload(prepare_state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _load_prepare_state(session_id: str, artifact: Dict[str, Any]) -> Dict[str, Any]:
-    file_paths = artifact.get("file_paths") or {}
-    meta = _load_json(_resolve_session_relative_path(session_id, file_paths["json"]))
-    with np.load(
-        _resolve_session_relative_path(session_id, file_paths["npz"]),
-        allow_pickle=False,
-    ) as npz_file:
-        dimension_catalogs = _deserialize_dimension_catalogs(meta.get("dimension_token_catalogs") or {})
-        group_models = []
-        for index, group_meta in enumerate(meta.get("group_models") or []):
-            group_models.append(
-                _deserialize_group_model(
-                    group_meta,
-                    npz_file[f"group_{index}_token_matrix"],
-                    npz_file[f"group_{index}_present_char_counts"],
-                    dimension_catalogs,
-                )
-            )
-
-        bucket_models: Dict[str, Dict[str, Any]] = {}
-        for dimension, group_meta in (meta.get("bucket_models") or {}).items():
-            bucket_models[dimension] = _deserialize_group_model(
-                group_meta,
-                npz_file[f"bucket_{dimension}_token_matrix"],
-                npz_file[f"bucket_{dimension}_present_char_counts"],
-                dimension_catalogs,
-            )
-
-    return {
-        "matched_locations": list(meta.get("matched_locations") or []),
-        "effective_locations": list(meta.get("effective_locations") or []),
-        "dropped_locations": list(meta.get("dropped_locations") or []),
-        "requested_dimensions": list(meta.get("requested_dimensions") or []),
-        "dimension_token_catalogs": dimension_catalogs,
-        "group_models": group_models,
-        "bucket_models": bucket_models,
-        "group_diagnostics": meta.get("group_diagnostics") or [],
-        "performance": meta.get("performance") or {},
-    }
-
-
-def _save_prepare_artifact(
-    session_id: str,
-    artifact: Dict[str, Any],
-    prepare_state: Dict[str, Any],
-) -> None:
-    file_paths = artifact.get("file_paths") or {}
-    _atomic_write_json(
-        _resolve_session_relative_path(session_id, file_paths["json"]),
-        _prepare_json_payload(prepare_state),
-    )
-    _atomic_write_npz(
-        _resolve_session_relative_path(session_id, file_paths["npz"]),
-        _prepare_arrays_payload(prepare_state),
-    )
-
-
 def _distance_json_payload(distance_state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "phoneme_mode": distance_state.get("phoneme_mode"),
@@ -691,40 +331,41 @@ def _distance_json_payload(distance_state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _load_distance_state(session_id: str, artifact: Dict[str, Any]) -> Dict[str, Any]:
-    file_paths = artifact.get("file_paths") or {}
-    payload = _load_json(_resolve_session_relative_path(session_id, file_paths["json"]))
-    distance_matrix = np.load(
-        _resolve_session_relative_path(session_id, file_paths["npy"]),
-        allow_pickle=False,
-    )
+def _load_prepare_state_from_payload(meta_payload: Dict[str, Any], npz_path: Path) -> Dict[str, Any]:
+    with np.load(npz_path, allow_pickle=False) as npz_file:
+        dimension_catalogs = _deserialize_dimension_catalogs(
+            meta_payload.get("dimension_token_catalogs") or {}
+        )
+        group_models = []
+        for index, group_meta in enumerate(meta_payload.get("group_models") or []):
+            group_models.append(
+                _deserialize_group_model(
+                    group_meta,
+                    npz_file[f"group_{index}_token_matrix"],
+                    npz_file[f"group_{index}_present_char_counts"],
+                    dimension_catalogs,
+                )
+            )
+        bucket_models: Dict[str, Dict[str, Any]] = {}
+        for dimension, group_meta in (meta_payload.get("bucket_models") or {}).items():
+            bucket_models[dimension] = _deserialize_group_model(
+                group_meta,
+                npz_file[f"bucket_{dimension}_token_matrix"],
+                npz_file[f"bucket_{dimension}_present_char_counts"],
+                dimension_catalogs,
+            )
+
     return {
-        "phoneme_mode": payload.get("phoneme_mode"),
-        "distance_matrix": distance_matrix,
-        "phoneme_mode_params": payload.get("phoneme_mode_params") or {},
-        "performance": payload.get("performance") or {},
+        "matched_locations": list(meta_payload.get("matched_locations") or []),
+        "effective_locations": list(meta_payload.get("effective_locations") or []),
+        "dropped_locations": list(meta_payload.get("dropped_locations") or []),
+        "requested_dimensions": list(meta_payload.get("requested_dimensions") or []),
+        "dimension_token_catalogs": dimension_catalogs,
+        "group_models": group_models,
+        "bucket_models": bucket_models,
+        "group_diagnostics": meta_payload.get("group_diagnostics") or [],
+        "performance": meta_payload.get("performance") or {},
     }
-
-
-def _save_distance_artifact(
-    session_id: str,
-    artifact: Dict[str, Any],
-    distance_state: Dict[str, Any],
-) -> None:
-    file_paths = artifact.get("file_paths") or {}
-    _atomic_write_json(
-        _resolve_session_relative_path(session_id, file_paths["json"]),
-        _distance_json_payload(distance_state),
-    )
-    _atomic_write_npy(
-        _resolve_session_relative_path(session_id, file_paths["npy"]),
-        np.asarray(distance_state["distance_matrix"], dtype=np.float64),
-    )
-
-
-def _load_result_json(session_id: str, artifact: Dict[str, Any]) -> Dict[str, Any]:
-    file_paths = artifact.get("file_paths") or {}
-    return _load_json(_resolve_session_relative_path(session_id, file_paths["json"]))
 
 
 def _prepare_summary(prepare_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -743,19 +384,22 @@ def _prepare_summary(prepare_state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _distance_summary(distance_state: Dict[str, Any]) -> Dict[str, Any]:
+def _distance_summary(distance_state: Dict[str, Any], distance_hash: str, prepare_hash: str) -> Dict[str, Any]:
     matrix = np.asarray(distance_state["distance_matrix"])
     return {
+        "distance_hash": distance_hash,
+        "prepare_hash": prepare_hash,
         "phoneme_mode": distance_state.get("phoneme_mode"),
         "matrix_shape": [int(size) for size in matrix.shape],
         "performance": distance_state.get("performance") or {},
     }
 
 
-def _result_summary(result: Dict[str, Any], distance_id: str) -> Dict[str, Any]:
+def _result_summary(result: Dict[str, Any], result_hash: str, distance_hash: str) -> Dict[str, Any]:
     summary = result.get("summary") or {}
     return {
-        "distance_id": distance_id,
+        "result_hash": result_hash,
+        "distance_hash": distance_hash,
         "algorithm": summary.get("algorithm"),
         "phoneme_mode": summary.get("phoneme_mode"),
         "cluster_count": summary.get("cluster_count"),
@@ -764,626 +408,1034 @@ def _result_summary(result: Dict[str, Any], distance_id: str) -> Dict[str, Any]:
     }
 
 
-def _build_artifact_response(artifact: Dict[str, Any]) -> Dict[str, Any]:
+def _hash_preview_wrapper(snapshot: Dict[str, Any], preview: Dict[str, Any], prepare_hash: str, *, query_db: str, dialects_db: str) -> Dict[str, Any]:
+    current = _now_ts()
     return {
-        "artifact_id": str(artifact.get("artifact_id")),
-        "stage": str(artifact.get("stage")),
-        "status": str(artifact.get("status")),
-        "created_at": artifact.get("created_at"),
-        "updated_at": artifact.get("updated_at"),
-        "last_accessed_at": artifact.get("last_accessed_at"),
-        "expires_at": artifact.get("expires_at"),
-        "dependency_ids": list(artifact.get("dependency_ids") or []),
-        "summary": _normalize_artifact_summary(artifact.get("summary")),
+        "artifact": {
+            "stage": "preview",
+            "prepare_hash": prepare_hash,
+            "created_at": current,
+            "updated_at": current,
+            "last_accessed_at": current,
+            "expires_at": current + STAGED_PREVIEW_TTL_SECONDS,
+            "query_db": str(query_db),
+            "dialects_db": str(dialects_db),
+        },
+        "snapshot": snapshot,
+        "preview": preview,
     }
 
 
-def _build_available_actions(manifest: Dict[str, Any]) -> List[str]:
-    if _find_processing_artifact(manifest) is not None and _task_status(manifest["session_id"]) == TaskStatus.PROCESSING.value:
-        return []
-
-    actions: List[str] = []
-    prepare_artifact = manifest.get("prepare")
-    if not prepare_artifact or _artifact_expired(prepare_artifact) or str(prepare_artifact.get("status")) != "completed":
-        actions.append("prepare")
-        return actions
-
-    actions.append("distance")
-    valid_distance_exists = any(
-        str(artifact.get("status")) == "completed" and not _artifact_expired(artifact)
-        for artifact in (manifest.get("distances") or {}).values()
-    )
-    if valid_distance_exists:
-        actions.append("cluster")
-    return actions
-
-
-def _build_session_response(
-    session_id: str,
-    manifest: Dict[str, Any],
+def _prepare_wrapper(
+    prepare_hash: str,
+    snapshot: Dict[str, Any],
+    prepare_state: Dict[str, Any],
     *,
-    refresh_session_access: bool,
+    query_db: str,
+    dialects_db: str,
 ) -> Dict[str, Any]:
-    if refresh_session_access:
-        _touch_session(manifest)
-        _save_session_manifest(session_id, manifest)
-
-    task = task_manager.get_task(session_id)
-    if not task:
-        raise ClusterStageNotFoundError("staged session 不存在")
-
-    raw_status = task.get("status")
-    status = str(raw_status.value) if hasattr(raw_status, "value") else str(raw_status or "")
+    current = _now_ts()
     return {
-        "session_id": session_id,
-        "status": status,
-        "progress": float(task.get("progress", 0.0)),
-        "message": str(task.get("message") or ""),
-        "created_at": float(manifest.get("created_at", task.get("created_at", 0.0))),
-        "updated_at": float(task.get("updated_at", manifest.get("updated_at", 0.0))),
-        "active_stage": manifest.get("active_stage"),
-        "preview": manifest.get("preview") or {},
-        "available_actions": _build_available_actions(manifest),
-        "prepare": (
-            _build_artifact_response(manifest["prepare"])
-            if manifest.get("prepare")
-            else None
-        ),
-        "distances": [
-            _build_artifact_response(artifact)
-            for artifact in sorted(
-                (manifest.get("distances") or {}).values(),
-                key=lambda item: float(item.get("created_at", 0.0)),
-            )
-        ],
-        "results": [
-            _build_artifact_response(artifact)
-            for artifact in sorted(
-                (manifest.get("results") or {}).values(),
-                key=lambda item: float(item.get("created_at", 0.0)),
-            )
-        ],
-        "execution_time_ms": (task.get("data") or {}).get("execution_time_ms"),
-        "performance": (task.get("data") or {}).get("performance"),
+        "artifact": {
+            "stage": "prepare",
+            "prepare_hash": prepare_hash,
+            "created_at": current,
+            "updated_at": current,
+            "last_accessed_at": current,
+            "expires_at": current + STAGED_PREPARE_TTL_SECONDS,
+            "query_db": str(query_db),
+            "dialects_db": str(dialects_db),
+            "summary": _prepare_summary(prepare_state),
+        },
+        "snapshot": snapshot,
+        "payload": _prepare_json_payload(prepare_state),
     }
 
 
-def create_staged_session(
+def _distance_wrapper(
+    distance_hash: str,
+    prepare_hash: str,
+    distance_state: Dict[str, Any],
+    *,
+    query_db: str,
+    dialects_db: str,
+) -> Dict[str, Any]:
+    current = _now_ts()
+    return {
+        "artifact": {
+            "stage": "distance",
+            "distance_hash": distance_hash,
+            "prepare_hash": prepare_hash,
+            "phoneme_mode": distance_state.get("phoneme_mode"),
+            "created_at": current,
+            "updated_at": current,
+            "last_accessed_at": current,
+            "expires_at": current + STAGED_DISTANCE_TTL_SECONDS,
+            "query_db": str(query_db),
+            "dialects_db": str(dialects_db),
+            "summary": _distance_summary(distance_state, distance_hash, prepare_hash),
+        },
+        "payload": _distance_json_payload(distance_state),
+    }
+
+
+def _read_preview_bundle(prepare_hash: str) -> Dict[str, Any]:
+    path = _preview_json_path(prepare_hash)
+    if not path.exists():
+        raise ClusterStageNotFoundError("prepare_hash 不存在，请先执行 preview")
+    wrapper = _load_json(path)
+    if _artifact_expired(wrapper.get("artifact")):
+        path.unlink(missing_ok=True)
+        raise ClusterStageNotFoundError("preview 已过期，请重新执行 preview")
+    return wrapper
+
+
+def _read_prepare_bundle(prepare_hash: str) -> Dict[str, Any]:
+    json_path = _prepare_json_path(prepare_hash)
+    npz_path = _prepare_npz_path(prepare_hash)
+    if not json_path.exists() or not npz_path.exists():
+        raise ClusterStageNotFoundError("prepare artifact 不存在，请先执行 prepare")
+    wrapper = _load_json(json_path)
+    if _artifact_expired(wrapper.get("artifact")):
+        json_path.unlink(missing_ok=True)
+        npz_path.unlink(missing_ok=True)
+        raise ClusterStageNotFoundError("prepare artifact 已过期，请重新执行 preview/prepare")
+    return {
+        "artifact": wrapper["artifact"],
+        "snapshot": wrapper["snapshot"],
+        "prepare_state": _load_prepare_state_from_payload(wrapper["payload"], npz_path),
+    }
+
+
+def _read_distance_bundle(distance_hash: str) -> Dict[str, Any]:
+    json_path = _distance_json_path(distance_hash)
+    npy_path = _distance_npy_path(distance_hash)
+    if not json_path.exists() or not npy_path.exists():
+        raise ClusterStageNotFoundError("distance artifact 不存在，请先执行对应的 distance 阶段")
+    wrapper = _load_json(json_path)
+    if _artifact_expired(wrapper.get("artifact")):
+        json_path.unlink(missing_ok=True)
+        npy_path.unlink(missing_ok=True)
+        raise ClusterStageNotFoundError("distance artifact 已过期，请重新执行 distance")
+    return {
+        "artifact": wrapper["artifact"],
+        "distance_state": {
+            "phoneme_mode": wrapper["payload"].get("phoneme_mode"),
+            "distance_matrix": np.load(npy_path, allow_pickle=False),
+            "phoneme_mode_params": wrapper["payload"].get("phoneme_mode_params") or {},
+            "performance": wrapper["payload"].get("performance") or {},
+        },
+    }
+
+
+def _ensure_result_metadata(
+    result: Dict[str, Any],
+    *,
+    result_hash: str,
+    distance_hash: str,
+    prepare_hash: str,
+    cache_hit: bool,
+    cache_source: str,
+) -> Dict[str, Any]:
+    annotated = copy.deepcopy(result)
+    metadata = dict(annotated.get("metadata") or {})
+    current = _now_ts()
+    metadata.update(
+        {
+            "result_hash": result_hash,
+            "distance_hash": distance_hash,
+            "prepare_hash": prepare_hash,
+            "cache_hit": bool(cache_hit),
+            "cache_source": cache_source,
+            "artifact_created_at": metadata.get("artifact_created_at", current),
+            "artifact_updated_at": current,
+            "artifact_last_accessed_at": current,
+            "artifact_expires_at": current + STAGED_RESULT_TTL_SECONDS,
+        }
+    )
+    annotated["metadata"] = metadata
+    return annotated
+
+
+def _touch_preview_artifact(prepare_hash: str) -> Dict[str, Any]:
+    wrapper = _read_preview_bundle(prepare_hash)
+    current = _now_ts()
+    wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_accessed_at"] = current
+    wrapper["artifact"]["expires_at"] = current + STAGED_PREVIEW_TTL_SECONDS
+    _atomic_write_json(_preview_json_path(prepare_hash), wrapper)
+    _touch_artifact_parent_dirs("preview")
+    return wrapper
+
+
+def _touch_prepare_artifact(prepare_hash: str) -> Dict[str, Any]:
+    wrapper = _load_json(_prepare_json_path(prepare_hash))
+    current = _now_ts()
+    wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_accessed_at"] = current
+    wrapper["artifact"]["expires_at"] = current + STAGED_PREPARE_TTL_SECONDS
+    _atomic_write_json(_prepare_json_path(prepare_hash), wrapper)
+    set_cached_prepare_artifact(prepare_hash, wrapper["artifact"])
+    _touch_artifact_parent_dirs("prepare")
+    return wrapper["artifact"]
+
+
+def _touch_distance_artifact(distance_hash: str) -> Dict[str, Any]:
+    wrapper = _load_json(_distance_json_path(distance_hash))
+    current = _now_ts()
+    wrapper["artifact"]["updated_at"] = current
+    wrapper["artifact"]["last_accessed_at"] = current
+    wrapper["artifact"]["expires_at"] = current + STAGED_DISTANCE_TTL_SECONDS
+    _atomic_write_json(_distance_json_path(distance_hash), wrapper)
+    set_cached_distance_artifact(distance_hash, wrapper["artifact"])
+    _touch_artifact_parent_dirs("distance")
+    return wrapper["artifact"]
+
+
+def _touch_result_artifact(result_hash: str) -> Dict[str, Any]:
+    path = _result_json_path(result_hash)
+    result = _load_json(path)
+    metadata = dict(result.get("metadata") or {})
+    current = _now_ts()
+    metadata["artifact_updated_at"] = current
+    metadata["artifact_last_accessed_at"] = current
+    metadata["artifact_expires_at"] = current + STAGED_RESULT_TTL_SECONDS
+    result["metadata"] = metadata
+    _atomic_write_json(path, result)
+    _touch_artifact_parent_dirs("result")
+    return result
+
+
+def _read_result_artifact(result_hash: str) -> Dict[str, Any]:
+    path = _result_json_path(result_hash)
+    if not path.exists():
+        raise ClusterStageNotFoundError("result_hash 不存在或已过期")
+    result = _load_json(path)
+    metadata = result.get("metadata") or {}
+    expires_at = float(metadata.get("artifact_expires_at", 0.0) or 0.0)
+    if expires_at and expires_at <= _now_ts():
+        path.unlink(missing_ok=True)
+        raise ClusterStageNotFoundError("result artifact 已过期，请重新执行 cluster")
+    return result
+
+
+def build_staged_preview_payload(
     snapshot: Dict[str, Any],
     *,
-    query_db: str = QUERY_DB_USER,
     dialects_db: str = DIALECTS_DB_USER,
+    query_db: str = QUERY_DB_USER,
 ) -> Dict[str, Any]:
-    session_id = task_manager.create_task(
-        STAGED_TASK_TOOL_NAME,
-        {
-            "summary": build_task_summary(snapshot),
-            "query_db": query_db,
-            "dialects_db": dialects_db,
-        },
-    )
-    lock = _get_session_lock(session_id)
+    prepare_hash = build_cluster_prepare_hash(snapshot, dialects_db, query_db)
+    preview = _build_preview(snapshot)
+    lock = _get_artifact_lock(f"preview:{prepare_hash}")
     with lock:
-        created_at = _now_ts()
-        preview = _build_preview(snapshot)
-        manifest = {
-            "session_id": session_id,
-            "created_at": created_at,
-            "updated_at": created_at,
-            "last_accessed_at": created_at,
-            "expires_at": created_at + STAGED_SESSION_TTL_SECONDS,
-            "query_db": query_db,
-            "dialects_db": dialects_db,
-            "snapshot": snapshot,
-            "preview": preview,
-            "active_stage": None,
-            "prepare": None,
-            "distances": {},
-            "results": {},
-        }
-        _atomic_write_json(_preview_path(session_id), preview)
-        _save_session_manifest(session_id, manifest)
-        _update_session_task(
-            session_id,
-            status="ready",
-            progress=0.0,
-            message="cluster staged session 已创建",
-            active_stage=None,
-            execution_time_ms=None,
-            performance=None,
-        )
-        return _build_session_response(
-            session_id,
-            manifest,
-            refresh_session_access=False,
-        )
-
-
-def get_staged_session_payload(
-    session_id: str,
-    *,
-    refresh_session_access: bool = True,
-) -> Dict[str, Any]:
-    lock = _get_session_lock(session_id)
-    with lock:
-        manifest = _load_session_manifest(session_id)
-        if _expire_session_artifacts(session_id, manifest):
-            _save_session_manifest(session_id, manifest)
-        return _build_session_response(
-            session_id,
-            manifest,
-            refresh_session_access=refresh_session_access,
-        )
-
-
-def delete_staged_session(session_id: str) -> None:
-    if not _task_exists(session_id):
-        raise ClusterStageNotFoundError("staged session 不存在")
-    task_manager.delete_task(session_id)
-    _drop_session_lock(session_id)
-
-
-def start_prepare_stage(session_id: str) -> Tuple[bool, Dict[str, Any]]:
-    lock = _get_session_lock(session_id)
-    with lock:
-        manifest = _load_session_manifest(session_id)
-        if _expire_session_artifacts(session_id, manifest):
-            _save_session_manifest(session_id, manifest)
-
-        _validate_no_conflicting_processing(
-            manifest,
-            expected_stage="prepare",
-            expected_artifact_id="prepare",
-        )
-        prepare_artifact = manifest.get("prepare")
-        if prepare_artifact and str(prepare_artifact.get("status")) == "completed" and not _artifact_expired(prepare_artifact):
-            _touch_artifact(prepare_artifact, ttl_seconds=STAGED_PREPARE_TTL_SECONDS)
-            _touch_session(manifest)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message="prepare 已复用",
-                active_stage=None,
-                execution_time_ms=None,
-                performance=prepare_artifact.get("summary", {}).get("performance"),
+        path = _preview_json_path(prepare_hash)
+        if path.exists():
+            wrapper = _touch_preview_artifact(prepare_hash)
+            preview = wrapper["preview"]
+        else:
+            wrapper = _hash_preview_wrapper(
+                snapshot,
+                preview,
+                prepare_hash,
+                query_db=query_db,
+                dialects_db=dialects_db,
             )
-            return False, _build_session_response(session_id, manifest, refresh_session_access=False)
-
-        current = _now_ts()
-        _remove_prepare_and_distances(session_id, manifest)
-        prepare_artifact = _prepare_artifact_template(session_id, current)
-        manifest["prepare"] = prepare_artifact
-        manifest["active_stage"] = "prepare"
-        _touch_session(manifest, current_ts=current)
-        _save_session_manifest(session_id, manifest)
-        _update_session_task(
-            session_id,
-            status=TaskStatus.PROCESSING,
-            progress=0.0,
-            message="正在执行 prepare 阶段",
-            active_stage="prepare",
-            execution_time_ms=None,
-            performance=None,
-        )
-        return True, _build_session_response(session_id, manifest, refresh_session_access=False)
+            _atomic_write_json(path, wrapper)
+            _touch_artifact_parent_dirs("preview")
+        prepare_ready = False
+        if _prepare_json_path(prepare_hash).exists() and _prepare_npz_path(prepare_hash).exists():
+            try:
+                _read_prepare_bundle(prepare_hash)
+                prepare_ready = True
+            except ClusterStageNotFoundError:
+                prepare_ready = False
+        return {
+            "prepare_hash": prepare_hash,
+            "preview": preview,
+            "prepare_ready": bool(prepare_ready),
+            "preview_expires_at": wrapper["artifact"]["expires_at"],
+        }
 
 
-def run_prepare_stage(session_id: str) -> None:
-    started = time.perf_counter()
-    try:
-        lock = _get_session_lock(session_id)
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = manifest.get("prepare")
-            if not prepare_artifact or str(prepare_artifact.get("status")) != "processing":
-                return
-            snapshot = manifest["snapshot"]
-            dialects_db = str(manifest.get("dialects_db") or DIALECTS_DB_USER)
+def materialize_prepare_artifact(
+    prepare_hash: str,
+    *,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    lock = _get_artifact_lock(f"prepare:{prepare_hash}")
+    with lock:
+        cached_meta = get_cached_prepare_artifact(prepare_hash)
+        if cached_meta and not _artifact_expired(cached_meta):
+            try:
+                bundle = _read_prepare_bundle(prepare_hash)
+                artifact_meta = _touch_prepare_artifact(prepare_hash)
+                _touch_preview_artifact(prepare_hash)
+                return {
+                    "prepare_hash": prepare_hash,
+                    "summary": artifact_meta.get("summary") or _prepare_summary(bundle["prepare_state"]),
+                    "performance": (artifact_meta.get("summary") or {}).get("performance"),
+                    "cache_hit": True,
+                    "cache_source": "prepare",
+                }
+            except ClusterStageNotFoundError:
+                pass
+
+        preview_bundle = _read_preview_bundle(prepare_hash)
+        snapshot = preview_bundle["snapshot"]
+        dialects_db = str(preview_bundle["artifact"].get("dialects_db") or DIALECTS_DB_USER)
+        query_db = str(preview_bundle["artifact"].get("query_db") or QUERY_DB_USER)
+
+        if _prepare_json_path(prepare_hash).exists() and _prepare_npz_path(prepare_hash).exists():
+            try:
+                bundle = _read_prepare_bundle(prepare_hash)
+                artifact_meta = _touch_prepare_artifact(prepare_hash)
+                _touch_preview_artifact(prepare_hash)
+                return {
+                    "prepare_hash": prepare_hash,
+                    "summary": artifact_meta.get("summary") or _prepare_summary(bundle["prepare_state"]),
+                    "performance": (artifact_meta.get("summary") or {}).get("performance"),
+                    "cache_hit": True,
+                    "cache_source": "prepare",
+                }
+            except ClusterStageNotFoundError:
+                pass
 
         prepare_state = build_cluster_prepare_state(
             snapshot,
             dialects_db=dialects_db,
             include_bucket_models=True,
-            progress_callback=_make_stage_progress_callback(session_id, "prepare"),
+            progress_callback=progress_callback,
         )
-
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = manifest.get("prepare")
-            if not prepare_artifact:
-                raise ClusterStageNotFoundError("prepare artifact 不存在")
-            _save_prepare_artifact(session_id, prepare_artifact, prepare_state)
-            current = _now_ts()
-            prepare_artifact["status"] = "completed"
-            prepare_artifact["summary"] = _prepare_summary(prepare_state)
-            _touch_artifact(
-                prepare_artifact,
-                ttl_seconds=STAGED_PREPARE_TTL_SECONDS,
-                current_ts=current,
-            )
-            manifest["active_stage"] = None
-            _touch_session(manifest, current_ts=current)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message="prepare 阶段已完成",
-                active_stage=None,
-                execution_time_ms=int((time.perf_counter() - started) * 1000),
-                performance=prepare_state.get("performance"),
-            )
-    except Exception as exc:
-        lock = _get_session_lock(session_id)
-        with lock:
-            try:
-                manifest = _load_session_manifest(session_id)
-                prepare_artifact = manifest.get("prepare")
-                if prepare_artifact:
-                    prepare_artifact["status"] = "failed"
-                    prepare_artifact["error"] = str(exc)
-                    prepare_artifact["updated_at"] = _now_ts()
-                manifest["active_stage"] = None
-                _touch_session(manifest)
-                _save_session_manifest(session_id, manifest)
-            except ClusterStageNotFoundError:
-                pass
-        _update_session_task(
-            session_id,
-            status=TaskStatus.FAILED,
-            message=f"prepare 阶段失败: {exc}",
-            error=str(exc),
-            active_stage=None,
-        )
-
-
-def start_distance_stage(session_id: str, phoneme_mode: str) -> Tuple[bool, Dict[str, Any]]:
-    phoneme_mode = _normalize_phoneme_mode(phoneme_mode)
-    artifact_id = _distance_artifact_id(phoneme_mode)
-    lock = _get_session_lock(session_id)
-    with lock:
-        manifest = _load_session_manifest(session_id)
-        if _expire_session_artifacts(session_id, manifest):
-            _save_session_manifest(session_id, manifest)
-
-        _ensure_valid_prepare(manifest)
-        _validate_no_conflicting_processing(
-            manifest,
-            expected_stage="distance",
-            expected_artifact_id=artifact_id,
-        )
-
-        distance_artifact = (manifest.get("distances") or {}).get(artifact_id)
-        if distance_artifact and str(distance_artifact.get("status")) == "completed" and not _artifact_expired(distance_artifact):
-            _touch_artifact(manifest["prepare"], ttl_seconds=STAGED_PREPARE_TTL_SECONDS)
-            _touch_artifact(distance_artifact, ttl_seconds=STAGED_DISTANCE_TTL_SECONDS)
-            _touch_session(manifest)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message=f"{phoneme_mode} distance 已复用",
-                active_stage=None,
-                execution_time_ms=None,
-                performance=distance_artifact.get("summary", {}).get("performance"),
-            )
-            return False, _build_session_response(session_id, manifest, refresh_session_access=False)
-
-        current = _now_ts()
-        distance_artifact = _distance_artifact_template(
-            session_id,
-            artifact_id=artifact_id,
-            phoneme_mode=phoneme_mode,
-            current_ts=current,
-        )
-        manifest.setdefault("distances", {})[artifact_id] = distance_artifact
-        manifest["active_stage"] = "distance"
-        _touch_session(manifest, current_ts=current)
-        _save_session_manifest(session_id, manifest)
-        _update_session_task(
-            session_id,
-            status=TaskStatus.PROCESSING,
-            progress=0.0,
-            message=f"正在执行 {phoneme_mode} distance 阶段",
-            active_stage="distance",
-            execution_time_ms=None,
-            performance=None,
-        )
-        return True, _build_session_response(session_id, manifest, refresh_session_access=False)
-
-
-def run_distance_stage(session_id: str, phoneme_mode: str) -> None:
-    phoneme_mode = _normalize_phoneme_mode(phoneme_mode)
-    artifact_id = _distance_artifact_id(phoneme_mode)
-    started = time.perf_counter()
-    try:
-        lock = _get_session_lock(session_id)
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = _ensure_valid_prepare(manifest)
-            distance_artifact = (manifest.get("distances") or {}).get(artifact_id)
-            if not distance_artifact or str(distance_artifact.get("status")) != "processing":
-                return
-            dialects_db = str(manifest.get("dialects_db") or DIALECTS_DB_USER)
-            prepare_state = _load_prepare_state(session_id, prepare_artifact)
-
-        distance_state = build_cluster_distance_state(
-            prepare_state,
-            phoneme_mode=phoneme_mode,
-            dialects_db=dialects_db,
-            progress_callback=_make_stage_progress_callback(session_id, "distance"),
-        )
-
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = _ensure_valid_prepare(manifest)
-            distance_artifact = (manifest.get("distances") or {}).get(artifact_id)
-            if not distance_artifact:
-                raise ClusterStageNotFoundError("distance artifact 不存在")
-            _save_distance_artifact(session_id, distance_artifact, distance_state)
-            current = _now_ts()
-            _touch_artifact(prepare_artifact, ttl_seconds=STAGED_PREPARE_TTL_SECONDS, current_ts=current)
-            distance_artifact["status"] = "completed"
-            distance_artifact["summary"] = _distance_summary(distance_state)
-            _touch_artifact(
-                distance_artifact,
-                ttl_seconds=STAGED_DISTANCE_TTL_SECONDS,
-                current_ts=current,
-            )
-            manifest["active_stage"] = None
-            _touch_session(manifest, current_ts=current)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message=f"{phoneme_mode} distance 阶段已完成",
-                active_stage=None,
-                execution_time_ms=int((time.perf_counter() - started) * 1000),
-                performance=distance_state.get("performance"),
-            )
-    except Exception as exc:
-        lock = _get_session_lock(session_id)
-        with lock:
-            try:
-                manifest = _load_session_manifest(session_id)
-                distance_artifact = (manifest.get("distances") or {}).get(artifact_id)
-                if distance_artifact:
-                    distance_artifact["status"] = "failed"
-                    distance_artifact["error"] = str(exc)
-                    distance_artifact["updated_at"] = _now_ts()
-                manifest["active_stage"] = None
-                _touch_session(manifest)
-                _save_session_manifest(session_id, manifest)
-            except ClusterStageNotFoundError:
-                pass
-        _update_session_task(
-            session_id,
-            status=TaskStatus.FAILED,
-            message=f"distance 阶段失败: {exc}",
-            error=str(exc),
-            active_stage=None,
-        )
-
-
-def start_cluster_stage(
-    session_id: str,
-    *,
-    distance_id: str,
-    clustering_config: Dict[str, Any],
-) -> Tuple[bool, Dict[str, Any], str]:
-    if not distance_id:
-        raise ClusterStageValidationError("distance_id 不能为空")
-
-    artifact_id = _result_artifact_id(distance_id, clustering_config)
-    lock = _get_session_lock(session_id)
-    with lock:
-        manifest = _load_session_manifest(session_id)
-        if _expire_session_artifacts(session_id, manifest):
-            _save_session_manifest(session_id, manifest)
-
-        _ensure_valid_prepare(manifest)
-        _ensure_valid_distance(manifest, distance_id)
-        _validate_no_conflicting_processing(
-            manifest,
-            expected_stage="cluster",
-            expected_artifact_id=artifact_id,
-        )
-
-        result_artifact = (manifest.get("results") or {}).get(artifact_id)
-        if result_artifact and str(result_artifact.get("status")) == "completed" and not _artifact_expired(result_artifact):
-            _touch_artifact(manifest["prepare"], ttl_seconds=STAGED_PREPARE_TTL_SECONDS)
-            _touch_artifact(manifest["distances"][distance_id], ttl_seconds=STAGED_DISTANCE_TTL_SECONDS)
-            _touch_artifact(result_artifact, ttl_seconds=STAGED_RESULT_TTL_SECONDS)
-            _touch_session(manifest)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message=f"{artifact_id} 已复用",
-                active_stage=None,
-                execution_time_ms=None,
-                performance=result_artifact.get("summary", {}).get("performance"),
-            )
-            return False, _build_session_response(session_id, manifest, refresh_session_access=False), artifact_id
-
-        current = _now_ts()
-        result_artifact = _result_artifact_template(
-            session_id,
-            artifact_id=artifact_id,
-            distance_id=distance_id,
-            clustering_config=clustering_config,
-            current_ts=current,
-        )
-        manifest.setdefault("results", {})[artifact_id] = result_artifact
-        manifest["active_stage"] = "cluster"
-        _touch_session(manifest, current_ts=current)
-        _save_session_manifest(session_id, manifest)
-        _update_session_task(
-            session_id,
-            status=TaskStatus.PROCESSING,
-            progress=0.0,
-            message=f"正在执行 cluster 阶段: {artifact_id}",
-            active_stage="cluster",
-            execution_time_ms=None,
-            performance=None,
-        )
-        return True, _build_session_response(session_id, manifest, refresh_session_access=False), artifact_id
-
-
-def run_cluster_stage(
-    session_id: str,
-    *,
-    distance_id: str,
-    result_id: str,
-    clustering_config: Dict[str, Any],
-) -> None:
-    try:
-        lock = _get_session_lock(session_id)
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = _ensure_valid_prepare(manifest)
-            distance_artifact = _ensure_valid_distance(manifest, distance_id)
-            result_artifact = (manifest.get("results") or {}).get(result_id)
-            if not result_artifact or str(result_artifact.get("status")) != "processing":
-                return
-            snapshot = manifest["snapshot"]
-            query_db = str(manifest.get("query_db") or QUERY_DB_USER)
-            prepare_state = _load_prepare_state(session_id, prepare_artifact)
-            distance_state = _load_distance_state(session_id, distance_artifact)
-
-        result = build_cluster_final_result(
+        wrapper = _prepare_wrapper(
+            prepare_hash,
             snapshot,
             prepare_state,
-            distance_state,
-            clustering_config,
             query_db=query_db,
-            progress_callback=_make_stage_progress_callback(session_id, "cluster"),
+            dialects_db=dialects_db,
         )
+        _atomic_write_json(_prepare_json_path(prepare_hash), wrapper)
+        _atomic_write_npz(_prepare_npz_path(prepare_hash), _prepare_arrays_payload(prepare_state))
+        set_cached_prepare_artifact(prepare_hash, wrapper["artifact"])
+        _touch_preview_artifact(prepare_hash)
+        _touch_artifact_parent_dirs("prepare")
+        return {
+            "prepare_hash": prepare_hash,
+            "summary": wrapper["artifact"]["summary"],
+            "performance": wrapper["artifact"]["summary"].get("performance"),
+            "cache_hit": False,
+            "cache_source": "none",
+        }
 
-        with lock:
-            manifest = _load_session_manifest(session_id)
-            prepare_artifact = _ensure_valid_prepare(manifest)
-            distance_artifact = _ensure_valid_distance(manifest, distance_id)
-            result_artifact = (manifest.get("results") or {}).get(result_id)
-            if not result_artifact:
-                raise ClusterStageNotFoundError("result artifact 不存在")
-            file_paths = result_artifact.get("file_paths") or {}
-            _atomic_write_json(
-                _resolve_session_relative_path(session_id, file_paths["json"]),
-                result,
-            )
-            current = _now_ts()
-            _touch_artifact(prepare_artifact, ttl_seconds=STAGED_PREPARE_TTL_SECONDS, current_ts=current)
-            _touch_artifact(distance_artifact, ttl_seconds=STAGED_DISTANCE_TTL_SECONDS, current_ts=current)
-            result_artifact["status"] = "completed"
-            result_artifact["summary"] = _result_summary(result, distance_id)
-            _touch_artifact(
-                result_artifact,
-                ttl_seconds=STAGED_RESULT_TTL_SECONDS,
-                current_ts=current,
-            )
-            manifest["active_stage"] = None
-            _touch_session(manifest, current_ts=current)
-            _save_session_manifest(session_id, manifest)
-            _update_session_task(
-                session_id,
-                status="ready",
-                progress=100.0,
-                message=f"cluster 阶段已完成: {result_id}",
-                active_stage=None,
-                execution_time_ms=(result.get("metadata") or {}).get("execution_time_ms"),
-                performance=(result.get("metadata") or {}).get("performance"),
-            )
-    except Exception as exc:
-        lock = _get_session_lock(session_id)
-        with lock:
+
+def materialize_distance_artifact(
+    prepare_hash: str,
+    *,
+    phoneme_mode: Any,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    phoneme_mode = _normalize_phoneme_mode(phoneme_mode)
+    if not phoneme_mode:
+        raise ClusterStageValidationError("phoneme_mode 不能为空")
+    distance_hash = build_cluster_distance_hash(prepare_hash, phoneme_mode)
+    lock = _get_artifact_lock(f"distance:{distance_hash}")
+    with lock:
+        cached_meta = get_cached_distance_artifact(distance_hash)
+        if cached_meta and not _artifact_expired(cached_meta):
             try:
-                manifest = _load_session_manifest(session_id)
-                result_artifact = (manifest.get("results") or {}).get(result_id)
-                if result_artifact:
-                    result_artifact["status"] = "failed"
-                    result_artifact["error"] = str(exc)
-                    result_artifact["updated_at"] = _now_ts()
-                manifest["active_stage"] = None
-                _touch_session(manifest)
-                _save_session_manifest(session_id, manifest)
+                _read_distance_bundle(distance_hash)
+                _touch_distance_artifact(distance_hash)
+                _touch_prepare_artifact(prepare_hash)
+                return {
+                    "prepare_hash": prepare_hash,
+                    "distance_hash": distance_hash,
+                    "phoneme_mode": phoneme_mode,
+                    "summary": cached_meta.get("summary"),
+                    "performance": (cached_meta.get("summary") or {}).get("performance"),
+                    "cache_hit": True,
+                    "cache_source": "distance",
+                }
             except ClusterStageNotFoundError:
                 pass
-        _update_session_task(
-            session_id,
-            status=TaskStatus.FAILED,
-            message=f"cluster 阶段失败: {exc}",
-            error=str(exc),
-            active_stage=None,
+
+        prepare_bundle = _read_prepare_bundle(prepare_hash)
+        dialects_db = str(prepare_bundle["artifact"].get("dialects_db") or DIALECTS_DB_USER)
+        query_db = str(prepare_bundle["artifact"].get("query_db") or QUERY_DB_USER)
+
+        if _distance_json_path(distance_hash).exists() and _distance_npy_path(distance_hash).exists():
+            try:
+                bundle = _read_distance_bundle(distance_hash)
+                artifact_meta = _touch_distance_artifact(distance_hash)
+                _touch_prepare_artifact(prepare_hash)
+                return {
+                    "prepare_hash": prepare_hash,
+                    "distance_hash": distance_hash,
+                    "phoneme_mode": phoneme_mode,
+                    "summary": artifact_meta.get("summary") or _distance_summary(bundle["distance_state"], distance_hash, prepare_hash),
+                    "performance": (artifact_meta.get("summary") or {}).get("performance"),
+                    "cache_hit": True,
+                    "cache_source": "distance",
+                }
+            except ClusterStageNotFoundError:
+                pass
+
+        distance_state = build_cluster_distance_state(
+            prepare_bundle["prepare_state"],
+            phoneme_mode=phoneme_mode,
+            dialects_db=dialects_db,
+            progress_callback=progress_callback,
+        )
+        wrapper = _distance_wrapper(
+            distance_hash,
+            prepare_hash,
+            distance_state,
+            query_db=query_db,
+            dialects_db=dialects_db,
+        )
+        _atomic_write_json(_distance_json_path(distance_hash), wrapper)
+        _atomic_write_npy(
+            _distance_npy_path(distance_hash),
+            np.asarray(distance_state["distance_matrix"], dtype=np.float64),
+        )
+        set_cached_distance_artifact(distance_hash, wrapper["artifact"])
+        _touch_prepare_artifact(prepare_hash)
+        _touch_artifact_parent_dirs("distance")
+        return {
+            "prepare_hash": prepare_hash,
+            "distance_hash": distance_hash,
+            "phoneme_mode": phoneme_mode,
+            "summary": wrapper["artifact"]["summary"],
+            "performance": wrapper["artifact"]["summary"].get("performance"),
+            "cache_hit": False,
+            "cache_source": "none",
+        }
+
+
+def materialize_result_artifact(
+    distance_hash: str,
+    clustering_config: Dict[str, Any],
+    *,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    distance_bundle = _read_distance_bundle(distance_hash)
+    prepare_hash = str(distance_bundle["artifact"].get("prepare_hash") or "")
+    if not prepare_hash:
+        raise ClusterStageNotFoundError("distance artifact 缺少 prepare_hash")
+
+    prepare_bundle = _read_prepare_bundle(prepare_hash)
+    snapshot = copy.deepcopy(prepare_bundle["snapshot"])
+    query_db = str(prepare_bundle["artifact"].get("query_db") or QUERY_DB_USER)
+    dialects_db = str(prepare_bundle["artifact"].get("dialects_db") or DIALECTS_DB_USER)
+    phoneme_mode = str(distance_bundle["distance_state"].get("phoneme_mode") or "")
+    final_snapshot = copy.deepcopy(snapshot)
+    final_snapshot["clustering"] = {
+        **clustering_config,
+        "phoneme_mode": phoneme_mode,
+    }
+    result_hash = build_cluster_job_hash(final_snapshot, dialects_db, query_db)
+    lock = _get_artifact_lock(f"result:{result_hash}")
+    with lock:
+        result_path = _result_json_path(result_hash)
+        if result_path.exists():
+            try:
+                _read_result_artifact(result_hash)
+                result = _touch_result_artifact(result_hash)
+                _touch_prepare_artifact(prepare_hash)
+                _touch_distance_artifact(distance_hash)
+                return {
+                    "prepare_hash": prepare_hash,
+                    "distance_hash": distance_hash,
+                    "result_hash": result_hash,
+                    "summary": _result_summary(result, result_hash, distance_hash),
+                    "performance": (result.get("metadata") or {}).get("performance"),
+                    "cache_hit": True,
+                    "cache_source": "result",
+                }
+            except ClusterStageNotFoundError:
+                pass
+
+        cached_result = get_cached_cluster_result(result_hash)
+        if cached_result is not None:
+            result = _ensure_result_metadata(
+                annotate_cluster_result_cache(
+                    cached_result,
+                    job_hash=result_hash,
+                    cache_hit=True,
+                    cache_source="result",
+                ),
+                result_hash=result_hash,
+                distance_hash=distance_hash,
+                prepare_hash=prepare_hash,
+                cache_hit=True,
+                cache_source="result",
+            )
+            _atomic_write_json(result_path, result)
+            _touch_prepare_artifact(prepare_hash)
+            _touch_distance_artifact(distance_hash)
+            _touch_artifact_parent_dirs("result")
+            return {
+                "prepare_hash": prepare_hash,
+                "distance_hash": distance_hash,
+                "result_hash": result_hash,
+                "summary": _result_summary(result, result_hash, distance_hash),
+                "performance": (result.get("metadata") or {}).get("performance"),
+                "cache_hit": True,
+                "cache_source": "result",
+            }
+
+        result = build_cluster_final_result(
+            final_snapshot,
+            prepare_bundle["prepare_state"],
+            distance_bundle["distance_state"],
+            clustering_config,
+            query_db=query_db,
+            progress_callback=progress_callback,
+        )
+        result = _ensure_result_metadata(
+            annotate_cluster_result_cache(
+                result,
+                job_hash=result_hash,
+                cache_hit=False,
+                cache_source="none",
+            ),
+            result_hash=result_hash,
+            distance_hash=distance_hash,
+            prepare_hash=prepare_hash,
+            cache_hit=False,
+            cache_source="none",
+        )
+        set_cached_cluster_result(result_hash, result)
+        _atomic_write_json(result_path, result)
+        _touch_prepare_artifact(prepare_hash)
+        _touch_distance_artifact(distance_hash)
+        _touch_artifact_parent_dirs("result")
+        return {
+            "prepare_hash": prepare_hash,
+            "distance_hash": distance_hash,
+            "result_hash": result_hash,
+            "summary": _result_summary(result, result_hash, distance_hash),
+            "performance": (result.get("metadata") or {}).get("performance"),
+            "cache_hit": False,
+            "cache_source": "none",
+        }
+
+
+def get_staged_result_by_hash(result_hash: str) -> Dict[str, Any]:
+    lock = _get_artifact_lock(f"result:{result_hash}")
+    with lock:
+        path = _result_json_path(result_hash)
+        if path.exists():
+            _read_result_artifact(result_hash)
+            return _touch_result_artifact(result_hash)
+
+        cached_result = get_cached_cluster_result(result_hash)
+        if cached_result is not None:
+            result = annotate_cluster_result_cache(
+                cached_result,
+                job_hash=result_hash,
+                cache_hit=True,
+                cache_source="result",
+            )
+            result = _ensure_result_metadata(
+                result,
+                result_hash=result_hash,
+                distance_hash=str((result.get("metadata") or {}).get("distance_hash") or ""),
+                prepare_hash=str((result.get("metadata") or {}).get("prepare_hash") or ""),
+                cache_hit=True,
+                cache_source="result",
+            )
+            _atomic_write_json(path, result)
+            _touch_artifact_parent_dirs("result")
+            return result
+    raise ClusterStageNotFoundError("result_hash 不存在或已过期")
+
+
+def _build_stage_task_response(
+    task_id: str,
+    *,
+    stage: str,
+    prepare_hash: Optional[str] = None,
+    distance_hash: Optional[str] = None,
+    result_hash: Optional[str] = None,
+    cache_hit: bool,
+    cache_source: str,
+) -> Dict[str, Any]:
+    payload = get_task_status_payload(task_id)
+    if payload is None:
+        raise ClusterStageNotFoundError("任务不存在")
+    return {
+        "task_id": task_id,
+        "stage": stage,
+        "status": payload["status"],
+        "progress": payload["progress"],
+        "message": payload["message"],
+        "summary": payload.get("summary"),
+        "execution_time_ms": payload.get("execution_time_ms"),
+        "performance": payload.get("performance"),
+        "prepare_hash": prepare_hash,
+        "distance_hash": distance_hash,
+        "result_hash": result_hash,
+        "cache_hit": bool(cache_hit),
+        "cache_source": cache_source,
+    }
+
+
+def _create_cluster_task(initial_data: Dict[str, Any]) -> str:
+    return task_manager.create_task(TASK_TOOL_NAME, initial_data)
+
+
+def start_prepare_task(prepare_hash: str) -> Tuple[bool, Dict[str, Any]]:
+    try:
+        preview_bundle = _read_preview_bundle(prepare_hash)
+    except ClusterStageNotFoundError as exc:
+        raise ClusterStageNotFoundError(str(exc)) from exc
+
+    preview = preview_bundle["preview"]
+    cached_meta = get_cached_prepare_artifact(prepare_hash)
+    if cached_meta and not _artifact_expired(cached_meta):
+        try:
+            materialize_prepare_artifact(prepare_hash)
+            task_id = _create_cluster_task(
+                {
+                    "stage": "prepare",
+                    "prepare_hash": prepare_hash,
+                    "summary": cached_meta.get("summary") or preview,
+                    "query_db": preview_bundle["artifact"].get("query_db"),
+                    "dialects_db": preview_bundle["artifact"].get("dialects_db"),
+                }
+            )
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                message="prepare 结果命中缓存",
+                data={
+                    "summary": cached_meta.get("summary") or preview,
+                    "execution_time_ms": None,
+                    "performance": (cached_meta.get("summary") or {}).get("performance"),
+                },
+            )
+            return False, _build_stage_task_response(
+                task_id,
+                stage="prepare",
+                prepare_hash=prepare_hash,
+                cache_hit=True,
+                cache_source="prepare",
+            )
+        except ClusterStageNotFoundError:
+            pass
+
+    inflight_task_id = get_prepare_inflight_task_id(prepare_hash)
+    if inflight_task_id:
+        inflight_payload = get_task_status_payload(inflight_task_id)
+        if inflight_payload and inflight_payload.get("status") in {"pending", "processing"}:
+            return False, _build_stage_task_response(
+                inflight_task_id,
+                stage="prepare",
+                prepare_hash=prepare_hash,
+                cache_hit=False,
+                cache_source="inflight",
+            )
+        clear_prepare_inflight_task_id(prepare_hash, task_id=inflight_task_id)
+
+    task_id = _create_cluster_task(
+        {
+            "stage": "prepare",
+            "prepare_hash": prepare_hash,
+            "summary": preview,
+            "query_db": preview_bundle["artifact"].get("query_db"),
+            "dialects_db": preview_bundle["artifact"].get("dialects_db"),
+        }
+    )
+    set_prepare_inflight_task_id(prepare_hash, task_id)
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.PENDING,
+        progress=0.0,
+        message="prepare 任务已创建",
+    )
+    return True, _build_stage_task_response(
+        task_id,
+        stage="prepare",
+        prepare_hash=prepare_hash,
+        cache_hit=False,
+        cache_source="none",
+    )
+
+
+def run_prepare_task(task_id: str) -> None:
+    task = task_manager.get_task(task_id)
+    if not task:
+        return
+    prepare_hash = str((task.get("data") or {}).get("prepare_hash") or "")
+    if not prepare_hash:
+        task_manager.update_task(task_id, status=TaskStatus.FAILED, error="Missing prepare_hash")
+        return
+
+    started = time.perf_counter()
+    try:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=5.0,
+            message="正在执行 prepare 阶段",
         )
 
+        def _progress_callback(fraction: float, message: str, performance: Optional[Dict[str, float]] = None) -> None:
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.PROCESSING,
+                progress=round(5.0 + (91.0 * max(0.0, min(1.0, float(fraction)))), 1),
+                message=message,
+                data={"performance": performance or {}},
+            )
 
-def get_staged_cluster_result(session_id: str, result_id: str) -> Dict[str, Any]:
-    lock = _get_session_lock(session_id)
-    with lock:
-        manifest = _load_session_manifest(session_id)
-        if _expire_session_artifacts(session_id, manifest):
-            _save_session_manifest(session_id, manifest)
-        artifact = (manifest.get("results") or {}).get(result_id)
-        if not artifact:
-            raise ClusterStageNotFoundError("result artifact 不存在")
-        if str(artifact.get("status")) != "completed":
-            raise ClusterStageConflictError("结果尚未完成，暂时无法读取")
-        if _artifact_expired(artifact):
-            raise ClusterStageNotFoundError("result artifact 已过期")
-        _touch_artifact(artifact, ttl_seconds=STAGED_RESULT_TTL_SECONDS)
-        _touch_session(manifest)
-        _save_session_manifest(session_id, manifest)
-        return _load_result_json(session_id, artifact)
+        payload = materialize_prepare_artifact(prepare_hash, progress_callback=_progress_callback)
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            progress=100.0,
+            message="prepare 阶段已完成",
+            data={
+                "summary": payload["summary"],
+                "execution_time_ms": int((time.perf_counter() - started) * 1000),
+                "performance": payload.get("performance"),
+            },
+        )
+        clear_prepare_inflight_task_id(prepare_hash, task_id=task_id)
+    except Exception as exc:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(exc),
+            message=f"prepare 阶段失败: {exc}",
+        )
+        clear_prepare_inflight_task_id(prepare_hash, task_id=task_id)
 
 
-def cleanup_cluster_stage_sessions() -> int:
-    tool_dir = file_manager.get_tool_dir(STAGED_TASK_TOOL_NAME)
-    if not tool_dir.exists():
-        return 0
+def start_distance_task(prepare_hash: str, phoneme_mode: Any) -> Tuple[bool, Dict[str, Any]]:
+    phoneme_mode = _normalize_phoneme_mode(phoneme_mode)
+    if not phoneme_mode:
+        raise ClusterStageValidationError("phoneme_mode 不能为空")
+    try:
+        _read_prepare_bundle(prepare_hash)
+    except ClusterStageNotFoundError:
+        inflight_prepare = get_prepare_inflight_task_id(prepare_hash)
+        if inflight_prepare:
+            raise ClusterStageConflictError("prepare 阶段仍在处理中，请等待完成后再继续")
+        raise
 
+    distance_hash = build_cluster_distance_hash(prepare_hash, phoneme_mode)
+    cached_meta = get_cached_distance_artifact(distance_hash)
+    if cached_meta and not _artifact_expired(cached_meta):
+        try:
+            materialize_distance_artifact(prepare_hash, phoneme_mode=phoneme_mode)
+            task_id = _create_cluster_task(
+                {
+                    "stage": "distance",
+                    "prepare_hash": prepare_hash,
+                    "distance_hash": distance_hash,
+                    "summary": cached_meta.get("summary"),
+                }
+            )
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                message=f"{phoneme_mode} distance 结果命中缓存",
+                data={
+                    "summary": cached_meta.get("summary"),
+                    "performance": (cached_meta.get("summary") or {}).get("performance"),
+                },
+            )
+            return False, _build_stage_task_response(
+                task_id,
+                stage="distance",
+                prepare_hash=prepare_hash,
+                distance_hash=distance_hash,
+                cache_hit=True,
+                cache_source="distance",
+            )
+        except ClusterStageNotFoundError:
+            pass
+
+    inflight_task_id = get_distance_inflight_task_id(distance_hash)
+    if inflight_task_id:
+        inflight_payload = get_task_status_payload(inflight_task_id)
+        if inflight_payload and inflight_payload.get("status") in {"pending", "processing"}:
+            return False, _build_stage_task_response(
+                inflight_task_id,
+                stage="distance",
+                prepare_hash=prepare_hash,
+                distance_hash=distance_hash,
+                cache_hit=False,
+                cache_source="inflight",
+            )
+        clear_distance_inflight_task_id(distance_hash, task_id=inflight_task_id)
+
+    task_id = _create_cluster_task(
+        {
+            "stage": "distance",
+            "prepare_hash": prepare_hash,
+            "distance_hash": distance_hash,
+            "summary": {"phoneme_mode": phoneme_mode},
+        }
+    )
+    set_distance_inflight_task_id(distance_hash, task_id)
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.PENDING,
+        progress=0.0,
+        message=f"{phoneme_mode} distance 任务已创建",
+    )
+    return True, _build_stage_task_response(
+        task_id,
+        stage="distance",
+        prepare_hash=prepare_hash,
+        distance_hash=distance_hash,
+        cache_hit=False,
+        cache_source="none",
+    )
+
+
+def run_distance_task(task_id: str, phoneme_mode: Any) -> None:
+    task = task_manager.get_task(task_id)
+    if not task:
+        return
+    task_data = task.get("data") or {}
+    prepare_hash = str(task_data.get("prepare_hash") or "")
+    distance_hash = str(task_data.get("distance_hash") or "")
+    phoneme_mode = _normalize_phoneme_mode(phoneme_mode)
+    started = time.perf_counter()
+    try:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=5.0,
+            message=f"正在执行 {phoneme_mode} distance 阶段",
+        )
+
+        def _progress_callback(fraction: float, message: str, performance: Optional[Dict[str, float]] = None) -> None:
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.PROCESSING,
+                progress=round(5.0 + (91.0 * max(0.0, min(1.0, float(fraction)))), 1),
+                message=message,
+                data={"performance": performance or {}},
+            )
+
+        payload = materialize_distance_artifact(
+            prepare_hash,
+            phoneme_mode=phoneme_mode,
+            progress_callback=_progress_callback,
+        )
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            progress=100.0,
+            message=f"{phoneme_mode} distance 阶段已完成",
+            data={
+                "summary": payload["summary"],
+                "execution_time_ms": int((time.perf_counter() - started) * 1000),
+                "performance": payload.get("performance"),
+            },
+        )
+        clear_distance_inflight_task_id(distance_hash, task_id=task_id)
+    except Exception as exc:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(exc),
+            message=f"distance 阶段失败: {exc}",
+        )
+        clear_distance_inflight_task_id(distance_hash, task_id=task_id)
+
+
+def start_cluster_task(distance_hash: str, clustering_config: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    try:
+        distance_bundle = _read_distance_bundle(distance_hash)
+    except ClusterStageNotFoundError:
+        inflight_distance = get_distance_inflight_task_id(distance_hash)
+        if inflight_distance:
+            raise ClusterStageConflictError("distance 阶段仍在处理中，请等待完成后再继续")
+        raise
+
+    prepare_hash = str(distance_bundle["artifact"].get("prepare_hash") or "")
+    prepare_bundle = _read_prepare_bundle(prepare_hash)
+    snapshot = copy.deepcopy(prepare_bundle["snapshot"])
+    query_db = str(prepare_bundle["artifact"].get("query_db") or QUERY_DB_USER)
+    dialects_db = str(prepare_bundle["artifact"].get("dialects_db") or DIALECTS_DB_USER)
+    snapshot["clustering"] = {
+        **clustering_config,
+        "phoneme_mode": distance_bundle["distance_state"]["phoneme_mode"],
+    }
+    result_hash = build_cluster_job_hash(snapshot, dialects_db, query_db)
+
+    cached_result = get_cached_cluster_result(result_hash)
+    if cached_result is not None or _result_json_path(result_hash).exists():
+        payload = materialize_result_artifact(distance_hash, clustering_config)
+        task_id = _create_cluster_task(
+            {
+                "stage": "cluster",
+                "prepare_hash": prepare_hash,
+                "distance_hash": distance_hash,
+                "result_hash": result_hash,
+                "summary": payload["summary"],
+                "result_path": str(_result_json_path(result_hash)),
+            }
+        )
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            progress=100.0,
+            message="cluster 结果命中缓存",
+            data={
+                "summary": payload["summary"],
+                "result_path": str(_result_json_path(result_hash)),
+                "execution_time_ms": None,
+                "performance": payload.get("performance"),
+            },
+        )
+        return False, _build_stage_task_response(
+            task_id,
+            stage="cluster",
+            prepare_hash=prepare_hash,
+            distance_hash=distance_hash,
+            result_hash=result_hash,
+            cache_hit=True,
+            cache_source="result",
+        )
+
+    inflight_task_id = get_inflight_task_id(result_hash)
+    if inflight_task_id:
+        inflight_payload = get_task_status_payload(inflight_task_id)
+        if inflight_payload and inflight_payload.get("status") in {"pending", "processing"}:
+            return False, _build_stage_task_response(
+                inflight_task_id,
+                stage="cluster",
+                prepare_hash=prepare_hash,
+                distance_hash=distance_hash,
+                result_hash=result_hash,
+                cache_hit=False,
+                cache_source="inflight",
+            )
+        clear_inflight_task_id(result_hash, task_id=inflight_task_id)
+
+    task_id = _create_cluster_task(
+        {
+            "stage": "cluster",
+            "prepare_hash": prepare_hash,
+            "distance_hash": distance_hash,
+            "result_hash": result_hash,
+            "summary": build_task_summary(snapshot),
+        }
+    )
+    set_inflight_task_id(result_hash, task_id)
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.PENDING,
+        progress=0.0,
+        message="cluster 任务已创建",
+    )
+    return True, _build_stage_task_response(
+        task_id,
+        stage="cluster",
+        prepare_hash=prepare_hash,
+        distance_hash=distance_hash,
+        result_hash=result_hash,
+        cache_hit=False,
+        cache_source="none",
+    )
+
+
+def run_cluster_task(task_id: str, distance_hash: str, clustering_config: Dict[str, Any]) -> None:
+    task = task_manager.get_task(task_id)
+    if not task:
+        return
+    result_hash = str((task.get("data") or {}).get("result_hash") or "")
+    started = time.perf_counter()
+    try:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=5.0,
+            message="正在执行 cluster 阶段",
+        )
+
+        def _progress_callback(fraction: float, message: str, performance: Optional[Dict[str, float]] = None) -> None:
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.PROCESSING,
+                progress=round(5.0 + (91.0 * max(0.0, min(1.0, float(fraction)))), 1),
+                message=message,
+                data={"performance": performance or {}},
+            )
+
+        payload = materialize_result_artifact(
+            distance_hash,
+            clustering_config,
+            progress_callback=_progress_callback,
+        )
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.COMPLETED,
+            progress=100.0,
+            message="cluster 阶段已完成",
+            data={
+                "summary": payload["summary"],
+                "result_path": str(_result_json_path(payload["result_hash"])),
+                "execution_time_ms": int((time.perf_counter() - started) * 1000),
+                "performance": payload.get("performance"),
+            },
+        )
+        clear_inflight_task_id(result_hash, task_id=task_id)
+    except Exception as exc:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(exc),
+            message=f"cluster 阶段失败: {exc}",
+        )
+        clear_inflight_task_id(result_hash, task_id=task_id)
+
+
+def cleanup_cluster_stage_artifacts() -> int:
     deleted_count = 0
     current = _now_ts()
-    for session_dir in tool_dir.iterdir():
-        if not session_dir.is_dir():
+    for stage in ("preview", "prepare", "distance", "result"):
+        stage_dir = _artifact_stage_dir(stage)
+        if not stage_dir.exists():
             continue
-
-        session_id = session_dir.name
-        lock = _get_session_lock(session_id)
-        with lock:
-            manifest_path = session_dir / "session.json"
-            task_info_path = session_dir / "task_info.json"
-            if not manifest_path.exists():
-                if not task_info_path.exists():
-                    file_manager.delete_task_files(session_id, STAGED_TASK_TOOL_NAME)
-                    _drop_session_lock(session_id)
-                    deleted_count += 1
+        for path in stage_dir.iterdir():
+            if not path.is_file() or path.name.startswith("."):
                 continue
-
             try:
-                manifest = _load_json(manifest_path)
+                if stage == "preview":
+                    wrapper = _load_json(path)
+                    if _artifact_expired(wrapper.get("artifact"), current_ts=current):
+                        path.unlink(missing_ok=True)
+                        deleted_count += 1
+                elif stage == "prepare" and path.suffix == ".json":
+                    wrapper = _load_json(path)
+                    if _artifact_expired(wrapper.get("artifact"), current_ts=current):
+                        path.unlink(missing_ok=True)
+                        _prepare_npz_path(path.stem).unlink(missing_ok=True)
+                        deleted_count += 1
+                elif stage == "distance" and path.suffix == ".json":
+                    wrapper = _load_json(path)
+                    if _artifact_expired(wrapper.get("artifact"), current_ts=current):
+                        path.unlink(missing_ok=True)
+                        _distance_npy_path(path.stem).unlink(missing_ok=True)
+                        deleted_count += 1
+                elif stage == "result" and path.suffix == ".json":
+                    result = _load_json(path)
+                    metadata = result.get("metadata") or {}
+                    expires_at = float(metadata.get("artifact_expires_at", 0.0))
+                    if expires_at and expires_at <= current:
+                        path.unlink(missing_ok=True)
+                        deleted_count += 1
             except Exception:
-                file_manager.delete_task_files(session_id, STAGED_TASK_TOOL_NAME)
-                _drop_session_lock(session_id)
-                deleted_count += 1
                 continue
-
-            task_status = _task_status(session_id)
-            session_expired = float(manifest.get("expires_at", 0.0)) <= current
-            if session_expired and task_status != TaskStatus.PROCESSING.value:
-                task_manager.delete_task(session_id)
-                _drop_session_lock(session_id)
-                deleted_count += 1
-                continue
-
-            if _expire_session_artifacts(session_id, manifest):
-                _save_session_manifest(session_id, manifest)
-
     return deleted_count
 
 
@@ -1392,15 +1444,16 @@ __all__ = [
     "ClusterStageError",
     "ClusterStageNotFoundError",
     "ClusterStageValidationError",
-    "cleanup_cluster_stage_sessions",
-    "create_staged_session",
-    "delete_staged_session",
-    "get_staged_cluster_result",
-    "get_staged_session_payload",
-    "run_cluster_stage",
-    "run_distance_stage",
-    "run_prepare_stage",
-    "start_cluster_stage",
-    "start_distance_stage",
-    "start_prepare_stage",
+    "build_staged_preview_payload",
+    "cleanup_cluster_stage_artifacts",
+    "get_staged_result_by_hash",
+    "materialize_distance_artifact",
+    "materialize_prepare_artifact",
+    "materialize_result_artifact",
+    "run_cluster_task",
+    "run_distance_task",
+    "run_prepare_task",
+    "start_cluster_task",
+    "start_distance_task",
+    "start_prepare_task",
 ]

@@ -257,18 +257,24 @@ class ClusterJobCreateRequest(ClusterRequestBase):
     clustering: ClusterConfigRequest
 
 
-class ClusterStageSessionCreateRequest(ClusterRequestBase):
-    """staged cluster session 创建请求；只冻结输入，不立即指定算法。"""
+class ClusterStagePreviewRequest(ClusterRequestBase):
+    """staged preview/prepare 的完整输入请求。"""
+
+
+class ClusterStagePrepareRequest(BaseModel):
+    """staged prepare 阶段请求。"""
+    prepare_hash: str = Field(..., min_length=1, max_length=128)
 
 
 class ClusterStageDistanceRequest(BaseModel):
     """staged API 的 distance 阶段请求。"""
+    prepare_hash: str = Field(..., min_length=1, max_length=128)
     phoneme_mode: ClusterPhonemeMode
 
 
 class ClusterStageClusterRequest(BaseModel):
     """staged API 的 cluster 阶段请求。"""
-    distance_id: str = Field(..., min_length=1, max_length=128)
+    distance_hash: str = Field(..., min_length=1, max_length=128)
     clustering: ClusterAlgorithmConfigRequest
 
 
