@@ -67,35 +67,58 @@ from app.tools.task_manager import TaskStatus, task_manager
 logger = logging.getLogger(__name__)
 
 
-def build_cluster_result(
+def _slice_group_model_to_locations(
+    group_model: Dict[str, Any],
+    source_locations: List[str],
+    target_locations: List[str],
+) -> Dict[str, Any]:
+    if source_locations == target_locations:
+        return group_model
+
+    index_by_location = {location: index for index, location in enumerate(source_locations)}
+    indices = np.asarray(
+        [index_by_location[location] for location in target_locations],
+        dtype=np.int32,
+    )
+    token_matrix = np.asarray(group_model["token_matrix"][indices], dtype=np.int32)
+    present_char_counts = np.asarray(group_model["present_char_counts"][indices], dtype=np.int32)
+    char_count = int(group_model.get("char_count", token_matrix.shape[1]))
+
+    locations: Dict[str, Dict[str, Any]] = {}
+    for index, location in enumerate(target_locations):
+        present_char_count = int(present_char_counts[index])
+        locations[location] = {
+            "token_ids": token_matrix[index],
+            "present_char_count": present_char_count,
+            "coverage": (
+                float(present_char_count / char_count)
+                if char_count
+                else 0.0
+            ),
+        }
+
+    sliced = dict(group_model)
+    sliced["locations"] = locations
+    sliced["token_matrix"] = token_matrix
+    sliced["present_char_counts"] = present_char_counts
+    sliced["effective_locations"] = list(target_locations)
+    return sliced
+
+
+def build_cluster_prepare_state(
     snapshot: Dict[str, Any],
     dialects_db: str = DIALECTS_DB_USER,
-    query_db: str = QUERY_DB_USER,
+    include_bucket_models: bool = False,
 ) -> Dict[str, Any]:
-    """
-    根据 snapshot 真正执行一次聚类，并返回完整结果。
-
-    主要阶段如下：
-    1. 读取请求涉及的方言行；
-    2. 把原始字符串集合编码成 token 矩阵；
-    3. 根据 phoneme_mode 构建地点两两音系距离矩阵；
-    4. 调具体聚类器；
-    5. 组装结果 JSON，并记录各阶段耗时。
-    """
-    start_time = time.perf_counter()
-    performance = dict(snapshot.get("performance") or {})
-
+    """执行 cluster 的 prepare 阶段：读取方言数据并编码成 token 矩阵。"""
     groups = snapshot["groups"]
-    clustering = snapshot["clustering"]
-    phoneme_mode = clustering.get("phoneme_mode", DEFAULT_PHONEME_MODE)
-    legacy_metric_mode = clustering.get("metric_mode")
     matched_locations = snapshot["location_resolution"]["matched_locations"]
     all_chars = dedupe(char for group in groups for char in group["resolved_chars"])
     requested_dimensions = sorted(
         {group["compare_dimension"] for group in groups if group.get("compare_dimension")}
     )
+    performance: Dict[str, float] = {}
 
-    # 只加载当前请求真正需要的维度，避免无条件读取声母/韵母/声调三列。
     load_start = time.perf_counter()
     dialect_data = load_dialect_rows(
         matched_locations,
@@ -105,10 +128,9 @@ def build_cluster_result(
     )
     performance["load_rows_ms"] = round((time.perf_counter() - load_start) * 1000.0, 3)
 
-    # 把每个地点、每个字的读音集合编码成 token id，后续距离计算才能高效进行。
     encode_start = time.perf_counter()
     dimension_token_catalogs = build_dimension_token_catalogs(groups, dialect_data)
-    group_models = [
+    full_group_models = [
         build_group_model(
             group,
             matched_locations,
@@ -121,14 +143,14 @@ def build_cluster_result(
         location
         for location in matched_locations
         if any(
-            group["locations"][location]["present_char_count"] > 0 for group in group_models
+            group["locations"][location]["present_char_count"] > 0 for group in full_group_models
         )
     ]
     if len(effective_locations) < 2:
         raise ValueError("有效地点不足 2 个，无法执行聚类")
 
     group_diagnostics = build_group_diagnostics(
-        group_models,
+        full_group_models,
         matched_locations,
         effective_locations,
     )
@@ -136,37 +158,75 @@ def build_cluster_result(
     dropped_locations = [
         location for location in matched_locations if location not in effective_locations
     ]
+    group_models = [
+        _slice_group_model_to_locations(group_model, matched_locations, effective_locations)
+        for group_model in full_group_models
+    ]
 
-    # anchored_inventory 额外需要每个地点在整个维度上的“库存分布画像”。
-    inventory_profiles = {}
-    inventory_profiles_start = time.perf_counter()
-    if phoneme_mode == "anchored_inventory":
-        inventory_profiles = load_dimension_inventory_profiles(
-            effective_locations,
-            [group["compare_dimension"] for group in groups],
-            dialects_db,
-        )
-    performance["inventory_profiles_ms"] = round(
-        (time.perf_counter() - inventory_profiles_start) * 1000.0,
-        3,
-    )
-
-    # shared_request_identity 会把同维度所有请求字合并成 bucket，用于建立共享身份模型。
-    bucket_models = {}
-    bucket_models_start = time.perf_counter()
-    if phoneme_mode == "shared_request_identity":
+    bucket_models: Dict[str, Dict[str, Any]] = {}
+    shared_bucket_models_ms = 0.0
+    if include_bucket_models:
+        bucket_start = time.perf_counter()
         bucket_models = build_dimension_bucket_models(
             groups,
             effective_locations,
             dialect_data,
             dimension_token_catalogs,
         )
-    performance["bucket_models_ms"] = round(
-        (time.perf_counter() - bucket_models_start) * 1000.0,
-        3,
-    )
+        shared_bucket_models_ms = round((time.perf_counter() - bucket_start) * 1000.0, 3)
 
-    # 通常最重的热点在这里：构建地点两两之间的音系距离矩阵。
+    return {
+        "matched_locations": list(matched_locations),
+        "effective_locations": list(effective_locations),
+        "dropped_locations": list(dropped_locations),
+        "requested_dimensions": list(requested_dimensions),
+        "dimension_token_catalogs": dimension_token_catalogs,
+        "group_models": group_models,
+        "group_diagnostics": group_diagnostics,
+        "bucket_models": bucket_models,
+        "performance": {
+            **performance,
+            "shared_bucket_models_ms": shared_bucket_models_ms,
+        },
+    }
+
+
+def build_cluster_distance_state(
+    prepare_state: Dict[str, Any],
+    phoneme_mode: str,
+    dialects_db: str = DIALECTS_DB_USER,
+) -> Dict[str, Any]:
+    """执行 cluster 的 distance 阶段：生成指定 phoneme_mode 的距离矩阵。"""
+    effective_locations = list(prepare_state["effective_locations"])
+    group_models = prepare_state["group_models"]
+    performance: Dict[str, float] = {
+        "inventory_profiles_ms": 0.0,
+        "bucket_models_ms": 0.0,
+    }
+
+    inventory_profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
+    if phoneme_mode == "anchored_inventory":
+        inventory_profiles_start = time.perf_counter()
+        inventory_profiles = load_dimension_inventory_profiles(
+            effective_locations,
+            [group["compare_dimension"] for group in group_models],
+            dialects_db,
+        )
+        performance["inventory_profiles_ms"] = round(
+            (time.perf_counter() - inventory_profiles_start) * 1000.0,
+            3,
+        )
+
+    bucket_models: Dict[str, Dict[str, Any]] = {}
+    if phoneme_mode == "shared_request_identity":
+        bucket_models = prepare_state.get("bucket_models") or {}
+        if not bucket_models:
+            raise ValueError("prepare 阶段缺少 shared_request_identity 所需的 bucket models")
+        performance["bucket_models_ms"] = round(
+            float((prepare_state.get("performance") or {}).get("shared_bucket_models_ms", 0.0)),
+            3,
+        )
+
     distance_start = time.perf_counter()
     distance_matrix, phoneme_mode_params = build_total_distance_matrix(
         group_models=group_models,
@@ -179,9 +239,46 @@ def build_cluster_result(
         (time.perf_counter() - distance_start) * 1000.0,
         3,
     )
-    algorithm = clustering["algorithm"]
+
+    return {
+        "phoneme_mode": phoneme_mode,
+        "distance_matrix": distance_matrix,
+        "phoneme_mode_params": phoneme_mode_params,
+        "performance": performance,
+    }
+
+
+def build_cluster_final_result(
+    snapshot: Dict[str, Any],
+    prepare_state: Dict[str, Any],
+    distance_state: Dict[str, Any],
+    clustering_config: Dict[str, Any],
+    query_db: str = QUERY_DB_USER,
+) -> Dict[str, Any]:
+    """执行 cluster 的最后一步：从距离矩阵生成最终聚类结果 JSON。"""
+    performance = dict(snapshot.get("performance") or {})
+    prepare_performance = dict(prepare_state.get("performance") or {})
+    distance_performance = dict(distance_state.get("performance") or {})
+    performance.update(
+        {
+            "load_rows_ms": round(float(prepare_performance.get("load_rows_ms", 0.0)), 3),
+            "encode_ms": round(float(prepare_performance.get("encode_ms", 0.0)), 3),
+            "inventory_profiles_ms": round(float(distance_performance.get("inventory_profiles_ms", 0.0)), 3),
+            "bucket_models_ms": round(float(distance_performance.get("bucket_models_ms", 0.0)), 3),
+            "distance_matrix_ms": round(float(distance_performance.get("distance_matrix_ms", 0.0)), 3),
+        }
+    )
+
+    matched_locations = snapshot["location_resolution"]["matched_locations"]
+    effective_locations = list(prepare_state["effective_locations"])
+    dropped_locations = list(prepare_state["dropped_locations"])
+    group_diagnostics = prepare_state["group_diagnostics"]
+    phoneme_mode = distance_state["phoneme_mode"]
+    legacy_metric_mode = (snapshot.get("clustering") or {}).get("metric_mode")
+    distance_matrix = distance_state["distance_matrix"]
+    algorithm = clustering_config["algorithm"]
     execution_space = choose_execution_space(algorithm=algorithm)
-    # 行政区、坐标等展示字段不参与聚类本身，因此延后到计算之后再查。
+
     location_detail_start = time.perf_counter()
     location_details = load_location_details(matched_locations, query_db)
     performance["location_details_ms"] = round(
@@ -195,20 +292,20 @@ def build_cluster_result(
 
     cluster_start = time.perf_counter()
     if algorithm == "agglomerative":
-        n_clusters = int(clustering["n_clusters"])
+        n_clusters = int(clustering_config["n_clusters"])
         if n_clusters > len(effective_locations):
             raise ValueError("n_clusters 不能大于有效地点数")
-        labels = run_agglomerative(distance_matrix, n_clusters, clustering.get("linkage", "average"))
+        labels = run_agglomerative(distance_matrix, n_clusters, clustering_config.get("linkage", "average"))
         assignments = build_assignments(effective_locations, labels, location_details)
     elif algorithm == "dbscan":
         labels = run_dbscan(
             distance_matrix,
-            eps=float(clustering.get("eps", 0.5)),
-            min_samples=int(clustering.get("min_samples", 5)),
+            eps=float(clustering_config.get("eps", 0.5)),
+            min_samples=int(clustering_config.get("min_samples", 5)),
         )
         assignments = build_assignments(effective_locations, labels, location_details)
     elif algorithm == "kmeans":
-        n_clusters = int(clustering["n_clusters"])
+        n_clusters = int(clustering_config["n_clusters"])
         if n_clusters > len(effective_locations):
             raise ValueError("n_clusters 不能大于有效地点数")
         metrics_matrix = prepare_feature_space(
@@ -220,7 +317,7 @@ def build_cluster_result(
         labels, centroid_distance = run_kmeans(
             metrics_matrix,
             n_clusters=n_clusters,
-            random_state=int(clustering.get("random_state", 42)),
+            random_state=int(clustering_config.get("random_state", 42)),
         )
         assignments = build_assignments(
             effective_locations,
@@ -230,7 +327,7 @@ def build_cluster_result(
             extra_key="distance_to_centroid",
         )
     elif algorithm == "gmm":
-        n_clusters = int(clustering["n_clusters"])
+        n_clusters = int(clustering_config["n_clusters"])
         if n_clusters > len(effective_locations):
             raise ValueError("n_clusters 不能大于有效地点数")
         metrics_matrix = prepare_feature_space(
@@ -242,7 +339,7 @@ def build_cluster_result(
         labels, membership = run_gmm(
             metrics_matrix,
             n_clusters=n_clusters,
-            random_state=int(clustering.get("random_state", 42)),
+            random_state=int(clustering_config.get("random_state", 42)),
         )
         assignments = build_assignments(
             effective_locations,
@@ -267,7 +364,15 @@ def build_cluster_result(
         group_diagnostics=group_diagnostics,
     )
     performance["cluster_ms"] = round((time.perf_counter() - cluster_start) * 1000.0, 3)
-    execution_time_ms = int((time.perf_counter() - start_time) * 1000)
+    execution_time_ms = int(
+        round(
+            sum(
+                float(value)
+                for value in performance.values()
+                if isinstance(value, (int, float))
+            )
+        )
+    )
 
     return build_result_payload(
         snapshot=snapshot,
@@ -284,10 +389,47 @@ def build_cluster_result(
         execution_space=execution_space,
         execution_time_ms=execution_time_ms,
         performance=performance,
-        phoneme_mode_params=phoneme_mode_params,
+        phoneme_mode_params=distance_state["phoneme_mode_params"],
         warnings=warnings,
         location_details=location_details,
     )
+
+
+def build_cluster_result(
+    snapshot: Dict[str, Any],
+    dialects_db: str = DIALECTS_DB_USER,
+    query_db: str = QUERY_DB_USER,
+) -> Dict[str, Any]:
+    """
+    根据 snapshot 真正执行一次聚类，并返回完整结果。
+
+    旧 one-shot API 仍然走同样的入口，只是内部改成串联
+    prepare -> distance -> final 三个纯阶段函数。
+    """
+    start_time = time.perf_counter()
+    clustering = snapshot["clustering"]
+    phoneme_mode = clustering.get("phoneme_mode", DEFAULT_PHONEME_MODE)
+    prepare_state = build_cluster_prepare_state(
+        snapshot,
+        dialects_db=dialects_db,
+        include_bucket_models=(phoneme_mode == "shared_request_identity"),
+    )
+    distance_state = build_cluster_distance_state(
+        prepare_state,
+        phoneme_mode=phoneme_mode,
+        dialects_db=dialects_db,
+    )
+    result = build_cluster_final_result(
+        snapshot,
+        prepare_state,
+        distance_state,
+        clustering,
+        query_db=query_db,
+    )
+    metadata = dict(result.get("metadata") or {})
+    metadata["execution_time_ms"] = int((time.perf_counter() - start_time) * 1000)
+    result["metadata"] = metadata
+    return result
 
 
 def run_cluster_job(
@@ -419,6 +561,9 @@ def run_cluster_job(
 
 
 __all__ = [
+    "build_cluster_distance_state",
+    "build_cluster_final_result",
+    "build_cluster_prepare_state",
     "build_cluster_result",
     "build_task_summary",
     "get_cluster_result",

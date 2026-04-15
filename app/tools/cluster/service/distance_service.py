@@ -608,8 +608,29 @@ def _build_total_distance_matrix_shared_multi_dim_numba(
     """
     group_count = len(token_matrices)
     size = present_count_matrices[0].shape[0]
+    max_token_count = 0
+    max_char_count = 0
+    for group_index in range(group_count):
+        if token_counts[group_index] > max_token_count:
+            max_token_count = token_counts[group_index]
+        if token_matrices[group_index].shape[1] > max_char_count:
+            max_char_count = token_matrices[group_index].shape[1]
+    max_count_size = max_token_count
+    if max_char_count < max_token_count:
+        max_count_size = max_char_count
+
     matrix = np.zeros((size, size), dtype=np.float64)
     for i in prange(size):
+        # 复用和 intra_group 快路径相同的工作缓冲区，避免 shared 模式落回旧签名。
+        map_x_buf = np.full(max_token_count, -1, dtype=np.int32)
+        map_y_buf = np.full(max_token_count, -1, dtype=np.int32)
+        inv_x_buf = np.empty(max_char_count, dtype=np.int32)
+        inv_y_buf = np.empty(max_char_count, dtype=np.int32)
+        cx_buf = np.zeros(max_count_size, dtype=np.int32)
+        cy_buf = np.zeros(max_count_size, dtype=np.int32)
+        cxy_buf = np.zeros(max_count_size * max_count_size, dtype=np.int32)
+        dummy_value_matrix = np.zeros((1, 1), dtype=np.float64)
+
         for j in range(i + 1, size):
             # 对当前地点对 (i, j) 来说，同一维度的共享模型只需要构建一次。
             (
@@ -663,6 +684,17 @@ def _build_total_distance_matrix_shared_multi_dim_numba(
                     token_matrices[group_index][i],
                     token_matrices[group_index][j],
                     int(token_counts[group_index]),
+                    map_x_buf,
+                    map_y_buf,
+                    inv_x_buf,
+                    inv_y_buf,
+                    cx_buf,
+                    cy_buf,
+                    cxy_buf,
+                    max_count_size,
+                    False,
+                    0.0,
+                    dummy_value_matrix,
                 )
                 # 默认先落在 final；再按 group 的维度切换到对应 bucket。
                 model_count_xy = final_count_xy
