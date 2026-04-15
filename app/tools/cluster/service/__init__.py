@@ -6,6 +6,9 @@ cluster service 子包的统一导出层。
 """
 
 from .cluster_service import (
+    build_cluster_distance_state,
+    build_cluster_final_result,
+    build_cluster_prepare_state,
     build_cluster_result,
     build_task_summary,
     get_cluster_result,
@@ -16,6 +19,9 @@ from .cluster_service import (
 )
 
 __all__ = [
+    "build_cluster_distance_state",
+    "build_cluster_final_result",
+    "build_cluster_prepare_state",
     "build_cluster_result",
     "build_task_summary",
     "get_cluster_result",

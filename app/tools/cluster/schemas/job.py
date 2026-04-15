@@ -158,14 +158,9 @@ class ClusterGroupRequest(BaseModel):
         return self
 
 
-class ClusterConfigRequest(BaseModel):
-    """聚类器配置与音系距离模式配置。"""
+class ClusterAlgorithmConfigRequest(BaseModel):
+    """纯聚类器配置；staged API 的最后一步只需要这部分参数。"""
     algorithm: ClusterAlgorithm
-    phoneme_mode: ClusterPhonemeMode = ClusterPhonemeMode.INTRA_GROUP
-    metric_mode: Optional[ClusterMetricMode] = Field(
-        default=None,
-        description="Deprecated legacy field. Use phoneme_mode instead.",
-    )
     n_clusters: Optional[int] = Field(default=None, ge=2, le=100)
     linkage: AgglomerativeLinkage = AgglomerativeLinkage.AVERAGE
     eps: float = Field(default=0.5, gt=0.0, le=10.0)
@@ -183,14 +178,23 @@ class ClusterConfigRequest(BaseModel):
         return self
 
 
-class ClusterJobCreateRequest(BaseModel):
+class ClusterConfigRequest(ClusterAlgorithmConfigRequest):
+    """旧 one-shot API 使用的完整配置，包含 phoneme_mode。"""
+    phoneme_mode: ClusterPhonemeMode = ClusterPhonemeMode.INTRA_GROUP
+    metric_mode: Optional[ClusterMetricMode] = Field(
+        default=None,
+        description="Deprecated legacy field. Use phoneme_mode instead.",
+    )
+
+
+class ClusterRequestBase(BaseModel):
     """
-    创建 cluster 任务的完整请求。
+    cluster 输入请求的公共部分。
 
     它由三部分组成：
     - `groups`：定义比较哪些字、比较哪个维度；
     - `locations/regions`：定义要聚哪些地点；
-    - `clustering`：定义最后采用的聚类器与音系模式。
+    - `clustering`：仅旧 one-shot API 需要，staged API 会延后到最后一步。
     """
     groups: List[ClusterGroupRequest] = Field(..., min_length=1)
     locations: List[str] = Field(
@@ -214,8 +218,6 @@ class ClusterJobCreateRequest(BaseModel):
         ),
         description="是否保留域外方音/歷史音/標準語/民語漢字音等特殊點；默認 false 會過濾",
     )
-    clustering: ClusterConfigRequest
-
     @field_validator("locations", "regions", mode="before")
     @classmethod
     def normalize_locations_regions_input(cls, value):
@@ -248,6 +250,26 @@ class ClusterJobCreateRequest(BaseModel):
         if not self.locations and not self.regions:
             raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
         return self
+
+
+class ClusterJobCreateRequest(ClusterRequestBase):
+    """旧 one-shot cluster API 的请求结构。"""
+    clustering: ClusterConfigRequest
+
+
+class ClusterStageSessionCreateRequest(ClusterRequestBase):
+    """staged cluster session 创建请求；只冻结输入，不立即指定算法。"""
+
+
+class ClusterStageDistanceRequest(BaseModel):
+    """staged API 的 distance 阶段请求。"""
+    phoneme_mode: ClusterPhonemeMode
+
+
+class ClusterStageClusterRequest(BaseModel):
+    """staged API 的 cluster 阶段请求。"""
+    distance_id: str = Field(..., min_length=1, max_length=128)
+    clustering: ClusterAlgorithmConfigRequest
 
 
 class ClusterJobStatusResponse(BaseModel):

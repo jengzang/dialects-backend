@@ -7,6 +7,7 @@ cluster 请求/响应 schema 的统一导出层。
 from .job import (
     AgglomerativeLinkage,
     ClusterAlgorithm,
+    ClusterAlgorithmConfigRequest,
     ClusterCompareDimension,
     ClusterConfigRequest,
     ClusterGroupRequest,
@@ -15,12 +16,20 @@ from .job import (
     ClusterMetricMode,
     ClusterPhonemeMode,
     ClusterSourceMode,
+    ClusterStageClusterRequest,
+    ClusterStageDistanceRequest,
+    ClusterStageSessionCreateRequest,
 )
-from .result import ClusterJobCreateResponse
+from .result import (
+    ClusterJobCreateResponse,
+    ClusterStageArtifactResponse,
+    ClusterStageSessionResponse,
+)
 
 __all__ = [
     "AgglomerativeLinkage",
     "ClusterAlgorithm",
+    "ClusterAlgorithmConfigRequest",
     "ClusterCompareDimension",
     "ClusterConfigRequest",
     "ClusterGroupRequest",
@@ -30,4 +39,9 @@ __all__ = [
     "ClusterMetricMode",
     "ClusterPhonemeMode",
     "ClusterSourceMode",
+    "ClusterStageArtifactResponse",
+    "ClusterStageClusterRequest",
+    "ClusterStageDistanceRequest",
+    "ClusterStageSessionCreateRequest",
+    "ClusterStageSessionResponse",
 ]
