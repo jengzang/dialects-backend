@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from app.tools.cluster.config import TASK_TOOL_NAME
+from app.tools.config import (
+    CLEANUP_POLICY_CLUSTER_JOB,
+    CLUSTER_JOB_TTL_SECONDS,
+)
 from app.tools.file_manager import file_manager
 from app.tools.task_manager import task_manager
 
@@ -34,6 +38,18 @@ def write_result(task_id: str, result: Dict[str, Any]) -> Path:
     with open(result_path, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False, indent=2)
     return result_path
+
+
+def touch_cluster_task_cleanup(task_id: str, reason: str) -> None:
+    """cluster 任务目录统一按 2 小时保留。"""
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_CLUSTER_JOB,
+        armed=True,
+        terminal=True,
+        ttl_seconds=CLUSTER_JOB_TTL_SECONDS,
+        reason=reason,
+    )
 
 
 def get_task_status_payload(task_id: str) -> Optional[Dict[str, Any]]:

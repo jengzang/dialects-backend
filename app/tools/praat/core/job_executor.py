@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
 
+from app.tools.config import (
+    CLEANUP_POLICY_PRAAT_UPLOAD,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from app.tools.task_manager import task_manager
 from app.tools.file_manager import file_manager
 from ..utils.validators import ErrorCode
@@ -16,6 +20,17 @@ from .modules import MODULES
 
 # Import all modules to register them
 from .modules import basic, pitch, intensity, formant, voice_quality, segments, spectrogram
+
+
+def _restore_praat_idle_cleanup(task_id: str, reason: str) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_PRAAT_UPLOAD,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        reason=reason,
+    )
 
 
 async def execute_job_async(task_id: str, job_id: str):
@@ -126,6 +141,7 @@ async def execute_job_async(task_id: str, job_id: str):
         }
         task_data['current_job_id'] = None  # Clear current job
         task_manager.update_task(task_id, data=task_data)
+        _restore_praat_idle_cleanup(task_id, "job_completed")
 
     except Exception as e:
         # Error handling
@@ -150,6 +166,7 @@ async def execute_job_async(task_id: str, job_id: str):
                 if task_data.get('current_job_id') == job_id:
                     task_data['current_job_id'] = None
                     task_manager.update_task(task_id, data=task_data)
+                    _restore_praat_idle_cleanup(task_id, "job_failed")
         except:
             # If we can't even update the error status, log it
             print(f"[Praat] Failed to update error status for job {job_id}: {e}")

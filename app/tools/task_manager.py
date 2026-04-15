@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import threading
 
+from app.tools.config import CLEANUP_METADATA_VERSION
 from app.tools.file_manager import file_manager
 
 
@@ -73,8 +74,7 @@ class TaskManager:
 
     def _get_task_json_path(self, task_id: str, tool_name: str) -> Path:
         """获取任务 JSON 文件的路径"""
-        task_dir = file_manager.get_task_dir(task_id, tool_name)
-        return task_dir / "task_info.json"
+        return file_manager.get_task_json_path(task_id, tool_name)
 
     def _parse_id(self, task_id: str) -> tuple[str, str]:
         """
@@ -130,6 +130,7 @@ class TaskManager:
         }
 
         # 直接写入硬盘
+        file_manager.get_task_dir(task_id, tool_name)
         json_path = self._get_task_json_path(task_id, tool_name)
         self._save_json(json_path, task_info)
         with self._lock:
@@ -197,6 +198,41 @@ class TaskManager:
             self._save_json(json_path, task_info)
             self._task_cache[task_id] = copy.deepcopy(task_info)
 
+    def update_task_cleanup(
+        self,
+        task_id: str,
+        *,
+        policy_key: str,
+        armed: bool,
+        terminal: bool,
+        reason: str,
+        ttl_seconds: Optional[float] = None,
+        expires_at: Optional[float] = None,
+        last_used_at: Optional[float] = None,
+    ):
+        """
+        更新 task_info.json -> data.cleanup。
+
+        这里不参与清理判断，只负责把统一 cleanup metadata 写回任务文件。
+        """
+        current = float(last_used_at or time.time())
+        cleanup_expires_at = expires_at
+        if cleanup_expires_at is None and ttl_seconds is not None:
+            cleanup_expires_at = current + float(ttl_seconds)
+
+        cleanup_payload = {
+            "version": CLEANUP_METADATA_VERSION,
+            "object_type": "task",
+            "policy_key": str(policy_key),
+            "armed": bool(armed),
+            "terminal": bool(terminal),
+            "expires_at": cleanup_expires_at,
+            "last_used_at": current,
+            "last_reason": str(reason),
+        }
+
+        self.update_task(task_id, data={"cleanup": cleanup_payload})
+
     def delete_task(self, task_id: str):
         """删除任务文件"""
         tool_name, _ = self._parse_id(task_id)
@@ -213,10 +249,10 @@ class TaskManager:
         清理过期任务
         直接调用 file_manager 的逻辑清理文件夹
         """
-        # 换算成小时，因为你的 file_manager 默认是用小时计算的
-        # 或者你可以修改 file_manager 让它支持秒
-        hours = max_age_seconds / 3600.0
-        return file_manager.cleanup_old_files(max_age_hours=hours)
+        summary = file_manager.cleanup_once(
+            fallback_max_age_seconds=max_age_seconds,
+        )
+        return summary["total_deleted"]
 
     def get_all_tasks(self, tool_name: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """

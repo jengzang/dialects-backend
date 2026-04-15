@@ -48,6 +48,7 @@ from .service.staged_session_service import (
     start_prepare_task,
 )
 from .service.task_service import write_result
+from .service.task_service import touch_cluster_task_cleanup
 from .schemas import (
     ClusterStageClusterRequest,
     ClusterStageDistanceRequest,
@@ -159,6 +160,7 @@ async def create_cluster_job(
                 "performance": (result.get("metadata") or {}).get("performance"),
             },
         )
+        touch_cluster_task_cleanup(task_id, "cluster_result_cached")
         return ClusterJobCreateResponse(
             task_id=task_id,
             status="completed",
@@ -320,6 +322,7 @@ async def get_cluster_job_result(task_id: str):
     result = get_cluster_result(task_id)
     if result is None:
         raise HTTPException(status_code=400, detail="任务尚未完成或结果不存在")
+    touch_cluster_task_cleanup(task_id, "cluster_result_read")
     return result
 
 

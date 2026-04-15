@@ -11,7 +11,6 @@ from typing import List
 from pathlib import Path
 import sys
 import os
-import threading
 
 from starlette.responses import StreamingResponse
 
@@ -20,6 +19,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.config import (
+    CLEANUP_POLICY_MERGE_RESULT,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from .merge_core import (
     load_reference_file,
     merge_excel_files,
@@ -69,26 +72,15 @@ class MergeResult(BaseModel):
     message: str
 
 
-# ==================== 辅助函数 ====================
-
-def cleanup_task_resources(task_id: str, tool_name: str):
-    """
-    清理任务的所有资源（文件 + 任务记录）
-
-    Args:
-        task_id: 任务ID
-        tool_name: 工具名称
-    """
-    try:
-        # 清理文件
-        file_manager.delete_task_files(task_id, tool_name)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的文件")
-
-        # 清理任务记录
-        task_manager.delete_task(task_id)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的记录")
-    except Exception as e:
-        print(f"[CLEANUP] 清理任务 {task_id} 时出错: {str(e)}")
+def _touch_merge_cleanup(task_id: str, reason: str) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_MERGE_RESULT,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        reason=reason,
+    )
 
 
 async def merge_files_async(task_id: str, reference_path: Path, file_paths: List[Path]):
@@ -174,17 +166,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
                 "total_chars": char_count
             }
         )
-
-        # 【新增】5分钟后自动清理文件
-        cleanup_delay = 300  # 5分钟 = 300秒
-        cleanup_timer = threading.Timer(
-            cleanup_delay,
-            cleanup_task_resources,
-            args=(task_id, "merge")
-        )
-        cleanup_timer.daemon = True
-        cleanup_timer.start()
-        print(f"[CLEANUP] 已设置定时清理：任务 {task_id} 将在 {cleanup_delay} 秒后清理")
+        _touch_merge_cleanup(task_id, "merge_completed")
 
     except Exception as e:
         task_manager.update_task(
@@ -193,6 +175,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
             error=str(e),
             message=f"合并失败: {str(e)}"
         )
+        _touch_merge_cleanup(task_id, "merge_failed")
 
 
 # ==================== API端点 ====================
@@ -240,6 +223,7 @@ async def upload_reference(file: UploadFile = File(...)):
                 "reference_chars": reference_chars  # 保存参考字表
             }
         )
+        _touch_merge_cleanup(task_id, "reference_uploaded")
 
         return UploadReferenceResponse(
             task_id=task_id,
@@ -254,6 +238,7 @@ async def upload_reference(file: UploadFile = File(...)):
             status=TaskStatus.FAILED,
             error=str(e.detail)
         )
+        _touch_merge_cleanup(task_id, "reference_upload_failed")
         raise
     except Exception as e:
         task_manager.update_task(
@@ -261,6 +246,7 @@ async def upload_reference(file: UploadFile = File(...)):
             status=TaskStatus.FAILED,
             error=str(e)
         )
+        _touch_merge_cleanup(task_id, "reference_upload_failed")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
 
 
@@ -308,6 +294,7 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
                 "merge_filenames": filenames
             }
         )
+        _touch_merge_cleanup(task_id, "merge_inputs_uploaded")
 
         return UploadFilesResponse(
             task_id=task_id,
@@ -319,6 +306,7 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
     except HTTPException:
         raise
     except Exception as e:
+        _touch_merge_cleanup(task_id, "merge_inputs_upload_failed")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 
 
@@ -428,6 +416,8 @@ async def download_merge_result(task_id: str):
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like
+
+    _touch_merge_cleanup(task_id, "result_downloaded")
 
     return StreamingResponse(
         iterfile(),

@@ -7,14 +7,19 @@ _cleanup_stop_event = None
 
 def _periodic_cleanup(stop_event: threading.Event) -> None:
     from app.tools.file_manager import file_manager
+    from app.tools.config import CLEANUP_SCAN_INTERVAL_SECONDS
 
-    while not stop_event.wait(3600):
+    while not stop_event.wait(CLEANUP_SCAN_INTERVAL_SECONDS):
         try:
-            deleted_count = file_manager.cleanup_old_files(max_age_hours=3)
-            if deleted_count > 0:
+            summary = file_manager.cleanup_once()
+            if summary["total_deleted"] > 0:
                 print(
                     "[CLEANUP] Periodic cleanup removed "
-                    f"{deleted_count} expired task directories"
+                    f"{summary['total_deleted']} objects "
+                    f"(tasks={summary['tasks_deleted']}, "
+                    f"artifacts={summary['artifacts_deleted']}, "
+                    f"capacity={summary['capacity_deleted']}, "
+                    f"fallback={summary['fallback_deleted']})"
                 )
         except Exception as exc:
             print(f"[CLEANUP] Periodic cleanup failed: {exc}")

@@ -59,6 +59,7 @@ from app.tools.cluster.service.task_service import (
     get_cluster_result,
     get_task_status_payload,
     is_cancel_requested,
+    touch_cluster_task_cleanup,
     write_result,
 )
 from app.tools.cluster.utils import dedupe
@@ -519,6 +520,7 @@ def run_cluster_job(
             error="Missing cluster snapshot",
             message="缺少聚类任务快照",
         )
+        touch_cluster_task_cleanup(task_id, "cluster_missing_snapshot")
         return
     task_data = task.get("data") or {}
     job_hash = task_data.get("job_hash") or build_cluster_job_hash(
@@ -554,6 +556,7 @@ def run_cluster_job(
                     "performance": (result.get("metadata") or {}).get("performance"),
                 },
             )
+            touch_cluster_task_cleanup(task_id, "cluster_result_cached")
             clear_inflight_task_id(job_hash, task_id=task_id)
             return
 
@@ -617,6 +620,7 @@ def run_cluster_job(
                     "performance": (result.get("metadata") or {}).get("performance"),
                 },
         )
+        touch_cluster_task_cleanup(task_id, "cluster_completed")
         clear_inflight_task_id(job_hash, task_id=task_id)
     except Exception as exc:
         logger.exception("cluster job failed: %s", exc)
@@ -626,6 +630,7 @@ def run_cluster_job(
                 status="canceled",
                 message="聚类任务已取消",
             )
+            touch_cluster_task_cleanup(task_id, "cluster_canceled")
             clear_inflight_task_id(job_hash, task_id=task_id)
             return
         task_manager.update_task(
@@ -634,6 +639,7 @@ def run_cluster_job(
             error=str(exc),
             message=f"聚类任务失败: {exc}",
         )
+        touch_cluster_task_cleanup(task_id, "cluster_failed")
         clear_inflight_task_id(job_hash, task_id=task_id)
 
 
