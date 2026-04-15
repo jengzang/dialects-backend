@@ -57,6 +57,7 @@ class ClusterStageValidationError(ClusterStageError):
 
 _SESSION_LOCKS: Dict[str, threading.Lock] = {}
 _SESSION_LOCKS_GUARD = threading.Lock()
+_UNSET = object()
 
 
 def _get_session_lock(session_id: str) -> threading.Lock:
@@ -158,6 +159,53 @@ def _atomic_write_npz(path: Path, arrays: Dict[str, np.ndarray]) -> None:
 def _load_json(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _update_session_task(
+    session_id: str,
+    *,
+    status: Optional[Any] = None,
+    progress: Optional[float] = None,
+    message: Optional[str] = None,
+    active_stage: Optional[str] = None,
+    execution_time_ms: Any = _UNSET,
+    performance: Any = _UNSET,
+    error: Optional[str] = None,
+) -> None:
+    data: Dict[str, Any] = {"active_stage": active_stage}
+    if execution_time_ms is not _UNSET:
+        data["execution_time_ms"] = execution_time_ms
+    if performance is not _UNSET:
+        data["performance"] = performance
+
+    kwargs: Dict[str, Any] = {"data": data}
+    if status is not None:
+        kwargs["status"] = status
+    if progress is not None:
+        kwargs["progress"] = progress
+    if message is not None:
+        kwargs["message"] = message
+    if error is not None:
+        kwargs["error"] = error
+    task_manager.update_task(session_id, **kwargs)
+
+
+def _make_stage_progress_callback(session_id: str, active_stage: str):
+    def _callback(
+        fraction: float,
+        message: str,
+        performance: Optional[Dict[str, float]] = None,
+    ) -> None:
+        _update_session_task(
+            session_id,
+            status=TaskStatus.PROCESSING,
+            progress=round(5.0 + (90.0 * max(0.0, min(1.0, float(fraction)))), 1),
+            message=message,
+            active_stage=active_stage,
+            performance=performance,
+        )
+
+    return _callback
 
 
 def _task_exists(session_id: str) -> bool:
@@ -835,16 +883,14 @@ def create_staged_session(
         }
         _atomic_write_json(_preview_path(session_id), preview)
         _save_session_manifest(session_id, manifest)
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status="ready",
             progress=0.0,
             message="cluster staged session 已创建",
-            data={
-                "active_stage": None,
-                "execution_time_ms": None,
-                "performance": None,
-            },
+            active_stage=None,
+            execution_time_ms=None,
+            performance=None,
         )
         return _build_session_response(
             session_id,
@@ -894,16 +940,14 @@ def start_prepare_stage(session_id: str) -> Tuple[bool, Dict[str, Any]]:
             _touch_artifact(prepare_artifact, ttl_seconds=STAGED_PREPARE_TTL_SECONDS)
             _touch_session(manifest)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message="prepare 已复用",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": None,
-                    "performance": prepare_artifact.get("summary", {}).get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=None,
+                performance=prepare_artifact.get("summary", {}).get("performance"),
             )
             return False, _build_session_response(session_id, manifest, refresh_session_access=False)
 
@@ -914,16 +958,14 @@ def start_prepare_stage(session_id: str) -> Tuple[bool, Dict[str, Any]]:
         manifest["active_stage"] = "prepare"
         _touch_session(manifest, current_ts=current)
         _save_session_manifest(session_id, manifest)
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.PROCESSING,
             progress=0.0,
             message="正在执行 prepare 阶段",
-            data={
-                "active_stage": "prepare",
-                "execution_time_ms": None,
-                "performance": None,
-            },
+            active_stage="prepare",
+            execution_time_ms=None,
+            performance=None,
         )
         return True, _build_session_response(session_id, manifest, refresh_session_access=False)
 
@@ -944,6 +986,7 @@ def run_prepare_stage(session_id: str) -> None:
             snapshot,
             dialects_db=dialects_db,
             include_bucket_models=True,
+            progress_callback=_make_stage_progress_callback(session_id, "prepare"),
         )
 
         with lock:
@@ -963,16 +1006,14 @@ def run_prepare_stage(session_id: str) -> None:
             manifest["active_stage"] = None
             _touch_session(manifest, current_ts=current)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message="prepare 阶段已完成",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": int((time.perf_counter() - started) * 1000),
-                    "performance": prepare_state.get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=int((time.perf_counter() - started) * 1000),
+                performance=prepare_state.get("performance"),
             )
     except Exception as exc:
         lock = _get_session_lock(session_id)
@@ -989,14 +1030,12 @@ def run_prepare_stage(session_id: str) -> None:
                 _save_session_manifest(session_id, manifest)
             except ClusterStageNotFoundError:
                 pass
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.FAILED,
             message=f"prepare 阶段失败: {exc}",
             error=str(exc),
-            data={
-                "active_stage": None,
-            },
+            active_stage=None,
         )
 
 
@@ -1022,16 +1061,14 @@ def start_distance_stage(session_id: str, phoneme_mode: str) -> Tuple[bool, Dict
             _touch_artifact(distance_artifact, ttl_seconds=STAGED_DISTANCE_TTL_SECONDS)
             _touch_session(manifest)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message=f"{phoneme_mode} distance 已复用",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": None,
-                    "performance": distance_artifact.get("summary", {}).get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=None,
+                performance=distance_artifact.get("summary", {}).get("performance"),
             )
             return False, _build_session_response(session_id, manifest, refresh_session_access=False)
 
@@ -1046,16 +1083,14 @@ def start_distance_stage(session_id: str, phoneme_mode: str) -> Tuple[bool, Dict
         manifest["active_stage"] = "distance"
         _touch_session(manifest, current_ts=current)
         _save_session_manifest(session_id, manifest)
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.PROCESSING,
             progress=0.0,
             message=f"正在执行 {phoneme_mode} distance 阶段",
-            data={
-                "active_stage": "distance",
-                "execution_time_ms": None,
-                "performance": None,
-            },
+            active_stage="distance",
+            execution_time_ms=None,
+            performance=None,
         )
         return True, _build_session_response(session_id, manifest, refresh_session_access=False)
 
@@ -1079,6 +1114,7 @@ def run_distance_stage(session_id: str, phoneme_mode: str) -> None:
             prepare_state,
             phoneme_mode=phoneme_mode,
             dialects_db=dialects_db,
+            progress_callback=_make_stage_progress_callback(session_id, "distance"),
         )
 
         with lock:
@@ -1100,16 +1136,14 @@ def run_distance_stage(session_id: str, phoneme_mode: str) -> None:
             manifest["active_stage"] = None
             _touch_session(manifest, current_ts=current)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message=f"{phoneme_mode} distance 阶段已完成",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": int((time.perf_counter() - started) * 1000),
-                    "performance": distance_state.get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=int((time.perf_counter() - started) * 1000),
+                performance=distance_state.get("performance"),
             )
     except Exception as exc:
         lock = _get_session_lock(session_id)
@@ -1126,14 +1160,12 @@ def run_distance_stage(session_id: str, phoneme_mode: str) -> None:
                 _save_session_manifest(session_id, manifest)
             except ClusterStageNotFoundError:
                 pass
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.FAILED,
             message=f"distance 阶段失败: {exc}",
             error=str(exc),
-            data={
-                "active_stage": None,
-            },
+            active_stage=None,
         )
 
 
@@ -1168,16 +1200,14 @@ def start_cluster_stage(
             _touch_artifact(result_artifact, ttl_seconds=STAGED_RESULT_TTL_SECONDS)
             _touch_session(manifest)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message=f"{artifact_id} 已复用",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": None,
-                    "performance": result_artifact.get("summary", {}).get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=None,
+                performance=result_artifact.get("summary", {}).get("performance"),
             )
             return False, _build_session_response(session_id, manifest, refresh_session_access=False), artifact_id
 
@@ -1193,16 +1223,14 @@ def start_cluster_stage(
         manifest["active_stage"] = "cluster"
         _touch_session(manifest, current_ts=current)
         _save_session_manifest(session_id, manifest)
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.PROCESSING,
             progress=0.0,
             message=f"正在执行 cluster 阶段: {artifact_id}",
-            data={
-                "active_stage": "cluster",
-                "execution_time_ms": None,
-                "performance": None,
-            },
+            active_stage="cluster",
+            execution_time_ms=None,
+            performance=None,
         )
         return True, _build_session_response(session_id, manifest, refresh_session_access=False), artifact_id
 
@@ -1234,6 +1262,7 @@ def run_cluster_stage(
             distance_state,
             clustering_config,
             query_db=query_db,
+            progress_callback=_make_stage_progress_callback(session_id, "cluster"),
         )
 
         with lock:
@@ -1261,16 +1290,14 @@ def run_cluster_stage(
             manifest["active_stage"] = None
             _touch_session(manifest, current_ts=current)
             _save_session_manifest(session_id, manifest)
-            task_manager.update_task(
+            _update_session_task(
                 session_id,
                 status="ready",
                 progress=100.0,
                 message=f"cluster 阶段已完成: {result_id}",
-                data={
-                    "active_stage": None,
-                    "execution_time_ms": (result.get("metadata") or {}).get("execution_time_ms"),
-                    "performance": (result.get("metadata") or {}).get("performance"),
-                },
+                active_stage=None,
+                execution_time_ms=(result.get("metadata") or {}).get("execution_time_ms"),
+                performance=(result.get("metadata") or {}).get("performance"),
             )
     except Exception as exc:
         lock = _get_session_lock(session_id)
@@ -1287,14 +1314,12 @@ def run_cluster_stage(
                 _save_session_manifest(session_id, manifest)
             except ClusterStageNotFoundError:
                 pass
-        task_manager.update_task(
+        _update_session_task(
             session_id,
             status=TaskStatus.FAILED,
             message=f"cluster 阶段失败: {exc}",
             error=str(exc),
-            data={
-                "active_stage": None,
-            },
+            active_stage=None,
         )
 
 

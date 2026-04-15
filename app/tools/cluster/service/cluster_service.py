@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -65,6 +65,42 @@ from app.tools.cluster.utils import dedupe
 from app.tools.task_manager import TaskStatus, task_manager
 
 logger = logging.getLogger(__name__)
+ProgressCallback = Callable[[float, str, Optional[Dict[str, float]]], None]
+
+
+def _emit_progress(
+    progress_callback: Optional[ProgressCallback],
+    fraction: float,
+    message: str,
+    performance: Optional[Dict[str, float]] = None,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(
+        max(0.0, min(1.0, float(fraction))),
+        message,
+        dict(performance or {}) or None,
+    )
+
+
+def _make_substage_progress_callback(
+    progress_callback: Optional[ProgressCallback],
+    start_fraction: float,
+    end_fraction: float,
+) -> Optional[ProgressCallback]:
+    if progress_callback is None:
+        return None
+
+    def _callback(
+        fraction: float,
+        message: str,
+        performance: Optional[Dict[str, float]] = None,
+    ) -> None:
+        normalized = max(0.0, min(1.0, float(fraction)))
+        mapped_fraction = start_fraction + ((end_fraction - start_fraction) * normalized)
+        _emit_progress(progress_callback, mapped_fraction, message, performance)
+
+    return _callback
 
 
 def _slice_group_model_to_locations(
@@ -109,6 +145,7 @@ def build_cluster_prepare_state(
     snapshot: Dict[str, Any],
     dialects_db: str = DIALECTS_DB_USER,
     include_bucket_models: bool = False,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     """执行 cluster 的 prepare 阶段：读取方言数据并编码成 token 矩阵。"""
     groups = snapshot["groups"]
@@ -119,6 +156,7 @@ def build_cluster_prepare_state(
     )
     performance: Dict[str, float] = {}
 
+    _emit_progress(progress_callback, 0.05, "正在读取方言数据", performance)
     load_start = time.perf_counter()
     dialect_data = load_dialect_rows(
         matched_locations,
@@ -128,6 +166,7 @@ def build_cluster_prepare_state(
     )
     performance["load_rows_ms"] = round((time.perf_counter() - load_start) * 1000.0, 3)
 
+    _emit_progress(progress_callback, 0.42, "正在编码聚类输入", performance)
     encode_start = time.perf_counter()
     dimension_token_catalogs = build_dimension_token_catalogs(groups, dialect_data)
     full_group_models = [
@@ -166,6 +205,7 @@ def build_cluster_prepare_state(
     bucket_models: Dict[str, Dict[str, Any]] = {}
     shared_bucket_models_ms = 0.0
     if include_bucket_models:
+        _emit_progress(progress_callback, 0.75, "正在构建 shared identity 共享模型", performance)
         bucket_start = time.perf_counter()
         bucket_models = build_dimension_bucket_models(
             groups,
@@ -175,7 +215,7 @@ def build_cluster_prepare_state(
         )
         shared_bucket_models_ms = round((time.perf_counter() - bucket_start) * 1000.0, 3)
 
-    return {
+    result = {
         "matched_locations": list(matched_locations),
         "effective_locations": list(effective_locations),
         "dropped_locations": list(dropped_locations),
@@ -189,12 +229,15 @@ def build_cluster_prepare_state(
             "shared_bucket_models_ms": shared_bucket_models_ms,
         },
     }
+    _emit_progress(progress_callback, 0.98, "prepare 阶段即将完成", result["performance"])
+    return result
 
 
 def build_cluster_distance_state(
     prepare_state: Dict[str, Any],
     phoneme_mode: str,
     dialects_db: str = DIALECTS_DB_USER,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     """执行 cluster 的 distance 阶段：生成指定 phoneme_mode 的距离矩阵。"""
     effective_locations = list(prepare_state["effective_locations"])
@@ -206,6 +249,7 @@ def build_cluster_distance_state(
 
     inventory_profiles: Dict[str, Dict[str, Dict[str, Dict[str, float]]]] = {}
     if phoneme_mode == "anchored_inventory":
+        _emit_progress(progress_callback, 0.12, "正在构建 anchored inventory 库存画像", performance)
         inventory_profiles_start = time.perf_counter()
         inventory_profiles = load_dimension_inventory_profiles(
             effective_locations,
@@ -219,6 +263,7 @@ def build_cluster_distance_state(
 
     bucket_models: Dict[str, Dict[str, Any]] = {}
     if phoneme_mode == "shared_request_identity":
+        _emit_progress(progress_callback, 0.12, "正在准备 shared identity 共享模型", performance)
         bucket_models = prepare_state.get("bucket_models") or {}
         if not bucket_models:
             raise ValueError("prepare 阶段缺少 shared_request_identity 所需的 bucket models")
@@ -227,6 +272,9 @@ def build_cluster_distance_state(
             3,
         )
 
+    if phoneme_mode == "intra_group":
+        _emit_progress(progress_callback, 0.12, "正在准备音系距离矩阵输入", performance)
+    _emit_progress(progress_callback, 0.38, "正在计算地点两两音系距离", performance)
     distance_start = time.perf_counter()
     distance_matrix, phoneme_mode_params = build_total_distance_matrix(
         group_models=group_models,
@@ -240,12 +288,14 @@ def build_cluster_distance_state(
         3,
     )
 
-    return {
+    result = {
         "phoneme_mode": phoneme_mode,
         "distance_matrix": distance_matrix,
         "phoneme_mode_params": phoneme_mode_params,
         "performance": performance,
     }
+    _emit_progress(progress_callback, 0.98, "distance 阶段即将完成", performance)
+    return result
 
 
 def build_cluster_final_result(
@@ -254,6 +304,7 @@ def build_cluster_final_result(
     distance_state: Dict[str, Any],
     clustering_config: Dict[str, Any],
     query_db: str = QUERY_DB_USER,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     """执行 cluster 的最后一步：从距离矩阵生成最终聚类结果 JSON。"""
     performance = dict(snapshot.get("performance") or {})
@@ -279,6 +330,7 @@ def build_cluster_final_result(
     algorithm = clustering_config["algorithm"]
     execution_space = choose_execution_space(algorithm=algorithm)
 
+    _emit_progress(progress_callback, 0.10, "正在读取地点展示信息", performance)
     location_detail_start = time.perf_counter()
     location_details = load_location_details(matched_locations, query_db)
     performance["location_details_ms"] = round(
@@ -290,6 +342,7 @@ def build_cluster_final_result(
     assignments: List[Dict[str, Any]]
     metrics_matrix: Optional[np.ndarray] = None
 
+    _emit_progress(progress_callback, 0.42, "正在执行聚类", performance)
     cluster_start = time.perf_counter()
     if algorithm == "agglomerative":
         n_clusters = int(clustering_config["n_clusters"])
@@ -364,6 +417,7 @@ def build_cluster_final_result(
         group_diagnostics=group_diagnostics,
     )
     performance["cluster_ms"] = round((time.perf_counter() - cluster_start) * 1000.0, 3)
+    _emit_progress(progress_callback, 0.88, "正在整理聚类结果", performance)
     execution_time_ms = int(
         round(
             sum(
@@ -374,7 +428,7 @@ def build_cluster_final_result(
         )
     )
 
-    return build_result_payload(
+    result = build_result_payload(
         snapshot=snapshot,
         algorithm=algorithm,
         phoneme_mode=phoneme_mode,
@@ -393,12 +447,15 @@ def build_cluster_final_result(
         warnings=warnings,
         location_details=location_details,
     )
+    _emit_progress(progress_callback, 0.98, "cluster 阶段即将完成", performance)
+    return result
 
 
 def build_cluster_result(
     snapshot: Dict[str, Any],
     dialects_db: str = DIALECTS_DB_USER,
     query_db: str = QUERY_DB_USER,
+    progress_callback: Optional[ProgressCallback] = None,
 ) -> Dict[str, Any]:
     """
     根据 snapshot 真正执行一次聚类，并返回完整结果。
@@ -413,11 +470,13 @@ def build_cluster_result(
         snapshot,
         dialects_db=dialects_db,
         include_bucket_models=(phoneme_mode == "shared_request_identity"),
+        progress_callback=_make_substage_progress_callback(progress_callback, 0.0, 0.56),
     )
     distance_state = build_cluster_distance_state(
         prepare_state,
         phoneme_mode=phoneme_mode,
         dialects_db=dialects_db,
+        progress_callback=_make_substage_progress_callback(progress_callback, 0.56, 0.90),
     )
     result = build_cluster_final_result(
         snapshot,
@@ -425,6 +484,7 @@ def build_cluster_result(
         distance_state,
         clustering,
         query_db=query_db,
+        progress_callback=_make_substage_progress_callback(progress_callback, 0.90, 0.98),
     )
     metadata = dict(result.get("metadata") or {})
     metadata["execution_time_ms"] = int((time.perf_counter() - start_time) * 1000)
@@ -500,14 +560,31 @@ def run_cluster_job(
         task_manager.update_task(
             task_id,
             status=TaskStatus.PROCESSING,
-            progress=15.0,
-            message="正在读取方言数据并构建聚类输入",
+            progress=5.0,
+            message="正在准备聚类计算",
         )
+
+        def _progress_callback(
+            fraction: float,
+            message: str,
+            performance: Optional[Dict[str, float]] = None,
+        ) -> None:
+            data: Dict[str, Any] = {}
+            if performance is not None:
+                data["performance"] = performance
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.PROCESSING,
+                progress=round(5.0 + (91.0 * max(0.0, min(1.0, float(fraction)))), 1),
+                message=message,
+                data=data,
+            )
 
         result = build_cluster_result(
             snapshot,
             dialects_db=dialects_db,
             query_db=query_db,
+            progress_callback=_progress_callback,
         )
         result = annotate_cluster_result_cache(
             result,
@@ -522,7 +599,7 @@ def run_cluster_job(
 
         task_manager.update_task(
             task_id,
-            progress=90.0,
+            progress=98.0,
             message="正在写入聚类结果",
         )
         result_path = write_result(task_id, result)
