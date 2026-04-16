@@ -413,6 +413,7 @@ def build_cluster_final_result(
     warnings = collect_cluster_warnings(
         legacy_metric_mode=legacy_metric_mode,
         phoneme_mode=phoneme_mode,
+        filtered_year_locations=snapshot["location_resolution"].get("filtered_year_locations") or [],
         filtered_special_locations=snapshot["location_resolution"].get("filtered_special_locations") or [],
         dropped_locations=dropped_locations,
         group_diagnostics=group_diagnostics,

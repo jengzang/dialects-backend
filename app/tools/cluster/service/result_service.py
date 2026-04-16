@@ -31,6 +31,9 @@ def build_task_summary(snapshot: Dict[str, Any], result: Optional[Dict[str, Any]
         "matched_location_count_before_filter": location_resolution.get(
             "matched_location_count_before_filter", 0
         ),
+        "filtered_year_location_count": location_resolution.get(
+            "filtered_year_location_count", 0
+        ),
         "filtered_special_location_count": location_resolution.get(
             "filtered_special_location_count", 0
         ),
@@ -115,6 +118,7 @@ def collect_cluster_warnings(
     *,
     legacy_metric_mode: Optional[str],
     phoneme_mode: str,
+    filtered_year_locations: Sequence[str],
     filtered_special_locations: Sequence[str],
     dropped_locations: Sequence[str],
     group_diagnostics: Sequence[Dict[str, Any]],
@@ -124,6 +128,11 @@ def collect_cluster_warnings(
     if legacy_metric_mode:
         warnings.append(
             f"legacy metric_mode={legacy_metric_mode} 已忽略，当前按 phoneme_mode={phoneme_mode} 执行"
+        )
+    if filtered_year_locations:
+        warnings.append(
+            f"已按默认规则过滤年份前缀地点 {len(filtered_year_locations)} 个: "
+            f"{', '.join(filtered_year_locations[:20])}"
         )
     if filtered_special_locations:
         warnings.append(
@@ -174,6 +183,9 @@ def build_result_payload(
             "matched_location_count": len(matched_locations),
             "matched_location_count_before_filter": snapshot["location_resolution"].get(
                 "matched_location_count_before_filter", len(matched_locations)
+            ),
+            "filtered_year_location_count": snapshot["location_resolution"].get(
+                "filtered_year_location_count", 0
             ),
             "filtered_special_location_count": snapshot["location_resolution"].get(
                 "filtered_special_location_count", 0
