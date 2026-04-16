@@ -25,6 +25,9 @@ from app.tools.cluster.service.loader_service import (
 from app.tools.cluster.utils import dedupe, now_ms
 
 
+YEAR_PREFIX_RE = re.compile(r"^(18|19|20)\d{2}")
+
+
 def normalize_char_input(raw_value: Any) -> List[str]:
     """
     把各种形态的字集输入压平为单字列表。
@@ -133,6 +136,11 @@ def is_default_filtered_location(location_detail: Optional[Dict[str, Any]]) -> b
     return (location_detail.get("yindian_region") or "") in DEFAULT_FILTERED_YINDIAN_REGIONS
 
 
+def is_year_prefixed_location(location: str) -> bool:
+    """判断地点简称是否以年份前缀开头。"""
+    return bool(YEAR_PREFIX_RE.match(str(location or "").strip()))
+
+
 def resolve_locations(
     locations: Sequence[str],
     regions: Sequence[str],
@@ -170,16 +178,20 @@ def resolve_locations(
     )
     location_details_all = load_location_filter_details(matched_locations, query_db)
     filtered_special_locations: List[str] = []
+    filtered_year_locations: List[str] = [
+        location for location in matched_locations if is_year_prefixed_location(location)
+    ]
+    blocked = set(filtered_year_locations)
     if not include_special_locations:
         filtered_special_locations = [
             location
             for location in matched_locations
             if is_default_filtered_location(location_details_all.get(location))
         ]
-        blocked = set(filtered_special_locations)
-        matched_locations = [
-            location for location in matched_locations if location not in blocked
-        ]
+        blocked.update(filtered_special_locations)
+    matched_locations = [
+        location for location in matched_locations if location not in blocked
+    ]
     location_details = {
         location: location_details_all[location]
         for location in matched_locations
@@ -195,6 +207,8 @@ def resolve_locations(
         "matched_locations": matched_locations,
         "location_details": location_details,
         "matched_location_count_before_filter": len(location_details_all),
+        "filtered_year_locations": filtered_year_locations,
+        "filtered_year_location_count": len(filtered_year_locations),
         "filtered_special_locations": filtered_special_locations,
         "filtered_special_location_count": len(filtered_special_locations),
         "requested_location_count": len(list(requested_locations_raw or locations or [])),
