@@ -11,6 +11,7 @@ from app.tools.config import (
     CLEANUP_POLICY_PRAAT_UPLOAD,
     TASK_CLEANUP_30M_SECONDS,
 )
+from app.tools.progress_utils import PRAAT_HEARTBEAT_SECONDS, ProgressHeartbeat
 from app.tools.task_manager import task_manager
 from app.tools.file_manager import file_manager
 from ..utils.validators import ErrorCode
@@ -42,106 +43,110 @@ async def execute_job_async(task_id: str, job_id: str):
         job_id: Job ID (e.g., "praat_abc123_job_1")
     """
     try:
-        # 1. Update job status to running
-        update_job_status(
-            task_manager, task_id, job_id,
-            status="running",
-            progress=0.0,
-            stage="loading"
-        )
+        with ProgressHeartbeat(
+            PRAAT_HEARTBEAT_SECONDS,
+            lambda: update_job_status(task_manager, task_id, job_id),
+        ):
+            # 1. Update job status to running
+            update_job_status(
+                task_manager, task_id, job_id,
+                status="running",
+                progress=0.0,
+                stage="loading"
+            )
 
-        # 2. Load task and job info
-        task = task_manager.get_task(task_id)
-        job = find_job_by_id(task, job_id)
+            # 2. Load task and job info
+            task = task_manager.get_task(task_id)
+            job = find_job_by_id(task, job_id)
 
-        if not job:
-            raise Exception(f"Job {job_id} not found")
+            if not job:
+                raise Exception(f"Job {job_id} not found")
 
-        # 3. Load audio (all jobs share the same file)
-        task_dir = file_manager.get_task_dir(task_id, "praat")
-        audio_path = task_dir / "normalized.wav"
+            # 3. Load audio (all jobs share the same file)
+            task_dir = file_manager.get_task_dir(task_id, "praat")
+            audio_path = task_dir / "normalized.wav"
 
-        if not audio_path.exists():
-            raise Exception(f"Audio file not found: {audio_path}")
+            if not audio_path.exists():
+                raise Exception(f"Audio file not found: {audio_path}")
 
-        import parselmouth
-        sound = parselmouth.Sound(str(audio_path))
+            import parselmouth
+            sound = parselmouth.Sound(str(audio_path))
 
-        # 4. Execute analysis modules
-        module_results = {}
-        modules = job['modules']
-        total_modules = len(modules)
+            # 4. Execute analysis modules
+            module_results = {}
+            modules = job['modules']
+            total_modules = len(modules)
 
-        for idx, module_name in enumerate(modules):
-            # Update current stage
-            update_job_status(task_manager, task_id, job_id, stage=module_name)
+            for idx, module_name in enumerate(modules):
+                # Update current stage
+                update_job_status(task_manager, task_id, job_id, stage=module_name)
 
-            if module_name not in MODULES:
-                raise Exception(f"Unknown module: {module_name}")
+                if module_name not in MODULES:
+                    raise Exception(f"Unknown module: {module_name}")
 
-            # Get module options
-            module_options = job.get('options', {}).get(module_name, {})
+                # Get module options
+                module_options = job.get('options', {}).get(module_name, {})
 
-            # For voice_quality, also include pitch options if not specified
-            if module_name == 'voice_quality' and not module_options.get('f0_min'):
-                pitch_options = job.get('options', {}).get('pitch', {})
-                if pitch_options:
-                    module_options = {
-                        'f0_min': pitch_options.get('f0_min', 75.0),
-                        'f0_max': pitch_options.get('f0_max', 600.0),
-                        **module_options
-                    }
+                # For voice_quality, also include pitch options if not specified
+                if module_name == 'voice_quality' and not module_options.get('f0_min'):
+                    pitch_options = job.get('options', {}).get('pitch', {})
+                    if pitch_options:
+                        module_options = {
+                            'f0_min': pitch_options.get('f0_min', 75.0),
+                            'f0_max': pitch_options.get('f0_max', 600.0),
+                            **module_options
+                        }
 
-            # Run module
-            module_class = MODULES[module_name]
-            module_instance = module_class()
-            result = module_instance.analyze(sound, module_options, job['mode'])
+                # Run module
+                module_class = MODULES[module_name]
+                module_instance = module_class()
+                result = module_instance.analyze(sound, module_options, job['mode'])
 
-            module_results[module_name] = result
+                module_results[module_name] = result
 
-            # Update progress (0-0.9)
-            progress = (idx + 1) / total_modules * 0.9
-            update_job_status(task_manager, task_id, job_id, progress=progress)
+                # Update progress (0-90)
+                progress = round((idx + 1) / total_modules * 90.0, 1)
+                update_job_status(task_manager, task_id, job_id, progress=progress)
 
-        # 5. Build result JSON
-        update_job_status(task_manager, task_id, job_id, stage="finalize", progress=0.95)
+            # 5. Build result JSON
+            update_job_status(task_manager, task_id, job_id, stage="finalize", progress=95.0)
 
-        upload_data = task.get('data', {}).get('upload', {})
-        audio_metadata = upload_data.get('audio_metadata', {})
+            upload_data = task.get('data', {}).get('upload', {})
+            audio_metadata = upload_data.get('audio_metadata', {})
 
-        result_json = build_result_json(
-            job_id=job_id,
-            task_id=task_id,
-            job_data=job,
-            module_results=module_results,
-            audio_metadata=audio_metadata,
-            sound=sound
-        )
+            result_json = build_result_json(
+                job_id=job_id,
+                task_id=task_id,
+                job_data=job,
+                module_results=module_results,
+                audio_metadata=audio_metadata,
+                sound=sound
+            )
 
-        # 6. Save result (overwrite result.json)
-        result_path = task_dir / "result.json"
+            # 6. Save result (overwrite result.json)
+            result_path = task_dir / "result.json"
 
-        with open(result_path, "w", encoding="utf-8") as f:
-            json.dump(result_json, f, indent=2, ensure_ascii=False)
+            with open(result_path, "w", encoding="utf-8") as f:
+                json.dump(result_json, f, indent=2, ensure_ascii=False)
 
-        # 7. Mark job as done
-        update_job_status(
-            task_manager, task_id, job_id,
-            status="done",
-            progress=1.0,
-            completed_at=datetime.now().isoformat()
-        )
+            # 7. Mark job as done
+            update_job_status(
+                task_manager, task_id, job_id,
+                status="done",
+                progress=100.0,
+                completed_at=datetime.now().isoformat()
+            )
 
-        # 8. Update last_result and clear current_job_id
-        task = task_manager.get_task(task_id)
-        task_data = task.get('data', {})
-        task_data['last_result'] = {
-            "job_id": job_id,
-            "completed_at": datetime.now().isoformat()
-        }
-        task_data['current_job_id'] = None  # Clear current job
-        task_manager.update_task(task_id, data=task_data)
-        _restore_praat_idle_cleanup(task_id, "job_completed")
+            # 8. Update last_result and clear current_job_id
+            task = task_manager.get_task(task_id)
+            task_data = task.get('data', {})
+            task_data['last_result'] = {
+                "job_id": job_id,
+                "completed_at": datetime.now().isoformat()
+            }
+            task_data['current_job_id'] = None  # Clear current job
+            task_manager.update_task(task_id, data=task_data)
+            _restore_praat_idle_cleanup(task_id, "job_completed")
 
     except Exception as e:
         # Error handling

@@ -4,7 +4,7 @@ Check工具的API路由：方言音位数据检查编辑器
 """
 from urllib.parse import quote
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 import pandas as pd
@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import os
 import re
+from datetime import datetime
 
 from starlette.responses import StreamingResponse
 
@@ -22,6 +23,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.progress_utils import (
+    CHECK_ANALYZE_HEARTBEAT_SECONDS,
+    CHECK_ANALYZE_TIMEOUT_SECONDS,
+    ProgressHeartbeat,
+    build_task_progress_payload,
+    mark_task_ready,
+    maybe_timeout_task,
+)
 from app.tools.config import (
     CLEANUP_POLICY_CHECK_WORKSPACE,
     TASK_CLEANUP_30M_SECONDS,
@@ -64,6 +73,17 @@ class AnalysisResult(BaseModel):
     error_count: int
     errors: List[ErrorItem]
     error_stats: Dict[str, int]
+
+
+class AnalyzeTaskResponse(BaseModel):
+    """异步分析任务响应"""
+    task_id: str
+    status: str
+    progress: float
+    message: str
+    stage: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    analysis_result: Optional[AnalysisResult] = None
 
 
 class CommandRequest(BaseModel):
@@ -151,15 +171,24 @@ def find_standard_column(df: pd.DataFrame, standard_name: str) -> Optional[str]:
     return None
 
 
-def analyze_excel_file(file_path: Path) -> tuple[pd.DataFrame, List[ErrorItem], Dict[str, int], str, str]:
+def analyze_excel_file(
+    file_path: Path,
+    progress_callback=None,
+) -> tuple[pd.DataFrame, List[ErrorItem], Dict[str, int], str, str]:
     """
     分析Excel文件，检查错误（使用原有的檢查資料格式函数）
 
     Returns:
         (数据框, 错误列表, 错误统计, 汉字列名, 音标列名)
     """
+    if progress_callback:
+        progress_callback("read_file", 10.0, "正在读取文件...")
+
     # 读取Excel文件
     df = pd.read_excel(file_path, dtype=str)
+
+    if progress_callback:
+        progress_callback("locate_columns", 25.0, "正在定位关键列...")
 
     # 查找关键列
     col_hanzi = find_standard_column(df, '漢字')
@@ -172,6 +201,9 @@ def analyze_excel_file(file_path: Path) -> tuple[pd.DataFrame, List[ErrorItem], 
     if not col_ipa:
         raise ValueError("未找到音标列（需包含'IPA'、'音標'等）")
 
+    if progress_callback:
+        progress_callback("checking_data", 55.0, "正在检查资料格式...")
+
     # 调用原有的检查函数（捕获输出）
     import io
     from contextlib import redirect_stdout
@@ -181,6 +213,9 @@ def analyze_excel_file(file_path: Path) -> tuple[pd.DataFrame, List[ErrorItem], 
         檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=col_note)
 
     check_output = f.getvalue()
+
+    if progress_callback:
+        progress_callback("parsing_output", 80.0, "正在解析检查结果...")
 
     # 解析检查输出，提取错误信息
     errors = []
@@ -238,6 +273,59 @@ def get_error_message(error_type: str) -> str:
         "missingTone": "缺少声调"
     }
     return messages.get(error_type, "未知错误")
+
+
+async def analyze_file_async(task_id: str, file_path: Path) -> None:
+    """后台执行异步分析任务。"""
+
+    def update_progress(stage: str, progress: float, message: str) -> None:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            progress=progress,
+            message=message,
+            stage=stage,
+        )
+
+    try:
+        with ProgressHeartbeat(CHECK_ANALYZE_HEARTBEAT_SECONDS, lambda: task_manager.update_task(task_id)):
+            update_progress("read_file", 5.0, "正在读取文件...")
+            df, errors, error_stats, col_hanzi, col_ipa = analyze_excel_file(
+                file_path,
+                progress_callback=update_progress,
+            )
+
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                message=f"分析完成，发现{len(errors)}个错误",
+                stage="completed",
+                data={
+                    **(task_manager.get_task(task_id) or {}).get("data", {}),
+                    "errors": [error.dict() for error in errors],
+                    "error_stats": error_stats,
+                    "col_hanzi": col_hanzi,
+                    "col_ipa": col_ipa,
+                    "analysis_result": {
+                        "task_id": task_id,
+                        "total_rows": len(df),
+                        "error_count": len(errors),
+                        "errors": [error.dict() for error in errors],
+                        "error_stats": error_stats,
+                    },
+                },
+            )
+        _touch_check_cleanup(task_id, "analyze_async_completed")
+    except Exception as e:
+        task_manager.update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            error=str(e),
+            message=f"分析失败: {str(e)}",
+            stage="failed",
+        )
+        _touch_check_cleanup(task_id, "analyze_async_failed")
 
 
 # ==================== API端点 ====================
@@ -387,18 +475,18 @@ async def upload_file(
         total_rows = len(df)
 
         # 2. 更新任务信息
-        task_manager.update_task(
+        mark_task_ready(
+            task_manager,
             task_id,
-            status=TaskStatus.COMPLETED,
-            progress=100.0,
             message=f"文件上传成功，共{total_rows}行" + (" (已转换格式)" if needs_conversion else ""),
+            stage="ready",
             data={
                 "filename": final_filename,  # <--- 改这里！存 .xlsx
                 "original_filename": file.filename,  # <--- 新增！保留原始名字备查
                 "total_rows": total_rows,
                 "file_path": str(file_path),
                 "converted": needs_conversion
-            }
+            },
         )
         _touch_check_cleanup(task_id, "upload_completed")
 
@@ -419,7 +507,8 @@ async def upload_file(
         task_manager.update_task(
             task_id,
             status=TaskStatus.FAILED,
-            error=str(e)
+            error=str(e),
+            stage="failed",
         )
         _touch_check_cleanup(task_id, "upload_failed")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
@@ -470,8 +559,55 @@ async def analyze_file(task_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(e))
+        task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(e), stage="failed")
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@router.post("/analyze_async", response_model=AnalyzeTaskResponse)
+async def start_analyze_async(task_id: str, background_tasks: BackgroundTasks):
+    """异步启动分析任务，供前端轮询进度使用。"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.PROCESSING,
+        progress=0.0,
+        message="分析任务已启动",
+        stage="queued",
+    )
+
+    background_tasks.add_task(analyze_file_async, task_id, file_path)
+
+    payload = build_task_progress_payload(task_manager.get_task(task_id) or task)
+    payload["task_id"] = task_id
+    return AnalyzeTaskResponse(**payload)
+
+
+@router.get("/progress/{task_id}", response_model=AnalyzeTaskResponse)
+async def get_check_progress(task_id: str):
+    """获取异步分析任务进度。"""
+    task = maybe_timeout_task(
+        task_manager,
+        task_id,
+        timeout_seconds=CHECK_ANALYZE_TIMEOUT_SECONDS,
+        failure_status=TaskStatus.FAILED,
+        timeout_message="Check analyze task timeout: no heartbeat received within the expected window",
+        on_timeout=lambda current_task_id: _touch_check_cleanup(current_task_id, "analyze_async_timeout"),
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    payload = build_task_progress_payload(task)
+    payload["task_id"] = task_id
+    payload["analysis_result"] = task.get("data", {}).get("analysis_result")
+    return AnalyzeTaskResponse(**payload)
 
 
 @router.post("/execute", response_model=CommandResponse)

@@ -11,6 +11,11 @@ from datetime import datetime
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.progress_utils import (
+    PRAAT_TIMEOUT_SECONDS,
+    build_job_progress_payload,
+    maybe_timeout_praat_job,
+)
 from app.tools.config import (
     CLEANUP_POLICY_PRAAT_UPLOAD,
     PRAAT_RESULT_READ_TTL_SECONDS,
@@ -31,7 +36,7 @@ from .utils.validators import (
     MAX_UPLOAD_MB,
     MAX_DURATION_S
 )
-from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id
+from .utils.job_utils import extract_task_id_from_job_id, find_job_by_id, update_job_status
 router = APIRouter()
 
 
@@ -438,8 +443,23 @@ async def get_job_status(
             status_code=404
         )
 
+    task, job = maybe_timeout_praat_job(
+        task_manager,
+        task_id,
+        job_id,
+        timeout_seconds=PRAAT_TIMEOUT_SECONDS,
+        update_job_status=update_job_status,
+        find_job_by_id=find_job_by_id,
+        on_timeout=lambda current_task_id: _set_praat_cleanup(
+            current_task_id,
+            reason="job_timeout",
+            armed=True,
+            terminal=True,
+            ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        ),
+    )
+
     # Find job
-    job = find_job_by_id(task, job_id)
     if not job:
         raise_error(
             ErrorCode.JOB_NOT_FOUND,
@@ -447,15 +467,8 @@ async def get_job_status(
             status_code=404
         )
 
-    return {
-        "job_id": job_id,
-        "status": job.get('status'),
-        "progress": job.get('progress', 0.0),
-        "stage": job.get('stage'),
-        "error": job.get('error'),
-        "created_at": job.get('created_at'),
-        "updated_at": job.get('updated_at')
-    }
+    payload = build_job_progress_payload(job_id, job)
+    return payload
 
 
 @router.get("/jobs/progress/{job_id}/result")

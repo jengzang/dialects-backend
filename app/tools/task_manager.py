@@ -32,6 +32,7 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     progress: float = 0.0  # 0-100
     message: str = ""
+    stage: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     data: Dict[str, Any] = field(default_factory=dict)  # 存储任务相关数据
@@ -40,6 +41,7 @@ class Task:
     def update(self, status: Optional[TaskStatus] = None,
                progress: Optional[float] = None,
                message: Optional[str] = None,
+               stage: Optional[str] = None,
                data: Optional[Dict[str, Any]] = None,
                error: Optional[str] = None):
         """更新任务状态"""
@@ -49,6 +51,8 @@ class Task:
             self.progress = progress
         if message:
             self.message = message
+        if stage is not None:
+            self.stage = stage
         if data:
             self.data.update(data)
         if error:
@@ -123,6 +127,7 @@ class TaskManager:
             "status": TaskStatus.PENDING,
             "progress": 0.0,
             "message": "",
+            "stage": None,
             "created_at": time.time(),
             "updated_at": time.time(),
             "data": initial_data or {},
