@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Optional
+from urllib.parse import urlencode
 
 import requests
 from fastapi import Request
@@ -22,6 +23,8 @@ from app.common.config import (
     ISSUER,
     GOOGLE_CLIENT_ID,
     GOOGLE_TOKENINFO_URL,
+    WECHAT_APP_ID,
+    WECHAT_USERINFO_URL,
     RESEND_API_KEY,
     RESEND_FROM_EMAIL,
     RESEND_API_BASE,
@@ -38,7 +41,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # --- 時間工具：UTC 時間 ---
 # —— 用于入库：naive UTC（不带 tzinfo），避免 SQLAlchemy 无 tz 列报错
 def now_utc_naive() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # （可选）如果你需要带 tz 的当前时间：
 def now_utc_aware() -> datetime:
@@ -149,6 +152,50 @@ def verify_google_id_token(id_token: str) -> dict:
     data["email_verified"] = email_verified_raw in {"true", "1", "yes"}
     data["sub"] = subject
     return data
+
+
+def make_wechat_qr_authorize_url(*, redirect_uri: str, state: str, scope: str = "snsapi_login") -> str:
+    query = urlencode({
+        "appid": WECHAT_APP_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scope,
+        "state": state,
+    })
+    return f"https://open.weixin.qq.com/connect/qrconnect?{query}#wechat_redirect"
+
+
+def verify_wechat_access_token(access_token: str, openid: str) -> dict:
+    response = requests.get(
+        WECHAT_USERINFO_URL,
+        params={"access_token": access_token, "openid": openid, "lang": "zh_CN"},
+        timeout=20,
+    )
+    if response.status_code >= 300:
+        raise ValueError("Invalid WeChat token")
+
+    data = response.json()
+    errcode = data.get("errcode")
+    if errcode not in (None, 0, "0"):
+        raise ValueError(f"Invalid WeChat token: {data.get('errmsg') or errcode}")
+
+    normalized_openid = str(data.get("openid") or openid or "").strip()
+    if not normalized_openid:
+        raise ValueError("WeChat token missing openid")
+
+    unionid = str(data.get("unionid") or "").strip() or normalized_openid
+    nickname = str(data.get("nickname") or "").strip() or None
+    profile_picture = str(data.get("headimgurl") or "").strip() or None
+    email = normalize_email(data.get("email") or "") or None
+
+    return {
+        **data,
+        "openid": normalized_openid,
+        "unionid": unionid,
+        "nickname": nickname,
+        "headimgurl": profile_picture,
+        "email": email,
+    }
 
 
 def create_token_pair(username: str, role: str = "user", session_id: str = None) -> dict:

@@ -22,14 +22,14 @@ user_activity_queue = multiprocessing.Queue()
 
 # 用户活动更新数据结构
 class UserActivityUpdate:
-    def __init__(self, user_id: int, seconds_to_add: int = 0, update_last_seen: bool = True,
-                 session_start_time: datetime = None):
+    """用户活动更新数据类"""
+    def __init__(self, user_id: int, seconds_to_add: int = 0,
+                 update_last_seen: bool = False, session_start_time: datetime = None):
         self.user_id = user_id
         self.seconds_to_add = seconds_to_add
         self.update_last_seen = update_last_seen
         self.session_start_time = session_start_time
-        self.timestamp = datetime.utcnow()
-
+        self.timestamp = utils.now_utc_naive()
 
 # === 后台线程：批量处理用户活动更新 ===
 def user_activity_writer():
@@ -231,6 +231,20 @@ def make_google_suggested_username(payload: dict) -> str:
         if candidate:
             return candidate[:50]
     return f"google_{payload['sub'][:12]}"
+
+
+def make_wechat_suggested_username(payload: dict) -> str:
+    for raw in [payload.get("openid"), payload.get("unionid"), payload.get("nickname")]:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        candidate = "".join(ch.lower() if ch.isascii() and ch.isalnum() else "_" for ch in value)
+        candidate = candidate.strip("_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        if candidate:
+            return (f"wechat_{candidate}" if not candidate.startswith("wechat_") else candidate)[:50]
+    return "wechat_user"
 
 
 
@@ -455,6 +469,28 @@ def prepare_google_auth(db: Session, id_token: str) -> dict:
     }
 
 
+def prepare_wechat_auth(db: Session, access_token: str, openid: str) -> dict:
+    payload = utils.verify_wechat_access_token(access_token, openid)
+    provider_subject = payload.get("unionid") or payload["openid"]
+    wechat_identity = get_identity_by_provider_subject(db, "wechat", provider_subject)
+    if wechat_identity and wechat_identity.user:
+        wechat_identity.identifier_normalized = payload.get("openid")
+        wechat_identity.display_name = payload.get("nickname") or wechat_identity.display_name
+        wechat_identity.profile_picture = payload.get("headimgurl") or wechat_identity.profile_picture
+        wechat_identity.is_verified = True
+        return {
+            "action": "login",
+            "user": wechat_identity.user,
+            "payload": payload,
+        }
+
+    return {
+        "action": "register",
+        "payload": payload,
+        "suggested_username": make_wechat_suggested_username(payload),
+    }
+
+
 
 def register_user_with_google(db: Session, signup: schemas.GoogleRegisterRequest, register_ip: str) -> tuple[models.User, models.UserAuthIdentity]:
     payload = utils.verify_google_id_token(signup.id_token)
@@ -495,6 +531,47 @@ def register_user_with_google(db: Session, signup: schemas.GoogleRegisterRequest
     return user, google_identity
 
 
+def register_user_with_wechat(db: Session, signup: schemas.WechatRegisterRequest, register_ip: str) -> tuple[models.User, models.UserAuthIdentity]:
+    payload = utils.verify_wechat_access_token(signup.access_token, signup.openid)
+    provider_subject = payload.get("unionid") or payload["openid"]
+    if get_identity_by_provider_subject(db, "wechat", provider_subject):
+        raise ValueError("WeChat account already linked")
+
+    if db.query(models.User).filter(models.User.username == signup.username).first():
+        raise ValueError("Username already exists")
+
+    now = utils.now_utc_naive()
+    user = models.User(
+        username=signup.username,
+        email=None,
+        hashed_password=utils.get_password_hash(signup.password),
+        register_ip=register_ip,
+        is_verified=True,
+        login_count=0,
+        failed_attempts=0,
+        total_online_seconds=0,
+        created_at=now,
+        profile_picture=payload.get("headimgurl"),
+    )
+    db.add(user)
+    db.flush()
+
+    wechat_identity = ensure_provider_identity(
+        db,
+        user=user,
+        provider="wechat",
+        provider_subject=provider_subject,
+        email=payload.get("email"),
+        display_name=payload.get("nickname"),
+        profile_picture=payload.get("headimgurl"),
+        is_verified=True,
+    )
+    db.commit()
+    db.refresh(user)
+    db.refresh(wechat_identity)
+    return user, wechat_identity
+
+
 
 def bind_google_identity(
     db: Session,
@@ -528,6 +605,45 @@ def bind_google_identity(
     )
     if payload.get("picture") and not user.profile_picture:
         user.profile_picture = payload.get("picture")
+    db.commit()
+    db.refresh(identity)
+    return identity
+
+
+def bind_wechat_identity(
+    db: Session,
+    user: models.User,
+    access_token: str,
+    openid: str,
+    *,
+    current_session_public_id: str | None,
+) -> models.UserAuthIdentity:
+    require_fresh_auth_session(db, user, current_session_public_id)
+    payload = utils.verify_wechat_access_token(access_token, openid)
+    provider_subject = payload.get("unionid") or payload["openid"]
+    existing_wechat_identity = get_identity_by_provider_subject(db, "wechat", provider_subject)
+    if existing_wechat_identity and existing_wechat_identity.user_id != user.id:
+        raise ValueError("WeChat account already linked to another account")
+
+    current_wechat_identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+        models.UserAuthIdentity.provider == "wechat",
+    ).first()
+    if current_wechat_identity and current_wechat_identity.provider_subject != provider_subject:
+        raise ValueError("Current account already linked to another WeChat account")
+
+    identity = ensure_provider_identity(
+        db,
+        user=user,
+        provider="wechat",
+        provider_subject=provider_subject,
+        email=payload.get("email"),
+        display_name=payload.get("nickname"),
+        profile_picture=payload.get("headimgurl"),
+        is_verified=True,
+    )
+    if payload.get("headimgurl") and not user.profile_picture:
+        user.profile_picture = payload.get("headimgurl")
     db.commit()
     db.refresh(identity)
     return identity
@@ -827,7 +943,7 @@ def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> mo
 
 
     # 限制：同 IP 10 分鐘最多註冊 3 次
-    window_start = datetime.utcnow() - timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
+    window_start = utils.now_utc_naive() - timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
 
     recent_count = db.query(models.User).filter(
         models.User.register_ip == register_ip,
@@ -860,7 +976,7 @@ def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> mo
         login_count=0,
         failed_attempts=0,
         total_online_seconds=0,
-        created_at=datetime.utcnow()  # ⬅️ 確保你有這個欄位！
+        created_at=utils.now_utc_naive()
     )
     db.add(db_user)
     db.flush()
@@ -1076,13 +1192,13 @@ def store_refresh_token(
     device_info: str = None
 ) -> models.RefreshToken:
     """Store refresh token in database"""
-    expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = utils.now_utc_naive() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
     # Limit active refresh tokens per user
     active_tokens = db.query(models.RefreshToken).filter(
         models.RefreshToken.user_id == user_id,
         models.RefreshToken.revoked == False,
-        models.RefreshToken.expires_at > datetime.utcnow()
+        models.RefreshToken.expires_at > utils.now_utc_naive()
     ).count()
 
     if active_tokens >= MAX_ACTIVE_REFRESH_TOKENS:
@@ -1110,7 +1226,7 @@ def validate_refresh_token(db: Session, token: str) -> models.RefreshToken | Non
     refresh_token = db.query(models.RefreshToken).filter(
         models.RefreshToken.token == token,
         models.RefreshToken.revoked == False,
-        models.RefreshToken.expires_at > datetime.utcnow()
+        models.RefreshToken.expires_at > utils.now_utc_naive()
     ).first()
     return refresh_token
 
@@ -1126,7 +1242,7 @@ def rotate_refresh_token(
     new_token = models.RefreshToken(
         token=new_token_str,
         user_id=old_token.user_id,
-        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        expires_at=utils.now_utc_naive() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         device_info=old_token.device_info
     )
 

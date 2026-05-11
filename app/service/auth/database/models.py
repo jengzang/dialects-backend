@@ -58,7 +58,8 @@ class User(Base):
     def active_session_count(self) -> int:
         """当前活跃会话数"""
         from datetime import datetime
-        now = datetime.utcnow()
+        from app.service.auth.core import utils
+        now = utils.now_utc_naive()
         return len([s for s in self.sessions if not s.revoked and s.expires_at > now])
 
 

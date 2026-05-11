@@ -87,7 +87,7 @@ def _build_rate_limit_detail(
 ) -> dict:
     reset_at = None
     if retry_after_seconds is not None:
-        reset_at = _format_reset_at(int(datetime.utcnow().timestamp()) + retry_after_seconds)
+        reset_at = _format_reset_at(int(utils.now_utc_naive().timestamp()) + retry_after_seconds)
 
     return {
         "code": "rate_limit_exceeded",
@@ -702,12 +702,12 @@ def _get_login_retry_after_seconds(
         return None
 
     release_at = target_row[0] + timedelta(minutes=1)
-    retry_after_seconds = int((release_at - datetime.utcnow()).total_seconds())
+    retry_after_seconds = max(0, int((release_at - utils.now_utc_naive()).total_seconds()))
     return max(1, retry_after_seconds)
 
 
 def check_login_rate_limit(db: Session, ip: str):
-    one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
+    one_minute_ago = utils.now_utc_naive() - timedelta(minutes=1)
     login_paths = ["/login", "/auth/login", "/api/auth/login"]
 
     login_attempts = db.query(ApiUsageLog).filter(

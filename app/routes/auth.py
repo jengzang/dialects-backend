@@ -276,6 +276,46 @@ def forgot_password(payload: schemas.EmailRequest, request: Request, db: Session
     return {"message": "如果邮箱存在，重置密码邮件已发送"}
 
 
+@router.post("/register-email", response_model=schemas.MessageResponse)
+def register_email(payload: schemas.EmailRegistrationStartRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        backend_verify_url = str(request.url_for("verify_email_registration")) + "?token=PLACEHOLDER"
+        verify_url = service.build_action_url(FRONTEND_VERIFY_EMAIL_URL, "PLACEHOLDER", fallback_url=backend_verify_url)
+        service.start_email_registration(
+            db,
+            email=payload.email,
+            requested_ip=utils.extract_client_ip(request),
+            verify_url=verify_url,
+        )
+        return {"message": "验证邮件已发送，请查收邮箱完成注册确认"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/verify-email-registration", name="verify_email_registration", response_model=schemas.EmailRegistrationVerifyResponse)
+def verify_email_registration(token: str, db: Session = Depends(get_db)):
+    try:
+        return service.verify_email_registration_token(db, token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/complete-email-registration", response_model=schemas.UserResponse)
+def complete_email_registration(payload: schemas.EmailRegistrationCompleteRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        return service.complete_email_registration(
+            db,
+            token=payload.token,
+            username=payload.username,
+            password=payload.password,
+            register_ip=utils.extract_client_ip(request),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/reset-password", response_model=schemas.MessageResponse)
 def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(get_db)):
     try:
@@ -372,6 +412,86 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
             "email": identity.email,
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/wechat/auth", response_model=schemas.WechatAuthResponse)
+def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        result = service.prepare_wechat_auth(db, payload.access_token, payload.openid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    wechat_payload = result["payload"]
+    provider_subject = wechat_payload.get("unionid") or wechat_payload.get("openid")
+    if result["action"] == "login":
+        user = result["user"]
+        wechat_identity = service.get_identity_by_provider_subject(db, "wechat", provider_subject)
+        service.mark_user_login_success(db, user, login_ip=utils.extract_client_ip(request), identity=wechat_identity)
+        tokens = _issue_session_tokens(db, user, request)
+        return {
+            "action": "login",
+            "message": "微信登录成功",
+            "username": user.username,
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "profile_picture": wechat_payload.get("headimgurl"),
+            "provider_subject": provider_subject,
+        }
+
+    return {
+        "action": "register",
+        "message": "微信账号可用于注册，请补充用户名和密码完成创建",
+        "suggested_username": result.get("suggested_username"),
+        "profile_picture": wechat_payload.get("headimgurl"),
+        "provider_subject": provider_subject,
+    }
+
+
+@router.post("/wechat/register", response_model=schemas.WechatAuthResponse)
+def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        user, identity = service.register_user_with_wechat(db, payload, register_ip=utils.extract_client_ip(request))
+        service.mark_user_login_success(db, user, login_ip=utils.extract_client_ip(request), identity=identity)
+        tokens = _issue_session_tokens(db, user, request)
+        return {
+            "action": "login",
+            "message": "微信注册并登录成功",
+            "username": user.username,
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "profile_picture": identity.profile_picture,
+            "provider_subject": identity.provider_subject,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+
+
+@router.post("/wechat/bind", response_model=schemas.WechatAuthResponse)
+def wechat_bind(payload: schemas.WechatTokenRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, auth_payload = _load_active_user_from_token(db, token)
+    try:
+        identity = service.bind_wechat_identity(
+            db,
+            user,
+            access_token=payload.access_token,
+            openid=payload.openid,
+            current_session_public_id=auth_payload.get("session_id"),
+        )
+        return {
+            "action": "bind",
+            "message": "微信账号绑定成功",
+            "username": user.username,
+            "profile_picture": identity.profile_picture,
+            "provider_subject": identity.provider_subject,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -487,7 +607,7 @@ def report_online_time(
         'user_id': user.id,
         'session_id': session_id,
         'seconds': seconds,
-        'timestamp': datetime.utcnow()
+        'timestamp': utils.now_utc_naive()
     })
     if not accepted:
         raise HTTPException(

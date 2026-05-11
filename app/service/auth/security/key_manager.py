@@ -1,7 +1,8 @@
 """SECRET_KEY管理模块"""
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List
+from app.service.auth.core import utils
 from app.service.auth.database.connection import SessionLocal
 from app.service.auth.database.models import SecretKey
 
@@ -14,7 +15,7 @@ def get_current_secret_key() -> str:
         # 查找当前活跃的密钥
         key = db.query(SecretKey).filter(
             SecretKey.active == True,
-            SecretKey.expires_at > datetime.utcnow()
+            SecretKey.expires_at > utils.now_utc_naive()
         ).order_by(SecretKey.created_at.desc()).first()
 
         if not key:
@@ -33,7 +34,7 @@ def get_all_valid_keys() -> List[str]:
 
     try:
         keys = db.query(SecretKey).filter(
-            SecretKey.expires_at > datetime.utcnow()
+            SecretKey.expires_at > utils.now_utc_naive()
         ).order_by(SecretKey.created_at.desc()).all()
 
         return [k.key_value for k in keys]
@@ -51,8 +52,8 @@ def _generate_new_secret_key(db) -> SecretKey:
     try:
         key_obj = SecretKey(
             key_value=new_key,
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(days=365),  # 1年后过期
+            created_at=utils.now_utc_naive(),
+            expires_at=utils.now_utc_naive() + timedelta(days=365),  # 1年后过期
             active=True
         )
         print(f"[KEY-MANAGER] Created SecretKey object, adding to database...")
@@ -86,7 +87,7 @@ def rotate_secret_key(reason: str = "manual") -> str:
         current_key = db.query(SecretKey).filter(SecretKey.active == True).first()
         if current_key:
             current_key.active = False
-            current_key.expires_at = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            current_key.expires_at = utils.now_utc_naive() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
             current_key.revoked_reason = reason
             print(f"[KEY-MANAGER] Marked old key as inactive, expires in {ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
 
@@ -106,7 +107,7 @@ def cleanup_expired_keys():
     db = SessionLocal()
 
     try:
-        now = datetime.utcnow()
+        now = utils.now_utc_naive()
 
         deleted_count = db.query(SecretKey).filter(
             SecretKey.expires_at < now
