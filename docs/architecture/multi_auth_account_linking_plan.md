@@ -93,13 +93,42 @@ The current codebase does not fully match the original planned shape. These diff
 
 ### Major unfinished work
 
-- replacement / rebind API contract is still transitional and not fully normalized end-to-end
+- replacement / rebind API contract is still transitional and not fully normalized end-to-end, although backend runtime policy is now more consistent
 - Redis-based transient register / bind / OAuth state handling is not implemented in the planned form
 - Google and WeChat do not yet use the full planned official OAuth start/callback contract shape
 - tests are still far from the coverage listed in this document
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
-- full-app verification is currently blocked by app bootstrap assumptions outside auth scope; after fixing the previous `app/service/core/status_arrange_pho.py` import/syntax compatibility issue, the next blocker is `app.main` mounting a missing `app/statics` directory in this environment
+### Current `/api/auth/providers` and `/api/auth/me` contract reality
+
+The backend contract is now stable enough to describe explicitly, even though some naming remains transitional.
+
+- `GET /api/auth/providers` returns a list of `AuthProviderStatus`
+- `GET /api/auth/me` returns `UserMeResponse` with `auth_providers: AuthProviderStatus[]`
+- each `AuthProviderStatus` currently includes:
+  - `provider`
+  - `email`
+  - `display_name`
+  - `is_verified`
+  - `is_primary`
+  - `linked_at`
+  - `last_login_at`
+  - `profile_picture`
+  - `can_unbind`
+  - `can_replace`
+  - `replacement_action`
+- current runtime semantics are:
+  - `can_unbind` is always `false` in v1
+  - `can_replace` is `true` for providers that have a supported replacement/bind path in the current backend
+  - `replacement_action` is the machine hint the frontend should use to route the user to the right replacement flow
+    - email -> `change_email`
+    - google -> `bind_google`
+    - wechat -> `bind_wechat`
+- the legacy `DELETE /api/auth/providers/{provider}` endpoint still exists for compatibility, but v1 runtime policy hard-rejects removal for known providers and only preserves the endpoint as a compatibility surface
+
+Implication:
+- frontend should render provider management in terms of replace/rebind actions, not unlink/remove actions
+- this document still uses some older unlink language in later sections; when those sections are executed, they should be interpreted through the runtime rule above unless deliberately redesigned
 
 ### Phase-by-phase progress view
 
@@ -119,25 +148,25 @@ The current codebase does not fully match the original planned shape. These diff
 ### Recommended next implementation priority
 
 Recommended next step:
-- first fix any environment-independent app bootstrap blockers outside auth scope so full-app import / broader verification becomes trustworthy again
-- then normalize the API contract around "replace, not remove" so frontend and backend both speak in terms of rebind / replacement rather than generic delete semantics
-  - current provider listing already exposes `can_unbind=false`, `can_replace`, and `replacement_action` so clients can render replace/bind flows instead of unlink UI
-  - the legacy DELETE provider endpoint is compatibility-only and remains hard-blocked by v1 policy
+- first freeze and document the already-shipping provider-management contract around "replace, not remove"
+  - current backend runtime now consistently hard-rejects unlink for known providers
+  - current provider listing already exposes `can_unbind=false`, `can_replace`, and `replacement_action`
+  - frontend and product copy should treat provider management as replacement / bind guidance, not delete semantics
 - then decide whether to:
   - implement full official Google/WeChat OAuth start/callback + transient-state handling, or
   - explicitly revise this document to accept the current practical client-token backend route shape as the chosen v1 architecture
 - after that, finish admin / analytics adaptation and broaden auth test coverage
 
 Why this is the next best step:
-- runtime policy mismatches are much smaller than before
-- the biggest near-term risk is now verification blindness caused by unrelated import failure and remaining contract ambiguity
-- further auth work will be safer once broader verification is restored and the replacement contract is frozen
+- full-app import/bootstrap verification is no longer blocked by the previous issues discovered during this session
+- runtime provider policy is now stricter and more internally consistent than before, so the next risk is documentation/frontend drift rather than backend ambiguity alone
+- further auth work will be safer once the replacement contract and chosen v1 OAuth architecture are both made explicit
 
 After that, the recommended order becomes:
-1. restore full-app verification by fixing remaining non-auth bootstrap blockers
-2. normalize the replacement / rebind API contract and related frontend wording
-3. either implement the planned official OAuth/transient-state architecture or formally bless the current practical route shape in this document
-4. then finish admin / analytics adaptation and broader auth test coverage
+1. freeze provider-management wording and frontend contract around replacement / rebind
+2. either implement the planned official OAuth/transient-state architecture or formally bless the current practical route shape in this document
+3. then finish admin / analytics adaptation and broader auth test coverage
+4. finally, revisit any remaining doc sections whose original unlink/OAuth assumptions no longer match the chosen implementation
 
 ## 1. Background
 
