@@ -224,6 +224,29 @@ def ensure_identity_profile_picture_column(db_path: str | Path | None = None) ->
         conn.close()
 
 
+def ensure_auth_action_token_registration_columns(db_path: str | Path | None = None) -> bool:
+    conn = _get_sqlite_connection(db_path)
+    changed = False
+    try:
+        columns = conn.execute("PRAGMA table_info(auth_action_tokens)").fetchall()
+        existing = {row[1] for row in columns}
+        if "target_email" not in existing:
+            conn.execute("ALTER TABLE auth_action_tokens ADD COLUMN target_email TEXT")
+            changed = True
+        if "verified_at" not in existing:
+            conn.execute("ALTER TABLE auth_action_tokens ADD COLUMN verified_at DATETIME")
+            changed = True
+        if changed:
+            conn.commit()
+            print("[MIGRATE] 已为 auth_action_tokens 补充 email registration 所需列")
+        return changed
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def run_auth_schema_migrations(engine: Engine, db_path: str | Path | None = None) -> None:
     # 先让 SQLAlchemy 建新表，再处理旧表重建/回填
     from app.service.auth.database.models import Base
@@ -233,4 +256,5 @@ def run_auth_schema_migrations(engine: Engine, db_path: str | Path | None = None
     repair_user_foreign_key_references(db_path)
     Base.metadata.create_all(bind=engine)
     ensure_identity_profile_picture_column(db_path)
+    ensure_auth_action_token_registration_columns(db_path)
     backfill_email_identities(db_path)
