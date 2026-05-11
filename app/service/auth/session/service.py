@@ -283,6 +283,34 @@ def revoke_user_sessions(
     return len(sessions)
 
 
+def revoke_other_user_sessions(
+    db: DBSession,
+    user_id: int,
+    *,
+    keep_public_session_id: str | None,
+    reason: str = "password_change_other_sessions",
+) -> int:
+    sessions = db.query(Session).filter(
+        Session.user_id == user_id,
+        Session.revoked == False,
+    ).all()
+
+    revoked_at = _now_utc_naive()
+    revoked_count = 0
+    for session in sessions:
+        if keep_public_session_id and session.session_id == keep_public_session_id:
+            continue
+        _revoke_session_record(
+            db,
+            session,
+            reason=reason,
+            revoked_at=revoked_at,
+        )
+        revoked_count += 1
+
+    return revoked_count
+
+
 def _get_best_ip_address(
     db: DBSession,
     user: User,

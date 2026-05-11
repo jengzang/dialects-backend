@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.service.auth.core import utils
 from app.service.auth.database import models
+from app.service.auth.session.service import revoke_other_user_sessions
 from app.schemas import auth as schemas
 from app.common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
     REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL
@@ -648,8 +649,39 @@ def reset_password_by_token(db: Session, token: str, new_password: str) -> model
     return record.user
 
 
+def change_password(
+    db: Session,
+    user: models.User,
+    *,
+    current_password: str,
+    new_password: str,
+    revoke_other_sessions: bool = False,
+    current_session_public_id: str | None = None,
+) -> models.User:
+    if not utils.verify_password(current_password, user.hashed_password):
+        raise ValueError("当前密码错误")
+    if current_password == new_password:
+        raise ValueError("新密码不能与当前密码相同")
+
+    user.hashed_password = utils.get_password_hash(new_password)
+    user.failed_attempts = 0
+    user.last_failed_login = None
+
+    if revoke_other_sessions:
+        revoke_other_user_sessions(
+            db,
+            user.id,
+            keep_public_session_id=current_session_public_id,
+            reason="password_change_other_sessions",
+        )
+
+    db.commit()
+    db.refresh(user)
+    return user
+
 
 def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> models.User:
+
 
     # 限制：同 IP 10 分鐘最多註冊 3 次
     window_start = datetime.utcnow() - timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
