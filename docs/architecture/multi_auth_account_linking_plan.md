@@ -95,10 +95,48 @@ The current codebase does not fully match the original planned shape. These diff
 
 - replacement / rebind API contract is still transitional and not fully normalized end-to-end, although backend runtime policy is now more consistent
 - Redis-based transient register / bind / OAuth state handling is not implemented in the planned form
+  - important environment constraint: this repository has different runtime modes
+    - local `MINE` / `EXE` development on this machine does not have a real Redis service and relies on fake-Redis / dump-style behavior in related parts of the codebase
+    - deployed `WEB` mode is the place where real Redis-backed behavior can be assumed
+  - implication: any future transient-state implementation must either
+    - degrade cleanly to DB/token-table/local fallback behavior for local development, or
+    - be explicitly scoped as a WEB-only production capability with local simulation coverage
 - Google and WeChat do not yet use the full planned official OAuth start/callback contract shape
 - tests are still far from the coverage listed in this document
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
+
+### Remaining work breakdown with priority and rough estimate
+
+P0 — needed before claiming the document's v1 architecture is truly landed
+- freeze provider-management wording and frontend contract around replacement / rebind
+  - backend runtime is already close, but frontend wording and any remaining old unlink assumptions still need one final alignment pass
+  - estimate: 0.5 day
+- choose and document the v1 architecture decision for Google/WeChat + transient state
+  - either implement official `start/callback` + transient-state handling
+  - or explicitly bless the current practical client-token backend shape as the chosen v1 architecture
+  - estimate:
+    - document-only decision path: 0.5 day
+    - real implementation path: 2 to 5 days
+
+P1 — important for robustness and production completeness
+- implement or formally defer Redis/transient-state handling in a way that respects runtime modes
+  - local MINE/EXE must not assume a real Redis dependency
+  - WEB mode may use real Redis
+  - estimate:
+    - fallback-friendly minimal implementation / explicit defer plan: 0.5 to 1 day
+    - full Redis-backed production design with local fallback/simulation: 1 to 2 days beyond the OAuth flow work
+- broaden auth test coverage
+  - route/integration coverage for provider conflict, register/bind/replace paths, and failure branches
+  - estimate: 0.5 to 1.5 days
+- finish admin / analytics adaptation
+  - estimate: 0.5 to 1.5 days
+
+P2 — cleanup / consistency / long-tail design debt
+- reconcile later sections of this document whose wording still reflects older unlink or original OAuth assumptions
+- decide whether the legacy DELETE provider endpoint should remain as compatibility-only surface or later be removed entirely
+- revisit Google email policy mismatch if product still wants the looser v1 rule documented here
+- estimate: 0.5 to 1 day
 ### Current `/api/auth/providers` and `/api/auth/me` contract reality
 
 The backend contract is now stable enough to describe explicitly, even though some naming remains transitional.
