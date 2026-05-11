@@ -338,6 +338,28 @@ def list_auth_providers(db: Session, user: models.User) -> list[dict]:
 
 
 
+def unbind_auth_provider(db: Session, user: models.User, provider: str) -> list[dict]:
+    normalized_provider = (provider or "").strip().lower()
+    if normalized_provider != "google":
+        raise ValueError("Only Google provider unbind is currently supported")
+
+    identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+        models.UserAuthIdentity.provider == normalized_provider,
+    ).first()
+    if not identity:
+        raise ValueError("Current account has not linked this provider")
+    if identity.is_primary:
+        raise ValueError("Primary email provider cannot be unbound")
+
+    db.delete(identity)
+    sync_user_email_projection(db, user)
+    db.commit()
+    db.refresh(user)
+    return list_auth_providers(db, user)
+
+
+
 def prepare_google_auth(db: Session, id_token: str) -> dict:
     payload = utils.verify_google_id_token(id_token)
     google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])

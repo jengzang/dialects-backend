@@ -58,6 +58,11 @@ class AuthProviderStatus(BaseModel):
     profile_picture: Optional[str] = None
 
 
+class AuthProviderMutationResponse(BaseModel):
+    message: str
+    providers: List[AuthProviderStatus] = []
+
+
 class UserMeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -35,11 +35,14 @@
    - POST /api/auth/google/register
    - POST /api/auth/google/bind
    - GET /api/auth/providers
-
-   说明：
+   - DELETE /api/auth/providers/google
+ 
+    说明：
    - /google/auth：前端把 Google id_token 传给后端，后端判断是直接登录、需要注册，还是邮箱冲突要先登录后绑定
    - /google/register：当 /google/auth 返回 action=register 时，前端补 username/password 调这个接口完成建号
    - /google/bind：用户先登录站内账号，再把 Google id_token 传给这个接口进行绑定
+   - /providers：查询当前账号已绑定的登录方式列表
+   - DELETE /providers/google：解绑当前账号已绑定的 Google 登录方式
 
 5. 当前策略
    - 已绑定 Google 身份：直接登录
