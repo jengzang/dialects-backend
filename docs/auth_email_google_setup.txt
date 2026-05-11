@@ -1,0 +1,50 @@
+认证邮箱/Google 配置与服务器迁移说明
+
+1. 本地/服务器环境变量
+   可参考仓库根目录：.env.auth.example
+
+2. 服务器迁移 auth.db
+   先进入仓库根目录，然后执行：
+
+   .venv/bin/python scripts/migrate_auth_db.py --check-only
+   .venv/bin/python scripts/migrate_auth_db.py --db-path data/auth.db
+
+   如果服务器数据库不在默认位置，可改成：
+
+   .venv/bin/python scripts/migrate_auth_db.py --db-path /absolute/path/to/auth.db
+
+   脚本行为：
+   - 默认先备份数据库
+   - 再执行多身份 auth 迁移
+   - 最后打印检查结果（email_nullable / identity_count / broken_fk_refs 等）
+
+3. 邮件链路
+   推荐优先配置 Resend：
+   - RESEND_API_KEY
+   - RESEND_FROM_EMAIL
+
+   邮件内容现在支持：
+   - 注册后邮箱验证
+   - 重发验证邮件
+   - 忘记密码邮件
+   - 重置密码链接/Token
+
+4. Google 登录后端接口
+   已提供：
+   - POST /api/auth/google/auth
+   - POST /api/auth/google/register
+   - POST /api/auth/google/bind
+
+   说明：
+   - /google/auth：前端把 Google id_token 传给后端，后端判断是直接登录、需要注册，还是邮箱冲突要先登录后绑定
+   - /google/register：当 /google/auth 返回 action=register 时，前端补 username/password 调这个接口完成建号
+   - /google/bind：用户先登录站内账号，再把 Google id_token 传给这个接口进行绑定
+
+5. 当前策略
+   - 已绑定 Google 身份：直接登录
+   - Google 邮箱已对应现有邮箱账号但未绑定 Google：返回冲突，要求“先登录再绑定”
+   - 全新 Google 账号：允许补 username/password 后创建账号
+
+6. 备注
+   - Google 校验目前走官方 tokeninfo 接口
+   - 如果前端未配置验证/重置密码页面，邮件仍可回退到后端 verify 接口或直接发送 token，方便过渡联调

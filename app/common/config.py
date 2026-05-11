@@ -60,7 +60,7 @@ MAX_ACTIVE_REFRESH_TOKENS = 10     # New: Limit active devices per user
 ISSUER = "dialects_api"  # 可自定義
 AUDIENCE = "dialects_web"  # 可自定義
 
-# =============register=========
+# =============register/auth provider=========
 # 是否要求郵件驗證
 REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true"
 # 限制註冊頻率
@@ -68,6 +68,23 @@ MAX_REGISTRATIONS_PER_IP = 3
 REGISTRATION_WINDOW_MINUTES = 10
 # 每分鐘最多嘗試登錄
 MAX_LOGIN_PER_MINUTE = 10
+
+# 邮件 / 前端链接配置
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "").strip()
+RESEND_API_BASE = os.getenv("RESEND_API_BASE", "https://api.resend.com").rstrip("/")
+SMTP_HOST = os.getenv("SMTP_HOST") or None
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME") or None
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") or None
+SMTP_FROM = os.getenv("SMTP_FROM", RESEND_FROM_EMAIL or "no-reply@your-domain.com")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "").rstrip("/")
+FRONTEND_VERIFY_EMAIL_URL = os.getenv("FRONTEND_VERIFY_EMAIL_URL", "").strip()
+FRONTEND_RESET_PASSWORD_URL = os.getenv("FRONTEND_RESET_PASSWORD_URL", "").strip()
+
+# Google OAuth / One Tap 配置
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_TOKENINFO_URL = os.getenv("GOOGLE_TOKENINFO_URL", "https://oauth2.googleapis.com/tokeninfo").strip()
 
 # 登錄才能用
 REQUIRE_LOGIN = False

@@ -74,6 +74,30 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
 
 
+class GoogleTokenRequest(BaseModel):
+    id_token: str = Field(min_length=20)
+
+
+class GoogleRegisterRequest(BaseModel):
+    id_token: str = Field(min_length=20)
+    username: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class GoogleAuthResponse(BaseModel):
+    action: str
+    message: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    expires_in: Optional[int] = None
+    email: Optional[EmailStr] = None
+    suggested_username: Optional[str] = None
+    conflict_code: Optional[str] = None
+    is_verified: Optional[bool] = None
+    profile_picture: Optional[str] = None
+
+
 class MessageResponse(BaseModel):
     message: str
 

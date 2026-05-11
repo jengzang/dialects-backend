@@ -72,6 +72,7 @@ class UserAuthIdentity(Base):
     identifier_normalized = Column(String(255), nullable=True, index=True)  # email lower-case projection
     email = Column(String(255), nullable=True)
     display_name = Column(String(255), nullable=True)
+    profile_picture = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False, nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)  # 仅限 email-primary 语义
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
