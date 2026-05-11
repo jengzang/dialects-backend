@@ -336,6 +336,19 @@ def auth_providers(token: str = Depends(oauth2_scheme), db: Session = Depends(ge
     return service.list_auth_providers(db, user)
 
 
+@router.delete("/providers/{provider}", response_model=schemas.AuthProviderMutationResponse)
+def unbind_auth_provider(provider: str, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    try:
+        providers = service.unbind_auth_provider(db, user, provider)
+        return {
+            "message": f"{provider} 绑定已解除",
+            "providers": [schemas.AuthProviderStatus(**item) for item in providers],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ========== Me（恢复 & 最小化改动）==========
 @router.get("/me", response_model=schemas.UserMeResponse)
 def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
