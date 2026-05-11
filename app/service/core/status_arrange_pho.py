@@ -12,7 +12,8 @@ from app.sql.db_pool import get_db_pool
 
 
 def _quote_identifier(name: str) -> str:
-    return f'"{name.replace("\"", "\"\"")}"'
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
 
 
 """
