@@ -471,110 +471,69 @@ If `is_primary` is kept in the schema, it should only be meaningful for the emai
 Google and WeChat identities should not rely on `is_primary` semantics in v1.
 
 
-## 5.3 New table: `auth_email_verifications`
+## 5.3 Email verification and action-token storage
 
-This table stores email verification flows.
+V1 does not introduce a dedicated `auth_email_verifications` table in the current backend.
 
-It replaces the current "re-use access token as email verification token" pattern.
+Instead, the repository already uses `auth_action_tokens` as the generalized storage model for short-lived email/account action flows, including:
 
-### Proposed columns
+- email verification
+- password reset
+- email registration completion support
+- related account action tokens
 
-- `id INTEGER PRIMARY KEY`
-- `user_id INTEGER NULL`
-- `purpose VARCHAR(30) NOT NULL`
-  - values:
-    - `register_email`
-    - `bind_email`
-    - `change_email`
-- `email VARCHAR(255) NOT NULL`
-- `token_hash VARCHAR(255) NOT NULL`
-- `expires_at DATETIME NOT NULL`
-- `consumed_at DATETIME NULL`
-- `created_at DATETIME NOT NULL`
-- `request_ip VARCHAR(45) NULL`
-- `user_agent VARCHAR(255) NULL`
-- `payload_json TEXT NULL`
+### Why this is the confirmed v1 choice
 
-### Why a dedicated table is worth it
+Because it is already implemented, tested in practical form, and compatible with the repository's current migration style.
 
-Because email verification is not the same thing as an access token.
+The document should therefore treat `auth_action_tokens` as the accepted v1 storage model rather than continuing to describe a separate table as if it were still the active implementation target.
 
-Dedicated storage makes it easier to support:
+### Long-term option
 
-- single-use links
-- expiration
-- resend logic
-- rate limiting
-- auditability
-- future password reset and email change patterns
+If later operational or audit requirements justify it, a dedicated verification table may still be introduced as a future refactor. That is no longer a prerequisite for calling v1 complete.
 
 
-## 5.4 Redis-based transient flow state
+## 5.4 V1 transient flow state policy
 
-Do not create persistent DB tables for short-lived flow state.
+The originally proposed Redis-only transient-state design is not the confirmed v1 architecture for this repository.
 
-Use Redis keys:
+Confirmed v1 rule:
+
+- local `MINE` / `EXE` development must not require a real Redis service
+- deployed `WEB` mode may use real Redis where helpful
+- v1 auth flows must remain runnable in local development without assuming Redis-backed OAuth state storage
+
+### What v1 uses instead
+
+V1 uses practical backend flows that avoid mandatory Redis-backed OAuth state storage:
+
+- email registration uses practical route + token flows backed by `auth_action_tokens`
+- Google flow accepts client-provided `id_token`, then validates it server-side
+- WeChat flow accepts client-provided `access_token + openid`, then validates userinfo server-side
+- bind flows rely on authenticated-session checks and current DB/token-backed state, not Redis-only pending tickets
+
+### Consequence for v1
+
+This means the following Redis-first structures are no longer required to declare v1 complete:
 
 - `oauth_state:{nonce}`
 - `oauth_pending:{ticket}`
 - `bind_pending:{ticket}`
 
-### Stored values
-
-`oauth_state:{nonce}`:
-
-- provider
-- action: `register` or `bind`
-- original redirect target if needed
-- created_at
-
-`oauth_state` should be strictly single-use.
-
-`oauth_pending:{ticket}`:
-
-- provider
-- provider subject
-- email claim
-- email verified by provider
-- provider profile snapshot
-- created_at
-
-This ticket should support retry for correctable completion failures while it remains valid, but it must be consumed and invalidated immediately after successful registration completion.
-
-`bind_pending:{ticket}`:
-
-- current user id
-- provider
-- provider subject
-- provider claims
-- created_at
-
-This ticket should support retry for correctable completion failures while it remains valid, but it must be consumed and invalidated immediately after successful bind/replacement completion.
-
-### TTL
-
-- state: 5 to 10 minutes
-- pending register/bind ticket: 30 minutes
-
-### Expiration policy
-
-- email registration expiration may offer resend/restart behavior
-- OAuth register/bind expiration requires restarting the flow
-- the state nonce is single-use
-- register/bind pending tickets may be retried only until a successful completion, after which they are invalidated immediately
+They remain valid future design options for a more official OAuth architecture, especially in `WEB` deployment mode, but they are not the chosen baseline for the current v1 delivery.
 
 
 ## 6. Registration and Login Flow Design
 
 ## 6.1 Email registration flow
 
-This becomes a two-step registration.
+V1 email registration is confirmed in the current practical three-route backend form.
 
 ### Step A: start registration
 
 Endpoint:
 
-- `POST /api/auth/register/email/start`
+- `POST /api/auth/register-email`
 
 Input:
 
@@ -583,49 +542,40 @@ Input:
 Behavior:
 
 - normalize email
-- reject if email identity already exists
-- create one verification record in `auth_email_verifications`
+- reject if the email identity already exists
+- create an email-registration action token in `auth_action_tokens`
 - send email verification link
+- no `users` row is created yet
 
-V1 uses email verification links. Verification-code support is a later extension, not part of the initial implementation.
-
-No `users` row is created yet.
+V1 currently uses verification links, not verification codes.
 
 ### Step B: verify link
 
 Endpoint:
 
-- `GET /api/auth/register/email/verify`
+- `GET /api/auth/verify-email-registration`
 
 Behavior:
 
-- validate token
-- mark verification record consumed
-- issue a short-lived `register_ticket`
-
-The frontend-facing Web pattern for v1 is:
-
-- backend verifies the token
-- backend issues `register_ticket`
-- backend redirects the browser to the frontend completion page
-
-At this point the identity proof is done, but the account is not yet complete.
+- validate the action token
+- mark the verification step as completed according to the current backend token flow
+- allow the browser/frontend to proceed to completion with the verified registration token state
 
 ### Step C: complete registration
 
 Endpoint:
 
-- `POST /api/auth/register/complete`
+- `POST /api/auth/complete-email-registration`
 
 Input:
 
-- `register_ticket`
+- verified registration token / completion token as defined by the current route contract
 - `username`
 - `password`
 
 Behavior:
 
-- validate ticket from Redis
+- validate the token using the current backend token model
 - ensure username is unique
 - create `users`
 - create `user_auth_identities(provider=email)`
@@ -633,33 +583,33 @@ Behavior:
 - set `users.is_verified = true`
 - create session + access/refresh tokens
 
-If completion fails due to username conflict or another correctable validation issue, the `register_ticket` remains usable until expiration so the user can retry.
+If completion fails due to correctable validation issues such as username conflict, the token remains governed by the current action-token expiration/consumption rules rather than a Redis ticket model.
 
 
 ## 6.2 Google registration/login flow
 
-### Step A: start
+V1 Google auth is confirmed as a practical client-token backend flow, not a backend-managed OAuth start/callback flow.
 
-- `GET /api/auth/oauth/google/start`
+### Step A: client acquires Google identity token
+
+The frontend/client uses Google's official mechanism to obtain an `id_token`.
+
+### Step B: backend validates token and resolves account state
+
+Current backend endpoints cover the practical Google decisions needed for v1:
+
+- Google login decision endpoint
+- Google registration completion endpoint
+- Google bind endpoint
 
 Behavior:
 
-- create OAuth state
-- redirect to Google authorization URL
-
-### Step B: callback
-
-- `GET /api/auth/oauth/google/callback`
-
-Behavior:
-
-- validate OAuth state
-- exchange code with Google
-- parse:
+- backend validates the client-provided `id_token`
+- backend parses provider claims such as:
   - `sub`
   - `email`
   - `email_verified`
-  - profile name/avatar if desired
+  - profile name/avatar if available
 
 ### Resolution rules
 
@@ -671,54 +621,47 @@ If no Google identity exists:
 
 - if returned email matches an existing email identity:
   - reject auto-registration
-  - return conflict result:
-    - this email already belongs to an existing account
-    - user must log in to that account and bind Google manually
+  - return a structured conflict result
+  - user must log in to that account and bind Google manually
 - otherwise:
-  - create `register_ticket`
-  - user must complete `username + password`
+  - allow Google-backed registration completion through the current practical backend route shape
+  - user must still complete `username + password`
 
-Google-specific v1 notes:
+### Confirmed v1 policy notes
 
-- Google login normally expects an email claim
-- `email_verified` is not required for account creation in v1
-- if the returned email is malformed, empty, or otherwise unusable, v1 may still allow account creation and later email binding
-- provider profile snapshot fields such as `display_name` and `avatar_url` should be refreshed on successful third-party login
-
-### Completion
-
-Use the same:
-
-- `POST /api/auth/register/complete`
-
-The ticket tells the backend this is a Google-pending registration.
-
-For the Web flow in v1, callback handling should redirect to a frontend completion page rather than return a raw API-style JSON callback response.
+- Google capability is considered present in v1 even without backend `start/callback` endpoints
+- current implementation requires provider email during Google registration, which is stricter than the older draft text in this document
+- provider profile snapshot fields may still be refreshed on successful third-party login
 
 
 ## 6.3 WeChat registration/login flow
 
-### Step A: start
+V1 WeChat auth is confirmed as a practical client-token backend flow, not a backend-managed official Web QR callback flow.
 
-- `GET /api/auth/oauth/wechat/start`
+### Step A: client acquires WeChat access token and openid
+
+The frontend/client obtains:
+
+- `access_token`
+- `openid`
+
+using the chosen Web integration path outside the backend's direct OAuth-state management.
+
+### Step B: backend validates userinfo and resolves account state
+
+Current backend endpoints cover the practical WeChat decisions needed for v1:
+
+- WeChat login decision endpoint
+- WeChat registration completion endpoint
+- WeChat bind endpoint
 
 Behavior:
 
-- create OAuth state
-- redirect to official WeChat Web QR authorization URL
-
-### Step B: callback
-
-- `GET /api/auth/oauth/wechat/callback`
-
-Behavior:
-
-- validate state
-- exchange code for WeChat user identity
-- obtain:
+- backend validates WeChat userinfo using `access_token + openid`
+- backend obtains provider identity data such as:
   - `openid`
   - `unionid` if available
-  - profile snapshot if available
+  - nickname/avatar or other profile snapshot if available
 
 ### Resolution rules
 
@@ -728,14 +671,20 @@ If the WeChat identity already exists:
 
 If it does not exist:
 
-- create a `register_ticket`
-- user must complete `username + password`
+- allow WeChat-backed registration completion through the current practical backend route shape
+- user must still complete `username + password`
 
-Because WeChat may not provide email, this flow must support accounts with:
+Because WeChat may not provide email, this flow must continue to support accounts with:
 
 - username
 - password
 - no email
+
+### Confirmed v1 policy notes
+
+- WeChat scope for v1 remains Web/PC-oriented login only
+- backend v1 capability is considered present even though the repository does not yet implement official backend `start/callback` Web QR endpoints
+- a fuller official WeChat Web QR OAuth architecture remains a future enhancement, not a prerequisite for the current v1 status
 
 WeChat v1 scope note:
 
@@ -782,35 +731,44 @@ That means:
 
 ## 7.1 Bind Google
 
-Endpoints:
+V1 Google bind is implemented as a practical authenticated bind flow, not a backend-managed `start/callback` OAuth flow.
 
-- `GET /api/auth/bind/google/start`
-- `GET /api/auth/bind/google/callback`
-
-Behavior:
+Current backend behavior:
 
 - user must already be authenticated
-- start generates OAuth state for `action=bind`
-- callback resolves Google identity
+- user must have a fresh recent authenticated session for this high-risk operation
+- frontend/client supplies the Google identity token through the chosen integration path
+- backend validates the Google token and resolves the provider identity
 
-If Google identity is already bound to another user:
+If the Google identity is already bound to another user:
 
-- reject with conflict
+- reject with structured conflict
 
 If safe:
 
-- create Google identity row for current user
-- optionally sync profile snapshot
+- create or attach the Google identity row for the current user
+- optionally sync provider profile snapshot fields
 
 
 ## 7.2 Bind WeChat
 
-Endpoints:
+V1 WeChat bind is implemented as a practical authenticated bind flow, not a backend-managed `start/callback` OAuth flow.
 
-- `GET /api/auth/bind/wechat/start`
-- `GET /api/auth/bind/wechat/callback`
+Current backend behavior:
 
-Same conflict behavior as Google.
+- user must already be authenticated
+- user must have a fresh recent authenticated session for this high-risk operation
+- frontend/client supplies `access_token + openid`
+- backend validates WeChat userinfo and resolves the provider identity
+
+If the WeChat identity is already bound to another user:
+
+- reject with structured conflict
+
+If safe:
+
+- create or attach the WeChat identity row for the current user
+- optionally sync provider profile snapshot fields
 
 
 ## 7.3 Bind email
