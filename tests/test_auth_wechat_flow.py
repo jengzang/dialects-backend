@@ -103,7 +103,37 @@ class WechatAuthTests(unittest.TestCase):
         self.assertEqual(identity.profile_picture, "https://example.com/wechat-register.png")
 
     @patch("app.service.auth.core.utils.verify_wechat_access_token")
-    def test_bind_wechat_identity_requires_fresh_session_and_adds_provider(self, mock_verify_wechat_access_token):
+    def test_bind_wechat_identity_rejects_stale_session(self, mock_verify_wechat_access_token):
+        mock_verify_wechat_access_token.return_value = {
+            "openid": "wechat-openid-stale",
+            "unionid": "wechat-unionid-stale",
+            "nickname": "微信过期会话用户",
+            "headimgurl": "https://example.com/wechat-stale.png",
+        }
+
+        stale_now = datetime.now(UTC).replace(tzinfo=None)
+        self.db.add(Session(
+            session_id="stale-session",
+            user_id=self.user.id,
+            username=self.user.username,
+            created_at=stale_now - timedelta(hours=3),
+            expires_at=stale_now + timedelta(days=7),
+            last_activity_at=stale_now - timedelta(hours=2),
+            revoked=False,
+            first_ip="127.0.0.2",
+            current_ip="127.0.0.2",
+        ))
+        self.db.commit()
+
+        with self.assertRaisesRegex(ValueError, "需要近期重新验证"):
+            service.bind_wechat_identity(
+                self.db,
+                self.user,
+                access_token="token",
+                openid="wechat-openid-stale",
+                current_session_public_id="stale-session",
+            )
+
         mock_verify_wechat_access_token.return_value = {
             "openid": "wechat-openid-003",
             "unionid": "wechat-unionid-003",
@@ -129,6 +159,10 @@ class WechatAuthTests(unittest.TestCase):
         self.assertFalse(provider_by_name["wechat"]["can_unbind"])
         self.assertTrue(provider_by_name["wechat"]["can_replace"])
         self.assertEqual(provider_by_name["wechat"]["replacement_action"], "bind_wechat")
+
+    def test_unbind_wechat_identity_is_forbidden_in_v1(self):
+        with self.assertRaisesRegex(ValueError, "仅支持换绑"):
+            service.unbind_auth_provider(self.db, self.user, "wechat")
 
 
 if __name__ == "__main__":

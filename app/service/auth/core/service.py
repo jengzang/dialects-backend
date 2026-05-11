@@ -428,8 +428,9 @@ def list_auth_providers(db: Session, user: models.User) -> list[dict]:
 
 def unbind_auth_provider(db: Session, user: models.User, provider: str) -> list[dict]:
     normalized_provider = (provider or "").strip().lower()
-    if normalized_provider != "google":
-        raise ValueError("目前仅支持 Google 提供方策略检查")
+    allowed_providers = {"email", "google", "wechat"}
+    if normalized_provider not in allowed_providers:
+        raise ValueError("Unsupported provider")
 
     raise ValueError("v1 仅支持换绑，不支持解绑")
 
