@@ -62,7 +62,7 @@ AUDIENCE = "dialects_web"  # 可自定義
 
 # =============register=========
 # 是否要求郵件驗證
-REQUIRE_EMAIL_VERIFICATION = False  # 改成 False 就不需要驗證
+REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true"
 # 限制註冊頻率
 MAX_REGISTRATIONS_PER_IP = 3
 REGISTRATION_WINDOW_MINUTES = 10

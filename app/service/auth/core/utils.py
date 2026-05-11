@@ -1,12 +1,16 @@
+import hashlib
+import os
+import secrets
 import smtplib
 import time
-import secrets
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Optional
+
+import requests
+from fastapi import Request
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Request
 
 from app.common.config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -18,12 +22,16 @@ from app.common.config import (
     ISSUER,
 )
 
-# 可选：SMTP 配置（留空则退化为控制台打印）
-SMTP_HOST: Optional[str] = None      # 如 "smtp.gmail.com"
-SMTP_PORT: int = 587                 # TLS: 587, SSL: 465
-SMTP_USERNAME: Optional[str] = None
-SMTP_PASSWORD: Optional[str] = None
-SMTP_FROM: str = "no-reply@your-domain.com"
+# 邮件发送配置：优先使用 Resend，未配置时再退化到 SMTP，再不行则打印到控制台
+RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "").strip()
+RESEND_API_BASE: str = os.getenv("RESEND_API_BASE", "https://api.resend.com").rstrip("/")
+
+SMTP_HOST: Optional[str] = os.getenv("SMTP_HOST") or None
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME: Optional[str] = os.getenv("SMTP_USERNAME") or None
+SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD") or None
+SMTP_FROM: str = os.getenv("SMTP_FROM", RESEND_FROM_EMAIL or "no-reply@your-domain.com")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -99,6 +107,20 @@ def create_refresh_token() -> str:
     """Generate cryptographically secure refresh token"""
     return secrets.token_urlsafe(64)
 
+
+def create_opaque_token(length: int = 48) -> str:
+    """Generate an opaque token for email verification / password reset."""
+    return secrets.token_urlsafe(length)
+
+
+def hash_opaque_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
 def create_token_pair(username: str, role: str = "user", session_id: str = None) -> dict:
     """
     Create access + refresh token pair
@@ -131,19 +153,47 @@ def extract_client_ip(request: Request) -> str:
     return request.client.host if request.client else "0.0.0.0"
 
 # ===== 发送邮件（SMTP 存在→发真实邮件；否则打印链接以便开发调试）=====
-def send_email(email: str, subject: str, body: str) -> None:
+def send_email(email: str, subject: str, body: str, html: Optional[str] = None) -> None:
+    if RESEND_API_KEY and RESEND_FROM_EMAIL:
+        payload = {
+            "from": RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": subject,
+            "text": body,
+        }
+        if html:
+            payload["html"] = html
+
+        response = requests.post(
+            f"{RESEND_API_BASE}/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 300:
+            raise RuntimeError(f"Resend send failed: {response.status_code} {response.text}")
+        return
+
     if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD:
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = SMTP_FROM
         msg["To"] = email
-        msg.set_content(body)
+        if html:
+            msg.set_content(body)
+            msg.add_alternative(html, subtype="html")
+        else:
+            msg.set_content(body)
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(msg)
-    else:
-        # 开发环境：直接打印到控制台，避免卡在邮件配置
-        print(f"[DEV EMAIL] To: {email}\nSubject: {subject}\n\n{body}\n")
+        return
+
+    # 开发环境：直接打印到控制台，避免卡在邮件配置
+    print(f"[DEV EMAIL] To: {email}\nSubject: {subject}\n\n{body}\n")
 

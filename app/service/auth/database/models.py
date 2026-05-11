@@ -10,7 +10,7 @@ class User(Base):
 
     # 基本資料
     username = Column(String(50), unique=True, nullable=False, index=True)
-    email = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=True, index=True)  # 当前绑定邮箱投影，可为空
     hashed_password = Column(String(255), nullable=False)
     # full_name = Column(String(100), nullable=True)  # 可為空
     # phone = Column(String(20), nullable=True)  # 可為空
@@ -43,6 +43,8 @@ class User(Base):
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")  # ✅ 添加sessions关系
     db_permissions = relationship("UserDbPermission", back_populates="user", cascade="all, delete-orphan")
+    auth_identities = relationship("UserAuthIdentity", back_populates="user", cascade="all, delete-orphan")
+    auth_action_tokens = relationship("AuthActionToken", back_populates="user", cascade="all, delete-orphan")
 
     # informations = relationship("Information", back_populates="user")
 
@@ -58,6 +60,54 @@ class User(Base):
         from datetime import datetime
         now = datetime.utcnow()
         return len([s for s in self.sessions if not s.revoked and s.expires_at > now])
+
+
+class UserAuthIdentity(Base):
+    __tablename__ = "user_auth_identities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = Column(String(32), nullable=False, index=True)  # email/google/wechat
+    provider_subject = Column(String(255), nullable=True)
+    identifier_normalized = Column(String(255), nullable=True, index=True)  # email lower-case projection
+    email = Column(String(255), nullable=True)
+    display_name = Column(String(255), nullable=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    is_primary = Column(Boolean, default=False, nullable=False)  # 仅限 email-primary 语义
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    last_login_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="auth_identities")
+    action_tokens = relationship("AuthActionToken", back_populates="identity", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'provider', name='uq_identity_user_provider'),
+        UniqueConstraint('provider', 'provider_subject', name='uq_identity_provider_subject'),
+        UniqueConstraint('provider', 'identifier_normalized', name='uq_identity_provider_identifier'),
+        Index('idx_identity_user_provider', 'user_id', 'provider'),
+    )
+
+
+class AuthActionToken(Base):
+    __tablename__ = "auth_action_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    identity_id = Column(Integer, ForeignKey("user_auth_identities.id", ondelete="CASCADE"), nullable=True, index=True)
+    action = Column(String(32), nullable=False, index=True)  # verify_email/reset_password
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    requested_ip = Column(String(45), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    user = relationship("User", back_populates="auth_action_tokens")
+    identity = relationship("UserAuthIdentity", back_populates="action_tokens")
+
+    __table_args__ = (
+        Index('idx_auth_action_lookup', 'action', 'expires_at', 'consumed_at'),
+    )
 
 
 class Session(Base):

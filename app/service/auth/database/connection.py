@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, event  # [NEW] 新增 event
 from sqlalchemy.orm import sessionmaker
-from app.service.auth.database.models import Base
+from app.service.auth.database.migrations import run_auth_schema_migrations
 from app.common.path import USER_DATABASE_URL
 
 engine = create_engine(
@@ -28,9 +28,9 @@ event.listen(engine, "connect", _sqlite_pragmas)  # [NEW] 新增
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 建表（处理多worker竞争）
+# 建表 + 显式迁移（处理多worker竞争）
 try:
-    Base.metadata.create_all(bind=engine)
+    run_auth_schema_migrations(engine)
 except Exception as e:
     # 多worker环境下可能出现"table already exists"竞争
     if "already exists" not in str(e).lower():
