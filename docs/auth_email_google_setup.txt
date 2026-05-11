@@ -34,6 +34,7 @@
    - POST /api/auth/google/auth
    - POST /api/auth/google/register
    - POST /api/auth/google/bind
+   - GET /api/auth/providers
 
    说明：
    - /google/auth：前端把 Google id_token 传给后端，后端判断是直接登录、需要注册，还是邮箱冲突要先登录后绑定
