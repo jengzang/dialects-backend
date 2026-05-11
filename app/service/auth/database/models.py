@@ -96,9 +96,11 @@ class AuthActionToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     identity_id = Column(Integer, ForeignKey("user_auth_identities.id", ondelete="CASCADE"), nullable=True, index=True)
-    action = Column(String(32), nullable=False, index=True)  # verify_email/reset_password
+    action = Column(String(32), nullable=False, index=True)  # verify_email/reset_password/register_email
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
     requested_ip = Column(String(45), nullable=True)
+    target_email = Column(String(255), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     consumed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

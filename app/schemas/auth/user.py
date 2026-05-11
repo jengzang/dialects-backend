@@ -56,6 +56,9 @@ class AuthProviderStatus(BaseModel):
     linked_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
     profile_picture: Optional[str] = None
+    can_unbind: bool = False
+    can_replace: bool = False
+    replacement_action: Optional[str] = None
 
 
 class AuthProviderMutationResponse(BaseModel):
@@ -88,6 +91,7 @@ class EmailRequest(BaseModel):
 
 class ChangeEmailRequest(BaseModel):
     new_email: EmailStr
+    current_password: str = Field(min_length=6, max_length=128)
 
 
 class ChangeEmailResponse(BaseModel):

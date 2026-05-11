@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.service.auth.core import utils
 from app.service.auth.database import models
-from app.service.auth.session.service import revoke_other_user_sessions
+from app.service.auth.session.service import revoke_other_user_sessions, get_valid_session_by_public_id
 from app.schemas import auth as schemas
 from app.common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
     REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL
@@ -186,6 +186,8 @@ def stop_user_activity_writer():
 
 EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES = 60 * 24
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
+EMAIL_REGISTRATION_TOKEN_EXPIRE_MINUTES = 60 * 24
+FRESH_AUTH_WINDOW_MINUTES = 15
 
 
 def get_primary_email_identity(db: Session, user_id: int) -> models.UserAuthIdentity | None:
@@ -276,7 +278,41 @@ def ensure_email_identity(
 
 
 
-def change_primary_email(db: Session, user: models.User, new_email: str) -> models.UserAuthIdentity:
+def require_fresh_auth_session(
+    db: Session,
+    user: models.User,
+    current_session_public_id: str | None,
+    *,
+    max_age_minutes: int = FRESH_AUTH_WINDOW_MINUTES,
+) -> models.Session:
+    if not current_session_public_id:
+        raise ValueError("需要近期重新验证后再执行该操作")
+
+    session = get_valid_session_by_public_id(db, current_session_public_id)
+    if not session or session.user_id != user.id:
+        raise ValueError("需要近期重新验证后再执行该操作")
+
+    activity_at = session.last_activity_at or session.created_at
+    if not activity_at:
+        raise ValueError("需要近期重新验证后再执行该操作")
+
+    if utils.now_utc_naive() - activity_at > timedelta(minutes=max_age_minutes):
+        raise ValueError("需要近期重新验证后再执行该操作")
+
+    return session
+
+
+
+def change_primary_email(
+    db: Session,
+    user: models.User,
+    new_email: str,
+    *,
+    current_password: str,
+) -> models.UserAuthIdentity:
+    if not utils.verify_password(current_password, user.hashed_password):
+        raise ValueError("当前密码错误")
+
     normalized_email = utils.normalize_email(new_email)
     current_identity = get_primary_email_identity(db, user.id)
     current_normalized = current_identity.identifier_normalized if current_identity else None
@@ -342,6 +378,17 @@ def ensure_provider_identity(
 
 
 
+def _provider_replacement_action(provider: str) -> str | None:
+    if provider == "email":
+        return "change_email"
+    if provider == "google":
+        return "bind_google"
+    if provider == "wechat":
+        return "bind_wechat"
+    return None
+
+
+
 def list_auth_providers(db: Session, user: models.User) -> list[dict]:
     identities = db.query(models.UserAuthIdentity).filter(
         models.UserAuthIdentity.user_id == user.id,
@@ -356,6 +403,9 @@ def list_auth_providers(db: Session, user: models.User) -> list[dict]:
             "linked_at": identity.created_at,
             "last_login_at": identity.last_login_at,
             "profile_picture": identity.profile_picture,
+            "can_unbind": False,
+            "can_replace": _provider_replacement_action(identity.provider) is not None,
+            "replacement_action": _provider_replacement_action(identity.provider),
         }
         for identity in identities
     ]
@@ -365,22 +415,9 @@ def list_auth_providers(db: Session, user: models.User) -> list[dict]:
 def unbind_auth_provider(db: Session, user: models.User, provider: str) -> list[dict]:
     normalized_provider = (provider or "").strip().lower()
     if normalized_provider != "google":
-        raise ValueError("Only Google provider unbind is currently supported")
+        raise ValueError("目前仅支持 Google 提供方策略检查")
 
-    identity = db.query(models.UserAuthIdentity).filter(
-        models.UserAuthIdentity.user_id == user.id,
-        models.UserAuthIdentity.provider == normalized_provider,
-    ).first()
-    if not identity:
-        raise ValueError("Current account has not linked this provider")
-    if identity.is_primary:
-        raise ValueError("Primary email provider cannot be unbound")
-
-    db.delete(identity)
-    sync_user_email_projection(db, user)
-    db.commit()
-    db.refresh(user)
-    return list_auth_providers(db, user)
+    raise ValueError("v1 仅支持换绑，不支持解绑")
 
 
 
@@ -459,7 +496,14 @@ def register_user_with_google(db: Session, signup: schemas.GoogleRegisterRequest
 
 
 
-def bind_google_identity(db: Session, user: models.User, id_token: str) -> models.UserAuthIdentity:
+def bind_google_identity(
+    db: Session,
+    user: models.User,
+    id_token: str,
+    *,
+    current_session_public_id: str | None,
+) -> models.UserAuthIdentity:
+    require_fresh_auth_session(db, user, current_session_public_id)
     payload = utils.verify_google_id_token(id_token)
     existing_google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])
     if existing_google_identity and existing_google_identity.user_id != user.id:
@@ -535,6 +579,105 @@ def issue_email_verification_token(db: Session, user: models.User, requested_ip:
     )
     return token, identity
 
+
+def issue_email_registration_token(db: Session, email: str, requested_ip: str | None = None) -> str:
+    normalized_email = utils.normalize_email(email)
+
+    db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == "register_email",
+        models.AuthActionToken.target_email == normalized_email,
+        models.AuthActionToken.consumed_at.is_(None),
+    ).delete(synchronize_session=False)
+
+    token = utils.create_opaque_token()
+    token_hash = utils.hash_opaque_token(token)
+    db.add(models.AuthActionToken(
+        user_id=0,
+        identity_id=None,
+        action="register_email",
+        token_hash=token_hash,
+        requested_ip=requested_ip,
+        target_email=normalized_email,
+        expires_at=utils.now_utc_naive() + timedelta(minutes=EMAIL_REGISTRATION_TOKEN_EXPIRE_MINUTES),
+    ))
+    db.commit()
+    return token
+
+
+def start_email_registration(
+    db: Session,
+    *,
+    email: str,
+    requested_ip: str | None = None,
+    verify_url: str,
+) -> str:
+    normalized_email = utils.normalize_email(email)
+    existing_identity = get_email_identity_by_normalized_email(db, normalized_email)
+    if existing_identity:
+        raise ValueError("该邮箱已被其他账号占用")
+
+    token = issue_email_registration_token(db, normalized_email, requested_ip=requested_ip)
+    pending_user = models.User(username="pending_registration", email=normalized_email)
+    send_verification_email(pending_user, normalized_email, verify_url)
+    return token
+
+
+def verify_email_registration_token(db: Session, token: str) -> dict:
+    token_hash = utils.hash_opaque_token(token)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == "register_email",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("Invalid or expired token")
+    if not record.target_email:
+        raise ValueError("Registration token is malformed")
+
+    record.verified_at = utils.now_utc_naive()
+    db.commit()
+    return {
+        "email": record.target_email,
+        "ready_to_complete": True,
+    }
+
+
+def complete_email_registration(
+    db: Session,
+    *,
+    token: str,
+    username: str,
+    password: str,
+    register_ip: str,
+) -> models.User:
+    token_hash = utils.hash_opaque_token(token)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == "register_email",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("Invalid or expired token")
+    if not record.verified_at:
+        raise ValueError("注册邮箱尚未完成验证")
+    if not record.target_email:
+        raise ValueError("Registration token is malformed")
+    if get_email_identity_by_normalized_email(db, record.target_email):
+        raise ValueError("该邮箱已被其他账号占用")
+
+    user = register_user(
+        db,
+        schemas.UserCreate(username=username, email=record.target_email, password=password),
+        register_ip=register_ip,
+    )
+    identity = get_primary_email_identity(db, user.id)
+    if identity:
+        identity.is_verified = True
+    user.is_verified = True
+    record.user_id = user.id
+    record.identity_id = identity.id if identity else None
+    record.consumed_at = utils.now_utc_naive()
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def verify_email_token(db: Session, token: str) -> models.User:

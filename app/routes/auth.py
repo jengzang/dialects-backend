@@ -229,7 +229,7 @@ def resend_verification(payload: schemas.EmailRequest, request: Request, db: Ses
 def change_email(payload: schemas.ChangeEmailRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user, _ = _load_active_user_from_token(db, token)
     try:
-        identity = service.change_primary_email(db, user, payload.new_email)
+        identity = service.change_primary_email(db, user, payload.new_email, current_password=payload.current_password)
         verify_token, _ = service.issue_email_verification_token(db, user, requested_ip=utils.extract_client_ip(request))
         backend_verify_url = str(request.url_for("verify_email")) + f"?token={verify_token}"
         verify_url = service.build_action_url(FRONTEND_VERIFY_EMAIL_URL, verify_token, fallback_url=backend_verify_url)
@@ -357,9 +357,14 @@ def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db
 
 @router.post("/google/bind", response_model=schemas.GoogleAuthResponse)
 def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    user, _ = _load_active_user_from_token(db, token)
+    user, auth_payload = _load_active_user_from_token(db, token)
     try:
-        identity = service.bind_google_identity(db, user, payload.id_token)
+        identity = service.bind_google_identity(
+            db,
+            user,
+            payload.id_token,
+            current_session_public_id=auth_payload.get("session_id"),
+        )
         return {
             "action": "bind",
             "message": "Google 账号绑定成功",
@@ -380,15 +385,17 @@ def auth_providers(token: str = Depends(oauth2_scheme), db: Session = Depends(ge
 
 @router.delete("/providers/{provider}", response_model=schemas.AuthProviderMutationResponse)
 def unbind_auth_provider(provider: str, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Legacy endpoint kept for compatibility; v1 policy is replace/rebind, not unlink."""
     user, _ = _load_active_user_from_token(db, token)
     try:
-        providers = service.unbind_auth_provider(db, user, provider)
-        return {
-            "message": f"{provider} 绑定已解除",
-            "providers": [schemas.AuthProviderStatus(**item) for item in providers],
-        }
+        service.unbind_auth_provider(db, user, provider)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "message": "v1 仅支持换绑，不支持解绑",
+        "providers": [schemas.AuthProviderStatus(**item) for item in service.list_auth_providers(db, user)],
+    }
 
 
 # ========== Me（恢复 & 最小化改动）==========
