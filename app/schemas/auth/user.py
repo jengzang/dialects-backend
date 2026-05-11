@@ -47,6 +47,17 @@ class UserResponse(BaseModel):
 
 
 # /api/auth/me 專用響應體（不包含敏感安全信息）
+class AuthProviderStatus(BaseModel):
+    provider: str
+    email: Optional[EmailStr] = None
+    display_name: Optional[str] = None
+    is_verified: bool
+    is_primary: bool
+    linked_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    profile_picture: Optional[str] = None
+
+
 class UserMeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +74,7 @@ class UserMeResponse(BaseModel):
     total_online_seconds: int
 
     usage_summary: List[ApiUsageStat] = []
+    auth_providers: List[AuthProviderStatus] = []
 
 
 class EmailRequest(BaseModel):
@@ -87,6 +99,7 @@ class GoogleRegisterRequest(BaseModel):
 class GoogleAuthResponse(BaseModel):
     action: str
     message: str
+    username: Optional[str] = None
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
     token_type: Optional[str] = "bearer"

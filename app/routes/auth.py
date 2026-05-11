@@ -259,6 +259,7 @@ def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Sessi
         return {
             "action": "login",
             "message": "Google 登录成功",
+            "username": user.username,
             "access_token": tokens["access_token"],
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
@@ -297,6 +298,7 @@ def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db
         return {
             "action": "login",
             "message": "Google 注册并登录成功",
+            "username": user.username,
             "access_token": tokens["access_token"],
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
@@ -319,12 +321,19 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
         return {
             "action": "bind",
             "message": "Google 账号绑定成功",
+            "username": user.username,
             "email": identity.email,
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/providers", response_model=list[schemas.AuthProviderStatus])
+def auth_providers(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    return service.list_auth_providers(db, user)
 
 
 # ========== Me（恢复 & 最小化改动）==========
@@ -335,27 +344,9 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         token,
         include_usage_summary=True,
     )
-    return user
-    try:
-        payload = utils.decode_access_token(token)  # 解码 token
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Invalid token (no subject)")
-    except JWTError as e:
-        print("JWTError:", e)  # 临时日志
-        # 如果 token 过期了，给出明确的错误信息
-        raise HTTPException(status_code=401, detail="Token 已過期，請重新登錄")
-
-    user = db.query(models.User) \
-        .options(joinedload(models.User.usage_summary)) \
-        .filter(models.User.username == username) \
-        .first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 已废弃，使用 /api/auth/report-activity 代替
-    return user
+    payload = schemas.UserMeResponse.model_validate(user)
+    payload.auth_providers = [schemas.AuthProviderStatus(**item) for item in service.list_auth_providers(db, user)]
+    return payload
 
 
 # ========== Logout ==========

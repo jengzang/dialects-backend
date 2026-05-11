@@ -291,10 +291,11 @@ def ensure_provider_identity(
         raise ValueError(f"{provider} identity already linked to another account")
 
     normalized_email = utils.normalize_email(email or "") or None
+    stored_email = normalized_email or email or None
     if identity:
         identity.identifier_normalized = normalized_email
-        identity.email = email
-        identity.display_name = display_name or identity.display_name or email or provider
+        identity.email = stored_email
+        identity.display_name = display_name or identity.display_name or stored_email or provider
         identity.profile_picture = profile_picture or identity.profile_picture
         identity.is_verified = bool(is_verified)
     else:
@@ -303,8 +304,8 @@ def ensure_provider_identity(
             provider=provider,
             provider_subject=provider_subject,
             identifier_normalized=normalized_email,
-            email=email,
-            display_name=display_name or email or provider,
+            email=stored_email,
+            display_name=display_name or stored_email or provider,
             profile_picture=profile_picture,
             is_verified=bool(is_verified),
             is_primary=False,
@@ -314,6 +315,26 @@ def ensure_provider_identity(
 
     identity.last_login_at = utils.now_utc_naive()
     return identity
+
+
+
+def list_auth_providers(db: Session, user: models.User) -> list[dict]:
+    identities = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+    ).order_by(models.UserAuthIdentity.is_primary.desc(), models.UserAuthIdentity.created_at.asc()).all()
+    return [
+        {
+            "provider": identity.provider,
+            "email": identity.email,
+            "display_name": identity.display_name,
+            "is_verified": bool(identity.is_verified),
+            "is_primary": bool(identity.is_primary),
+            "linked_at": identity.created_at,
+            "last_login_at": identity.last_login_at,
+            "profile_picture": identity.profile_picture,
+        }
+        for identity in identities
+    ]
 
 
 
