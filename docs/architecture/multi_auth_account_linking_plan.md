@@ -1,5 +1,122 @@
 # Multi-Identity Auth and Account Linking Plan
 
+## Status Snapshot (updated 2026-05-11)
+
+This section records the implementation status of this plan against the current repository state so the document remains an execution guide rather than a stale design note.
+
+### Overall completion estimate
+
+- overall plan completion: roughly 55% to 65%
+- if judged only by already-usable end-user auth capabilities: roughly 65% to 75%
+- if judged strictly against the full v1 design, security rules, and planned endpoint shape: still incomplete
+
+### Completed or mostly completed
+
+- identity-oriented schema foundation is in place:
+  - `users.email` is now nullable
+  - `user_auth_identities` exists
+  - `auth_action_tokens` exists and is currently used for verification/reset actions
+  - explicit SQLite migration helpers and email-identity backfill are implemented
+- local auth compatibility refactor is mostly done:
+  - local login still uses `POST /api/auth/login`
+  - local login resolution supports `username + password`
+  - local login resolution supports `email identity + password`
+  - `users.email` is synchronized as a compatibility projection
+- email/account recovery features are implemented in practical form:
+  - resend verification
+  - verify email
+  - forgot password
+  - reset password
+  - authenticated change password
+- Google support is partially implemented and already usable in practice:
+  - Google login decision endpoint exists
+  - Google registration completion exists
+  - Google bind exists
+- identity/provider visibility is partially implemented:
+  - provider listing exists
+  - `/api/auth/me` already returns linked provider summary
+- email replacement flow is partially implemented through authenticated change-email plus reverification
+
+### Important implementation deviations from this document
+
+The current codebase does not fully match the original planned shape. These differences must be treated as deliberate temporary deviations unless later normalized back into the plan.
+
+1. Email verification storage
+   - planned here: dedicated `auth_email_verifications` table
+   - current implementation: generalized `auth_action_tokens`
+   - effect: functional coverage exists, but the storage model differs from this document
+
+2. Google flow shape
+   - planned here: OAuth `start` / `callback` endpoints with transient flow state
+   - current implementation: backend accepts Google `id_token` directly from the client
+   - effect: Google capability exists, but not in the exact planned architecture
+
+3. Email registration v2
+   - planned here: `start -> verify -> complete` registration state machine
+   - current implementation: legacy `POST /api/auth/register` path still remains the primary registration path
+   - effect: email registration is functional, but the v2 state-machine design is not yet completed
+
+4. Unbind policy
+   - planned here: v1 forbids naked unlink; product rule is replace, not remove
+   - current implementation: the existing provider-unbind endpoint is now hard-blocked in v1 and returns a business rejection instead of removing the linked identity
+   - effect: the runtime behavior now matches the stricter documented rule, though the API surface still exists and may be cleaned up later if desired
+
+5. High-risk operation protections
+   - planned here: high-risk identity/account changes require current password; binding should require a fresh recent auth window
+   - current implementation: change-password and change-email now enforce current password, and Google bind now requires a fresh recent authenticated session
+   - effect: this specific security gap has now been closed for the currently implemented endpoints
+
+6. Google email policy
+   - planned here: malformed or unusable Google email should not necessarily block v1 continuation
+   - current implementation: Google registration currently requires provider email
+   - effect: implementation is stricter than this document
+
+### Major unfinished work
+
+- WeChat login / registration / bind flow is not implemented
+- email registration v2 state machine is not implemented in the planned form
+- Redis-based transient register / bind / OAuth state handling is not implemented in the planned form
+- tests are far from the coverage listed in this document
+- admin / analytics adaptation is only partially implemented
+- login-method analytics/logging does not appear fully integrated yet
+
+### Phase-by-phase progress view
+
+- Phase 1: DB and core identity model
+  - mostly complete
+- Phase 2: local auth compatibility refactor
+  - mostly complete
+- Phase 3: email registration v2
+  - partially complete, but planned state machine still missing
+- Phase 4: Google auth
+  - partially complete and usable, but architecture differs from the original plan
+- Phase 5: WeChat auth
+  - not started
+- Phase 6: admin and analytics adaptation
+  - partially complete
+
+### Recommended next implementation priority
+
+The previous highest-priority policy mismatch on direct Google unlink has now been resolved in runtime behavior by hard-blocking v1 unbind.
+
+Recommended next step:
+- normalize the API contract around "replace, not remove" so frontend and backend both speak in terms of rebind / replacement rather than generic delete semantics
+  - current provider listing now exposes `can_unbind=false`, `can_replace`, and `replacement_action` so clients can render replace/bind flows instead of unlink UI
+  - the legacy DELETE provider endpoint is compatibility-only and remains hard-blocked by v1 policy
+- then choose whether to implement email registration v2 as designed, or explicitly revise this document to accept the current practical route shape
+- keep WeChat after those consistency issues are settled
+
+Why this is the next best step:
+- unlink behavior and documented v1 policy no longer conflict at runtime
+- the remaining gap is now interface clarity and consistency, not raw policy violation
+- email-registration-v2 and WeChat should build on the finalized replacement semantics instead of a partly transitional API surface
+
+After that, the recommended order becomes:
+1. normalize the replacement / rebind API contract and related frontend wording
+2. either implement email registration v2 properly or revise this document to accept the current practical route shape
+3. implement WeChat only after the above consistency issues are resolved
+4. then finish admin / analytics adaptation and broader auth test coverage
+
 ## 1. Background
 
 The current backend auth model is a single local-account model:
@@ -44,9 +161,33 @@ The following product rules are treated as fixed inputs for this design:
 - A user can bind more identities later.
 - If an identity or provider-returned email conflicts with an existing account, the system must **not** auto-merge.
 - Existing users are treated as "email-identity users".
-- Google registration requires email.
+- Google registration should request email, but a malformed or unusable provider-returned email does not block account creation in v1.
 - WeChat registration may have no email.
 - WeChat scope for v1 is **Web QR login only**, not official account H5, native app, or mini program login.
+- Web/PC is the only supported WeChat v1 scenario. Mobile web behavior is not guaranteed in v1.
+- Email registration should support both verification links and verification codes long-term; v1 starts with verification links.
+- Local password login remains:
+  - username + password
+  - email + password
+- Username and password validation rules remain the current backend rules in v1; this project does not redefine them.
+- Registration completion should create a logged-in session immediately.
+- `users.email` is only a compatibility projection / primary contact snapshot in phase 1. `user_auth_identities` is the source of truth for login identities.
+- Each user may have at most one identity per provider in v1:
+  - one email identity
+  - one Google identity
+  - one WeChat identity
+- Identity removal does not support naked unlink in v1. The product rule is "replace, not remove":
+  - direct unlink is not allowed
+  - email supports replacement in v1
+  - Google/WeChat support bind in v1, but not a full self-service replacement flow yet
+- Conflict responses should be structured and explicit:
+  - no auto-merge
+  - return a clear business conflict code
+  - include a suggested next action such as `login_then_bind`
+- If an old local account already owns an email, auto-merge remains forbidden even if that old email was never verified.
+- High-risk account/identity operations require the current password.
+- Forgot/reset-password scope is included in v1.
+- Account recovery-related entry points may come from email, Google, or WeChat, but provider-assisted recovery must still follow the final security rules of this document.
 
 
 ## 3. Current-State Analysis of This Repository
@@ -146,8 +287,8 @@ Keep `users` as the stable account record.
 
 ### Change in meaning
 
-- `email` should become a **primary contact email snapshot**, not the sole auth source of truth
-- `is_verified` should become a **primary-email verification compatibility flag**
+- `email` should become a **current bound email / contact email projection**, not the sole auth source of truth
+- `is_verified` should remain a **compatibility field**, not the new cross-provider source of truth for verification state
 
 ### Schema target
 
@@ -169,7 +310,7 @@ Because:
 Because many existing services, admin endpoints, and analytics paths already read `users.email`.
 Removing it in phase 1 would create unnecessary blast radius.
 
-Phase 1 keeps it as a compatibility field and mirrors it from the primary verified email identity when one exists.
+Phase 1 keeps it as a compatibility field and mirrors it from the current bound email identity when one exists.
 
 
 ## 5.2 New table: `user_auth_identities`
@@ -232,6 +373,14 @@ For v1, enforce one identity per provider per user:
 
 This is the correct tradeoff for now. It is simple and sufficient.
 
+### Note on `is_primary`
+
+V1 does not define a global "primary identity" concept across all providers.
+
+If `is_primary` is kept in the schema, it should only be meaningful for the email identity / primary contact email projection.
+
+Google and WeChat identities should not rely on `is_primary` semantics in v1.
+
 
 ## 5.3 New table: `auth_email_verifications`
 
@@ -290,6 +439,8 @@ Use Redis keys:
 - original redirect target if needed
 - created_at
 
+`oauth_state` should be strictly single-use.
+
 `oauth_pending:{ticket}`:
 
 - provider
@@ -299,6 +450,8 @@ Use Redis keys:
 - provider profile snapshot
 - created_at
 
+This ticket should support retry for correctable completion failures while it remains valid, but it must be consumed and invalidated immediately after successful registration completion.
+
 `bind_pending:{ticket}`:
 
 - current user id
@@ -307,10 +460,19 @@ Use Redis keys:
 - provider claims
 - created_at
 
+This ticket should support retry for correctable completion failures while it remains valid, but it must be consumed and invalidated immediately after successful bind/replacement completion.
+
 ### TTL
 
 - state: 5 to 10 minutes
-- pending register/bind ticket: 10 to 15 minutes
+- pending register/bind ticket: 30 minutes
+
+### Expiration policy
+
+- email registration expiration may offer resend/restart behavior
+- OAuth register/bind expiration requires restarting the flow
+- the state nonce is single-use
+- register/bind pending tickets may be retried only until a successful completion, after which they are invalidated immediately
 
 
 ## 6. Registration and Login Flow Design
@@ -336,6 +498,8 @@ Behavior:
 - create one verification record in `auth_email_verifications`
 - send email verification link
 
+V1 uses email verification links. Verification-code support is a later extension, not part of the initial implementation.
+
 No `users` row is created yet.
 
 ### Step B: verify link
@@ -349,6 +513,12 @@ Behavior:
 - validate token
 - mark verification record consumed
 - issue a short-lived `register_ticket`
+
+The frontend-facing Web pattern for v1 is:
+
+- backend verifies the token
+- backend issues `register_ticket`
+- backend redirects the browser to the frontend completion page
 
 At this point the identity proof is done, but the account is not yet complete.
 
@@ -373,6 +543,8 @@ Behavior:
 - set `users.email`
 - set `users.is_verified = true`
 - create session + access/refresh tokens
+
+If completion fails due to username conflict or another correctable validation issue, the `register_ticket` remains usable until expiration so the user can retry.
 
 
 ## 6.2 Google registration/login flow
@@ -417,6 +589,13 @@ If no Google identity exists:
   - create `register_ticket`
   - user must complete `username + password`
 
+Google-specific v1 notes:
+
+- Google login normally expects an email claim
+- `email_verified` is not required for account creation in v1
+- if the returned email is malformed, empty, or otherwise unusable, v1 may still allow account creation and later email binding
+- provider profile snapshot fields such as `display_name` and `avatar_url` should be refreshed on successful third-party login
+
 ### Completion
 
 Use the same:
@@ -424,6 +603,8 @@ Use the same:
 - `POST /api/auth/register/complete`
 
 The ticket tells the backend this is a Google-pending registration.
+
+For the Web flow in v1, callback handling should redirect to a frontend completion page rather than return a raw API-style JSON callback response.
 
 
 ## 6.3 WeChat registration/login flow
@@ -466,6 +647,13 @@ Because WeChat may not provide email, this flow must support accounts with:
 - username
 - password
 - no email
+
+WeChat v1 scope note:
+
+- supported scenario: website / desktop-oriented Web QR login
+- unsupported in v1: mini program login, native mobile provider login
+- mobile web behavior is not guaranteed
+- provider profile snapshot fields such as `display_name` and `avatar_url` should be refreshed on successful third-party login
 
 
 ## 6.4 Local login flow
@@ -548,7 +736,13 @@ Behavior:
 - user enters email
 - system sends verification link
 - verification completion creates or updates the email identity
-- if account has no primary email yet, this email becomes primary
+- if account has no current bound email yet, this email becomes the current bound email
+
+V1 binding/change policy:
+
+- email may be replaced, but not naked-unlinked
+- when email is replaced, the new verified email takes over immediately and the old email stops being a bound identity
+- change-email is in scope for v1
 
 
 ## 7.4 Identity listing
@@ -560,9 +754,25 @@ Endpoint:
 Returns:
 
 - providers currently linked
-- primary flag
+- email-primary flag semantics only where applicable
 - verification flag
 - lightweight profile snapshot
+
+Recommended v1 fields include:
+
+- `provider`
+- `is_primary`
+- `is_verified`
+- `linked_at`
+- `display_name`
+- `avatar_url`
+- `can_unbind` (always `false` in v1)
+- `can_replace`
+- `replacement_action` such as `change_email`, `bind_google`, or `bind_wechat`
+
+In v1, `is_primary` should be interpreted only for the email identity / primary contact email projection, not as a cross-provider primary identity flag.
+
+Clients should render provider management from capability fields instead of inferring available actions from HTTP verbs. In v1, linked identities are replace/bind targets, not removable items.
 
 
 ## 8. Conflict Rules
@@ -578,6 +788,11 @@ Instead:
 - stop the self-registration flow
 - return a structured conflict response
 - tell the user to sign in to the existing account first and then bind
+
+The structured response should carry both:
+
+- a stable business conflict code
+- a suggested next action such as `login_then_bind`
 
 ### 8.2 Existing identity already owned by another user
 
@@ -608,7 +823,7 @@ Treat all current users as existing email-based local accounts.
 Migration behavior:
 
 - create an `email` identity for every existing `users.email`
-- carry over `users.is_verified`
+- carry over `users.is_verified` exactly as-is
 - set identity `is_primary = true`
 
 Existing users keep:
@@ -636,6 +851,8 @@ Reason:
 - many existing auth dependencies and admin features already assume `username` in JWT
 - changing JWT subject and identity lookup at the same time would enlarge risk significantly
 
+For WeChat-origin accounts that have no email identity, the compatibility field `users.is_verified` may still be set to `true` after successful WeChat registration/login because there is no pending email-verification gate for that account shape in v1.
+
 
 ## 9.3 Compatibility use of `users.email`
 
@@ -643,7 +860,7 @@ Phase 1 keeps `users.email` as a compatibility projection.
 
 Rules:
 
-- if user has a primary email identity, mirror it into `users.email`
+- if user has a current bound email identity, mirror it into `users.email`
 - if user has no email identity, `users.email = null`
 - existing admin/search logic can continue using `users.email`
 
@@ -673,6 +890,10 @@ Authenticated:
 - `POST /api/auth/bind/email/start`
 - `GET /api/auth/bind/email/verify`
 - `GET /api/auth/me/identities`
+- `POST /api/auth/password/forgot/start`
+- `POST /api/auth/password/forgot/complete`
+- `POST /api/auth/password/change`
+- `POST /api/auth/password/reset-authenticated`
 
 ## 10.2 Existing endpoints to keep
 
@@ -681,15 +902,17 @@ Authenticated:
 - `POST /api/auth/refresh`
 - `GET /api/auth/me`
 
-## 10.3 Existing endpoint that should become compatibility-only
+## 10.3 Existing endpoints that should become compatibility-only
 
 - `POST /api/auth/register`
+- `DELETE /api/auth/providers/{provider}`
 
 Recommended treatment:
 
-- keep it temporarily for legacy clients
-- internally route it into the new email registration path if needed
-- eventually mark deprecated
+- keep them temporarily for legacy clients
+- internally route legacy registration into the new email registration path if needed
+- keep provider DELETE hard-blocked in v1 because the product policy is replace/rebind, not unlink
+- eventually mark deprecated once clients use explicit replacement actions
 
 
 ## 11. Required Service-Layer Refactor
@@ -800,7 +1023,7 @@ Add `login_method` or equivalent logging metadata:
 Keep admin search working with:
 
 - username
-- primary email
+- current bound email
 
 Second phase can extend search to provider identity metadata if needed.
 
@@ -843,6 +1066,26 @@ Automatic merge sounds user-friendly but creates serious ownership mistakes.
 
 Strict manual linking is the safer default.
 
+### 14.4 High-risk operations require current password
+
+For v1, high-risk account operations require the current local password. This includes identity-sensitive changes such as change-email and replacement-style identity changes.
+
+This rule intentionally does not grant an exception merely because the user can still log in through a bound Google or WeChat account.
+
+### 14.5 Password reset terminology
+
+This document distinguishes:
+
+- `change password`: user knows the current password and changes it from an authenticated session
+- `forgot password`: user proves ownership through a recovery flow such as email
+- `authenticated password reset`: user is already authenticated through an allowed entry path and resets the local password under the product's security rules
+
+### 14.6 Fresh-session requirement for identity binding
+
+Binding Google or WeChat should require not only an authenticated session but also a fresh recent authentication window in v1.
+
+This is intended to reduce the risk of someone using an old but still-valid session on an unattended device to silently attach a new identity.
+
 
 ## 15. Test Plan
 
@@ -860,10 +1103,12 @@ The implementation must include tests for all of the following:
 - email start sends verification
 - valid verification produces register ticket
 - complete registration creates user and email identity
+- successful completion creates a logged-in session immediately
 - duplicate email is rejected
 - duplicate username is rejected
 - expired verification token is rejected
 - reused verification token is rejected
+- expired register ticket can be retried only by restarting/resending according to the flow rules
 
 ### 15.3 Google registration/login
 
@@ -871,6 +1116,8 @@ The implementation must include tests for all of the following:
 - Google completion creates user and identity
 - repeated Google login logs in directly
 - Google email conflict rejects auto-merge
+- Google `email_verified` is not required for registration in v1
+- malformed/unusable Google email claim still follows the chosen v1 continuation policy
 
 ### 15.4 WeChat registration/login
 
@@ -885,6 +1132,8 @@ The implementation must include tests for all of the following:
 - logged-in user binds WeChat successfully
 - logged-in user binds email successfully after verification
 - binding identity already owned by another user is rejected
+- direct unlink is rejected in v1
+- email replacement succeeds and old email immediately stops being bound
 
 ### 15.6 Local login
 
@@ -944,6 +1193,9 @@ To keep the first implementation realistic, v1 should **not** include:
 - provider-specific password login
 - WeChat mini program login
 - native mobile provider login
+- naked identity unlink
+- full self-service Google replacement flow
+- full self-service WeChat replacement flow
 
 
 ## 18. Final Recommendation
