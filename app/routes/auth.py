@@ -247,6 +247,26 @@ def change_email(payload: schemas.ChangeEmailRequest, request: Request, token: s
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.post("/change-password", response_model=schemas.ChangePasswordResponse)
+def change_password(payload: schemas.ChangePasswordRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, auth_payload = _load_active_user_from_token(db, token)
+    try:
+        service.change_password(
+            db,
+            user,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+            revoke_other_sessions=payload.revoke_other_sessions,
+            current_session_public_id=auth_payload.get("session_id"),
+        )
+        return {
+            "message": "密码修改成功",
+            "revoked_other_sessions": bool(payload.revoke_other_sessions),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/forgot-password", response_model=schemas.MessageResponse)
 def forgot_password(payload: schemas.EmailRequest, request: Request, db: Session = Depends(get_db)):
     try:

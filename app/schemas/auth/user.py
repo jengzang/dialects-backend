@@ -97,6 +97,17 @@ class ChangeEmailResponse(BaseModel):
     providers: List[AuthProviderStatus] = []
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
+    revoke_other_sessions: bool = False
+
+
+class ChangePasswordResponse(BaseModel):
+    message: str
+    revoked_other_sessions: bool
+
+
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=6, max_length=128)
