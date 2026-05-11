@@ -86,6 +86,10 @@ FRONTEND_RESET_PASSWORD_URL = os.getenv("FRONTEND_RESET_PASSWORD_URL", "").strip
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_TOKENINFO_URL = os.getenv("GOOGLE_TOKENINFO_URL", "https://oauth2.googleapis.com/tokeninfo").strip()
 
+# WeChat Web 登录配置
+WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "").strip()
+WECHAT_USERINFO_URL = os.getenv("WECHAT_USERINFO_URL", "https://api.weixin.qq.com/sns/userinfo").strip()
+
 # 登錄才能用
 REQUIRE_LOGIN = False
 

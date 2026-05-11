@@ -117,12 +117,39 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=128)
 
 
+class EmailRegistrationStartRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailRegistrationCompleteRequest(BaseModel):
+    token: str
+    username: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class EmailRegistrationVerifyResponse(BaseModel):
+    email: EmailStr
+    ready_to_complete: bool
+
+
 class GoogleTokenRequest(BaseModel):
     id_token: str = Field(min_length=20)
 
 
 class GoogleRegisterRequest(BaseModel):
     id_token: str = Field(min_length=20)
+    username: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class WechatTokenRequest(BaseModel):
+    access_token: str = Field(min_length=1)
+    openid: str = Field(min_length=1)
+
+
+class WechatRegisterRequest(BaseModel):
+    access_token: str = Field(min_length=1)
+    openid: str = Field(min_length=1)
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=6, max_length=128)
 
@@ -140,6 +167,20 @@ class GoogleAuthResponse(BaseModel):
     conflict_code: Optional[str] = None
     is_verified: Optional[bool] = None
     profile_picture: Optional[str] = None
+
+
+class WechatAuthResponse(BaseModel):
+    action: str
+    message: str
+    username: Optional[str] = None
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    expires_in: Optional[int] = None
+    suggested_username: Optional[str] = None
+    conflict_code: Optional[str] = None
+    profile_picture: Optional[str] = None
+    provider_subject: Optional[str] = None
 
 
 class MessageResponse(BaseModel):

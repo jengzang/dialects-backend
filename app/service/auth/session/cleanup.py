@@ -1,6 +1,7 @@
 """Session和Token自动清理"""
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
+from app.service.auth.core import utils
 from app.service.auth.database.connection import SessionLocal
 from app.service.auth.database.models import Session, RefreshToken
 from app.common.auth_config import (
@@ -25,7 +26,7 @@ def cleanup_revoked_tokens():
     db = SessionLocal()
 
     try:
-        now = datetime.utcnow()
+        now = utils.now_utc_naive()
         cutoff = now - timedelta(days=TOKEN_RETENTION_DAYS)
 
         # 删除7天前已撤销的refresh token
@@ -56,7 +57,7 @@ def cleanup_expired_sessions():
     db = SessionLocal()
 
     try:
-        now = datetime.utcnow()
+        now = utils.now_utc_naive()
 
         # 撤销已过期但未标记的session
         expired_count = db.query(Session).filter(
@@ -87,7 +88,7 @@ def cleanup_suspicious_sessions():
     db = SessionLocal()
 
     try:
-        now = datetime.utcnow()
+        now = utils.now_utc_naive()
         flagged = 0
 
         # 查询活跃会话
