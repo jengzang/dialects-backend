@@ -1,21 +1,21 @@
 # Multi-Identity Auth and Account Linking Plan
 
-## Status Snapshot (updated 2026-05-11)
+## Status Snapshot (updated 2026-05-12)
 
 This section records the implementation status of this plan against the current repository state so the document remains an execution guide rather than a stale design note.
 
 ### Overall completion estimate
 
-- overall plan completion: roughly 55% to 65%
-- if judged only by already-usable end-user auth capabilities: roughly 65% to 75%
-- if judged strictly against the full v1 design, security rules, and planned endpoint shape: still incomplete
+- overall plan completion: roughly 70% to 78%
+- if judged only by already-usable end-user auth capabilities: roughly 78% to 85%
+- if judged strictly against the full v1 design, security rules, endpoint contract normalization, and broader verification expectations: still incomplete
 
 ### Completed or mostly completed
 
 - identity-oriented schema foundation is in place:
   - `users.email` is now nullable
   - `user_auth_identities` exists
-  - `auth_action_tokens` exists and is currently used for verification/reset actions
+  - `auth_action_tokens` exists and is currently used for verification/reset/register-email actions
   - explicit SQLite migration helpers and email-identity backfill are implemented
 - local auth compatibility refactor is mostly done:
   - local login still uses `POST /api/auth/login`
@@ -28,14 +28,34 @@ This section records the implementation status of this plan against the current 
   - forgot password
   - reset password
   - authenticated change password
+  - authenticated change email + reverification
+- email registration v2 now exists in practical backend form:
+  - `POST /api/auth/register-email`
+  - `GET /api/auth/verify-email-registration`
+  - `POST /api/auth/complete-email-registration`
+  - token storage still uses `auth_action_tokens`
 - Google support is partially implemented and already usable in practice:
   - Google login decision endpoint exists
   - Google registration completion exists
   - Google bind exists
+- WeChat support now exists in minimal backend v1 form:
+  - WeChat login decision endpoint exists
+  - WeChat registration completion exists
+  - WeChat bind exists
+  - current backend shape accepts client-provided `access_token + openid` and validates userinfo server-side
 - identity/provider visibility is partially implemented:
   - provider listing exists
   - `/api/auth/me` already returns linked provider summary
-- email replacement flow is partially implemented through authenticated change-email plus reverification
+  - provider listing exposes `can_unbind=false`, `can_replace`, and `replacement_action`
+- v1 unlink policy is enforced in runtime behavior:
+  - the legacy provider-unbind endpoint remains compatibility-only
+  - runtime behavior is hard-blocked to "replace, not remove"
+- high-risk protections are partially in place:
+  - change-password requires current password
+  - change-email requires current password
+  - Google bind requires a fresh recent authenticated session
+  - WeChat bind requires a fresh recent authenticated session
+- auth UTC handling was partially normalized in the auth module to use a shared helper rather than scattered `datetime.utcnow()` calls
 
 ### Important implementation deviations from this document
 
@@ -51,20 +71,20 @@ The current codebase does not fully match the original planned shape. These diff
    - current implementation: backend accepts Google `id_token` directly from the client
    - effect: Google capability exists, but not in the exact planned architecture
 
-3. Email registration v2
-   - planned here: `start -> verify -> complete` registration state machine
-   - current implementation: legacy `POST /api/auth/register` path still remains the primary registration path
-   - effect: email registration is functional, but the v2 state-machine design is not yet completed
+3. WeChat flow shape
+   - planned here: official Web QR OAuth start/callback flow with transient state
+   - current implementation: backend accepts client-provided `access_token + openid` and validates userinfo server-side
+   - effect: WeChat capability now exists, but not in the exact planned architecture and not yet as the full official Web QR backend contract
 
-4. Unbind policy
+4. Email registration v2
+   - planned here: `start -> verify -> complete` registration state machine with explicit long-term state handling design
+   - current implementation: the three practical backend routes now exist, but the design is still lighter than the original planned state-machine / transient-state framing
+   - effect: practical v2 flow exists, but the implementation should either be normalized to the full design or the document should later be revised to bless the practical route shape
+
+5. Unbind policy
    - planned here: v1 forbids naked unlink; product rule is replace, not remove
-   - current implementation: the existing provider-unbind endpoint is now hard-blocked in v1 and returns a business rejection instead of removing the linked identity
-   - effect: the runtime behavior now matches the stricter documented rule, though the API surface still exists and may be cleaned up later if desired
-
-5. High-risk operation protections
-   - planned here: high-risk identity/account changes require current password; binding should require a fresh recent auth window
-   - current implementation: change-password and change-email now enforce current password, and Google bind now requires a fresh recent authenticated session
-   - effect: this specific security gap has now been closed for the currently implemented endpoints
+   - current implementation: the existing provider-unbind endpoint is hard-blocked in v1 and returns a business rejection instead of removing the linked identity
+   - effect: runtime behavior now matches the stricter documented rule, though the API surface still exists and may be cleaned up later if desired
 
 6. Google email policy
    - planned here: malformed or unusable Google email should not necessarily block v1 continuation
@@ -73,12 +93,13 @@ The current codebase does not fully match the original planned shape. These diff
 
 ### Major unfinished work
 
-- WeChat login / registration / bind flow is not implemented
-- email registration v2 state machine is not implemented in the planned form
+- replacement / rebind API contract is still transitional and not fully normalized end-to-end
 - Redis-based transient register / bind / OAuth state handling is not implemented in the planned form
-- tests are far from the coverage listed in this document
+- Google and WeChat do not yet use the full planned official OAuth start/callback contract shape
+- tests are still far from the coverage listed in this document
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
+- full-app verification is currently blocked by app bootstrap assumptions outside auth scope; after fixing the previous `app/service/core/status_arrange_pho.py` import/syntax compatibility issue, the next blocker is `app.main` mounting a missing `app/statics` directory in this environment
 
 ### Phase-by-phase progress view
 
@@ -87,34 +108,35 @@ The current codebase does not fully match the original planned shape. These diff
 - Phase 2: local auth compatibility refactor
   - mostly complete
 - Phase 3: email registration v2
-  - partially complete, but planned state machine still missing
+  - materially advanced and usable in practical backend form, but still not fully normalized to the original design language
 - Phase 4: Google auth
   - partially complete and usable, but architecture differs from the original plan
 - Phase 5: WeChat auth
-  - not started
+  - minimally implemented and usable in backend form, but not yet in the original planned Web QR OAuth architecture
 - Phase 6: admin and analytics adaptation
   - partially complete
 
 ### Recommended next implementation priority
 
-The previous highest-priority policy mismatch on direct Google unlink has now been resolved in runtime behavior by hard-blocking v1 unbind.
-
 Recommended next step:
-- normalize the API contract around "replace, not remove" so frontend and backend both speak in terms of rebind / replacement rather than generic delete semantics
-  - current provider listing now exposes `can_unbind=false`, `can_replace`, and `replacement_action` so clients can render replace/bind flows instead of unlink UI
+- first fix any environment-independent app bootstrap blockers outside auth scope so full-app import / broader verification becomes trustworthy again
+- then normalize the API contract around "replace, not remove" so frontend and backend both speak in terms of rebind / replacement rather than generic delete semantics
+  - current provider listing already exposes `can_unbind=false`, `can_replace`, and `replacement_action` so clients can render replace/bind flows instead of unlink UI
   - the legacy DELETE provider endpoint is compatibility-only and remains hard-blocked by v1 policy
-- then choose whether to implement email registration v2 as designed, or explicitly revise this document to accept the current practical route shape
-- keep WeChat after those consistency issues are settled
+- then decide whether to:
+  - implement full official Google/WeChat OAuth start/callback + transient-state handling, or
+  - explicitly revise this document to accept the current practical client-token backend route shape as the chosen v1 architecture
+- after that, finish admin / analytics adaptation and broaden auth test coverage
 
 Why this is the next best step:
-- unlink behavior and documented v1 policy no longer conflict at runtime
-- the remaining gap is now interface clarity and consistency, not raw policy violation
-- email-registration-v2 and WeChat should build on the finalized replacement semantics instead of a partly transitional API surface
+- runtime policy mismatches are much smaller than before
+- the biggest near-term risk is now verification blindness caused by unrelated import failure and remaining contract ambiguity
+- further auth work will be safer once broader verification is restored and the replacement contract is frozen
 
 After that, the recommended order becomes:
-1. normalize the replacement / rebind API contract and related frontend wording
-2. either implement email registration v2 properly or revise this document to accept the current practical route shape
-3. implement WeChat only after the above consistency issues are resolved
+1. restore full-app verification by fixing remaining non-auth bootstrap blockers
+2. normalize the replacement / rebind API contract and related frontend wording
+3. either implement the planned official OAuth/transient-state architecture or formally bless the current practical route shape in this document
 4. then finish admin / analytics adaptation and broader auth test coverage
 
 ## 1. Background
