@@ -120,6 +120,14 @@ class AuthSecurityGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "仅支持换绑"):
             service.unbind_auth_provider(self.db, self.user, "google")
 
+    def test_unbind_email_identity_is_forbidden_in_v1(self):
+        with self.assertRaisesRegex(ValueError, "仅支持换绑"):
+            service.unbind_auth_provider(self.db, self.user, "email")
+
+    def test_unbind_unknown_provider_rejected_as_unsupported(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported provider"):
+            service.unbind_auth_provider(self.db, self.user, "github")
+
     def test_provider_list_exposes_rebind_not_unbind_capabilities(self):
         providers = service.list_auth_providers(self.db, self.user)
         provider_by_name = {item["provider"]: item for item in providers}
