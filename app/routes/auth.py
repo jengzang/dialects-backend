@@ -225,6 +225,28 @@ def resend_verification(payload: schemas.EmailRequest, request: Request, db: Ses
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.post("/change-email", response_model=schemas.ChangeEmailResponse)
+def change_email(payload: schemas.ChangeEmailRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    try:
+        identity = service.change_primary_email(db, user, payload.new_email)
+        verify_token, _ = service.issue_email_verification_token(db, user, requested_ip=utils.extract_client_ip(request))
+        backend_verify_url = str(request.url_for("verify_email")) + f"?token={verify_token}"
+        verify_url = service.build_action_url(FRONTEND_VERIFY_EMAIL_URL, verify_token, fallback_url=backend_verify_url)
+        service.send_verification_email(user, identity.email or payload.new_email, verify_url)
+        db.commit()
+        return {
+            "message": "邮箱已更新，请查收新邮箱并完成验证",
+            "email": identity.email,
+            "is_verified": bool(identity.is_verified),
+            "providers": [schemas.AuthProviderStatus(**item) for item in service.list_auth_providers(db, user)],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.post("/forgot-password", response_model=schemas.MessageResponse)
 def forgot_password(payload: schemas.EmailRequest, request: Request, db: Session = Depends(get_db)):
     try:

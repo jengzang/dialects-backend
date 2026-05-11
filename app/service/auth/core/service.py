@@ -275,6 +275,29 @@ def ensure_email_identity(
 
 
 
+def change_primary_email(db: Session, user: models.User, new_email: str) -> models.UserAuthIdentity:
+    normalized_email = utils.normalize_email(new_email)
+    current_identity = get_primary_email_identity(db, user.id)
+    current_normalized = current_identity.identifier_normalized if current_identity else None
+    if current_normalized == normalized_email:
+        raise ValueError("新邮箱不能与当前邮箱相同")
+
+    existing_identity = get_email_identity_by_normalized_email(db, normalized_email)
+    if existing_identity and existing_identity.user_id != user.id:
+        raise ValueError("该邮箱已被其他账号占用")
+
+    identity = ensure_email_identity(
+        db,
+        user,
+        normalized_email,
+        is_verified=False,
+        is_primary=True,
+    )
+    sync_user_email_projection(db, user)
+    return identity
+
+
+
 def ensure_provider_identity(
     db: Session,
     *,

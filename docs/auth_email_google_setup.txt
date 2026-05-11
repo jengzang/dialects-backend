@@ -36,6 +36,7 @@
    - POST /api/auth/google/bind
    - GET /api/auth/providers
    - DELETE /api/auth/providers/google
+   - POST /api/auth/change-email
  
     说明：
    - /google/auth：前端把 Google id_token 传给后端，后端判断是直接登录、需要注册，还是邮箱冲突要先登录后绑定
@@ -43,6 +44,7 @@
    - /google/bind：用户先登录站内账号，再把 Google id_token 传给这个接口进行绑定
    - /providers：查询当前账号已绑定的登录方式列表
    - DELETE /providers/google：解绑当前账号已绑定的 Google 登录方式
+   - /change-email：已登录用户修改主邮箱；当前实现会立即切换到新邮箱并置为未验证，然后发送验证邮件到新邮箱
 
 5. 当前策略
    - 已绑定 Google 身份：直接登录

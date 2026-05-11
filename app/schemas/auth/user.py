@@ -86,6 +86,17 @@ class EmailRequest(BaseModel):
     email: EmailStr
 
 
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+
+
+class ChangeEmailResponse(BaseModel):
+    message: str
+    email: EmailStr
+    is_verified: bool
+    providers: List[AuthProviderStatus] = []
+
+
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=6, max_length=128)
