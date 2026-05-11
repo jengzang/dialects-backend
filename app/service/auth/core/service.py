@@ -7,7 +7,6 @@ import warnings
 from collections import defaultdict
 
 from fastapi import HTTPException
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.service.auth.core import utils
 from app.service.auth.database import models
@@ -183,7 +182,216 @@ def stop_user_activity_writer():
         pass
     print("🛑 用户活动更新后台线程已停止")
 
+
+EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES = 60 * 24
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
+
+
+def get_primary_email_identity(db: Session, user_id: int) -> models.UserAuthIdentity | None:
+    return db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user_id,
+        models.UserAuthIdentity.provider == "email",
+        models.UserAuthIdentity.is_primary == True,
+    ).first()
+
+
+
+def sync_user_email_projection(db: Session, user: models.User) -> models.User:
+    identity = get_primary_email_identity(db, user.id)
+    user.email = identity.email if identity else None
+    if identity:
+        user.is_verified = bool(identity.is_verified)
+    return user
+
+
+
+def ensure_email_identity(
+    db: Session,
+    user: models.User,
+    email: str,
+    *,
+    is_verified: bool,
+    is_primary: bool = True,
+) -> models.UserAuthIdentity:
+    normalized_email = utils.normalize_email(email)
+    identity = get_primary_email_identity(db, user.id)
+    if identity:
+        identity.identifier_normalized = normalized_email
+        identity.email = email
+        identity.display_name = email
+        identity.is_primary = is_primary
+        identity.is_verified = bool(is_verified)
+    else:
+        identity = models.UserAuthIdentity(
+            user_id=user.id,
+            provider="email",
+            provider_subject=None,
+            identifier_normalized=normalized_email,
+            email=email,
+            display_name=email,
+            is_verified=bool(is_verified),
+            is_primary=is_primary,
+        )
+        db.add(identity)
+        db.flush()
+
+    sync_user_email_projection(db, user)
+    return identity
+
+
+
+def issue_auth_action_token(
+    db: Session,
+    *,
+    user: models.User,
+    action: str,
+    identity: models.UserAuthIdentity | None = None,
+    requested_ip: str | None = None,
+    expires_minutes: int,
+) -> str:
+    token = utils.create_opaque_token()
+    token_hash = utils.hash_opaque_token(token)
+
+    db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.user_id == user.id,
+        models.AuthActionToken.action == action,
+        models.AuthActionToken.consumed_at.is_(None),
+    ).delete(synchronize_session=False)
+
+    db.add(models.AuthActionToken(
+        user_id=user.id,
+        identity_id=identity.id if identity else None,
+        action=action,
+        token_hash=token_hash,
+        requested_ip=requested_ip,
+        expires_at=utils.now_utc_naive() + timedelta(minutes=expires_minutes),
+    ))
+    db.flush()
+    return token
+
+
+
+def issue_email_verification_token(db: Session, user: models.User, requested_ip: str | None = None) -> tuple[str, models.UserAuthIdentity]:
+    identity = get_primary_email_identity(db, user.id)
+    if not identity or not identity.email:
+        raise ValueError("当前账号没有可验证的邮箱身份")
+    token = issue_auth_action_token(
+        db,
+        user=user,
+        action="verify_email",
+        identity=identity,
+        requested_ip=requested_ip,
+        expires_minutes=EMAIL_VERIFY_TOKEN_EXPIRE_MINUTES,
+    )
+    return token, identity
+
+
+
+def verify_email_token(db: Session, token: str) -> models.User:
+    token_hash = utils.hash_opaque_token(token)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == "verify_email",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("Invalid or expired token")
+    if not record.user or not record.identity:
+        raise ValueError("Verification token is malformed")
+
+    record.identity.is_verified = True
+    record.consumed_at = utils.now_utc_naive()
+    sync_user_email_projection(db, record.user)
+    db.commit()
+    db.refresh(record.user)
+    return record.user
+
+
+
+def send_verification_email(user: models.User, email: str, verify_url: str) -> None:
+    body = (
+        f"你好 {user.username}，\n\n"
+        f"请点击下面的链接完成邮箱验证：\n{verify_url}\n\n"
+        f"链接 24 小时内有效。"
+    )
+    html = (
+        f"<p>你好 {user.username}，</p>"
+        f"<p>请点击下面的链接完成邮箱验证：</p>"
+        f"<p><a href=\"{verify_url}\">验证邮箱</a></p>"
+        f"<p>链接 24 小时内有效。</p>"
+    )
+    utils.send_email(email=email, subject="请验证你的邮箱", body=body, html=html)
+
+
+
+def send_password_reset_email(user: models.User, email: str, token: str) -> None:
+    body = (
+        f"你好 {user.username}，\n\n"
+        f"你正在请求重置密码。\n"
+        f"请在前端重置密码页使用以下 token：\n{token}\n\n"
+        f"该 token 30 分钟内有效。"
+    )
+    utils.send_email(email=email, subject="重置密码", body=body)
+
+
+
+def request_password_reset(db: Session, email: str, requested_ip: str | None = None) -> bool:
+    normalized_email = utils.normalize_email(email)
+    identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.provider == "email",
+        models.UserAuthIdentity.identifier_normalized == normalized_email,
+    ).first()
+    if not identity or not identity.user:
+        return False
+
+    token = issue_auth_action_token(
+        db,
+        user=identity.user,
+        action="reset_password",
+        identity=identity,
+        requested_ip=requested_ip,
+        expires_minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
+    )
+    send_password_reset_email(identity.user, identity.email or email, token)
+    db.commit()
+    return True
+
+
+
+def reset_password_by_token(db: Session, token: str, new_password: str) -> models.User:
+    token_hash = utils.hash_opaque_token(token)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == "reset_password",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("Invalid or expired token")
+    if not record.user:
+        raise ValueError("Reset token is malformed")
+
+    record.user.hashed_password = utils.get_password_hash(new_password)
+    record.user.failed_attempts = 0
+    record.user.last_failed_login = None
+    record.consumed_at = utils.now_utc_naive()
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == record.user_id,
+        models.RefreshToken.revoked == False,
+    ).update({"revoked": True}, synchronize_session=False)
+    db.query(models.Session).filter(
+        models.Session.user_id == record.user_id,
+        models.Session.revoked == False,
+    ).update({
+        "revoked": True,
+        "revoked_reason": "password_reset",
+        "revoked_at": utils.now_utc_naive(),
+    }, synchronize_session=False)
+    db.commit()
+    db.refresh(record.user)
+    return record.user
+
+
+
 def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> models.User:
+
     # 限制：同 IP 10 分鐘最多註冊 3 次
     window_start = datetime.utcnow() - timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
 
@@ -198,10 +406,15 @@ def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> mo
             detail="🚫 該 IP 註冊過於頻繁，請稍後再試"
         )
 
+    normalized_email = utils.normalize_email(user.email)
+
     # 檢查帳號是否存在
     if db.query(models.User).filter(models.User.username == user.username).first():
         raise ValueError("Username already exists")
-    if db.query(models.User).filter(models.User.email == user.email).first():
+    if db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.provider == "email",
+        models.UserAuthIdentity.identifier_normalized == normalized_email,
+    ).first():
         raise ValueError("Email already exists")
 
     db_user = models.User(
@@ -216,6 +429,14 @@ def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> mo
         created_at=datetime.utcnow()  # ⬅️ 確保你有這個欄位！
     )
     db.add(db_user)
+    db.flush()
+    ensure_email_identity(
+        db,
+        db_user,
+        user.email,
+        is_verified=not REQUIRE_EMAIL_VERIFICATION,
+        is_primary=True,
+    )
     db.commit()
     db.refresh(db_user)
     return db_user
@@ -223,14 +444,25 @@ def register_user(db: Session, user: schemas.UserCreate, register_ip: str) -> mo
 
 def authenticate_user(db: Session, username: str, password: str, login_ip: str) -> models.User:
     user = db.query(models.User).filter(
-        or_(
-            models.User.username == username,
-            models.User.email == username
-        )
+        models.User.username == username
     ).first()
+
+    email_identity = None
+    if not user and "@" in username:
+        normalized_email = utils.normalize_email(username)
+        email_identity = db.query(models.UserAuthIdentity).filter(
+            models.UserAuthIdentity.provider == "email",
+            models.UserAuthIdentity.identifier_normalized == normalized_email,
+        ).first()
+        if email_identity:
+            user = email_identity.user
+
     if not user:
         # 不暴露用户存在性
         raise ValueError("Invalid credentials")
+
+    if not email_identity:
+        email_identity = get_primary_email_identity(db, user.id)
 
     if not utils.verify_password(password, user.hashed_password):
         user.failed_attempts = (user.failed_attempts or 0) + 1
@@ -239,8 +471,10 @@ def authenticate_user(db: Session, username: str, password: str, login_ip: str) 
         raise ValueError("Invalid credentials")
 
     # 未验证则阻断（注意：此时不应更新 last_login 等字段）
-    if REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+    if REQUIRE_EMAIL_VERIFICATION and email_identity and not email_identity.is_verified:
         raise PermissionError("Email not verified")
+
+    sync_user_email_projection(db, user)
 
     # 认证成功：更新登录信息 & 开启会话
     user.failed_attempts = 0
@@ -249,6 +483,8 @@ def authenticate_user(db: Session, username: str, password: str, login_ip: str) 
     user.login_count = (user.login_count or 0) + 1
     user.current_session_started_at = user.last_login
     user.last_seen = user.last_login
+    if email_identity:
+        email_identity.last_login_at = user.last_login
     db.commit()
     return user
 

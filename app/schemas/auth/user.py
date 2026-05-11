@@ -23,7 +23,7 @@ class UserResponse(BaseModel):
 
     id: int
     username: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     # full_name: Optional[str] = None
     # phone: Optional[str] = None
     role: str
@@ -52,7 +52,7 @@ class UserMeResponse(BaseModel):
 
     id: int
     username: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     role: str
     status: str
     is_verified: bool
@@ -63,6 +63,19 @@ class UserMeResponse(BaseModel):
     total_online_seconds: int
 
     usage_summary: List[ApiUsageStat] = []
+
+
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 class Token(BaseModel):
