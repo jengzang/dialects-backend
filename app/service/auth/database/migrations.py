@@ -206,6 +206,24 @@ def repair_user_foreign_key_references(db_path: str | Path | None = None) -> int
         conn.close()
 
 
+def ensure_identity_profile_picture_column(db_path: str | Path | None = None) -> bool:
+    conn = _get_sqlite_connection(db_path)
+    try:
+        columns = conn.execute("PRAGMA table_info(user_auth_identities)").fetchall()
+        existing = {row[1] for row in columns}
+        if "profile_picture" in existing:
+            return False
+        conn.execute("ALTER TABLE user_auth_identities ADD COLUMN profile_picture TEXT")
+        conn.commit()
+        print("[MIGRATE] 已为 user_auth_identities 补充 profile_picture 列")
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def run_auth_schema_migrations(engine: Engine, db_path: str | Path | None = None) -> None:
     # 先让 SQLAlchemy 建新表，再处理旧表重建/回填
     from app.service.auth.database.models import Base
@@ -214,4 +232,5 @@ def run_auth_schema_migrations(engine: Engine, db_path: str | Path | None = None
     migrate_users_email_nullable_if_needed(db_path)
     repair_user_foreign_key_references(db_path)
     Base.metadata.create_all(bind=engine)
+    ensure_identity_profile_picture_column(db_path)
     backfill_email_identities(db_path)

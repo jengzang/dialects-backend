@@ -12,7 +12,7 @@ from app.service.auth.core import utils
 from app.service.auth.database import models
 from app.schemas import auth as schemas
 from app.common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
-    REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS
+    REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL
 
 # === 用户活动队列（跨进程） ===
 # [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
@@ -195,6 +195,41 @@ def get_primary_email_identity(db: Session, user_id: int) -> models.UserAuthIden
     ).first()
 
 
+def get_identity_by_provider_subject(db: Session, provider: str, provider_subject: str) -> models.UserAuthIdentity | None:
+    return db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.provider == provider,
+        models.UserAuthIdentity.provider_subject == provider_subject,
+    ).first()
+
+
+def get_email_identity_by_normalized_email(db: Session, normalized_email: str) -> models.UserAuthIdentity | None:
+    return db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.provider == "email",
+        models.UserAuthIdentity.identifier_normalized == normalized_email,
+    ).first()
+
+
+def build_action_url(base_url: str | None, token: str, *, query_param: str = "token", fallback_url: str | None = None) -> str:
+    if base_url:
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}{query_param}={token}"
+    return fallback_url or token
+
+
+def make_google_suggested_username(payload: dict) -> str:
+    for raw in [payload.get("email"), payload.get("name"), payload.get("given_name")]:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        candidate = "".join(ch.lower() if ch.isalnum() else "_" for ch in value)
+        candidate = candidate.strip("_")
+        while "__" in candidate:
+            candidate = candidate.replace("__", "_")
+        if candidate:
+            return candidate[:50]
+    return f"google_{payload['sub'][:12]}"
+
+
 
 def sync_user_email_projection(db: Session, user: models.User) -> models.User:
     identity = get_primary_email_identity(db, user.id)
@@ -236,6 +271,154 @@ def ensure_email_identity(
         db.flush()
 
     sync_user_email_projection(db, user)
+    return identity
+
+
+
+def ensure_provider_identity(
+    db: Session,
+    *,
+    user: models.User,
+    provider: str,
+    provider_subject: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    profile_picture: str | None = None,
+    is_verified: bool = True,
+) -> models.UserAuthIdentity:
+    identity = get_identity_by_provider_subject(db, provider, provider_subject)
+    if identity and identity.user_id != user.id:
+        raise ValueError(f"{provider} identity already linked to another account")
+
+    normalized_email = utils.normalize_email(email or "") or None
+    if identity:
+        identity.identifier_normalized = normalized_email
+        identity.email = email
+        identity.display_name = display_name or identity.display_name or email or provider
+        identity.profile_picture = profile_picture or identity.profile_picture
+        identity.is_verified = bool(is_verified)
+    else:
+        identity = models.UserAuthIdentity(
+            user_id=user.id,
+            provider=provider,
+            provider_subject=provider_subject,
+            identifier_normalized=normalized_email,
+            email=email,
+            display_name=display_name or email or provider,
+            profile_picture=profile_picture,
+            is_verified=bool(is_verified),
+            is_primary=False,
+        )
+        db.add(identity)
+        db.flush()
+
+    identity.last_login_at = utils.now_utc_naive()
+    return identity
+
+
+
+def prepare_google_auth(db: Session, id_token: str) -> dict:
+    payload = utils.verify_google_id_token(id_token)
+    google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])
+    if google_identity and google_identity.user:
+        google_identity.email = payload.get("email")
+        google_identity.identifier_normalized = payload.get("email")
+        google_identity.display_name = payload.get("name") or google_identity.display_name
+        google_identity.profile_picture = payload.get("picture") or google_identity.profile_picture
+        google_identity.is_verified = True
+        sync_user_email_projection(db, google_identity.user)
+        return {
+            "action": "login",
+            "user": google_identity.user,
+            "payload": payload,
+        }
+
+    email = payload.get("email")
+    if email:
+        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        if existing_email_identity and existing_email_identity.user:
+            return {
+                "action": "conflict",
+                "conflict_code": "login_then_bind",
+                "payload": payload,
+                "existing_user": existing_email_identity.user,
+            }
+
+    return {
+        "action": "register",
+        "payload": payload,
+        "suggested_username": make_google_suggested_username(payload),
+    }
+
+
+
+def register_user_with_google(db: Session, signup: schemas.GoogleRegisterRequest, register_ip: str) -> tuple[models.User, models.UserAuthIdentity]:
+    payload = utils.verify_google_id_token(signup.id_token)
+    if get_identity_by_provider_subject(db, "google", payload["sub"]):
+        raise ValueError("Google account already linked")
+
+    email = payload.get("email")
+    if not email:
+        raise ValueError("Google account did not provide email")
+
+    existing_email_identity = get_email_identity_by_normalized_email(db, email)
+    if existing_email_identity:
+        raise ValueError("Email already exists, please login and bind Google first")
+
+    user = register_user(
+        db,
+        schemas.UserCreate(username=signup.username, email=email, password=signup.password),
+        register_ip=register_ip,
+    )
+    email_identity = ensure_email_identity(db, user, email, is_verified=bool(payload.get("email_verified")), is_primary=True)
+    google_identity = ensure_provider_identity(
+        db,
+        user=user,
+        provider="google",
+        provider_subject=payload["sub"],
+        email=email,
+        display_name=payload.get("name"),
+        profile_picture=payload.get("picture"),
+        is_verified=True,
+    )
+    if payload.get("picture"):
+        user.profile_picture = payload.get("picture")
+    sync_user_email_projection(db, user)
+    db.commit()
+    db.refresh(user)
+    db.refresh(google_identity)
+    db.refresh(email_identity)
+    return user, google_identity
+
+
+
+def bind_google_identity(db: Session, user: models.User, id_token: str) -> models.UserAuthIdentity:
+    payload = utils.verify_google_id_token(id_token)
+    existing_google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])
+    if existing_google_identity and existing_google_identity.user_id != user.id:
+        raise ValueError("Google account already linked to another account")
+
+    current_google_identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+        models.UserAuthIdentity.provider == "google",
+    ).first()
+    if current_google_identity and current_google_identity.provider_subject != payload["sub"]:
+        raise ValueError("Current account already linked to another Google account")
+
+    identity = ensure_provider_identity(
+        db,
+        user=user,
+        provider="google",
+        provider_subject=payload["sub"],
+        email=payload.get("email"),
+        display_name=payload.get("name"),
+        profile_picture=payload.get("picture"),
+        is_verified=True,
+    )
+    if payload.get("picture") and not user.profile_picture:
+        user.profile_picture = payload.get("picture")
+    db.commit()
+    db.refresh(identity)
     return identity
 
 
@@ -324,13 +507,23 @@ def send_verification_email(user: models.User, email: str, verify_url: str) -> N
 
 
 def send_password_reset_email(user: models.User, email: str, token: str) -> None:
+    reset_url = build_action_url(FRONTEND_RESET_PASSWORD_URL, token)
     body = (
         f"你好 {user.username}，\n\n"
         f"你正在请求重置密码。\n"
-        f"请在前端重置密码页使用以下 token：\n{token}\n\n"
-        f"该 token 30 分钟内有效。"
+        f"请打开下面的链接重置密码：\n{reset_url}\n\n"
+        f"如果你的前端还未接好，也可以直接使用 token：\n{token}\n\n"
+        f"该链接 / token 30 分钟内有效。"
     )
-    utils.send_email(email=email, subject="重置密码", body=body)
+    html = (
+        f"<p>你好 {user.username}，</p>"
+        f"<p>你正在请求重置密码。</p>"
+        f"<p><a href=\"{reset_url}\">重置密码</a></p>"
+        f"<p>如果前端还未接好，也可以直接使用 token：</p>"
+        f"<pre>{token}</pre>"
+        f"<p>该链接 / token 30 分钟内有效。</p>"
+    )
+    utils.send_email(email=email, subject="重置密码", body=body, html=html)
 
 
 
@@ -474,18 +667,29 @@ def authenticate_user(db: Session, username: str, password: str, login_ip: str) 
     if REQUIRE_EMAIL_VERIFICATION and email_identity and not email_identity.is_verified:
         raise PermissionError("Email not verified")
 
-    sync_user_email_projection(db, user)
+    mark_user_login_success(db, user, login_ip=login_ip, identity=email_identity)
+    return user
 
-    # 认证成功：更新登录信息 & 开启会话
+
+
+def mark_user_login_success(
+    db: Session,
+    user: models.User,
+    *,
+    login_ip: str,
+    identity: models.UserAuthIdentity | None = None,
+) -> models.User:
+    sync_user_email_projection(db, user)
     user.failed_attempts = 0
     user.last_login = utils.now_utc_naive()
     user.last_login_ip = login_ip
     user.login_count = (user.login_count or 0) + 1
     user.current_session_started_at = user.last_login
     user.last_seen = user.last_login
-    if email_identity:
-        email_identity.last_login_at = user.last_login
+    if identity:
+        identity.last_login_at = user.last_login
     db.commit()
+    db.refresh(user)
     return user
 
 

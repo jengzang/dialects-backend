@@ -25,7 +25,7 @@ from app.service.auth.session.online_time_guard import check_online_time_report_
 from app.schemas import auth as schemas
 from app.service.auth.core import service
 from app.service.auth.database.connection import get_db
-from app.common.config import REQUIRE_EMAIL_VERIFICATION
+from app.common.config import REQUIRE_EMAIL_VERIFICATION, FRONTEND_VERIFY_EMAIL_URL
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
@@ -68,6 +68,23 @@ def _load_active_user_from_token(
     return user, payload
 
 
+
+def _issue_session_tokens(db: Session, user: models.User, request: Request) -> dict:
+    session_obj, access_token, refresh_token = create_session(
+        db=db,
+        user=user,
+        device_info=request.headers.get("User-Agent", "Unknown"),
+        ip_address=utils.extract_client_ip(request),
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60,
+        "session_id": session_obj.public_id,
+    }
+
+
 # 注册：根据开关决定是否要求邮箱验证；生成验证链接并发送
 @router.post("/register", response_model=schemas.UserResponse)
 def register(user: schemas.UserCreate, request: Request, db: Session = Depends(get_db)):
@@ -77,7 +94,8 @@ def register(user: schemas.UserCreate, request: Request, db: Session = Depends(g
 
         if REQUIRE_EMAIL_VERIFICATION and created.email:
             token, identity = service.issue_email_verification_token(db, created, requested_ip=client_ip)
-            verify_url = str(request.url_for("verify_email")) + f"?token={token}"
+            backend_verify_url = str(request.url_for("verify_email")) + f"?token={token}"
+            verify_url = service.build_action_url(FRONTEND_VERIFY_EMAIL_URL, token, fallback_url=backend_verify_url)
             service.send_verification_email(created, identity.email or created.email, verify_url)
             db.commit()
 
@@ -198,7 +216,8 @@ def resend_verification(payload: schemas.EmailRequest, request: Request, db: Ses
 
     try:
         token, _ = service.issue_email_verification_token(db, identity.user, requested_ip=utils.extract_client_ip(request))
-        verify_url = str(request.url_for("verify_email")) + f"?token={token}"
+        backend_verify_url = str(request.url_for("verify_email")) + f"?token={token}"
+        verify_url = service.build_action_url(FRONTEND_VERIFY_EMAIL_URL, token, fallback_url=backend_verify_url)
         service.send_verification_email(identity.user, identity.email or payload.email, verify_url)
         db.commit()
         return {"message": "验证邮件已发送"}
@@ -220,6 +239,90 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
     try:
         service.reset_password_by_token(db, payload.token, payload.new_password)
         return {"message": "密码已重置，请重新登录"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/google/auth", response_model=schemas.GoogleAuthResponse)
+def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        result = service.prepare_google_auth(db, payload.id_token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    google_payload = result["payload"]
+    if result["action"] == "login":
+        user = result["user"]
+        google_identity = service.get_identity_by_provider_subject(db, "google", google_payload["sub"])
+        service.mark_user_login_success(db, user, login_ip=utils.extract_client_ip(request), identity=google_identity)
+        tokens = _issue_session_tokens(db, user, request)
+        return {
+            "action": "login",
+            "message": "Google 登录成功",
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "email": google_payload.get("email"),
+            "is_verified": True,
+            "profile_picture": google_payload.get("picture"),
+        }
+
+    if result["action"] == "conflict":
+        return {
+            "action": "conflict",
+            "message": "该 Google 邮箱已存在，请先用原账号登录后再绑定 Google",
+            "email": google_payload.get("email"),
+            "conflict_code": result.get("conflict_code"),
+            "is_verified": bool(google_payload.get("email_verified")),
+            "profile_picture": google_payload.get("picture"),
+        }
+
+    return {
+        "action": "register",
+        "message": "Google 账号可用于注册，请补充用户名和密码完成创建",
+        "email": google_payload.get("email"),
+        "suggested_username": result.get("suggested_username"),
+        "is_verified": bool(google_payload.get("email_verified")),
+        "profile_picture": google_payload.get("picture"),
+    }
+
+
+@router.post("/google/register", response_model=schemas.GoogleAuthResponse)
+def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        user, identity = service.register_user_with_google(db, payload, register_ip=utils.extract_client_ip(request))
+        service.mark_user_login_success(db, user, login_ip=utils.extract_client_ip(request), identity=identity)
+        tokens = _issue_session_tokens(db, user, request)
+        return {
+            "action": "login",
+            "message": "Google 注册并登录成功",
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "email": identity.email,
+            "is_verified": identity.is_verified,
+            "profile_picture": identity.profile_picture,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+
+
+@router.post("/google/bind", response_model=schemas.GoogleAuthResponse)
+def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    try:
+        identity = service.bind_google_identity(db, user, payload.id_token)
+        return {
+            "action": "bind",
+            "message": "Google 账号绑定成功",
+            "email": identity.email,
+            "is_verified": identity.is_verified,
+            "profile_picture": identity.profile_picture,
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

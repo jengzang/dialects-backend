@@ -20,19 +20,19 @@ from app.common.config import (
     ALGORITHM,
     AUDIENCE,
     ISSUER,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_TOKENINFO_URL,
+    RESEND_API_KEY,
+    RESEND_FROM_EMAIL,
+    RESEND_API_BASE,
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_USERNAME,
+    SMTP_PASSWORD,
+    SMTP_FROM,
 )
 
 # 邮件发送配置：优先使用 Resend，未配置时再退化到 SMTP，再不行则打印到控制台
-RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "").strip()
-RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "").strip()
-RESEND_API_BASE: str = os.getenv("RESEND_API_BASE", "https://api.resend.com").rstrip("/")
-
-SMTP_HOST: Optional[str] = os.getenv("SMTP_HOST") or None
-SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USERNAME: Optional[str] = os.getenv("SMTP_USERNAME") or None
-SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD") or None
-SMTP_FROM: str = os.getenv("SMTP_FROM", RESEND_FROM_EMAIL or "no-reply@your-domain.com")
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- 時間工具：UTC 時間 ---
@@ -119,6 +119,36 @@ def hash_opaque_token(token: str) -> str:
 
 def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def verify_google_id_token(id_token: str) -> dict:
+    response = requests.get(
+        GOOGLE_TOKENINFO_URL,
+        params={"id_token": id_token},
+        timeout=20,
+    )
+    if response.status_code >= 300:
+        raise ValueError("Invalid Google token")
+
+    data = response.json()
+    issuer = str(data.get("iss") or "")
+    if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise ValueError("Invalid Google token issuer")
+
+    audience = str(data.get("aud") or "")
+    if GOOGLE_CLIENT_ID and audience != GOOGLE_CLIENT_ID:
+        raise ValueError("Google client id mismatch")
+
+    subject = str(data.get("sub") or "").strip()
+    if not subject:
+        raise ValueError("Google token missing subject")
+
+    email = normalize_email(data.get("email") or "")
+    email_verified_raw = str(data.get("email_verified") or "").lower()
+    data["email"] = email or None
+    data["email_verified"] = email_verified_raw in {"true", "1", "yes"}
+    data["sub"] = subject
+    return data
 
 
 def create_token_pair(username: str, role: str = "user", session_id: str = None) -> dict:
