@@ -85,14 +85,19 @@ def _issue_session_tokens(db: Session, user: models.User, request: Request) -> d
     }
 
 
-def _raise_auth_conflict(message: str, *, conflict_code: str, suggested_action: str = "login_then_bind") -> None:
+def _raise_auth_conflict(
+    message: str,
+    *,
+    conflict_code: str,
+    suggested_action: str = service.SUGGESTED_ACTION_LOGIN_THEN_BIND,
+) -> None:
     raise HTTPException(
         status_code=409,
-        detail={
-            "message": message,
-            "conflict_code": conflict_code,
-            "suggested_action": suggested_action,
-        },
+        detail=schemas.AuthConflictResponse(
+            message=message,
+            conflict_code=conflict_code,
+            suggested_action=suggested_action,
+        ).model_dump(),
     )
 
 
@@ -336,7 +341,11 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/google/auth", response_model=schemas.GoogleAuthResponse)
+@router.post(
+    "/google/auth",
+    response_model=schemas.GoogleAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Session = Depends(get_db)):
     try:
         result = service.prepare_google_auth(db, payload.id_token)
@@ -363,15 +372,11 @@ def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Sessi
         }
 
     if result["action"] == "conflict":
-        return {
-            "action": "conflict",
-            "message": "该 Google 邮箱已存在，请先用原账号登录后再绑定 Google",
-            "email": google_payload.get("email"),
-            "conflict_code": result.get("conflict_code"),
-            "suggested_action": "login_then_bind",
-            "is_verified": bool(google_payload.get("email_verified")),
-            "profile_picture": google_payload.get("picture"),
-        }
+        _raise_auth_conflict(
+            "该 Google 邮箱已存在，请先用原账号登录后再绑定 Google",
+            conflict_code=result.get("conflict_code") or service.CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
+            suggested_action=result.get("suggested_action") or service.SUGGESTED_ACTION_LOGIN_THEN_BIND,
+        )
 
     return {
         "action": "register",
@@ -383,7 +388,11 @@ def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Sessi
     }
 
 
-@router.post("/google/register", response_model=schemas.GoogleAuthResponse)
+@router.post(
+    "/google/register",
+    response_model=schemas.GoogleAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db: Session = Depends(get_db)):
     try:
         user, identity = service.register_user_with_google(db, payload, register_ip=utils.extract_client_ip(request))
@@ -406,7 +415,11 @@ def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/google/bind", response_model=schemas.GoogleAuthResponse)
+@router.post(
+    "/google/bind",
+    response_model=schemas.GoogleAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user, auth_payload = _load_active_user_from_token(db, token)
     try:
@@ -430,7 +443,11 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/wechat/auth", response_model=schemas.WechatAuthResponse)
+@router.post(
+    "/wechat/auth",
+    response_model=schemas.WechatAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Session = Depends(get_db)):
     try:
         result = service.prepare_wechat_auth(db, payload.access_token, payload.openid)
@@ -457,14 +474,11 @@ def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Sessi
         }
 
     if result["action"] == "conflict":
-        return {
-            "action": "conflict",
-            "message": "该微信邮箱已存在，请先用原账号登录后再绑定微信",
-            "conflict_code": result.get("conflict_code"),
-            "suggested_action": result.get("suggested_action"),
-            "profile_picture": wechat_payload.get("headimgurl"),
-            "provider_subject": provider_subject,
-        }
+        _raise_auth_conflict(
+            "该微信邮箱已存在，请先用原账号登录后再绑定微信",
+            conflict_code=result.get("conflict_code") or service.CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
+            suggested_action=result.get("suggested_action") or service.SUGGESTED_ACTION_LOGIN_THEN_BIND,
+        )
 
     return {
         "action": "register",
@@ -475,7 +489,11 @@ def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Sessi
     }
 
 
-@router.post("/wechat/register", response_model=schemas.WechatAuthResponse)
+@router.post(
+    "/wechat/register",
+    response_model=schemas.WechatAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db: Session = Depends(get_db)):
     try:
         user, identity = service.register_user_with_wechat(db, payload, register_ip=utils.extract_client_ip(request))
@@ -497,7 +515,11 @@ def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/wechat/bind", response_model=schemas.WechatAuthResponse)
+@router.post(
+    "/wechat/bind",
+    response_model=schemas.WechatAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
 def wechat_bind(payload: schemas.WechatTokenRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user, auth_payload = _load_active_user_from_token(db, token)
     try:
