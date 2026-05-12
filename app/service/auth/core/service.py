@@ -634,7 +634,11 @@ def bind_google_identity(
         models.UserAuthIdentity.provider == "google",
     ).first()
     if current_google_identity and current_google_identity.provider_subject != payload["sub"]:
-        raise ValueError("Current account already linked to another Google account")
+        raise AuthConflictError(
+            "Current account already linked to another Google account",
+            conflict_code="current_account_provider_mismatch",
+            suggested_action="replace_existing_provider_binding",
+        )
 
     identity = ensure_provider_identity(
         db,
@@ -676,7 +680,11 @@ def bind_wechat_identity(
         models.UserAuthIdentity.provider == "wechat",
     ).first()
     if current_wechat_identity and current_wechat_identity.provider_subject != provider_subject:
-        raise ValueError("Current account already linked to another WeChat account")
+        raise AuthConflictError(
+            "Current account already linked to another WeChat account",
+            conflict_code="current_account_provider_mismatch",
+            suggested_action="replace_existing_provider_binding",
+        )
 
     identity = ensure_provider_identity(
         db,
