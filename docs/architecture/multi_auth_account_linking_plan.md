@@ -163,9 +163,50 @@ The backend contract is now stable enough to describe explicitly, even though so
     - google -> `bind_google`
     - wechat -> `bind_wechat`
 - the legacy `DELETE /api/auth/providers/{provider}` endpoint still exists for compatibility, but v1 runtime policy hard-rejects removal for known providers and only preserves the endpoint as a compatibility surface
+- current frontend/backend contract interpretation should be frozen as:
+  - provider management is a replace/rebind flow, not an unlink/delete flow
+  - frontend should not render a destructive unlink action for email / google / wechat in v1
+  - frontend may render a "换绑" / "重新绑定" action when `can_replace=true`
+  - frontend should treat `replacement_action` as the primary machine routing hint rather than inferring from provider name alone
+
+### Current social-auth conflict contract reality
+
+The current backend conflict behavior should also be treated as part of the frozen v1 contract.
+
+- affected routes:
+  - `POST /api/auth/google/auth`
+  - `POST /api/auth/google/register`
+  - `POST /api/auth/google/bind`
+  - `POST /api/auth/wechat/auth`
+  - `POST /api/auth/wechat/register`
+  - `POST /api/auth/wechat/bind`
+- business conflict responses now return `HTTP 409`
+- the 409 payload shape is:
+  - `message`
+  - `conflict_code`
+  - `suggested_action`
+- currently used `conflict_code` values include:
+  - `email_already_exists`
+  - `provider_already_linked`
+  - `current_account_provider_mismatch`
+- currently used `suggested_action` values include:
+  - `login_then_bind`
+  - `replace_existing_provider_binding`
+- semantic interpretation is:
+  - `email_already_exists`
+    - social provider returned an email that already belongs to an existing account
+    - backend must not auto-merge
+    - frontend should guide the user to log into the existing account first and then bind
+  - `provider_already_linked`
+    - the provider identity is already linked to another account
+    - frontend should not offer auto-merge or silent takeover behavior
+  - `current_account_provider_mismatch`
+    - the current account already has another identity bound for the same provider
+    - frontend should guide the user through replacement / rebind semantics, not unlink semantics
 
 Implication:
 - frontend should render provider management in terms of replace/rebind actions, not unlink/remove actions
+- frontend and product copy should interpret social-auth conflict handling via structured 409 responses rather than legacy string matching
 - this document still uses some older unlink language in later sections; when those sections are executed, they should be interpreted through the runtime rule above unless deliberately redesigned
 
 ### Phase-by-phase progress view
