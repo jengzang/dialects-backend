@@ -154,6 +154,12 @@ class WechatRegisterRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class AuthConflictResponse(BaseModel):
+    message: str
+    conflict_code: str
+    suggested_action: Optional[str] = None
+
+
 class GoogleAuthResponse(BaseModel):
     action: str
     message: str

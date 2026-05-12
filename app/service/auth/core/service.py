@@ -189,9 +189,16 @@ PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
 EMAIL_REGISTRATION_TOKEN_EXPIRE_MINUTES = 60 * 24
 FRESH_AUTH_WINDOW_MINUTES = 15
 
+CONFLICT_CODE_EMAIL_ALREADY_EXISTS = "email_already_exists"
+CONFLICT_CODE_PROVIDER_ALREADY_LINKED = "provider_already_linked"
+CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH = "current_account_provider_mismatch"
+
+SUGGESTED_ACTION_LOGIN_THEN_BIND = "login_then_bind"
+SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING = "replace_existing_provider_binding"
+
 
 class AuthConflictError(ValueError):
-    def __init__(self, message: str, *, conflict_code: str, suggested_action: str = "login_then_bind"):
+    def __init__(self, message: str, *, conflict_code: str, suggested_action: str = SUGGESTED_ACTION_LOGIN_THEN_BIND):
         super().__init__(message)
         self.message = message
         self.conflict_code = conflict_code
@@ -449,7 +456,7 @@ def prepare_google_auth(db: Session, id_token: str) -> dict:
     google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])
     if google_identity and google_identity.user:
         google_identity.email = payload.get("email")
-        google_identity.identifier_normalized = payload.get("email")
+        google_identity.identifier_normalized = utils.normalize_email(payload.get("email")) if payload.get("email") else None
         google_identity.display_name = payload.get("name") or google_identity.display_name
         google_identity.profile_picture = payload.get("picture") or google_identity.profile_picture
         google_identity.is_verified = True
@@ -462,12 +469,13 @@ def prepare_google_auth(db: Session, id_token: str) -> dict:
 
     email = payload.get("email")
     if email:
-        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        normalized_email = utils.normalize_email(email)
+        existing_email_identity = get_email_identity_by_normalized_email(db, normalized_email)
         if existing_email_identity and existing_email_identity.user:
             return {
                 "action": "conflict",
-                "conflict_code": "email_already_exists",
-                "suggested_action": "login_then_bind",
+                "conflict_code": CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
+                "suggested_action": SUGGESTED_ACTION_LOGIN_THEN_BIND,
                 "payload": payload,
                 "existing_user": existing_email_identity.user,
             }
@@ -496,12 +504,13 @@ def prepare_wechat_auth(db: Session, access_token: str, openid: str) -> dict:
 
     email = payload.get("email")
     if email:
-        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        normalized_email = utils.normalize_email(email)
+        existing_email_identity = get_email_identity_by_normalized_email(db, normalized_email)
         if existing_email_identity and existing_email_identity.user:
             return {
                 "action": "conflict",
-                "conflict_code": "email_already_exists",
-                "suggested_action": "login_then_bind",
+                "conflict_code": CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
+                "suggested_action": SUGGESTED_ACTION_LOGIN_THEN_BIND,
                 "payload": payload,
                 "existing_user": existing_email_identity.user,
             }
@@ -519,18 +528,18 @@ def register_user_with_google(db: Session, signup: schemas.GoogleRegisterRequest
     if get_identity_by_provider_subject(db, "google", payload["sub"]):
         raise AuthConflictError(
             "Google account already linked",
-            conflict_code="provider_already_linked",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
         )
 
     email = payload.get("email")
     if not email:
         raise ValueError("Google account did not provide email")
 
-    existing_email_identity = get_email_identity_by_normalized_email(db, email)
+    existing_email_identity = get_email_identity_by_normalized_email(db, utils.normalize_email(email))
     if existing_email_identity:
         raise AuthConflictError(
             "Email already exists, please login and bind Google first",
-            conflict_code="email_already_exists",
+            conflict_code=CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
         )
 
     user = register_user(
@@ -565,7 +574,7 @@ def register_user_with_wechat(db: Session, signup: schemas.WechatRegisterRequest
     if get_identity_by_provider_subject(db, "wechat", provider_subject):
         raise AuthConflictError(
             "WeChat account already linked",
-            conflict_code="provider_already_linked",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
         )
 
     if db.query(models.User).filter(models.User.username == signup.username).first():
@@ -573,11 +582,11 @@ def register_user_with_wechat(db: Session, signup: schemas.WechatRegisterRequest
 
     email = payload.get("email")
     if email:
-        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        existing_email_identity = get_email_identity_by_normalized_email(db, utils.normalize_email(email))
         if existing_email_identity:
             raise AuthConflictError(
                 "Email already exists, please login and bind WeChat first",
-                conflict_code="email_already_exists",
+                conflict_code=CONFLICT_CODE_EMAIL_ALREADY_EXISTS,
             )
 
     now = utils.now_utc_naive()
@@ -626,7 +635,7 @@ def bind_google_identity(
     if existing_google_identity and existing_google_identity.user_id != user.id:
         raise AuthConflictError(
             "Google account already linked to another account",
-            conflict_code="provider_already_linked",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
         )
 
     current_google_identity = db.query(models.UserAuthIdentity).filter(
@@ -636,8 +645,8 @@ def bind_google_identity(
     if current_google_identity and current_google_identity.provider_subject != payload["sub"]:
         raise AuthConflictError(
             "Current account already linked to another Google account",
-            conflict_code="current_account_provider_mismatch",
-            suggested_action="replace_existing_provider_binding",
+            conflict_code=CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH,
+            suggested_action=SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING,
         )
 
     identity = ensure_provider_identity(
@@ -672,7 +681,7 @@ def bind_wechat_identity(
     if existing_wechat_identity and existing_wechat_identity.user_id != user.id:
         raise AuthConflictError(
             "WeChat account already linked to another account",
-            conflict_code="provider_already_linked",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
         )
 
     current_wechat_identity = db.query(models.UserAuthIdentity).filter(
@@ -682,8 +691,8 @@ def bind_wechat_identity(
     if current_wechat_identity and current_wechat_identity.provider_subject != provider_subject:
         raise AuthConflictError(
             "Current account already linked to another WeChat account",
-            conflict_code="current_account_provider_mismatch",
-            suggested_action="replace_existing_provider_binding",
+            conflict_code=CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH,
+            suggested_action=SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING,
         )
 
     identity = ensure_provider_identity(
