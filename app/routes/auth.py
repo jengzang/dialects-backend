@@ -456,6 +456,16 @@ def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Sessi
             "provider_subject": provider_subject,
         }
 
+    if result["action"] == "conflict":
+        return {
+            "action": "conflict",
+            "message": "该微信邮箱已存在，请先用原账号登录后再绑定微信",
+            "conflict_code": result.get("conflict_code"),
+            "suggested_action": result.get("suggested_action"),
+            "profile_picture": wechat_payload.get("headimgurl"),
+            "provider_subject": provider_subject,
+        }
+
     return {
         "action": "register",
         "message": "微信账号可用于注册，请补充用户名和密码完成创建",
