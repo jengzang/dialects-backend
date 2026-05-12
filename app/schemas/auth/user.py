@@ -165,6 +165,7 @@ class GoogleAuthResponse(BaseModel):
     email: Optional[EmailStr] = None
     suggested_username: Optional[str] = None
     conflict_code: Optional[str] = None
+    suggested_action: Optional[str] = None
     is_verified: Optional[bool] = None
     profile_picture: Optional[str] = None
 
@@ -179,6 +180,7 @@ class WechatAuthResponse(BaseModel):
     expires_in: Optional[int] = None
     suggested_username: Optional[str] = None
     conflict_code: Optional[str] = None
+    suggested_action: Optional[str] = None
     profile_picture: Optional[str] = None
     provider_subject: Optional[str] = None
 
