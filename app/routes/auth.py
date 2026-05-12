@@ -401,11 +401,10 @@ def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
         }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
     except ValueError as e:
-        message = str(e)
-        if message == "Email already exists, please login and bind Google first":
-            _raise_auth_conflict(message, conflict_code="email_already_exists")
-        raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/google/bind", response_model=schemas.GoogleAuthResponse)
 def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -425,11 +424,10 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
         }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
     except ValueError as e:
-        message = str(e)
-        if message == "Google account already linked to another account":
-            _raise_auth_conflict(message, conflict_code="provider_already_linked")
-        raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/wechat/auth", response_model=schemas.WechatAuthResponse)
@@ -484,11 +482,10 @@ def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db
             "profile_picture": identity.profile_picture,
             "provider_subject": identity.provider_subject,
         }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
     except ValueError as e:
-        message = str(e)
-        if message == "Email already exists, please login and bind Google first":
-            _raise_auth_conflict(message, conflict_code="email_already_exists")
-        raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/wechat/bind", response_model=schemas.WechatAuthResponse)
 def wechat_bind(payload: schemas.WechatTokenRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -508,11 +505,10 @@ def wechat_bind(payload: schemas.WechatTokenRequest, token: str = Depends(oauth2
             "profile_picture": identity.profile_picture,
             "provider_subject": identity.provider_subject,
         }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
     except ValueError as e:
-        message = str(e)
-        if message == "WeChat account already linked to another account":
-            _raise_auth_conflict(message, conflict_code="provider_already_linked")
-        raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/providers", response_model=list[schemas.AuthProviderStatus])
