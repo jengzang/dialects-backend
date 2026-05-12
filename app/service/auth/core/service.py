@@ -494,6 +494,18 @@ def prepare_wechat_auth(db: Session, access_token: str, openid: str) -> dict:
             "payload": payload,
         }
 
+    email = payload.get("email")
+    if email:
+        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        if existing_email_identity and existing_email_identity.user:
+            return {
+                "action": "conflict",
+                "conflict_code": "email_already_exists",
+                "suggested_action": "login_then_bind",
+                "payload": payload,
+                "existing_user": existing_email_identity.user,
+            }
+
     return {
         "action": "register",
         "payload": payload,
@@ -551,10 +563,22 @@ def register_user_with_wechat(db: Session, signup: schemas.WechatRegisterRequest
     payload = utils.verify_wechat_access_token(signup.access_token, signup.openid)
     provider_subject = payload.get("unionid") or payload["openid"]
     if get_identity_by_provider_subject(db, "wechat", provider_subject):
-        raise ValueError("WeChat account already linked")
+        raise AuthConflictError(
+            "WeChat account already linked",
+            conflict_code="provider_already_linked",
+        )
 
     if db.query(models.User).filter(models.User.username == signup.username).first():
         raise ValueError("Username already exists")
+
+    email = payload.get("email")
+    if email:
+        existing_email_identity = get_email_identity_by_normalized_email(db, email)
+        if existing_email_identity:
+            raise AuthConflictError(
+                "Email already exists, please login and bind WeChat first",
+                conflict_code="email_already_exists",
+            )
 
     now = utils.now_utc_naive()
     user = models.User(
