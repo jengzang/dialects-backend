@@ -200,8 +200,10 @@ The current backend conflict behavior should also be treated as part of the froz
   - `provider_already_linked`
     - the provider identity is already linked to another account
     - frontend should not offer auto-merge or silent takeover behavior
+    - frontend should treat this as an ownership conflict, not as a replace/rebind opportunity on the current account
   - `current_account_provider_mismatch`
     - the current account already has another identity bound for the same provider
+    - this is the conflict shape that maps to replace/rebind guidance on the current account
     - frontend should guide the user through replacement / rebind semantics, not unlink semantics
 
 Implication:
