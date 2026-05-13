@@ -115,6 +115,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "Email already exists, please login and bind Google first")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_EMAIL_ALREADY_EXISTS)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_LOGIN_THEN_BIND)
 
@@ -131,6 +132,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         response = self.client.post("/api/auth/google/bind", json={"id_token": "x" * 30})
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "Google account already linked to another account")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_PROVIDER_ALREADY_LINKED)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_LOGIN_THEN_BIND)
 
@@ -147,6 +149,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         response = self.client.post("/api/auth/google/bind", json={"id_token": "x" * 30})
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "Current account already linked to another Google account")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING)
 
@@ -164,6 +167,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "Email already exists, please login and bind WeChat first")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_EMAIL_ALREADY_EXISTS)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_LOGIN_THEN_BIND)
 
@@ -183,6 +187,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "WeChat account already linked to another account")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_PROVIDER_ALREADY_LINKED)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_LOGIN_THEN_BIND)
 
@@ -202,6 +207,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409)
         body = response.json()
+        self.assertEqual(body["detail"]["message"], "Current account already linked to another WeChat account")
         self.assertEqual(body["detail"]["conflict_code"], service.CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH)
         self.assertEqual(body["detail"]["suggested_action"], service.SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING)
 
