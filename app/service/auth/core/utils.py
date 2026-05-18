@@ -23,8 +23,14 @@ from app.common.config import (
     ISSUER,
     GOOGLE_CLIENT_ID,
     GOOGLE_TOKENINFO_URL,
+    GOOGLE_OAUTH_AUTHORIZE_URL,
+    GOOGLE_OAUTH_SCOPE,
+    GOOGLE_OAUTH_REDIRECT_URL,
     WECHAT_APP_ID,
     WECHAT_USERINFO_URL,
+    WECHAT_OAUTH_REDIRECT_URL,
+    WECHAT_OAUTH_SCOPE,
+    OAUTH_STATE_EXPIRE_MINUTES,
     RESEND_API_KEY,
     RESEND_FROM_EMAIL,
     RESEND_API_BASE,
@@ -154,7 +160,20 @@ def verify_google_id_token(id_token: str) -> dict:
     return data
 
 
-def make_wechat_qr_authorize_url(*, redirect_uri: str, state: str, scope: str = "snsapi_login") -> str:
+def make_google_authorize_url(*, redirect_uri: str, state: str, scope: str | None = None) -> str:
+    query = urlencode({
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "id_token",
+        "scope": scope or GOOGLE_OAUTH_SCOPE,
+        "state": state,
+        "nonce": state,
+        "prompt": "select_account",
+    })
+    return f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{query}"
+
+
+def make_wechat_qr_authorize_url(*, redirect_uri: str, state: str, scope: str = WECHAT_OAUTH_SCOPE) -> str:
     query = urlencode({
         "appid": WECHAT_APP_ID,
         "redirect_uri": redirect_uri,

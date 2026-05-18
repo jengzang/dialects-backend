@@ -29,29 +29,50 @@
    - 忘记密码邮件
    - 重置密码链接/Token
 
-4. Google 登录后端接口
+4. Google / WeChat / 邮箱认证后端接口
    已提供：
-   - POST /api/auth/google/auth
-   - POST /api/auth/google/register
-   - POST /api/auth/google/bind
-   - GET /api/auth/providers
-   - DELETE /api/auth/providers/google
-   - POST /api/auth/change-email
-   - POST /api/auth/change-password
+   - 邮箱注册 v2
+     - POST /api/auth/register-email
+     - GET /api/auth/verify-email-registration
+     - POST /api/auth/complete-email-registration
+   - Google 直接 token 模式（兼容保留）
+     - POST /api/auth/google/auth
+     - POST /api/auth/google/register
+     - POST /api/auth/google/bind
+   - Google OAuth start/callback 模式（v1 新增）
+     - POST /api/auth/google/auth/start
+     - POST /api/auth/google/bind/start
+     - POST /api/auth/google/auth/callback
+   - WeChat 直接 token 模式（兼容保留）
+     - POST /api/auth/wechat/auth
+     - POST /api/auth/wechat/register
+     - POST /api/auth/wechat/bind
+   - WeChat OAuth start/callback 模式（v1 新增）
+     - POST /api/auth/wechat/auth/start
+     - POST /api/auth/wechat/bind/start
+     - POST /api/auth/wechat/auth/callback
+   - Provider 管理 / 账号安全
+     - GET /api/auth/providers
+     - POST /api/auth/change-email
+     - POST /api/auth/change-password
  
-    说明：
-   - /google/auth：前端把 Google id_token 传给后端，后端判断是直接登录、需要注册，还是邮箱冲突要先登录后绑定
-   - /google/register：当 /google/auth 返回 action=register 时，前端补 username/password 调这个接口完成建号
-   - /google/bind：用户先登录站内账号，再把 Google id_token 传给这个接口进行绑定
-   - /providers：查询当前账号已绑定的登录方式列表
-   - DELETE /providers/google：解绑当前账号已绑定的 Google 登录方式
+   说明：
+   - /google/auth 与 /wechat/auth：前端直接把第三方 token 传给后端，后端判断是直接登录、需要注册，还是邮箱/绑定冲突
+   - /google/register 与 /wechat/register：当 auth 返回 action=register 时，前端补 username/password 调这个接口完成建号
+   - /google/bind 与 /wechat/bind：用户先登录站内账号，再把第三方 token 传给后端进行绑定；当前实现要求 fresh session 校验
+   - /google/auth/start 与 /wechat/auth/start：服务端签发短期 state，返回 authorize_url，用于 login_or_register 场景
+   - /google/bind/start 与 /wechat/bind/start：已登录用户发起换绑/绑定流程；前端应传 current_session_id，服务端会把 session 锚点写入 transient state，用于 callback 阶段做 fresh session 校验
+   - /google/auth/callback 与 /wechat/auth/callback：消费 transient state，返回 login / register / bound / 409 conflict 结构化结果
+   - /providers：查询当前账号已绑定的登录方式列表；前端应使用 can_unbind / can_replace / replacement_action 渲染“换绑/重新绑定”，不要渲染“解绑”按钮
    - /change-email：已登录用户修改主邮箱；当前实现会立即切换到新邮箱并置为未验证，然后发送验证邮件到新邮箱
    - /change-password：已登录用户修改密码；需要 current_password/new_password，可选 revoke_other_sessions=true 用于退出其他设备，默认保留其他会话
 
 5. 当前策略
-   - 已绑定 Google 身份：直接登录
-   - Google 邮箱已对应现有邮箱账号但未绑定 Google：返回冲突，要求“先登录再绑定”
-   - 全新 Google 账号：允许补 username/password 后创建账号
+   - 已绑定 Google / WeChat 身份：直接登录
+   - 第三方身份返回邮箱且该邮箱已对应现有账号但未绑定该 provider：返回结构化 409 冲突，要求“先登录再绑定”
+   - 当前账号已绑定同 provider 的其他身份：返回 current_account_provider_mismatch，引导用户走换绑/重新绑定，而不是解绑
+   - 全新第三方账号：允许补 username/password 后创建账号
+   - v1 provider 管理策略是“replace / rebind，不支持裸解绑”
 
 6. 备注
    - Google 校验目前走官方 tokeninfo 接口

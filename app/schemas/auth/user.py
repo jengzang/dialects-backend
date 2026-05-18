@@ -132,6 +132,27 @@ class EmailRegistrationVerifyResponse(BaseModel):
     ready_to_complete: bool
 
 
+class OAuthStartRequest(BaseModel):
+    intent: str = Field(default="login_or_register")
+    redirect_uri: Optional[str] = None
+    current_session_id: Optional[str] = None
+
+
+class OAuthStartResponse(BaseModel):
+
+    authorize_url: str
+    state: str
+    expires_in: int
+    intent: str
+
+
+class OAuthCallbackRequest(BaseModel):
+    state: str = Field(min_length=8)
+    id_token: Optional[str] = None
+    access_token: Optional[str] = None
+    openid: Optional[str] = None
+
+
 class GoogleTokenRequest(BaseModel):
     id_token: str = Field(min_length=20)
 
@@ -227,5 +248,3 @@ class LeaderboardResponse(BaseModel):
         description="Dictionary of all rankings (online_time, total_queries, categories, grouped aggregates, endpoints)"
     )
     total_users: int = Field(description="Total number of active users")
-
-

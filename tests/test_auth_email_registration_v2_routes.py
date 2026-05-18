@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.service.auth.core import service
-from app.service.auth.database.models import Base, AuthActionToken, User, UserAuthIdentity
+from app.service.auth.database.models import Base, User, UserAuthIdentity
 
 
 class EmailRegistrationV2RouteSupportTests(unittest.TestCase):
@@ -25,12 +25,12 @@ class EmailRegistrationV2RouteSupportTests(unittest.TestCase):
             self.db,
             email="fresh@example.com",
             requested_ip="127.0.0.1",
-            verify_url="https://frontend.example/verify?token=placeholder",
+            verify_url="https://frontend.example/verify?token={token}",
         )
         self.assertTrue(token)
         mock_send_verification_email.assert_called_once()
         sent_verify_url = mock_send_verification_email.call_args.args[2]
-        self.assertIn("https://frontend.example/verify?token=placeholder", sent_verify_url)
+        self.assertIn("https://frontend.example/verify?token=", sent_verify_url)
 
     def test_verify_then_complete_email_registration_roundtrip(self):
         token = service.issue_email_registration_token(
@@ -91,7 +91,7 @@ class EmailRegistrationV2RouteSupportTests(unittest.TestCase):
                     self.db,
                     email="taken@example.com",
                     requested_ip="127.0.0.1",
-                    verify_url="https://frontend.example/verify?token=placeholder",
+                    verify_url="https://frontend.example/verify?token={token}",
                 )
 
 

@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,6 +35,11 @@ class AuthConflictRouteTests(unittest.TestCase):
             session_id="fresh-session",
             user_id=self.user.id,
             username=self.user.username,
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+            expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(days=7),
+            last_activity_at=datetime.now(UTC).replace(tzinfo=None),
+            first_ip="127.0.0.1",
+            current_ip="127.0.0.1",
             revoked=False,
         ))
         self.db.commit()

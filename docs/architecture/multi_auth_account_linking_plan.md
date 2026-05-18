@@ -6,9 +6,9 @@ This section records the implementation status of this plan against the current 
 
 ### Overall completion estimate
 
-- overall plan completion: roughly 70% to 78%
-- if judged only by already-usable end-user auth capabilities: roughly 78% to 85%
-- if judged strictly against the full v1 design, security rules, endpoint contract normalization, and broader verification expectations: still incomplete
+- overall plan completion: roughly 82% to 88%
+- if judged only by already-usable end-user auth capabilities: roughly 88% to 93%
+- if judged strictly against the full v1 design, security rules, endpoint contract normalization, and broader verification expectations: still incomplete, but the practical OAuth v1 backend contract is now substantially landed
 
 ### Completed or mostly completed
 
@@ -68,13 +68,23 @@ The current codebase does not fully match the original planned shape. These diff
 
 2. Google flow shape
    - planned here: OAuth `start` / `callback` endpoints with transient flow state
-   - current implementation: backend accepts Google `id_token` directly from the client
-   - effect: Google capability exists, but not in the exact planned architecture
+   - practical direct-token routes are still retained for compatibility
+   - OAuth `start` / `callback` routes now exist in backend v1 form and persist transient state via `auth_action_tokens`
+   - current route shape is provider-scoped POST endpoints:
+     - `POST /api/auth/google/auth/start`
+     - `POST /api/auth/google/bind/start`
+     - `POST /api/auth/google/auth/callback`
 
 3. WeChat flow shape
    - planned here: official Web QR OAuth start/callback flow with transient state
-   - current implementation: backend accepts client-provided `access_token + openid` and validates userinfo server-side
-   - effect: WeChat capability now exists, but not in the exact planned architecture and not yet as the full official Web QR backend contract
+   - current implementation: both route families now exist
+     - practical direct-token routes are still retained for compatibility
+     - OAuth `start` / `callback` routes now exist in backend v1 form and persist transient state via `auth_action_tokens`
+     - current route shape is provider-scoped POST endpoints:
+       - `POST /api/auth/wechat/auth/start`
+       - `POST /api/auth/wechat/bind/start`
+       - `POST /api/auth/wechat/auth/callback`
+   - effect: WeChat capability is no longer limited to the direct-token shape alone, but the frontend/browser-side official QR integration still needs end-to-end confirmation
 
 4. Email registration v2
    - planned here: `start -> verify -> complete` registration state machine with explicit long-term state handling design
@@ -94,15 +104,14 @@ The current codebase does not fully match the original planned shape. These diff
 ### Major unfinished work
 
 - replacement / rebind API contract is still transitional and not fully normalized end-to-end, although backend runtime policy is now more consistent
-- Redis-based transient register / bind / OAuth state handling is not implemented in the planned form
+- transient OAuth state handling is now implemented in a DB-backed practical form via `auth_action_tokens`
   - important environment constraint: this repository has different runtime modes
     - local `MINE` / `EXE` development on this machine does not have a real Redis service and relies on fake-Redis / dump-style behavior in related parts of the codebase
     - deployed `WEB` mode is the place where real Redis-backed behavior can be assumed
-  - implication: any future transient-state implementation must either
-    - degrade cleanly to DB/token-table/local fallback behavior for local development, or
-    - be explicitly scoped as a WEB-only production capability with local simulation coverage
-- Google and WeChat do not yet use the full planned official OAuth start/callback contract shape
-- tests are still far from the coverage listed in this document
+  - implication: the current v1 backend deliberately uses DB-backed transient state as the practical cross-environment baseline
+  - remaining design question: whether WEB mode later adds Redis as an optimization/cache layer rather than as the sole source of truth
+- Google and WeChat now have start/callback backend routes, but end-to-end frontend OAuth/QR integration and production callback choreography still need confirmation
+- tests are still behind the full coverage listed in this document, although auth scoped backend coverage materially improved in this round
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
 

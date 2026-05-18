@@ -342,6 +342,61 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
 
 
 @router.post(
+    "/google/auth/start",
+    response_model=schemas.OAuthStartResponse,
+)
+def google_auth_start(payload: schemas.OAuthStartRequest, request: Request, db: Session = Depends(get_db)):
+    current_user = None
+    if payload.intent == service.OAUTH_INTENT_BIND:
+        raise HTTPException(status_code=401, detail="bind flow requires authenticated endpoint /google/bind/start")
+    try:
+        return service.start_google_oauth(
+            db,
+            intent=payload.intent,
+            requested_ip=utils.extract_client_ip(request),
+            redirect_uri=payload.redirect_uri,
+            current_user=current_user,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/google/bind/start",
+    response_model=schemas.OAuthStartResponse,
+)
+def google_bind_start(payload: schemas.OAuthStartRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    try:
+        return service.start_google_oauth(
+            db,
+            intent=service.OAUTH_INTENT_BIND,
+            requested_ip=utils.extract_client_ip(request),
+            redirect_uri=payload.redirect_uri,
+            current_user=user,
+            current_session_public_id=payload.current_session_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/google/auth/callback",
+    response_model=schemas.GoogleAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
+def google_auth_callback(payload: schemas.OAuthCallbackRequest, db: Session = Depends(get_db)):
+    if not payload.id_token:
+        raise HTTPException(status_code=400, detail="id_token is required")
+    try:
+        return service.complete_google_oauth_callback(db, state=payload.state, id_token=payload.id_token)
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
     "/google/auth",
     response_model=schemas.GoogleAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
@@ -437,6 +492,65 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
         }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/wechat/auth/start",
+    response_model=schemas.OAuthStartResponse,
+)
+def wechat_auth_start(payload: schemas.OAuthStartRequest, request: Request, db: Session = Depends(get_db)):
+    if payload.intent == service.OAUTH_INTENT_BIND:
+        raise HTTPException(status_code=401, detail="bind flow requires authenticated endpoint /wechat/bind/start")
+    try:
+        return service.start_wechat_oauth(
+            db,
+            intent=payload.intent,
+            requested_ip=utils.extract_client_ip(request),
+            redirect_uri=payload.redirect_uri,
+            current_user=None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/wechat/bind/start",
+    response_model=schemas.OAuthStartResponse,
+)
+def wechat_bind_start(payload: schemas.OAuthStartRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, _ = _load_active_user_from_token(db, token)
+    try:
+        return service.start_wechat_oauth(
+            db,
+            intent=service.OAUTH_INTENT_BIND,
+            requested_ip=utils.extract_client_ip(request),
+            redirect_uri=payload.redirect_uri,
+            current_user=user,
+            current_session_public_id=payload.current_session_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/wechat/auth/callback",
+    response_model=schemas.WechatAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
+def wechat_auth_callback(payload: schemas.OAuthCallbackRequest, db: Session = Depends(get_db)):
+    if not payload.access_token or not payload.openid:
+        raise HTTPException(status_code=400, detail="access_token and openid are required")
+    try:
+        return service.complete_wechat_oauth_callback(
+            db,
+            state=payload.state,
+            access_token=payload.access_token,
+            openid=payload.openid,
+        )
     except service.AuthConflictError as e:
         _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
     except ValueError as e:

@@ -61,6 +61,7 @@ ISSUER = "dialects_api"  # 可自定義
 AUDIENCE = "dialects_web"  # 可自定義
 
 # =============register/auth provider=========
+REQUIRE_LOGIN = os.getenv("REQUIRE_LOGIN", "false").lower() == "true"
 # 是否要求郵件驗證
 REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true"
 # 限制註冊頻率
@@ -85,13 +86,18 @@ FRONTEND_RESET_PASSWORD_URL = os.getenv("FRONTEND_RESET_PASSWORD_URL", "").strip
 # Google OAuth / One Tap 配置
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_TOKENINFO_URL = os.getenv("GOOGLE_TOKENINFO_URL", "https://oauth2.googleapis.com/tokeninfo").strip()
+GOOGLE_OAUTH_AUTHORIZE_URL = os.getenv("GOOGLE_OAUTH_AUTHORIZE_URL", "https://accounts.google.com/o/oauth2/v2/auth").strip()
+GOOGLE_OAUTH_SCOPE = os.getenv("GOOGLE_OAUTH_SCOPE", "openid email profile").strip()
+GOOGLE_OAUTH_REDIRECT_URL = os.getenv("GOOGLE_OAUTH_REDIRECT_URL", "").strip()
 
 # WeChat Web 登录配置
 WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "").strip()
 WECHAT_USERINFO_URL = os.getenv("WECHAT_USERINFO_URL", "https://api.weixin.qq.com/sns/userinfo").strip()
+WECHAT_OAUTH_REDIRECT_URL = os.getenv("WECHAT_OAUTH_REDIRECT_URL", "").strip()
+WECHAT_OAUTH_SCOPE = os.getenv("WECHAT_OAUTH_SCOPE", "snsapi_login").strip()
 
-# 登錄才能用
-REQUIRE_LOGIN = False
+# OAuth transient state 配置
+OAUTH_STATE_EXPIRE_MINUTES = int(os.getenv("OAUTH_STATE_EXPIRE_MINUTES", "10"))
 
 # 缓存过期时间（例如：1小时）
 CACHE_EXPIRATION_TIME = 3600  # 秒
