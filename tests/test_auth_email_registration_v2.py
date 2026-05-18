@@ -25,7 +25,7 @@ class EmailRegistrationV2Tests(unittest.TestCase):
             self.db,
             email="newuser@example.com",
             requested_ip="127.0.0.1",
-            verify_url="https://example.com/verify?token=pending",
+            verify_url="https://example.com/verify?token={token}",
         )
 
         self.assertTrue(token)
@@ -120,7 +120,7 @@ class EmailRegistrationV2Tests(unittest.TestCase):
                     self.db,
                     email="taken@example.com",
                     requested_ip="127.0.0.1",
-                    verify_url="https://example.com/verify?token=taken",
+                    verify_url="https://example.com/verify?token={token}",
                 )
 
 

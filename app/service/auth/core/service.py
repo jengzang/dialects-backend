@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime
 from typing import Optional
+import json
 import multiprocessing  # [FIX] 改用跨进程队列
 import queue  # [FIX] 用于 queue.Empty 异常
 import threading
@@ -13,7 +14,8 @@ from app.service.auth.database import models
 from app.service.auth.session.service import revoke_other_user_sessions, get_valid_session_by_public_id
 from app.schemas import auth as schemas
 from app.common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
-    REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL
+    REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL, FRONTEND_VERIFY_EMAIL_URL, \
+    OAUTH_STATE_EXPIRE_MINUTES, GOOGLE_OAUTH_REDIRECT_URL, WECHAT_OAUTH_REDIRECT_URL
 
 # === 用户活动队列（跨进程） ===
 # [FIX] 改用 multiprocessing.Queue 以支持主进程中的后台线程
@@ -195,6 +197,12 @@ CONFLICT_CODE_CURRENT_ACCOUNT_PROVIDER_MISMATCH = "current_account_provider_mism
 
 SUGGESTED_ACTION_LOGIN_THEN_BIND = "login_then_bind"
 SUGGESTED_ACTION_REPLACE_EXISTING_PROVIDER_BINDING = "replace_existing_provider_binding"
+
+OAUTH_STATE_ACTION_PREFIX = "oauth_state:"
+OAUTH_PROVIDER_GOOGLE = "google"
+OAUTH_PROVIDER_WECHAT = "wechat"
+OAUTH_INTENT_LOGIN_OR_REGISTER = "login_or_register"
+OAUTH_INTENT_BIND = "bind"
 
 
 class AuthConflictError(ValueError):
@@ -448,6 +456,281 @@ def unbind_auth_provider(db: Session, user: models.User, provider: str) -> list[
         raise ValueError("Unsupported provider")
 
     raise ValueError("v1 仅支持换绑，不支持解绑")
+
+
+
+def issue_oauth_state(
+    db: Session,
+    *,
+    provider: str,
+    intent: str,
+    requested_ip: str | None = None,
+    redirect_uri: str | None = None,
+    current_user: models.User | None = None,
+    current_session_public_id: str | None = None,
+) -> tuple[str, datetime]:
+    if intent not in {OAUTH_INTENT_LOGIN_OR_REGISTER, OAUTH_INTENT_BIND}:
+        raise ValueError("Unsupported OAuth intent")
+    if intent == OAUTH_INTENT_BIND and current_user is None:
+        raise ValueError("绑定场景必须提供当前用户")
+
+    state = utils.create_opaque_token(24)
+    token_hash = utils.hash_opaque_token(state)
+    expires_at = utils.now_utc_naive() + timedelta(minutes=OAUTH_STATE_EXPIRE_MINUTES)
+    metadata = {"session_id": current_session_public_id} if current_session_public_id else None
+    db.add(models.AuthActionToken(
+        user_id=current_user.id if current_user else 0,
+        identity_id=None,
+        action=f"{OAUTH_STATE_ACTION_PREFIX}{provider}:{intent}",
+        token_hash=token_hash,
+        requested_ip=requested_ip,
+        target_email=redirect_uri,
+        metadata_json=json.dumps(metadata) if metadata else None,
+        expires_at=expires_at,
+    ))
+    db.commit()
+    return state, expires_at
+
+
+
+def consume_oauth_state(
+    db: Session,
+    *,
+    provider: str,
+    intent: str,
+    state: str,
+) -> models.AuthActionToken:
+    token_hash = utils.hash_opaque_token(state)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == f"{OAUTH_STATE_ACTION_PREFIX}{provider}:{intent}",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("OAuth state 无效或已过期")
+    record.consumed_at = utils.now_utc_naive()
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+
+def _peek_oauth_state(
+    db: Session,
+    *,
+    provider: str,
+    intent: str,
+    state: str,
+) -> models.AuthActionToken:
+    token_hash = utils.hash_opaque_token(state)
+    record = db.query(models.AuthActionToken).filter(
+        models.AuthActionToken.action == f"{OAUTH_STATE_ACTION_PREFIX}{provider}:{intent}",
+        models.AuthActionToken.token_hash == token_hash,
+    ).first()
+    if not record or record.consumed_at is not None or record.expires_at <= utils.now_utc_naive():
+        raise ValueError("OAuth state 无效或已过期")
+    return record
+
+
+
+def _extract_session_public_id_from_oauth_state(record: models.AuthActionToken) -> str | None:
+    if not getattr(record, "metadata_json", None):
+        return None
+    try:
+        data = json.loads(record.metadata_json)
+    except Exception:
+        return None
+    return data.get("session_id")
+
+
+
+def _issue_oauth_callback_session_tokens(
+    db: Session,
+    *,
+    user: models.User,
+    device_info: str = "OAuth Callback",
+    ip_address: str = "0.0.0.0",
+) -> dict:
+    session_obj, access_token, refresh_token = create_session(
+        db=db,
+        user=user,
+        device_info=device_info,
+        ip_address=ip_address,
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 30 * 60,
+        "session_id": session_obj.public_id,
+    }
+
+
+
+def start_google_oauth(
+    db: Session,
+    *,
+    intent: str,
+    requested_ip: str | None = None,
+    redirect_uri: str | None = None,
+    current_user: models.User | None = None,
+    current_session_public_id: str | None = None,
+) -> dict:
+    effective_redirect_uri = (redirect_uri or GOOGLE_OAUTH_REDIRECT_URL or "").strip()
+    if not effective_redirect_uri:
+        raise ValueError("Google OAuth redirect_uri 未配置")
+    state, expires_at = issue_oauth_state(
+        db,
+        provider=OAUTH_PROVIDER_GOOGLE,
+        intent=intent,
+        requested_ip=requested_ip,
+        redirect_uri=effective_redirect_uri,
+        current_user=current_user,
+        current_session_public_id=current_session_public_id,
+    )
+    return {
+        "provider": OAUTH_PROVIDER_GOOGLE,
+        "authorize_url": utils.make_google_authorize_url(redirect_uri=effective_redirect_uri, state=state),
+        "state": state,
+        "expires_in": int((expires_at - utils.now_utc_naive()).total_seconds()),
+        "intent": intent,
+    }
+
+
+
+def start_wechat_oauth(
+    db: Session,
+    *,
+    intent: str,
+    requested_ip: str | None = None,
+    redirect_uri: str | None = None,
+    current_user: models.User | None = None,
+    current_session_public_id: str | None = None,
+) -> dict:
+    effective_redirect_uri = (redirect_uri or WECHAT_OAUTH_REDIRECT_URL or "").strip()
+    if not effective_redirect_uri:
+        raise ValueError("WeChat OAuth redirect_uri 未配置")
+    state, expires_at = issue_oauth_state(
+        db,
+        provider=OAUTH_PROVIDER_WECHAT,
+        intent=intent,
+        requested_ip=requested_ip,
+        redirect_uri=effective_redirect_uri,
+        current_user=current_user,
+        current_session_public_id=current_session_public_id,
+    )
+    return {
+        "provider": OAUTH_PROVIDER_WECHAT,
+        "authorize_url": utils.make_wechat_qr_authorize_url(redirect_uri=effective_redirect_uri, state=state),
+        "state": state,
+        "expires_in": int((expires_at - utils.now_utc_naive()).total_seconds()),
+        "intent": intent,
+    }
+
+
+
+def complete_google_oauth_callback(
+    db: Session,
+    *,
+    state: str,
+    id_token: str,
+) -> dict:
+    try:
+        login_state = _peek_oauth_state(db, provider=OAUTH_PROVIDER_GOOGLE, intent=OAUTH_INTENT_LOGIN_OR_REGISTER, state=state)
+        bind_state = None
+    except ValueError:
+        login_state = None
+        bind_state = _peek_oauth_state(db, provider=OAUTH_PROVIDER_GOOGLE, intent=OAUTH_INTENT_BIND, state=state)
+
+    if bind_state:
+        user = db.query(models.User).filter(models.User.id == bind_state.user_id).first()
+        if not user:
+            raise ValueError("OAuth state 对应用户不存在")
+        session_public_id = _extract_session_public_id_from_oauth_state(bind_state)
+        identity = bind_google_identity(db, user, id_token=id_token, current_session_public_id=session_public_id)
+        consume_oauth_state(db, provider=OAUTH_PROVIDER_GOOGLE, intent=OAUTH_INTENT_BIND, state=state)
+        return {"action": "bound", "message": "Google 绑定成功", "provider": "google", "provider_subject": identity.provider_subject}
+
+    result = prepare_google_auth(db, id_token)
+    payload = result["payload"]
+    consume_oauth_state(db, provider=OAUTH_PROVIDER_GOOGLE, intent=OAUTH_INTENT_LOGIN_OR_REGISTER, state=state)
+    if result["action"] == "login":
+        user = result["user"]
+        tokens = _issue_oauth_callback_session_tokens(db, user=user)
+        return {
+            "action": "login",
+            "message": "Google 登录成功",
+            "username": user.username,
+            **tokens,
+            "email": payload.get("email"),
+            "profile_picture": payload.get("picture"),
+            "is_verified": bool(user.is_verified),
+        }
+    if result["action"] == "conflict":
+        raise AuthConflictError(
+            "Email already exists, please login and bind Google first",
+            conflict_code=result["conflict_code"],
+            suggested_action=result.get("suggested_action"),
+        )
+    return {
+        "action": "register",
+        "message": "Google 账号可继续注册",
+        "suggested_username": result.get("suggested_username"),
+        "email": payload.get("email"),
+        "profile_picture": payload.get("picture"),
+    }
+
+
+
+def complete_wechat_oauth_callback(
+    db: Session,
+    *,
+    state: str,
+    access_token: str,
+    openid: str,
+) -> dict:
+    try:
+        login_state = _peek_oauth_state(db, provider=OAUTH_PROVIDER_WECHAT, intent=OAUTH_INTENT_LOGIN_OR_REGISTER, state=state)
+        bind_state = None
+    except ValueError:
+        login_state = None
+        bind_state = _peek_oauth_state(db, provider=OAUTH_PROVIDER_WECHAT, intent=OAUTH_INTENT_BIND, state=state)
+
+    if bind_state:
+        user = db.query(models.User).filter(models.User.id == bind_state.user_id).first()
+        if not user:
+            raise ValueError("OAuth state 对应用户不存在")
+        session_public_id = _extract_session_public_id_from_oauth_state(bind_state)
+        identity = bind_wechat_identity(db, user, access_token=access_token, openid=openid, current_session_public_id=session_public_id)
+        consume_oauth_state(db, provider=OAUTH_PROVIDER_WECHAT, intent=OAUTH_INTENT_BIND, state=state)
+        return {"action": "bound", "message": "WeChat 绑定成功", "provider": "wechat", "provider_subject": identity.provider_subject}
+
+    result = prepare_wechat_auth(db, access_token, openid)
+    payload = result["payload"]
+    consume_oauth_state(db, provider=OAUTH_PROVIDER_WECHAT, intent=OAUTH_INTENT_LOGIN_OR_REGISTER, state=state)
+    if result["action"] == "login":
+        user = result["user"]
+        tokens = _issue_oauth_callback_session_tokens(db, user=user)
+        return {
+            "action": "login",
+            "message": "WeChat 登录成功",
+            "username": user.username,
+            **tokens,
+            "profile_picture": payload.get("headimgurl"),
+            "provider_subject": payload.get("unionid") or payload.get("openid"),
+        }
+    if result["action"] == "conflict":
+        raise AuthConflictError(
+            "Email already exists, please login and bind WeChat first",
+            conflict_code=result["conflict_code"],
+            suggested_action=result.get("suggested_action"),
+        )
+    return {
+        "action": "register",
+        "message": "WeChat 账号可继续注册",
+        "suggested_username": result.get("suggested_username"),
+        "profile_picture": payload.get("headimgurl"),
+        "provider_subject": payload.get("unionid") or payload.get("openid"),
+    }
 
 
 

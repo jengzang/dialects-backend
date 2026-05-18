@@ -101,6 +101,7 @@ class AuthActionToken(Base):
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
     requested_ip = Column(String(45), nullable=True)
     target_email = Column(String(255), nullable=True)
+    metadata_json = Column(Text, nullable=True)
     verified_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     consumed_at = Column(DateTime, nullable=True)
