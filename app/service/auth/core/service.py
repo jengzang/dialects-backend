@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.service.auth.core import utils
 from app.service.auth.database import models
-from app.service.auth.session.service import revoke_other_user_sessions, get_valid_session_by_public_id
+from app.service.auth.session.service import create_session, revoke_other_user_sessions, get_valid_session_by_public_id
 from app.schemas import auth as schemas
 from app.common.config import REQUIRE_EMAIL_VERIFICATION, REGISTRATION_WINDOW_MINUTES, MAX_REGISTRATIONS_PER_IP, \
     REFRESH_TOKEN_EXPIRE_DAYS, MAX_ACTIVE_REFRESH_TOKENS, FRONTEND_RESET_PASSWORD_URL, FRONTEND_VERIFY_EMAIL_URL, \
@@ -561,7 +561,7 @@ def _issue_oauth_callback_session_tokens(
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": 30 * 60,
-        "session_id": session_obj.public_id,
+        "session_id": session_obj.session_id,
     }
 
 
@@ -646,7 +646,12 @@ def complete_google_oauth_callback(
         if not user:
             raise ValueError("OAuth state 对应用户不存在")
         session_public_id = _extract_session_public_id_from_oauth_state(bind_state)
-        identity = bind_google_identity(db, user, id_token=id_token, current_session_public_id=session_public_id)
+        try:
+            identity = bind_google_identity(db, user, id_token=id_token, current_session_public_id=session_public_id)
+        except ValueError as e:
+            if str(e) == "需要近期重新验证后再执行该操作":
+                raise ValueError("当前登录态已失效")
+            raise
         consume_oauth_state(db, provider=OAUTH_PROVIDER_GOOGLE, intent=OAUTH_INTENT_BIND, state=state)
         return {"action": "bound", "message": "Google 绑定成功", "provider": "google", "provider_subject": identity.provider_subject}
 
@@ -700,7 +705,12 @@ def complete_wechat_oauth_callback(
         if not user:
             raise ValueError("OAuth state 对应用户不存在")
         session_public_id = _extract_session_public_id_from_oauth_state(bind_state)
-        identity = bind_wechat_identity(db, user, access_token=access_token, openid=openid, current_session_public_id=session_public_id)
+        try:
+            identity = bind_wechat_identity(db, user, access_token=access_token, openid=openid, current_session_public_id=session_public_id)
+        except ValueError as e:
+            if str(e) == "需要近期重新验证后再执行该操作":
+                raise ValueError("当前登录态已失效")
+            raise
         consume_oauth_state(db, provider=OAUTH_PROVIDER_WECHAT, intent=OAUTH_INTENT_BIND, state=state)
         return {"action": "bound", "message": "WeChat 绑定成功", "provider": "wechat", "provider_subject": identity.provider_subject}
 
@@ -949,6 +959,54 @@ def bind_google_identity(
     return identity
 
 
+def rebind_google_identity(
+    db: Session,
+    user: models.User,
+    id_token: str,
+    *,
+    current_session_public_id: str | None,
+) -> models.UserAuthIdentity:
+    require_fresh_auth_session(db, user, current_session_public_id)
+    payload = utils.verify_google_id_token(id_token)
+    existing_google_identity = get_identity_by_provider_subject(db, "google", payload["sub"])
+    if existing_google_identity and existing_google_identity.user_id != user.id:
+        raise AuthConflictError(
+            "Google account already linked to another account",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
+        )
+
+    current_google_identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+        models.UserAuthIdentity.provider == "google",
+    ).first()
+
+    if current_google_identity:
+        current_google_identity.provider_subject = payload["sub"]
+        current_google_identity.email = payload.get("email")
+        current_google_identity.display_name = payload.get("name")
+        current_google_identity.profile_picture = payload.get("picture")
+        current_google_identity.is_verified = True
+        current_google_identity.last_login_at = utils.now_utc_naive()
+        identity = current_google_identity
+    else:
+        identity = ensure_provider_identity(
+            db,
+            user=user,
+            provider="google",
+            provider_subject=payload["sub"],
+            email=payload.get("email"),
+            display_name=payload.get("name"),
+            profile_picture=payload.get("picture"),
+            is_verified=True,
+        )
+
+    if payload.get("picture") and not user.profile_picture:
+        user.profile_picture = payload.get("picture")
+    db.commit()
+    db.refresh(identity)
+    return identity
+
+
 def bind_wechat_identity(
     db: Session,
     user: models.User,
@@ -994,6 +1052,56 @@ def bind_wechat_identity(
     db.refresh(identity)
     return identity
 
+
+
+def rebind_wechat_identity(
+    db: Session,
+    user: models.User,
+    access_token: str,
+    openid: str,
+    *,
+    current_session_public_id: str | None,
+) -> models.UserAuthIdentity:
+    require_fresh_auth_session(db, user, current_session_public_id)
+    payload = utils.verify_wechat_access_token(access_token, openid)
+    provider_subject = payload.get("unionid") or payload["openid"]
+    existing_wechat_identity = get_identity_by_provider_subject(db, "wechat", provider_subject)
+    if existing_wechat_identity and existing_wechat_identity.user_id != user.id:
+        raise AuthConflictError(
+            "WeChat account already linked to another account",
+            conflict_code=CONFLICT_CODE_PROVIDER_ALREADY_LINKED,
+        )
+
+    current_wechat_identity = db.query(models.UserAuthIdentity).filter(
+        models.UserAuthIdentity.user_id == user.id,
+        models.UserAuthIdentity.provider == "wechat",
+    ).first()
+
+    if current_wechat_identity:
+        current_wechat_identity.provider_subject = provider_subject
+        current_wechat_identity.email = payload.get("email")
+        current_wechat_identity.display_name = payload.get("nickname")
+        current_wechat_identity.profile_picture = payload.get("headimgurl")
+        current_wechat_identity.is_verified = True
+        current_wechat_identity.last_login_at = utils.now_utc_naive()
+        identity = current_wechat_identity
+    else:
+        identity = ensure_provider_identity(
+            db,
+            user=user,
+            provider="wechat",
+            provider_subject=provider_subject,
+            email=payload.get("email"),
+            display_name=payload.get("nickname"),
+            profile_picture=payload.get("headimgurl"),
+            is_verified=True,
+        )
+
+    if payload.get("headimgurl") and not user.profile_picture:
+        user.profile_picture = payload.get("headimgurl")
+    db.commit()
+    db.refresh(identity)
+    return identity
 
 
 def issue_auth_action_token(
