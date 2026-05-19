@@ -318,16 +318,28 @@ def verify_email_registration(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/complete-email-registration", response_model=schemas.UserResponse)
+@router.post("/complete-email-registration", response_model=schemas.EmailRegistrationAuthResponse)
 def complete_email_registration(payload: schemas.EmailRegistrationCompleteRequest, request: Request, db: Session = Depends(get_db)):
     try:
-        return service.complete_email_registration(
+        user = service.complete_email_registration(
             db,
             token=payload.token,
             username=payload.username,
             password=payload.password,
             register_ip=utils.extract_client_ip(request),
         )
+        tokens = _issue_session_tokens(db, user, request)
+        return {
+            "action": "register",
+            "message": "邮箱注册并登录成功",
+            "username": user.username,
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "expires_in": tokens["expires_in"],
+            "session_id": tokens["session_id"],
+            "email": user.email,
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -708,6 +720,11 @@ def unbind_auth_provider(provider: str, token: str = Depends(oauth2_scheme), db:
         service.unbind_auth_provider(db, user, provider)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "message": "v1 仅支持换绑，不支持解绑",
+        "providers": [schemas.AuthProviderStatus(**item) for item in service.list_auth_providers(db, user)],
+    }
 
 
 @router.post(

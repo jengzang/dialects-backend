@@ -1,0 +1,106 @@
+Auth integration checklist
+=========================
+
+Scope
+-----
+This note records what is locally verified in backend tests versus what still needs real-provider/manual acceptance.
+
+Current live mail transport state on this machine
+-----------------------------------------------
+- RESEND_API_KEY: set
+- RESEND_FROM_EMAIL: unset
+- SMTP_HOST: unset
+- SMTP_USERNAME: unset
+- FRONTEND_VERIFY_EMAIL_URL: unset
+
+Interpretation
+--------------
+The current runtime cannot send a real email:
+1. Resend path is disabled because both RESEND_API_KEY and RESEND_FROM_EMAIL are required.
+2. SMTP path is disabled because SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD are not all configured.
+3. The code therefore falls back to console-print mode in app/service/auth/core/utils.py.
+
+What backend tests already cover
+--------------------------------
+Google
+- /api/auth/google/auth/start
+- /api/auth/google/bind/start
+- /api/auth/google/auth/callback
+- /api/auth/google/auth
+- /api/auth/google/register
+- /api/auth/google/bind
+- /api/auth/google/rebind
+- structured conflict responses
+- session_id exposure
+- bind/bound contract consistency
+
+WeChat
+- /api/auth/wechat/auth/start
+- /api/auth/wechat/bind/start
+- /api/auth/wechat/auth/callback
+- /api/auth/wechat/auth
+- /api/auth/wechat/register
+- /api/auth/wechat/bind
+- /api/auth/wechat/rebind
+- structured conflict responses
+- session_id exposure
+- bind/bound contract consistency
+
+Email
+- /api/auth/register-email
+- /api/auth/verify-email-registration
+- /api/auth/complete-email-registration
+- /api/auth/verify-email
+- complete-email-registration now returns auth tokens + session_id
+
+Provider metadata
+- /api/auth/providers exposes can_replace + replacement_action
+- DELETE /api/auth/providers/{provider} returns legacy replace guidance payload
+
+Remaining real-world acceptance tasks
+-------------------------------------
+A. Email delivery smoke test
+1. Configure one real mail path.
+   Option A: Resend
+   - export RESEND_API_KEY=...
+   - export RESEND_FROM_EMAIL=verified-sender@example.com
+   Option B: SMTP
+   - export SMTP_HOST=...
+   - export SMTP_PORT=587
+   - export SMTP_USERNAME=...
+   - export SMTP_PASSWORD=...
+   - export SMTP_FROM=...
+
+2. Optionally configure frontend redirect target:
+   - export FRONTEND_VERIFY_EMAIL_URL=https://<frontend-host>/verify-email
+
+3. Start the backend and trigger:
+   POST /api/auth/register-email
+   body: {"email":"<real inbox>"}
+
+4. Acceptance:
+   - inbox receives email
+   - email body contains a working verification link
+   - GET /api/auth/verify-email-registration?token=... returns ready_to_complete=true
+   - POST /api/auth/complete-email-registration returns access_token / refresh_token / session_id
+
+B. Google real-provider acceptance
+1. Confirm Google console redirect URI exactly matches backend callback endpoint.
+2. Trigger /api/auth/google/auth/start and complete the browser login.
+3. Acceptance:
+   - callback returns login/register payload with session_id
+   - bind flow returns provider=google + provider_subject
+   - rebind flow replaces the existing google identity for the same user
+
+C. WeChat real-provider acceptance
+1. Confirm WeChat app credentials, callback domain, and redirect URI.
+2. Trigger /api/auth/wechat/auth/start and complete QR/auth flow.
+3. Acceptance:
+   - callback returns login/register payload with session_id
+   - bind flow returns provider=wechat + provider_subject
+   - rebind flow replaces the existing wechat identity for the same user
+
+Known remaining risk
+--------------------
+- Google/WeChat are locally closed at the backend-contract level, but not yet proven against live provider credentials.
+- Email registration flow is locally closed, but real delivery is not yet available in the current environment because sender configuration is incomplete.

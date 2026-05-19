@@ -61,7 +61,7 @@ class AuthEmailRouteTests(unittest.TestCase):
         mock_verify_email_registration_token.assert_called_once_with(unittest.mock.ANY, "test-token")
 
     @patch("app.routes.auth.service.complete_email_registration")
-    def test_complete_email_registration_returns_user_profile(self, mock_complete_email_registration):
+    def test_complete_email_registration_returns_session_tokens(self, mock_complete_email_registration):
         user = type(
             "UserStub",
             (),
@@ -69,46 +69,38 @@ class AuthEmailRouteTests(unittest.TestCase):
                 "id": 1,
                 "username": "email_user",
                 "email": "email_user@example.com",
-                "role": "user",
-                "status": "active",
-                "is_verified": True,
-                "login_count": 0,
-                "failed_attempts": 0,
-                "total_online_seconds": 0,
-                "created_at": None,
-                "updated_at": None,
-                "last_login_at": None,
-                "last_login_ip": None,
-                "bio": None,
-                "avatar_url": None,
-                "birthday": None,
-                "gender": None,
-                "occupation": None,
-                "education": None,
-                "university": None,
-                "location": None,
-                "interests": None,
-                "preferred_language": None,
-                "timezone": None,
             },
         )()
         mock_complete_email_registration.return_value = user
 
-        response = self.client.post(
-            "/api/auth/complete-email-registration",
-            json={
-                "token": "ready-token",
-                "username": "email_user",
-                "password": "secret123",
+        with patch(
+            "app.routes.auth._issue_session_tokens",
+            return_value={
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "token_type": "bearer",
+                "expires_in": 1800,
+                "session_id": "sess_email",
             },
-        )
+        ) as mock_issue_session_tokens:
+            response = self.client.post(
+                "/api/auth/complete-email-registration",
+                json={
+                    "token": "ready-token",
+                    "username": "email_user",
+                    "password": "secret123",
+                },
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
+        self.assertEqual(body["action"], "register")
         self.assertEqual(body["username"], "email_user")
-        self.assertEqual(body["email"], "email_user@example.com")
-        self.assertNotIn("session_id", body)
+        self.assertEqual(body["access_token"], "access")
+        self.assertEqual(body["refresh_token"], "refresh")
+        self.assertEqual(body["session_id"], "sess_email")
         mock_complete_email_registration.assert_called_once()
+        mock_issue_session_tokens.assert_called_once()
 
     @patch("app.routes.auth.service.verify_email_token")
     def test_verify_email_marks_account_verified(self, mock_verify_email_token):

@@ -132,6 +132,18 @@ class EmailRegistrationVerifyResponse(BaseModel):
     ready_to_complete: bool
 
 
+class EmailRegistrationAuthResponse(BaseModel):
+    action: str
+    message: str
+    username: str
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    session_id: str
+    email: Optional[EmailStr] = None
+
+
 class OAuthStartRequest(BaseModel):
     intent: str = Field(default="login_or_register")
     redirect_uri: Optional[str] = None
