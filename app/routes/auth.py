@@ -81,7 +81,7 @@ def _issue_session_tokens(db: Session, user: models.User, request: Request) -> d
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": 30 * 60,
-        "session_id": session_obj.public_id,
+        "session_id": session_obj.session_id,
     }
 
 
@@ -421,6 +421,7 @@ def google_auth(payload: schemas.GoogleTokenRequest, request: Request, db: Sessi
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
             "expires_in": tokens["expires_in"],
+            "session_id": tokens["session_id"],
             "email": google_payload.get("email"),
             "is_verified": True,
             "profile_picture": google_payload.get("picture"),
@@ -461,6 +462,7 @@ def google_register(payload: schemas.GoogleRegisterRequest, request: Request, db
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
             "expires_in": tokens["expires_in"],
+            "session_id": tokens["session_id"],
             "email": identity.email,
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
@@ -485,12 +487,44 @@ def google_bind(payload: schemas.GoogleTokenRequest, request: Request, token: st
             current_session_public_id=auth_payload.get("session_id"),
         )
         return {
-            "action": "bind",
+            "action": "bound",
             "message": "Google 账号绑定成功",
             "username": user.username,
+            "provider": "google",
             "email": identity.email,
             "is_verified": identity.is_verified,
             "profile_picture": identity.profile_picture,
+            "provider_subject": identity.provider_subject,
+        }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/google/rebind",
+    response_model=schemas.GoogleAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
+def google_rebind(payload: schemas.GoogleTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, auth_payload = _load_active_user_from_token(db, token)
+    try:
+        identity = service.rebind_google_identity(
+            db,
+            user,
+            payload.id_token,
+            current_session_public_id=auth_payload.get("session_id"),
+        )
+        return {
+            "action": "bound",
+            "message": "Google 账号换绑成功",
+            "username": user.username,
+            "provider": "google",
+            "email": identity.email,
+            "is_verified": identity.is_verified,
+            "profile_picture": identity.profile_picture,
+            "provider_subject": identity.provider_subject,
         }
     except service.AuthConflictError as e:
         _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
@@ -583,6 +617,7 @@ def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Sessi
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
             "expires_in": tokens["expires_in"],
+            "session_id": tokens["session_id"],
             "profile_picture": wechat_payload.get("headimgurl"),
             "provider_subject": provider_subject,
         }
@@ -621,6 +656,7 @@ def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db
             "refresh_token": tokens["refresh_token"],
             "token_type": tokens["token_type"],
             "expires_in": tokens["expires_in"],
+            "session_id": tokens["session_id"],
             "profile_picture": identity.profile_picture,
             "provider_subject": identity.provider_subject,
         }
@@ -645,9 +681,10 @@ def wechat_bind(payload: schemas.WechatTokenRequest, token: str = Depends(oauth2
             current_session_public_id=auth_payload.get("session_id"),
         )
         return {
-            "action": "bind",
+            "action": "bound",
             "message": "微信账号绑定成功",
             "username": user.username,
+            "provider": "wechat",
             "profile_picture": identity.profile_picture,
             "provider_subject": identity.provider_subject,
         }
@@ -672,10 +709,34 @@ def unbind_auth_provider(provider: str, token: str = Depends(oauth2_scheme), db:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {
-        "message": "v1 仅支持换绑，不支持解绑",
-        "providers": [schemas.AuthProviderStatus(**item) for item in service.list_auth_providers(db, user)],
-    }
+
+@router.post(
+    "/wechat/rebind",
+    response_model=schemas.WechatAuthResponse,
+    responses={409: {"model": schemas.AuthConflictResponse}},
+)
+def wechat_rebind(payload: schemas.WechatTokenRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    user, auth_payload = _load_active_user_from_token(db, token)
+    try:
+        identity = service.rebind_wechat_identity(
+            db,
+            user,
+            payload.access_token,
+            payload.openid,
+            current_session_public_id=auth_payload.get("session_id"),
+        )
+        return {
+            "action": "bound",
+            "message": "微信账号换绑成功",
+            "username": user.username,
+            "provider": "wechat",
+            "profile_picture": identity.profile_picture,
+            "provider_subject": identity.provider_subject,
+        }
+    except service.AuthConflictError as e:
+        _raise_auth_conflict(e.message, conflict_code=e.conflict_code, suggested_action=e.suggested_action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ========== Me（恢复 & 最小化改动）==========

@@ -189,6 +189,9 @@ class GoogleAuthResponse(BaseModel):
     refresh_token: Optional[str] = None
     token_type: Optional[str] = "bearer"
     expires_in: Optional[int] = None
+    session_id: Optional[str] = None
+    provider: Optional[str] = None
+    provider_subject: Optional[str] = None
     email: Optional[EmailStr] = None
     suggested_username: Optional[str] = None
     conflict_code: Optional[str] = None
@@ -205,6 +208,8 @@ class WechatAuthResponse(BaseModel):
     refresh_token: Optional[str] = None
     token_type: Optional[str] = "bearer"
     expires_in: Optional[int] = None
+    session_id: Optional[str] = None
+    provider: Optional[str] = None
     suggested_username: Optional[str] = None
     conflict_code: Optional[str] = None
     suggested_action: Optional[str] = None
