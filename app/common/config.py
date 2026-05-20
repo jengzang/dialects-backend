@@ -96,6 +96,14 @@ WECHAT_USERINFO_URL = os.getenv("WECHAT_USERINFO_URL", "https://api.weixin.qq.co
 WECHAT_OAUTH_REDIRECT_URL = os.getenv("WECHAT_OAUTH_REDIRECT_URL", "").strip()
 WECHAT_OAUTH_SCOPE = os.getenv("WECHAT_OAUTH_SCOPE", "snsapi_login").strip()
 
+# WeChat Mini Program 登录配置
+WECHAT_MINI_APP_ID = os.getenv("WECHAT_MINI_APP_ID", "").strip()
+WECHAT_MINI_APP_SECRET = os.getenv("WECHAT_MINI_APP_SECRET", "").strip()
+WECHAT_MINI_CODE2SESSION_URL = os.getenv(
+    "WECHAT_MINI_CODE2SESSION_URL",
+    "https://api.weixin.qq.com/sns/jscode2session",
+).strip()
+
 # OAuth transient state 配置
 OAUTH_STATE_EXPIRE_MINUTES = int(os.getenv("OAUTH_STATE_EXPIRE_MINUTES", "10"))
 

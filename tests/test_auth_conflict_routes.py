@@ -98,7 +98,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/auth",
+            "/api/auth/wechat/web/auth",
             json={"access_token": "token", "openid": "openid-1"},
         )
         self.assertEqual(response.status_code, 409)
@@ -168,7 +168,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
 
         response = self.client.post(
-            "/api/auth/wechat/register",
+            "/api/auth/wechat/web/register",
             json={"access_token": "token", "openid": "openid-1", "username": "new_user", "password": "secret123"},
         )
         self.assertEqual(response.status_code, 409)
@@ -188,7 +188,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
 
         response = self.client.post(
-            "/api/auth/wechat/bind",
+            "/api/auth/wechat/web/bind",
             json={"access_token": "token", "openid": "openid-1"},
         )
         self.assertEqual(response.status_code, 409)
@@ -208,7 +208,7 @@ class AuthConflictRouteTests(unittest.TestCase):
         )
 
         response = self.client.post(
-            "/api/auth/wechat/bind",
+            "/api/auth/wechat/web/bind",
             json={"access_token": "token", "openid": "openid-1"},
         )
         self.assertEqual(response.status_code, 409)

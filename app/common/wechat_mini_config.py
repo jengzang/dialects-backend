@@ -1,0 +1,11 @@
+from app.common.config import (
+    WECHAT_MINI_APP_ID,
+    WECHAT_MINI_APP_SECRET,
+    WECHAT_MINI_CODE2SESSION_URL,
+)
+
+__all__ = [
+    "WECHAT_MINI_APP_ID",
+    "WECHAT_MINI_APP_SECRET",
+    "WECHAT_MINI_CODE2SESSION_URL",
+]

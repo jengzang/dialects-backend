@@ -544,13 +544,16 @@ def google_rebind(payload: schemas.GoogleTokenRequest, request: Request, token: 
         raise HTTPException(status_code=400, detail=str(e))
 
 
+"""TODO(auth-wechat-web): 旧微信网页 OAuth 路由暂保留在 auth.py，后续应拆到独立 web router。"""
+
+
 @router.post(
-    "/wechat/auth/start",
+    "/wechat/web/auth/start",
     response_model=schemas.OAuthStartResponse,
 )
 def wechat_auth_start(payload: schemas.OAuthStartRequest, request: Request, db: Session = Depends(get_db)):
     if payload.intent == service.OAUTH_INTENT_BIND:
-        raise HTTPException(status_code=401, detail="bind flow requires authenticated endpoint /wechat/bind/start")
+        raise HTTPException(status_code=401, detail="bind flow requires authenticated endpoint /wechat/web/bind/start")
     try:
         return service.start_wechat_oauth(
             db,
@@ -564,7 +567,7 @@ def wechat_auth_start(payload: schemas.OAuthStartRequest, request: Request, db: 
 
 
 @router.post(
-    "/wechat/bind/start",
+    "/wechat/web/bind/start",
     response_model=schemas.OAuthStartResponse,
 )
 def wechat_bind_start(payload: schemas.OAuthStartRequest, request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -583,7 +586,7 @@ def wechat_bind_start(payload: schemas.OAuthStartRequest, request: Request, toke
 
 
 @router.post(
-    "/wechat/auth/callback",
+    "/wechat/web/auth/callback",
     response_model=schemas.WechatAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
 )
@@ -604,7 +607,7 @@ def wechat_auth_callback(payload: schemas.OAuthCallbackRequest, db: Session = De
 
 
 @router.post(
-    "/wechat/auth",
+    "/wechat/web/auth",
     response_model=schemas.WechatAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
 )
@@ -651,7 +654,7 @@ def wechat_auth(payload: schemas.WechatTokenRequest, request: Request, db: Sessi
 
 
 @router.post(
-    "/wechat/register",
+    "/wechat/web/register",
     response_model=schemas.WechatAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
 )
@@ -678,7 +681,7 @@ def wechat_register(payload: schemas.WechatRegisterRequest, request: Request, db
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post(
-    "/wechat/bind",
+    "/wechat/web/bind",
     response_model=schemas.WechatAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
 )
@@ -728,7 +731,7 @@ def unbind_auth_provider(provider: str, token: str = Depends(oauth2_scheme), db:
 
 
 @router.post(
-    "/wechat/rebind",
+    "/wechat/web/rebind",
     response_model=schemas.WechatAuthResponse,
     responses={409: {"model": schemas.AuthConflictResponse}},
 )
