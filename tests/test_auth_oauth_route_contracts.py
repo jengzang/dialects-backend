@@ -173,7 +173,7 @@ class OAuthAuthRouteContractTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/auth",
+            "/api/auth/wechat/web/auth",
             json={"access_token": "token", "openid": "openid-1"},
         )
 
@@ -201,7 +201,7 @@ class OAuthAuthRouteContractTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/register",
+            "/api/auth/wechat/web/register",
             json={"access_token": "token", "openid": "openid-2", "username": "new_wechat_user", "password": "secret123"},
         )
 
@@ -221,7 +221,7 @@ class OAuthAuthRouteContractTests(unittest.TestCase):
         mock_bind.return_value = identity
 
         response = self.client.post(
-            "/api/auth/wechat/bind",
+            "/api/auth/wechat/web/bind",
             json={"access_token": "token", "openid": "openid-3"},
         )
 

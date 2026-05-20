@@ -422,6 +422,8 @@ def _provider_replacement_action(provider: str) -> str | None:
         return "bind_google"
     if provider == "wechat":
         return "bind_wechat"
+    if provider == "wechat_mini":
+        return "bind_wechat_mini"
     return None
 
 

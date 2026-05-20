@@ -103,48 +103,43 @@ The current codebase does not fully match the original planned shape. These diff
 
 ### Major unfinished work
 
-- replacement / rebind API contract is still transitional and not fully normalized end-to-end, although backend runtime policy is now more consistent
-- transient OAuth state handling is now implemented in a DB-backed practical form via `auth_action_tokens`
-  - important environment constraint: this repository has different runtime modes
-    - local `MINE` / `EXE` development on this machine does not have a real Redis service and relies on fake-Redis / dump-style behavior in related parts of the codebase
-    - deployed `WEB` mode is the place where real Redis-backed behavior can be assumed
-  - implication: the current v1 backend deliberately uses DB-backed transient state as the practical cross-environment baseline
-  - remaining design question: whether WEB mode later adds Redis as an optimization/cache layer rather than as the sole source of truth
-- Google and WeChat now have start/callback backend routes, but end-to-end frontend OAuth/QR integration and production callback choreography still need confirmation
+- provider-management v1 contract is now frozen on the backend as "replace/rebind, not unlink/remove"
+  - `GET /api/auth/providers` and `GET /api/auth/me` expose `can_unbind=false`, `can_replace`, and `replacement_action`
+  - legacy `DELETE /api/auth/providers/{provider}` remains compatibility-only and hard-rejects known-provider removal in v1
+  - remaining work is no longer a backend contract decision; it is downstream consumer adoption and product copy alignment outside this backend repository
+- transient OAuth state handling is now a deliberate v1 DB-backed design via `auth_action_tokens`
+  - this is the v1 source of truth across local `MINE` / `EXE` and deployed `WEB` runtime modes
+  - Redis is not required for correctness in v1
+  - if `WEB` mode later adds Redis, it should be treated only as an optional optimization/cache layer rather than as the sole source of truth
+- Google and WeChat now have start/callback backend routes with a frozen backend choreography:
+  - backend `start` issues `state` + `authorize_url`
+  - the browser/provider side obtains provider credentials
+  - backend `callback` consumes `state` and receives provider credentials from the caller (`id_token` for Google; `access_token + openid` for WeChat)
+  - remaining work is real browser/provider operational validation rather than unresolved backend contract shape
 - tests are still behind the full coverage listed in this document, although auth scoped backend coverage materially improved in this round
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
 
 ### Remaining work breakdown with priority and rough estimate
 
-P0 — needed before claiming the document's v1 architecture is truly landed
-- freeze provider-management wording and frontend contract around replacement / rebind
-  - backend runtime is already close, but frontend wording and any remaining old unlink assumptions still need one final alignment pass
-  - estimate: 0.5 day
-- choose and document the v1 architecture decision for Google/WeChat + transient state
-  - either implement official `start/callback` + transient-state handling
-  - or explicitly bless the current practical client-token backend shape as the chosen v1 architecture
-  - estimate:
-    - document-only decision path: 0.5 day
-    - real implementation path: 2 to 5 days
+P0 — highest-value remaining work after the v1 backend contract freeze in this repository
+- real browser/provider operational validation for Google and WeChat OAuth
+  - confirm actual browser redirect behavior, provider return path, and production callback choreography against the already-frozen backend callback contract
+  - estimate: 1 to 3 days depending on provider credentials, callback-domain readiness, and access to real environments
 
-P1 — important for robustness and production completeness
-- implement or formally defer Redis/transient-state handling in a way that respects runtime modes
-  - local MINE/EXE must not assume a real Redis dependency
-  - WEB mode may use real Redis
-  - estimate:
-    - fallback-friendly minimal implementation / explicit defer plan: 0.5 to 1 day
-    - full Redis-backed production design with local fallback/simulation: 1 to 2 days beyond the OAuth flow work
+P1 — important robustness and production completeness work
 - broaden auth test coverage
   - route/integration coverage for provider conflict, register/bind/replace paths, and failure branches
   - estimate: 0.5 to 1.5 days
 - finish admin / analytics adaptation
   - estimate: 0.5 to 1.5 days
+- integrate login-method analytics/logging more completely
+  - estimate: 0.5 to 1 day
 
 P2 — cleanup / consistency / long-tail design debt
 - reconcile later sections of this document whose wording still reflects older unlink or original OAuth assumptions
-- decide whether the legacy DELETE provider endpoint should remain as compatibility-only surface or later be removed entirely
 - revisit Google email policy mismatch if product still wants the looser v1 rule documented here
+- later evaluate whether the legacy DELETE provider endpoint should remain compatibility-only forever or be removed in a future version
 - estimate: 0.5 to 1 day
 ### Current `/api/auth/providers` and `/api/auth/me` contract reality
 
@@ -238,25 +233,21 @@ Implication:
 ### Recommended next implementation priority
 
 Recommended next step:
-- first freeze and document the already-shipping provider-management contract around "replace, not remove"
-  - current backend runtime now consistently hard-rejects unlink for known providers
-  - current provider listing already exposes `can_unbind=false`, `can_replace`, and `replacement_action`
-  - frontend and product copy should treat provider management as replacement / bind guidance, not delete semantics
-- then decide whether to:
-  - implement full official Google/WeChat OAuth start/callback + transient-state handling, or
-  - explicitly revise this document to accept the current practical client-token backend route shape as the chosen v1 architecture
-- after that, finish admin / analytics adaptation and broaden auth test coverage
+- perform real browser/provider operational validation for the already-frozen Google and WeChat OAuth backend contract
+  - the backend shape is now explicit: `start` issues `state` + `authorize_url`, and `callback` receives provider credentials from the caller while consuming backend-managed `state`
+  - this should be validated operationally rather than redesigned again inside the backend first
+- after that, broaden auth test coverage and finish admin / analytics adaptation
 
 Why this is the next best step:
-- full-app import/bootstrap verification is no longer blocked by the previous issues discovered during this session
-- runtime provider policy is now stricter and more internally consistent than before, so the next risk is documentation/frontend drift rather than backend ambiguity alone
-- further auth work will be safer once the replacement contract and chosen v1 OAuth architecture are both made explicit
+- the backend provider-management contract is already frozen to replace/rebind semantics
+- the backend OAuth/transient-state architecture is already frozen to DB-backed `auth_action_tokens` as the v1 source of truth
+- the highest remaining uncertainty is now operational validation with real provider/browser choreography, not unresolved backend contract shape
 
 After that, the recommended order becomes:
-1. freeze provider-management wording and frontend contract around replacement / rebind
-2. either implement the planned official OAuth/transient-state architecture or formally bless the current practical route shape in this document
-3. then finish admin / analytics adaptation and broader auth test coverage
-4. finally, revisit any remaining doc sections whose original unlink/OAuth assumptions no longer match the chosen implementation
+1. real browser/provider operational validation for Google and WeChat OAuth
+2. broader auth test coverage
+3. admin / analytics adaptation and login-method analytics/logging follow-up
+4. finally, reconcile any remaining long-tail doc wording that still reflects pre-freeze assumptions
 
 ## 1. Background
 

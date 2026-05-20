@@ -97,7 +97,7 @@ class OAuthRebindRouteTests(unittest.TestCase):
         mock_rebind.return_value = identity
 
         response = self.client.post(
-            "/api/auth/wechat/rebind",
+            "/api/auth/wechat/web/rebind",
             json={"access_token": "token", "openid": "openid-rebound"},
         )
 

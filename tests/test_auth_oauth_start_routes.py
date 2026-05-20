@@ -134,7 +134,7 @@ class OAuthStartRouteTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/auth/start",
+            "/api/auth/wechat/web/auth/start",
             json={
                 "intent": auth_core.service.OAUTH_INTENT_LOGIN_OR_REGISTER,
                 "redirect_uri": "https://frontend.example/wechat/callback",
@@ -152,11 +152,11 @@ class OAuthStartRouteTests(unittest.TestCase):
 
     def test_wechat_auth_start_rejects_bind_intent(self):
         response = self.client.post(
-            "/api/auth/wechat/auth/start",
+            "/api/auth/wechat/web/auth/start",
             json={"intent": auth_core.service.OAUTH_INTENT_BIND},
         )
         self.assertEqual(response.status_code, 401)
-        self.assertIn("/wechat/bind/start", response.json()["detail"])
+        self.assertIn("/wechat/web/bind/start", response.json()["detail"])
 
     @patch("app.routes.auth._load_active_user_from_token")
     @patch("app.routes.auth.service.start_wechat_oauth")
@@ -170,7 +170,7 @@ class OAuthStartRouteTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/bind/start",
+            "/api/auth/wechat/web/bind/start",
             json={
                 "intent": auth_core.service.OAUTH_INTENT_LOGIN_OR_REGISTER,
                 "redirect_uri": "https://frontend.example/wechat/callback",

@@ -123,7 +123,7 @@ class OAuthCallbackRouteTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/auth/callback",
+            "/api/auth/wechat/web/auth/callback",
             json={"state": "abcdefgh", "access_token": "token", "openid": "openid-1"},
         )
 
@@ -143,7 +143,7 @@ class OAuthCallbackRouteTests(unittest.TestCase):
         }
 
         response = self.client.post(
-            "/api/auth/wechat/auth/callback",
+            "/api/auth/wechat/web/auth/callback",
             json={"state": "abcdefgh", "access_token": "token", "openid": "openid-2"},
         )
 

@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI
 
 from .admin import router as admin_router
 from .auth import router as auth_router
+from .auth_wechat_mini import router as auth_wechat_mini_router
 from .index import router as index_router
 from .user import router as user_router
 from ..sql import setup_sql_routes
@@ -47,6 +48,7 @@ def setup_routes(app: FastAPI):
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(auth_wechat_mini_router, prefix="/api/auth/wechat/mini", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
 
