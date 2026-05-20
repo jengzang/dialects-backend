@@ -230,8 +230,76 @@ def ensure_auth_action_token_registration_columns(db_path: str | Path | None = N
     try:
         columns = conn.execute("PRAGMA table_info(auth_action_tokens)").fetchall()
         existing = {row[1] for row in columns}
+        user_id_col = next((row for row in columns if row[1] == "user_id"), None)
+        if user_id_col and user_id_col[3] == 1:
+            legacy_has_metadata_json = "metadata_json" in existing
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute("BEGIN")
+            conn.execute("ALTER TABLE auth_action_tokens RENAME TO auth_action_tokens_legacy_user_required")
+            conn.execute(
+                """
+                CREATE TABLE auth_action_tokens (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    user_id INTEGER,
+                    identity_id INTEGER,
+                    action VARCHAR(32) NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    requested_ip VARCHAR(45),
+                    target_email TEXT,
+                    metadata_json TEXT,
+                    verified_at DATETIME,
+                    expires_at DATETIME NOT NULL,
+                    consumed_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+                    FOREIGN KEY(identity_id) REFERENCES user_auth_identities (id) ON DELETE CASCADE
+                )
+                """
+            )
+            if legacy_has_metadata_json:
+                conn.execute(
+                    """
+                    INSERT INTO auth_action_tokens (
+                        id, user_id, identity_id, action, token_hash, requested_ip,
+                        target_email, metadata_json, verified_at, expires_at, consumed_at, created_at
+                    )
+                    SELECT
+                        id, NULLIF(user_id, 0), identity_id, action, token_hash, requested_ip,
+                        target_email, metadata_json, verified_at, expires_at, consumed_at, created_at
+                    FROM auth_action_tokens_legacy_user_required
+                    """
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO auth_action_tokens (
+                        id, user_id, identity_id, action, token_hash, requested_ip,
+                        target_email, metadata_json, verified_at, expires_at, consumed_at, created_at
+                    )
+                    SELECT
+                        id, NULLIF(user_id, 0), identity_id, action, token_hash, requested_ip,
+                        target_email, NULL, verified_at, expires_at, consumed_at, created_at
+                    FROM auth_action_tokens_legacy_user_required
+                    """
+                )
+            conn.execute("DROP TABLE auth_action_tokens_legacy_user_required")
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_auth_action_tokens_id ON auth_action_tokens (id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_auth_action_tokens_user_id ON auth_action_tokens (user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_auth_action_tokens_identity_id ON auth_action_tokens (identity_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_auth_action_tokens_action ON auth_action_tokens (action)")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_auth_action_tokens_token_hash ON auth_action_tokens (token_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_action_lookup ON auth_action_tokens (action, expires_at, consumed_at)")
+            conn.commit()
+            conn.execute("PRAGMA foreign_keys=ON")
+            changed = True
+            columns = conn.execute("PRAGMA table_info(auth_action_tokens)").fetchall()
+            existing = {row[1] for row in columns}
+            print("[MIGRATE] 已将 auth_action_tokens.user_id 迁移为 nullable 以支持待注册邮箱 token")
         if "target_email" not in existing:
             conn.execute("ALTER TABLE auth_action_tokens ADD COLUMN target_email TEXT")
+            changed = True
+        if "metadata_json" not in existing:
+            conn.execute("ALTER TABLE auth_action_tokens ADD COLUMN metadata_json TEXT")
             changed = True
         if "verified_at" not in existing:
             conn.execute("ALTER TABLE auth_action_tokens ADD COLUMN verified_at DATETIME")
@@ -244,6 +312,10 @@ def ensure_auth_action_token_registration_columns(db_path: str | Path | None = N
         conn.rollback()
         raise
     finally:
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+        except Exception:
+            pass
         conn.close()
 
 

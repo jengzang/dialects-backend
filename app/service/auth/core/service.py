@@ -1162,7 +1162,7 @@ def issue_email_registration_token(db: Session, email: str, requested_ip: str | 
     token = utils.create_opaque_token()
     token_hash = utils.hash_opaque_token(token)
     db.add(models.AuthActionToken(
-        user_id=0,
+        user_id=None,
         identity_id=None,
         action="register_email",
         token_hash=token_hash,
