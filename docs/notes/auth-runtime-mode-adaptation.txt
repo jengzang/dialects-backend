@@ -1,0 +1,150 @@
+Auth runtime mode adaptation
+============================
+
+Goal
+----
+Define how the login/account system should behave in WEB / EXE / MINE mode when only WEB has Redis.
+
+Observed code points
+--------------------
+1. Runtime mode is injected by run.py as _RUN_TYPE.
+2. app/redis_client.py enables real Redis only when _RUN_TYPE == 'WEB'.
+3. Non-WEB modes receive DummyRedis / DummySyncRedis.
+4. Auth code currently touches Redis in three main places:
+   - app/service/auth/core/dependencies.py
+   - app/service/auth/security/permission_cache.py
+   - app/service/auth/session/online_time_guard.py
+
+Design rule
+-----------
+Auth correctness must be database-first. Redis may accelerate or protect the system, but Redis must not be the source of truth for whether a user can register, log in, bind providers, refresh sessions, or validate a session.
+
+Mode capability matrix
+----------------------
+WEB
+- Real Redis available.
+- Can use shared cache and shared rate limiting.
+- Suitable for multi-worker or multi-instance deployment.
+
+EXE
+- No Redis.
+- Must still support complete auth behavior via database.
+- Any cache / rate-limit behavior is best-effort only.
+
+MINE
+- No Redis.
+- Must still support complete auth behavior via database.
+- Debug/dev-friendly degradation is acceptable.
+
+What must stay DB-first
+-----------------------
+These flows must work identically in all three modes:
+1. User registration and email verification state.
+2. Password hash verification.
+3. Provider binding / rebind state.
+4. OAuth state validation if used in callback correctness.
+5. Session creation, refresh-token rotation, logout/invalidation.
+6. Current-user resolution from token -> active session -> user record.
+
+Current audit of Redis dependencies
+-----------------------------------
+A. app/service/auth/core/dependencies.py
+- User object cache by username.
+- Request sliding-window rate limit by IP / user.
+- Failure behavior today: Redis errors already fail open for request rate limiting and fall back to DB for user loading.
+- Classification:
+  - user cache = enhancement only
+  - request rate limit = enhancement/protection only
+
+B. app/service/auth/security/permission_cache.py
+- Redis caches per-user DB write permission.
+- Classification:
+  - permission cache = enhancement only
+- Requirement:
+  - cache miss or no Redis must fall back to DB permission lookup
+
+C. app/service/auth/session/online_time_guard.py
+- Redis admission control for report-online-time burst control.
+- Code already documents fail-open behavior.
+- Classification:
+  - abuse guard only, not auth correctness
+
+Required runtime contract
+-------------------------
+1. No login or session validation path may require Redis success.
+2. No email registration completion path may require Redis success.
+3. No OAuth callback acceptance/rejection decision may depend on Redis-only state.
+4. Redis-backed limits may reject excess traffic in WEB mode, but non-WEB mode must still remain functional.
+5. When Redis is absent, behavior should degrade to one of these explicit modes:
+   - cache disabled
+   - rate limit disabled
+   - lightweight in-process guard if later implemented
+
+Recommended near-term implementation policy
+-------------------------------------------
+Policy 1: Keep all auth truth in DB
+- sessions table / refresh token state remains authoritative
+- oauth state persistence should remain DB-authoritative
+- email verification and registration records remain DB-authoritative
+
+Policy 2: Treat Redis as optional auth acceleration
+- user cache: optional
+- permission cache: optional
+- online-time burst guard: optional
+- request rate limit: optional/shared protection, not correctness
+
+Policy 3: Make mode-dependent degradation explicit
+At startup log a capability summary such as:
+- runtime_mode=WEB|EXE|MINE
+- redis_enabled=true|false
+- auth_session_store=database
+- auth_user_cache=redis|disabled
+- auth_rate_limit=redis|disabled
+- auth_permission_cache=redis|disabled
+- email_delivery=resend|smtp|console_fallback
+
+Recommended code refactor order
+-------------------------------
+Step 1. Document the contract
+- This file defines the intended behavior boundary.
+
+Step 2. Centralize auth runtime capability flags
+- Add helpers such as:
+  - is_redis_enabled_for_auth()
+  - auth_cache_enabled()
+  - auth_rate_limit_enabled()
+- Avoid scattering raw _RUN_TYPE checks across auth modules.
+
+Step 3. Normalize fail-open/fallback behavior
+- User cache functions should silently fall back to DB.
+- Permission cache functions should silently fall back to DB query path.
+- Request rate limit should either use Redis in WEB or log disabled in non-WEB.
+
+Step 4. Add tests for non-WEB behavior
+Minimum tests to add:
+- get_current_user still resolves via DB when Redis cache always misses.
+- request rate limit dependency does not block when Redis backend is dummy/unavailable.
+- permission lookup still works when cache backend is unavailable.
+- complete-email-registration still succeeds in non-WEB mode.
+- OAuth callback + rebind flows still succeed in non-WEB mode.
+
+What not to do
+--------------
+1. Do not move auth truth into Redis.
+2. Do not make EXE/MINE depend on a local Redis just to use login.
+3. Do not mix startup mode flags with auth correctness checks inside route logic.
+4. Do not assume future desktop/single-user mode has shared rate limiting.
+
+Current gap summary
+-------------------
+1. The current system mostly follows the right direction already: Redis is cache/protection, DB is the truth.
+2. The main missing piece is explicit capability modeling and startup visibility.
+3. Non-WEB behavior should be verified by dedicated tests rather than assumed from DummyRedis.
+4. Auth/mail/provider runtime config is still split from run.py mode config, which is acceptable, but should be documented clearly.
+
+Decision
+--------
+Use this rule going forward:
+- WEB gets Redis-enhanced auth.
+- EXE and MINE get Redis-free full auth.
+- All critical login/account correctness remains database-first.

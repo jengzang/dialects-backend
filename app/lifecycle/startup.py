@@ -1,5 +1,13 @@
 import sqlite3
 
+from app.common.config import (
+    _RUN_TYPE,
+    RESEND_API_KEY,
+    RESEND_FROM_EMAIL,
+    SMTP_HOST,
+    SMTP_USERNAME,
+    SMTP_PASSWORD,
+)
 from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
@@ -98,7 +106,31 @@ def warm_dialect_cache() -> None:
     print("=" * 60)
 
 
+def _get_email_delivery_mode() -> str:
+    if RESEND_API_KEY and RESEND_FROM_EMAIL:
+        return "resend"
+    if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD:
+        return "smtp"
+    return "console_fallback"
+
+
+def print_auth_runtime_capabilities() -> None:
+    redis_enabled = _RUN_TYPE == "WEB"
+    capability_lines = [
+        f"[AUTH] runtime_mode={_RUN_TYPE}",
+        f"[AUTH] redis_enabled={'true' if redis_enabled else 'false'}",
+        "[AUTH] auth_session_store=database",
+        f"[AUTH] auth_user_cache={'redis' if redis_enabled else 'disabled'}",
+        f"[AUTH] auth_rate_limit={'redis' if redis_enabled else 'disabled'}",
+        f"[AUTH] auth_permission_cache={'redis' if redis_enabled else 'disabled'}",
+        f"[AUTH] email_delivery={_get_email_delivery_mode()}",
+    ]
+    for line in capability_lines:
+        print(line)
+
+
 def run_process_startup() -> None:
+    print_auth_runtime_capabilities()
     initialize_db_pools()
     migrate_user_region_tables()
     migrate_logs_database()

@@ -143,3 +143,10 @@ if __name__ == "__main__":
             print("[INFO] 已通过参数跳过自动打开浏览器")
         uvicorn.run(app, host="127.0.0.1", port=5000, reload=False, workers=1)
         # uvicorn.run("run:app", host="localhost", port=5000, reload=True)
+
+    elif _RUN_TYPE == 'WEB':
+        if should_open_browser:
+            threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+        else:
+            print("[INFO] 已通过参数跳过自动打开浏览器")
+        uvicorn.run(app, host="127.0.0.1", port=5000, reload=False, workers=1)
