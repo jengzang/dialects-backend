@@ -95,7 +95,7 @@ class AuthActionToken(Base):
     __tablename__ = "auth_action_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     identity_id = Column(Integer, ForeignKey("user_auth_identities.id", ondelete="CASCADE"), nullable=True, index=True)
     action = Column(String(32), nullable=False, index=True)  # verify_email/reset_password/register_email
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
