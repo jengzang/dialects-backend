@@ -64,6 +64,17 @@ class AuthProviderStatusTests(unittest.TestCase):
         self.db.close()
 
     def test_list_auth_providers_exposes_replacement_actions(self):
+        self.db.add(UserAuthIdentity(
+            user_id=self.user.id,
+            provider="wechat_mini",
+            identifier_normalized="wechat-mini-openid-old",
+            provider_subject="wechat-mini-unionid-old",
+            display_name="Wechat Mini User",
+            is_verified=True,
+            is_primary=False,
+        ))
+        self.db.commit()
+
         providers = service.list_auth_providers(self.db, self.user)
         providers_by_name = {item["provider"]: item for item in providers}
 
@@ -73,6 +84,8 @@ class AuthProviderStatusTests(unittest.TestCase):
         self.assertTrue(providers_by_name["google"]["can_replace"])
         self.assertEqual(providers_by_name["wechat"]["replacement_action"], "bind_wechat")
         self.assertTrue(providers_by_name["wechat"]["can_replace"])
+        self.assertEqual(providers_by_name["wechat_mini"]["replacement_action"], "bind_wechat_mini")
+        self.assertTrue(providers_by_name["wechat_mini"]["can_replace"])
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
 # Multi-Identity Auth and Account Linking Plan
 
-## Status Snapshot (updated 2026-05-12)
+## Status Snapshot (updated 2026-05-20)
 
 This section records the implementation status of this plan against the current repository state so the document remains an execution guide rather than a stale design note.
 
 ### Overall completion estimate
 
-- overall plan completion: roughly 82% to 88%
-- if judged only by already-usable end-user auth capabilities: roughly 88% to 93%
+- overall plan completion: roughly 85% to 90%
+- if judged only by already-usable end-user auth capabilities: roughly 90% to 94%
 - if judged strictly against the full v1 design, security rules, endpoint contract normalization, and broader verification expectations: still incomplete, but the practical OAuth v1 backend contract is now substantially landed
 
 ### Completed or mostly completed
@@ -38,11 +38,11 @@ This section records the implementation status of this plan against the current 
   - Google login decision endpoint exists
   - Google registration completion exists
   - Google bind exists
-- WeChat support now exists in minimal backend v1 form:
-  - WeChat login decision endpoint exists
-  - WeChat registration completion exists
-  - WeChat bind exists
-  - current backend shape accepts client-provided `access_token + openid` and validates userinfo server-side
+- WeChat support now exists in backend v1 form:
+  - WeChat Web OAuth start/callback endpoints exist under `/api/auth/wechat/web/*`
+  - WeChat Web direct-token compatibility endpoints still exist under `/api/auth/wechat/web/*`
+  - WeChat Mini login/register/bind/rebind endpoints now exist under `/api/auth/wechat/mini/*`
+  - current backend shape accepts client-provided `access_token + openid` for Web compatibility routes and validates userinfo server-side
 - identity/provider visibility is partially implemented:
   - provider listing exists
   - `/api/auth/me` already returns linked provider summary
@@ -81,10 +81,20 @@ The current codebase does not fully match the original planned shape. These diff
      - practical direct-token routes are still retained for compatibility
      - OAuth `start` / `callback` routes now exist in backend v1 form and persist transient state via `auth_action_tokens`
      - current route shape is provider-scoped POST endpoints:
-       - `POST /api/auth/wechat/auth/start`
-       - `POST /api/auth/wechat/bind/start`
-       - `POST /api/auth/wechat/auth/callback`
-   - effect: WeChat capability is no longer limited to the direct-token shape alone, but the frontend/browser-side official QR integration still needs end-to-end confirmation
+      - Web OAuth / compatibility routes:
+        - `POST /api/auth/wechat/web/auth/start`
+        - `POST /api/auth/wechat/web/bind/start`
+        - `POST /api/auth/wechat/web/auth/callback`
+        - `POST /api/auth/wechat/web/auth`
+        - `POST /api/auth/wechat/web/register`
+        - `POST /api/auth/wechat/web/bind`
+        - `POST /api/auth/wechat/web/rebind`
+      - WeChat Mini routes:
+        - `POST /api/auth/wechat/mini/auth`
+        - `POST /api/auth/wechat/mini/register`
+        - `POST /api/auth/wechat/mini/bind`
+        - `POST /api/auth/wechat/mini/rebind`
+   - effect: WeChat capability is no longer limited to the direct-token shape alone, but real browser/provider Web QR integration and mini-program acceptance still need end-to-end confirmation
 
 4. Email registration v2
    - planned here: `start -> verify -> complete` registration state machine with explicit long-term state handling design
@@ -111,25 +121,36 @@ The current codebase does not fully match the original planned shape. These diff
   - this is the v1 source of truth across local `MINE` / `EXE` and deployed `WEB` runtime modes
   - Redis is not required for correctness in v1
   - if `WEB` mode later adds Redis, it should be treated only as an optional optimization/cache layer rather than as the sole source of truth
-- Google and WeChat now have start/callback backend routes with a frozen backend choreography:
+- Google and WeChat Web now have start/callback backend routes with a frozen backend choreography:
   - backend `start` issues `state` + `authorize_url`
   - the browser/provider side obtains provider credentials
   - backend `callback` consumes `state` and receives provider credentials from the caller (`id_token` for Google; `access_token + openid` for WeChat)
   - remaining work is real browser/provider operational validation rather than unresolved backend contract shape
-- tests are still behind the full coverage listed in this document, although auth scoped backend coverage materially improved in this round
+- tests are still behind the full coverage listed in this document, although auth-scoped backend coverage materially improved in this round
+- WeChat Mini backend test coverage materially improved and now includes:
+  - client-level error handling for missing config / request failures / HTTP failure / errcode / missing openid / unionid fallback
+  - service-level prepare/register/bind/rebind success and conflict paths
+  - fresh-session enforcement on bind/rebind-sensitive flows
+  - route-level 400/409 contract mapping
+  - `/api/auth/providers` and `/api/auth/me` exposure of `replacement_action=bind_wechat_mini`
+- remaining WeChat Mini gap is no longer basic backend contract coverage; it is real mini-program/device/provider acceptance plus any broader end-to-end UI choreography
 - admin / analytics adaptation is only partially implemented
 - login-method analytics/logging does not appear fully integrated yet
+- local email registration flow is backend-complete, but this machine still runs in `email_delivery=console_fallback` because sender configuration is incomplete
 
 ### Remaining work breakdown with priority and rough estimate
 
 P0 — highest-value remaining work after the v1 backend contract freeze in this repository
-- real browser/provider operational validation for Google and WeChat OAuth
+- real browser/provider operational validation for Google and WeChat Web OAuth
   - confirm actual browser redirect behavior, provider return path, and production callback choreography against the already-frozen backend callback contract
   - estimate: 1 to 3 days depending on provider credentials, callback-domain readiness, and access to real environments
+- WeChat Mini real-device / provider acceptance
+  - confirm real code exchange, login/register/bind/rebind behavior, and account-linking semantics on a live mini-program environment
+  - estimate: 0.5 to 1.5 days depending on mini-program credentials and test-device access
 
 P1 — important robustness and production completeness work
 - broaden auth test coverage
-  - route/integration coverage for provider conflict, register/bind/replace paths, and failure branches
+  - route/integration coverage for provider conflict, register/bind/replace paths, failure branches, and WeChat Mini-specific paths
   - estimate: 0.5 to 1.5 days
 - finish admin / analytics adaptation
   - estimate: 0.5 to 1.5 days
@@ -162,10 +183,11 @@ The backend contract is now stable enough to describe explicitly, even though so
 - current runtime semantics are:
   - `can_unbind` is always `false` in v1
   - `can_replace` is `true` for providers that have a supported replacement/bind path in the current backend
-  - `replacement_action` is the machine hint the frontend should use to route the user to the right replacement flow
-    - email -> `change_email`
-    - google -> `bind_google`
-    - wechat -> `bind_wechat`
+- `replacement_action` is the machine hint the frontend should use to route the user to the right replacement flow
+   - email -> `change_email`
+   - google -> `bind_google`
+   - wechat -> `bind_wechat`
+   - wechat_mini -> `bind_wechat_mini`
 - the legacy `DELETE /api/auth/providers/{provider}` endpoint still exists for compatibility, but v1 runtime policy hard-rejects removal for known providers and only preserves the endpoint as a compatibility surface
 - current frontend/backend contract interpretation should be frozen as:
   - provider management is a replace/rebind flow, not an unlink/delete flow
@@ -281,6 +303,7 @@ The following product rules are treated as fixed inputs for this design:
   - email registration
   - WeChat Web QR login
   - Google OAuth login
+  - WeChat Mini login is now implemented in the backend, but whether it belongs to the frozen v1 product scope should be treated as an implementation-first extension until product/docs are fully reconciled
 - For all three entry methods, registration is not considered complete until the user fills:
   - `username`
   - `password`
@@ -295,8 +318,10 @@ The following product rules are treated as fixed inputs for this design:
 - Existing users are treated as "email-identity users".
 - Google registration should request email, but a malformed or unusable provider-returned email does not block account creation in v1.
 - WeChat registration may have no email.
-- WeChat scope for v1 is **Web QR login only**, not official account H5, native app, or mini program login.
-- Web/PC is the only supported WeChat v1 scenario. Mobile web behavior is not guaranteed in v1.
+- Original v1 product scope in this document was **Web QR login only**, not official account H5, native app, or mini program login.
+- Current repository reality is broader: a `wechat_mini` backend route family now exists alongside `wechat/web`.
+- Until product/docs are fully reconciled, treat WeChat Mini as implemented backend capability whose final v1 product status still needs explicit confirmation.
+- Web/PC remains the primary explicitly planned WeChat v1 scenario. Mobile web behavior is not guaranteed in v1.
 - Email registration should support both verification links and verification codes long-term; v1 starts with verification links.
 - Local password login remains:
   - username + password
