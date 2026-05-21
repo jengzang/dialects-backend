@@ -3,10 +3,22 @@ Auth integration checklist
 
 Scope
 -----
-This note records what is locally verified in backend tests versus what still needs real-provider/manual acceptance.
+This note records what is locally verified in backend tests/runtime versus what still needs real-provider/manual acceptance. It also reflects the current live route shape now that the backend exposes separate WeChat Web and WeChat Mini families.
+
+Current live backend/runtime state on this machine
+-----------------------------------------------
+- Live backend verified at: http://127.0.0.1:5000
+- Runtime process: proc_036eb9615d6d
+- Email delivery mode from startup log: console_fallback
+- OpenAPI-confirmed route families:
+  - Google: /api/auth/google/...
+  - WeChat Web: /api/auth/wechat/web/...
+  - WeChat Mini: /api/auth/wechat/mini/...
+  - Email registration: /api/auth/register-email, /verify-email-registration, /complete-email-registration
+  - Provider metadata: /api/auth/providers, /api/auth/me
 
 Current live mail transport state on this machine
------------------------------------------------
+------------------------------------------------
 - RESEND_API_KEY: set
 - RESEND_FROM_EMAIL: unset
 - SMTP_HOST: unset
@@ -20,8 +32,8 @@ The current runtime cannot send a real email:
 2. SMTP path is disabled because SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD are not all configured.
 3. The code therefore falls back to console-print mode in app/service/auth/core/utils.py.
 
-What backend tests already cover
---------------------------------
+What backend/runtime verification already covers
+-----------------------------------------------
 Google
 - /api/auth/google/auth/start
 - /api/auth/google/bind/start
@@ -34,28 +46,40 @@ Google
 - session_id exposure
 - bind/bound contract consistency
 
-WeChat
-- /api/auth/wechat/auth/start
-- /api/auth/wechat/bind/start
-- /api/auth/wechat/auth/callback
-- /api/auth/wechat/auth
-- /api/auth/wechat/register
-- /api/auth/wechat/bind
-- /api/auth/wechat/rebind
-- structured conflict responses
-- session_id exposure
-- bind/bound contract consistency
+WeChat Web
+- /api/auth/wechat/web/auth/start
+- /api/auth/wechat/web/bind/start
+- /api/auth/wechat/web/auth/callback
+- /api/auth/wechat/web/auth
+- /api/auth/wechat/web/register
+- /api/auth/wechat/web/bind
+- /api/auth/wechat/web/rebind
+
+WeChat Mini
+- /api/auth/wechat/mini/auth
+- /api/auth/wechat/mini/register
+- /api/auth/wechat/mini/bind
+- /api/auth/wechat/mini/rebind
+- live route presence verified against current OpenAPI after restarting the stale backend instance
+- backend test coverage now includes:
+  - client-level config / request / HTTP / errcode / payload validation paths
+  - service-level success + conflict paths for prepare/register/bind/rebind
+  - stale-session rejection on sensitive bind/rebind paths
+  - route-level 400 and 409 contract mapping
+  - `/api/auth/providers` and `/api/auth/me` exposure of `replacement_action=bind_wechat_mini`
+- remaining gap is real mini-program/device/provider acceptance rather than basic backend route or contract coverage
 
 Email
 - /api/auth/register-email
 - /api/auth/verify-email-registration
 - /api/auth/complete-email-registration
 - /api/auth/verify-email
-- complete-email-registration now returns auth tokens + session_id
+- complete-email-registration backend path is expected to close the auth session chain, but real email delivery is not configured on this machine
 
 Provider metadata
 - /api/auth/providers exposes can_replace + replacement_action
-- DELETE /api/auth/providers/{provider} returns legacy replace guidance payload
+- /api/auth/me returns auth_providers summary
+- DELETE /api/auth/providers/{provider} remains compatibility-only and should not be treated as a supported unlink flow in v1
 
 Remaining real-world acceptance tasks
 -------------------------------------
@@ -92,15 +116,29 @@ B. Google real-provider acceptance
    - bind flow returns provider=google + provider_subject
    - rebind flow replaces the existing google identity for the same user
 
-C. WeChat real-provider acceptance
+C. WeChat Web real-provider acceptance
 1. Confirm WeChat app credentials, callback domain, and redirect URI.
-2. Trigger /api/auth/wechat/auth/start and complete QR/auth flow.
+2. Trigger /api/auth/wechat/web/auth/start and complete QR/auth flow.
 3. Acceptance:
    - callback returns login/register payload with session_id
    - bind flow returns provider=wechat + provider_subject
    - rebind flow replaces the existing wechat identity for the same user
 
+D. WeChat Mini acceptance
+1. Confirm Mini app credentials and the frontend/app-side code-exchange choreography expected by the backend mini endpoints.
+2. Exercise:
+   - /api/auth/wechat/mini/auth
+   - /api/auth/wechat/mini/register
+   - /api/auth/wechat/mini/bind
+   - /api/auth/wechat/mini/rebind
+3. Acceptance:
+   - auth returns login/register guidance for a real mini identity
+   - register closes the user/session creation path correctly
+   - bind/rebind behave consistently with replacement semantics
+
 Known remaining risk
 --------------------
-- Google/WeChat are locally closed at the backend-contract level, but not yet proven against live provider credentials.
+- Google and WeChat Web are locally closed at the backend-contract level, but not yet proven against live provider credentials.
+- WeChat Mini routes are now proven live in the current backend, but acceptance coverage and dedicated tests still need expansion.
 - Email registration flow is locally closed, but real delivery is not yet available in the current environment because sender configuration is incomplete.
+- Admin / analytics adaptation and login-method analytics/logging still appear to be partially implemented.
