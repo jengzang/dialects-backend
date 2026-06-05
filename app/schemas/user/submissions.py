@@ -91,3 +91,50 @@ class CustomDataEdit(ShanghaiBaseModel):
 class BatchDeleteRequest(ShanghaiBaseModel):
     """批量刪除請求"""
     created_at_list: List[datetime]
+
+
+class CustomPointGroupResponse(ShanghaiBaseModel):
+    point_key: str
+    簡稱: str
+    音典分區: str
+    經緯度: str
+    feature_count: int
+    updated_at: datetime
+
+
+class CustomPointGroupListResponse(ShanghaiBaseModel):
+    success: bool = True
+    data: List[CustomPointGroupResponse]
+    total: int
+
+
+class CustomFeatureGroupResponse(ShanghaiBaseModel):
+    feature_key: str
+    特徵: str
+    聲韻調: str
+    location_count: int
+    updated_at: datetime
+
+
+class CustomFeatureGroupListResponse(ShanghaiBaseModel):
+    success: bool = True
+    data: List[CustomFeatureGroupResponse]
+    total: int
+
+
+class CustomDataRecord(ShanghaiBaseModel):
+    簡稱: str
+    音典分區: str
+    經緯度: str
+    聲韻調: Optional[str] = None
+    特徵: str
+    值: str
+    說明: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomDataListResponse(ShanghaiBaseModel):
+    success: bool = True
+    data: List[CustomDataRecord]
