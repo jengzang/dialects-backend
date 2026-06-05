@@ -7,7 +7,7 @@ from sqlalchemy import func, distinct, or_
 from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
 from app.service.user.core.database import SessionLocal as SessionLocal_info
-from app.service.user.core.models import Information
+from app.service.user.core.models import Information, UserRegion
 from app.service.user.submission.submit import get_max_value
 from app.schemas.admin.submissions import InformationBase
 from app.schemas.user import (
@@ -28,6 +28,24 @@ def _require_current_user(current_user: Optional[User]) -> User:
     if current_user is None:
         raise HTTPException(status_code=401, detail="請先登錄")
     return current_user
+
+
+def list_user_custom_counts(user: User) -> dict:
+    session_info = SessionLocal_info()
+    try:
+        custom_region_total = session_info.query(UserRegion.id).filter(
+            UserRegion.user_id == user.id
+        ).count()
+        custom_data_total = session_info.query(Information.id).filter(
+            Information.user_id == user.id
+        ).count()
+        return {
+            "success": True,
+            "custom_region_total": custom_region_total,
+            "custom_data_total": custom_data_total,
+        }
+    finally:
+        session_info.close()
 
 
 def list_grouped_points_for_user(user: User, keyword: Optional[str] = None) -> dict:
@@ -180,6 +198,14 @@ async def get_all_own_custom_data(
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
     finally:
         session_info.close()
+
+
+@router.get("/counts")
+async def get_user_custom_counts(
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    user = _require_current_user(current_user)
+    return list_user_custom_counts(user)
 
 
 @router.get("/points", response_model=CustomPointGroupListResponse)
