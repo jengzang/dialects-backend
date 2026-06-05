@@ -3,6 +3,7 @@
 """
 import argparse
 import os
+import socket
 
 from app.common.numba_bootstrap import (
     bootstrap_numba_threading_environment,
@@ -98,6 +99,38 @@ def parse_args():
     return parser.parse_args()
 
 
+def is_port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def find_available_port(start_port: int, host: str, max_tries: int = 50) -> int:
+    for offset in range(max_tries):
+        port = start_port + offset
+        if is_port_available(host, port):
+            if offset > 0:
+                print(f"[INFO] 端口 {start_port}-{port - 1} 已被占用，自动使用 {port}")
+            return port
+        print(f"[INFO] 端口 {port} 已被占用，尝试 {port + 1}")
+
+    end_port = start_port + max_tries - 1
+    raise RuntimeError(f"端口范围 {start_port}-{end_port} 均被占用，无法启动服务")
+
+
+def build_runtime_urls(run_type: str, port: int) -> dict:
+    local_url = f"http://127.0.0.1:{port}"
+    return {
+        "local_url": local_url,
+        "browser_url": local_url,
+        "api_base_url": local_url,
+        "network_url": f"http://0.0.0.0:{port}" if run_type == "MINE" else local_url,
+    }
+
+
 # 启动服务并自动打开浏览器
 if __name__ == "__main__":
     # macOS 本地若需要 libomp，尽量在真正导入应用前以带环境的新进程重启一次。
@@ -131,15 +164,26 @@ if __name__ == "__main__":
     should_open_browser = not args.close_browser
 
     if _RUN_TYPE == 'MINE':
+        host = "0.0.0.0"
+        actual_port = find_available_port(5000, host=host)
+        runtime_urls = build_runtime_urls(_RUN_TYPE, actual_port)
+        print(f"[INFO] MINE 模式请求端口: 5000")
+        print(f"[OK] MINE 模式 API 基址: {runtime_urls['api_base_url']}")
+        print(f"[INFO] MINE 模式监听地址: {runtime_urls['network_url']}")
         if should_open_browser:
-            # 跑在局域網ip地址上
-            threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
-        uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
+            # 跑在局域網ip地址上；浏览器优先打开本机可访问地址。
+            threading.Thread(target=_open_browser, args=(runtime_urls["browser_url"],), daemon=True).start()
+        uvicorn.run("app.main:app", host=host, port=actual_port, reload=True)
 
     elif _RUN_TYPE == 'EXE':
+        host = "127.0.0.1"
+        actual_port = find_available_port(5000, host=host)
+        runtime_urls = build_runtime_urls(_RUN_TYPE, actual_port)
+        print(f"[INFO] EXE 模式请求端口: 5000")
+        print(f"[OK] EXE 模式 API 基址: {runtime_urls['api_base_url']}")
         if should_open_browser:
-            threading.Thread(target=_open_browser, args=(APP_URL,), daemon=True).start()
+            threading.Thread(target=_open_browser, args=(runtime_urls["browser_url"],), daemon=True).start()
         else:
             print("[INFO] 已通过参数跳过自动打开浏览器")
-        uvicorn.run(app, host="127.0.0.1", port=5000, reload=False, workers=1)
+        uvicorn.run(app, host=host, port=actual_port, reload=False, workers=1)
         # uvicorn.run("run:app", host="localhost", port=5000, reload=True)
