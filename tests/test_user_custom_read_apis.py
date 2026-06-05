@@ -8,12 +8,14 @@ from fastapi import HTTPException
 from app.routes.user.custom_data import (
     get_custom_data_by_feature,
     get_custom_data_by_point,
+    get_user_custom_counts,
     get_user_custom_feature_groups,
     get_user_custom_points,
     list_grouped_features_for_user,
     list_grouped_points_for_user,
     list_records_by_feature_for_user,
     list_records_by_point_for_user,
+    list_user_custom_counts,
 )
 from app.service.user.core.models import Information
 
@@ -74,6 +76,23 @@ class _FakeSession:
 
 
 class CustomDataReadApisTests(unittest.IsolatedAsyncioTestCase):
+    async def test_counts_endpoint_exposes_user_custom_totals(self) -> None:
+        user = SimpleNamespace(id=7, username="tester")
+        expected = {
+            "success": True,
+            "custom_region_total": 3,
+            "custom_data_total": 28,
+        }
+
+        with patch(
+            "app.routes.user.custom_data.list_user_custom_counts",
+            return_value=expected,
+        ) as mock_service:
+            result = await get_user_custom_counts(current_user=user)
+
+        self.assertEqual(result, expected)
+        self.assertEqual(mock_service.call_args.args, (user,))
+
     async def test_points_endpoint_exposes_grouped_cards(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         expected = {
@@ -186,6 +205,43 @@ class CustomDataReadApisTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CustomDataReadServiceTests(unittest.TestCase):
+    def test_counts_service_returns_region_and_data_totals(self) -> None:
+        user = SimpleNamespace(id=7, username="tester")
+
+        class _FakeCountQuery:
+            def __init__(self, value):
+                self.value = value
+
+            def filter(self, *args, **kwargs):
+                return self
+
+            def count(self):
+                return self.value
+
+        class _FakeCountSession:
+            def __init__(self):
+                self.closed = False
+                self.calls = 0
+
+            def query(self, *args, **kwargs):
+                self.calls += 1
+                return _FakeCountQuery(3 if self.calls == 1 else 28)
+
+            def close(self):
+                self.closed = True
+
+        fake_session = _FakeCountSession()
+
+        with patch("app.routes.user.custom_data.SessionLocal_info", return_value=fake_session):
+            result = list_user_custom_counts(user)
+
+        self.assertTrue(fake_session.closed)
+        self.assertEqual(result, {
+            "success": True,
+            "custom_region_total": 3,
+            "custom_data_total": 28,
+        })
+
     def test_grouped_points_service_shapes_rows(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         rows = [
