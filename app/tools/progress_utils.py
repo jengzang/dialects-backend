@@ -53,11 +53,16 @@ def timestamp_to_datetime(timestamp: Any) -> Optional[datetime]:
 
 def iso_to_datetime(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
         return value
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        dt = datetime.fromisoformat(str(value))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
     except (TypeError, ValueError):
         return None
 

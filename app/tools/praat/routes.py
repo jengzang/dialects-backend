@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 from typing import Literal
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
@@ -397,8 +397,8 @@ async def create_job(
         "modules": request.modules,
         "options": request.options.model_dump(exclude_none=True) if request.options else {},
         "output_options": request.output.model_dump(exclude_none=True) if request.output else {},
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
 
     # Update task data

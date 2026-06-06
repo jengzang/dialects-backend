@@ -5,7 +5,7 @@ import json
 import traceback
 from pathlib import Path
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.tools.config import (
     CLEANUP_POLICY_PRAAT_UPLOAD,
@@ -134,7 +134,7 @@ async def execute_job_async(task_id: str, job_id: str):
                 task_manager, task_id, job_id,
                 status="done",
                 progress=100.0,
-                completed_at=datetime.now().isoformat()
+                completed_at=datetime.now(timezone.utc).isoformat()
             )
 
             # 8. Update last_result and clear current_job_id
@@ -142,7 +142,7 @@ async def execute_job_async(task_id: str, job_id: str):
             task_data = task.get('data', {})
             task_data['last_result'] = {
                 "job_id": job_id,
-                "completed_at": datetime.now().isoformat()
+                "completed_at": datetime.now(timezone.utc).isoformat()
             }
             task_data['current_job_id'] = None  # Clear current job
             task_manager.update_task(task_id, data=task_data)
