@@ -62,4 +62,4 @@ async def admin_index(request: Request) -> HTMLResponse:
 
 @router.get("/__ping")
 def ping():
-    return "ok"
+    return "ok!!"
