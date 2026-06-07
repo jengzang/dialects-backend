@@ -15,6 +15,12 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from app.common.numba_bootstrap import bootstrap_numba_threading_environment
+
+# 让 gunicorn master 在加载配置阶段就准备好 numba 线程层环境，
+# 这样后续 fork 出来的 worker 会继承同一套默认设置。
+bootstrap_numba_threading_environment()
+
 from app.lifecycle import (
     cleanup_worker_process,
     start_background_services,

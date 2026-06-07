@@ -210,6 +210,3 @@ async def set_cache(key: str, data: List[Dict], expire_seconds: int = 600):
     except Exception as e:
         print(f"[X] Redis Write Error: {e}")
 
-
-
-

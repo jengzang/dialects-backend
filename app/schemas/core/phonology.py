@@ -29,12 +29,24 @@ class AnalysisPayload(BaseModel):
     group_inputs: Union[str, List[str], None] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
+    table_name: str = Field(
+        default="characters",
+        description="字符數據庫表名"
+    )
 
     @model_validator(mode="after")
     def check_locations_or_regions(self):
         if not self.locations and not self.regions:
             raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
         return self
+
+    @field_validator('table_name')
+    @classmethod
+    def validate_table_name(cls, v):
+        from app.common.constants import VALID_CHARACTER_TABLES
+        if v not in VALID_CHARACTER_TABLES:
+            raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
+        return v
 
 
 class CharListRequest(BaseModel):
