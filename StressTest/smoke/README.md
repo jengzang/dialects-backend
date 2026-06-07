@@ -34,6 +34,10 @@ Run full smoke:
 
 `python StressTest/smoke/openapi_smoke.py`
 
+Run cluster loader smoke and benchmark:
+
+`./.venv/bin/python StressTest/smoke/cluster_loader_smoke.py`
+
 Run only first 30 endpoints:
 
 `python StressTest/smoke/openapi_smoke.py --max-endpoints 30`
@@ -46,3 +50,4 @@ Use custom config path:
 
 - This smoke runner focuses on endpoint availability, auth behavior, and basic request validity.
 - It does not replace strict business-logic tests for critical endpoints.
+- `cluster_loader_smoke.py` is a targeted cluster regression script. It checks loader equivalence, compares SQL plans for different query shapes, benchmarks them, and runs a minimal cluster smoke across the three `phoneme_mode` values.

@@ -104,7 +104,7 @@ class JobStatusResponse(BaseModel):
     """Job status response."""
     job_id: str
     status: Literal["queued", "running", "done", "error", "canceled"]
-    progress: float = Field(ge=0.0, le=1.0)
+    progress: float = Field(ge=0.0, le=100.0)
     stage: Optional[str] = None
     error: Optional[ErrorDetail] = None
     created_at: datetime

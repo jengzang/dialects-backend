@@ -3,15 +3,15 @@
 Merge工具的API路由：Excel表格合并工具
 """
 from urllib.parse import quote
+from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import sys
 import os
-import threading
 
 from starlette.responses import StreamingResponse
 
@@ -20,6 +20,18 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from app.tools.task_manager import task_manager, TaskStatus
 from app.tools.file_manager import file_manager
+from app.tools.progress_utils import (
+    MERGE_HEARTBEAT_SECONDS,
+    MERGE_TIMEOUT_SECONDS,
+    ProgressHeartbeat,
+    build_task_progress_payload,
+    mark_task_ready,
+    maybe_timeout_task,
+)
+from app.tools.config import (
+    CLEANUP_POLICY_MERGE_RESULT,
+    TASK_CLEANUP_30M_SECONDS,
+)
 from .merge_core import (
     load_reference_file,
     merge_excel_files,
@@ -59,6 +71,8 @@ class MergeResponse(BaseModel):
     status: str
     progress: float
     message: str
+    stage: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
 
 class MergeResult(BaseModel):
@@ -69,26 +83,15 @@ class MergeResult(BaseModel):
     message: str
 
 
-# ==================== 辅助函数 ====================
-
-def cleanup_task_resources(task_id: str, tool_name: str):
-    """
-    清理任务的所有资源（文件 + 任务记录）
-
-    Args:
-        task_id: 任务ID
-        tool_name: 工具名称
-    """
-    try:
-        # 清理文件
-        file_manager.delete_task_files(task_id, tool_name)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的文件")
-
-        # 清理任务记录
-        task_manager.delete_task(task_id)
-        print(f"[CLEANUP] 已删除任务 {task_id} 的记录")
-    except Exception as e:
-        print(f"[CLEANUP] 清理任务 {task_id} 时出错: {str(e)}")
+def _touch_merge_cleanup(task_id: str, reason: str) -> None:
+    task_manager.update_task_cleanup(
+        task_id,
+        policy_key=CLEANUP_POLICY_MERGE_RESULT,
+        armed=True,
+        terminal=True,
+        ttl_seconds=TASK_CLEANUP_30M_SECONDS,
+        reason=reason,
+    )
 
 
 async def merge_files_async(task_id: str, reference_path: Path, file_paths: List[Path]):
@@ -101,98 +104,96 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
         file_paths: 待合并文件路径列表
     """
     try:
-        # 更新状态
-        task_manager.update_task(
-            task_id,
-            status=TaskStatus.PROCESSING,
-            progress=10.0,
-            message="正在加载参考表..."
-        )
+        with ProgressHeartbeat(MERGE_HEARTBEAT_SECONDS, lambda: task_manager.update_task(task_id)):
+            # 更新状态
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.PROCESSING,
+                progress=10.0,
+                message="正在加载参考表...",
+                stage="loading_reference",
+            )
 
-        # 使用原有的load_reference_file函数
-        reference_chars = load_reference_file(str(reference_path))
-        char_count = len(reference_chars)
+            # 使用原有的load_reference_file函数
+            reference_chars = load_reference_file(str(reference_path))
+            char_count = len(reference_chars)
 
-        task_manager.update_task(
-            task_id,
-            progress=20.0,
-            message=f"参考表加载完成，共{char_count}个字，开始合并文件..."
-        )
+            task_manager.update_task(
+                task_id,
+                progress=20.0,
+                message=f"参考表加载完成，共{char_count}个字，开始合并文件...",
+                stage="preparing_merge",
+            )
 
-        # 获取文件名称作为列标题
-        file_names = [get_file_name(str(fp)) for fp in file_paths]
-        total_files = len(file_paths)
+            # 获取文件名称作为列标题
+            file_names = [get_file_name(str(fp)) for fp in file_paths]
+            total_files = len(file_paths)
 
-        task_manager.update_task(
-            task_id,
-            progress=30.0,
-            message=f"正在合并{total_files}个文件..."
-        )
+            task_manager.update_task(
+                task_id,
+                progress=30.0,
+                message=f"正在合并{total_files}个文件...",
+                stage="merging_files",
+            )
 
-        # 使用原有的merge_excel_files函数
-        merged_data, comments_data = merge_excel_files(
-            reference_chars,
-            [str(fp) for fp in file_paths]
-        )
+            # 使用原有的merge_excel_files函数
+            merged_data, comments_data = merge_excel_files(
+                reference_chars,
+                [str(fp) for fp in file_paths]
+            )
 
-        task_manager.update_task(
-            task_id,
-            progress=80.0,
-            message="合并完成，正在生成结果文件..."
-        )
+            task_manager.update_task(
+                task_id,
+                progress=80.0,
+                message="合并完成，正在生成结果文件...",
+                stage="building_workbook",
+            )
 
-        # 使用原有的create_new_workbook函数
-        new_wb = create_new_workbook(
-            reference_chars,
-            merged_data,
-            comments_data,
-            file_names
-        )
+            # 使用原有的create_new_workbook函数
+            new_wb = create_new_workbook(
+                reference_chars,
+                merged_data,
+                comments_data,
+                file_names
+            )
 
-        # 保存结果
-        output_path = reference_path.parent / "merge.xlsx"
-        new_wb.save(str(output_path))
+            # 保存结果
+            output_path = reference_path.parent / "merge.xlsx"
+            task_manager.update_task(
+                task_id,
+                progress=95.0,
+                message="正在保存合并结果...",
+                stage="saving_result",
+            )
+            new_wb.save(str(output_path))
 
-        task_manager.update_task(
-            task_id,
-            progress=95.0,
-            message="正在保存合并结果..."
-        )
+            # 统计合并的列数
+            merged_columns = len(file_names)
 
-        # 统计合并的列数
-        merged_columns = len(file_names)
-
-        # 更新任务为完成
-        task_manager.update_task(
-            task_id,
-            status=TaskStatus.COMPLETED,
-            progress=100.0,
-            message=f"合并完成，共合并{merged_columns}列",
-            data={
-                "output_path": str(output_path),
-                "merged_columns": merged_columns,
-                "total_chars": char_count
-            }
-        )
-
-        # 【新增】5分钟后自动清理文件
-        cleanup_delay = 300  # 5分钟 = 300秒
-        cleanup_timer = threading.Timer(
-            cleanup_delay,
-            cleanup_task_resources,
-            args=(task_id, "merge")
-        )
-        cleanup_timer.daemon = True
-        cleanup_timer.start()
-        print(f"[CLEANUP] 已设置定时清理：任务 {task_id} 将在 {cleanup_delay} 秒后清理")
+            # 更新任务为完成
+            task_manager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                message=f"合并完成，共合并{merged_columns}列",
+                stage="completed",
+                data={
+                    "output_path": str(output_path),
+                    "merged_columns": merged_columns,
+                    "total_chars": char_count
+                }
+            )
+        _touch_merge_cleanup(task_id, "merge_completed")
 
     except Exception as e:
         task_manager.update_task(
             task_id,
             status=TaskStatus.FAILED,
             error=str(e),
-            message=f"合并失败: {str(e)}"
+            message=f"合并失败: {str(e)}",
+            stage="failed",
         )
+        _touch_merge_cleanup(task_id, "merge_failed")
 
 
 # ==================== API端点 ====================
@@ -228,18 +229,19 @@ async def upload_reference(file: UploadFile = File(...)):
         char_count = len(reference_chars)
 
         # 更新任务信息
-        task_manager.update_task(
+        mark_task_ready(
+            task_manager,
             task_id,
-            status=TaskStatus.COMPLETED,
-            progress=50.0,
             message=f"参考表上传成功，共{char_count}个字",
+            stage="reference_ready",
             data={
                 "reference_filename": file.filename,
                 "reference_path": str(file_path),
                 "char_count": char_count,
                 "reference_chars": reference_chars  # 保存参考字表
-            }
+            },
         )
+        _touch_merge_cleanup(task_id, "reference_uploaded")
 
         return UploadReferenceResponse(
             task_id=task_id,
@@ -252,15 +254,19 @@ async def upload_reference(file: UploadFile = File(...)):
         task_manager.update_task(
             task_id,
             status=TaskStatus.FAILED,
-            error=str(e.detail)
+            error=str(e.detail),
+            stage="failed",
         )
+        _touch_merge_cleanup(task_id, "reference_upload_failed")
         raise
     except Exception as e:
         task_manager.update_task(
             task_id,
             status=TaskStatus.FAILED,
-            error=str(e)
+            error=str(e),
+            stage="failed",
         )
+        _touch_merge_cleanup(task_id, "reference_upload_failed")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
 
 
@@ -298,16 +304,18 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
             filenames.append(file.filename)
 
         # 更新任务信息
-        task_manager.update_task(
+        mark_task_ready(
+            task_manager,
             task_id,
-            progress=75.0,
-            message=f"上传{len(filenames)}个待合并文件",
+            message=f"已上传{len(filenames)}个待合并文件",
+            stage="inputs_ready",
             data={
                 **task['data'],
                 "merge_files": file_paths,
                 "merge_filenames": filenames
-            }
+            },
         )
+        _touch_merge_cleanup(task_id, "merge_inputs_uploaded")
 
         return UploadFilesResponse(
             task_id=task_id,
@@ -319,6 +327,7 @@ async def upload_merge_files(task_id: str = Form(...), files: List[UploadFile] =
     except HTTPException:
         raise
     except Exception as e:
+        _touch_merge_cleanup(task_id, "merge_inputs_upload_failed")
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 
 
@@ -361,6 +370,14 @@ async def execute_merge(request: MergeRequest, background_tasks: BackgroundTasks
     if not file_paths:
         raise HTTPException(status_code=400, detail="没有有效的待合并文件")
 
+    task_manager.update_task(
+        request.task_id,
+        status=TaskStatus.PROCESSING,
+        progress=0.0,
+        message="合并任务已启动",
+        stage="queued",
+    )
+
     # 启动后台合并任务
     background_tasks.add_task(
         merge_files_async,
@@ -373,7 +390,8 @@ async def execute_merge(request: MergeRequest, background_tasks: BackgroundTasks
         task_id=request.task_id,
         status="processing",
         progress=0.0,
-        message="合并任务已启动"
+        message="合并任务已启动",
+        stage="queued",
     )
 
 
@@ -388,16 +406,20 @@ async def get_merge_progress(task_id: str):
     Returns:
         MergeResponse: 合并进度
     """
-    task = task_manager.get_task(task_id)
+    task = maybe_timeout_task(
+        task_manager,
+        task_id,
+        timeout_seconds=MERGE_TIMEOUT_SECONDS,
+        failure_status=TaskStatus.FAILED,
+        timeout_message="Merge task timeout: no heartbeat received within the expected window",
+        on_timeout=lambda current_task_id: _touch_merge_cleanup(current_task_id, "merge_timeout"),
+    )
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    return MergeResponse(
-        task_id=task_id,
-        status=task['status'],  # 👈 关键修改
-        progress=task['progress'],  # 👈 关键修改
-        message=task['message']  # 👈 关键修改
-    )
+    payload = build_task_progress_payload(task)
+    payload["task_id"] = task_id
+    return MergeResponse(**payload)
 
 
 @router.get("/download/{task_id}")
@@ -428,6 +450,8 @@ async def download_merge_result(task_id: str):
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like
+
+    _touch_merge_cleanup(task_id, "result_downloaded")
 
     return StreamingResponse(
         iterfile(),

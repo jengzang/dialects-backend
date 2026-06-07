@@ -9,6 +9,19 @@ from app.common.path import QUERY_DB_ADMIN
 from app.sql.db_pool import get_db_pool
 
 
+def _dedupe_preserving_order(items, seen=None):
+    """Return items in first-seen order while removing duplicates."""
+    deduped = []
+    seen = set() if seen is None else seen
+
+    for item in items:
+        if item and item not in seen:
+            deduped.append(item)
+            seen.add(item)
+
+    return deduped
+
+
 def query_dialect_abbreviations(
         region_input=None,
         location_sequence=None,
@@ -46,6 +59,7 @@ def query_dialect_abbreviations(
         region_list = [r.strip() for r in region_input if isinstance(r, str)]
     else:
         region_list = []
+    region_list = _dedupe_preserving_order(region_list)
 
     if isinstance(location_sequence, str):
         location_list = [location_sequence.strip()]
@@ -53,11 +67,10 @@ def query_dialect_abbreviations(
         location_list = [item.strip() for item in location_sequence if isinstance(item, str)]
     else:
         location_list = []
-
-    combined_elements = list(set(region_list))
+    location_list = _dedupe_preserving_order(location_list)
 
     if debug:
-        print(f"分區合併後元素: {combined_elements}")
+        print(f"分區合併後元素: {region_list}")
 
     result = []
     seen = set()
@@ -126,7 +139,7 @@ def query_dialect_abbreviations(
                         break
 
     # 最終結果：保留匹配順序，直接拼接原始地點
-    final_result = result + location_list
+    final_result = result + _dedupe_preserving_order(location_list, seen)
 
     if debug:
         print(f"=== 最終結果（保留資料庫順序 + 地點）: {final_result} ===")
@@ -171,6 +184,7 @@ def query_dialect_abbreviations_orm(
         region_list = [r.strip() for r in region_input if isinstance(r, str)]
     else:
         region_list = []
+    region_list = _dedupe_preserving_order(region_list)
 
     if isinstance(location_sequence, str):
         location_list = [location_sequence.strip()]
@@ -178,11 +192,10 @@ def query_dialect_abbreviations_orm(
         location_list = [item.strip() for item in location_sequence if isinstance(item, str)]
     else:
         location_list = []
-
-    combined_elements = list(set(region_list))
+    location_list = _dedupe_preserving_order(location_list)
 
     if debug:
-        print(f"分區合併後元素: {combined_elements}")
+        print(f"分區合併後元素: {region_list}")
 
     result = []
     seen = set()
@@ -216,7 +229,7 @@ def query_dialect_abbreviations_orm(
                         seen.add(abbr)
 
     # 最終結果：保留匹配順序，直接拼接原始地點
-    final_result = result + location_list
+    final_result = result + _dedupe_preserving_order(location_list, seen)
 
     if debug:
         print(f"=== 最終結果（保留資料庫順序 + 地點）: {final_result} ===")

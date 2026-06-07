@@ -15,5 +15,10 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from app.common.numba_bootstrap import bootstrap_numba_threading_environment
+
+# 供 gunicorn / docker 入口使用，确保 worker 导入 app 前先准备 numba 线程层。
+bootstrap_numba_threading_environment()
+
 # 導入真正的 FastAPI app
 from app.main import app  # noqa

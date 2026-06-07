@@ -338,10 +338,12 @@ API_WHITELIST = [
     "/",  # 首页
     "/admin",  # 管理页面
     "/detail",  # 详情页
-    "/intro",  # 介绍页
-    "/menu",  # 菜单页
-    "/explore",  # 探索页
+    "/intro*",  # 介绍页
+    "/menu*",  # 菜单页
+    "/explore*",  # 探索页
     "/statics/*",  # 静态文件（CSS、JS、图片等）
+    "/villagesML*",
+    "/auth*",
 ]
 
 # ===== 黑名单 =====
