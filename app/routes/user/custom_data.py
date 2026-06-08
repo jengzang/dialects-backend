@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -10,6 +10,7 @@ from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.user.core.models import Information, UserRegion
 from app.service.user.submission.submit import get_max_value
 from app.schemas.admin.submissions import InformationBase
+
 from app.schemas.user import (
     CustomDataEdit,
     BatchDeleteRequest,
@@ -19,6 +20,7 @@ from app.schemas.user import (
     CustomPointGroupResponse,
     CustomDataListResponse,
     CustomDataRecord,
+    CustomDataAllResponse,
 )
 
 router = APIRouter()
@@ -174,7 +176,7 @@ def list_records_by_feature_for_user(user: User, feature: str, phonology: str) -
         session_info.close()
 
 
-@router.get("/all")
+@router.get("/all", response_model=CustomDataAllResponse)
 async def get_all_own_custom_data(
     current_user: Optional[User] = Depends(get_current_user)
 ):

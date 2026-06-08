@@ -9,12 +9,10 @@
 
 from datetime import datetime
 from typing import List, Optional
-from pydantic import ConfigDict, Field, field_validator
-
-from app.schemas.base import ShanghaiBaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class FormData(ShanghaiBaseModel):
+class FormData(BaseModel):
     """
     用于 /api/submit_form 的用戶自定表單提交，寫入數據庫supplements.db。
     - locations-寫入的地點
@@ -37,7 +35,7 @@ class FormData(ShanghaiBaseModel):
     created_at: Optional[str] = None  # submit沒有，delete必填
 
 
-class CustomRegionCreate(ShanghaiBaseModel):
+class CustomRegionCreate(BaseModel):
     """创建或更新自定义区域的请求模型"""
     region_name: str = Field(..., min_length=1, max_length=200, description="区域名称")
     locations: List[str] = Field(..., min_items=1, description="地点简称列表")
@@ -56,7 +54,7 @@ class CustomRegionCreate(ShanghaiBaseModel):
         return v
 
 
-class CustomRegionResponse(ShanghaiBaseModel):
+class CustomRegionResponse(BaseModel):
     """自定义区域响应模型"""
     id: int
     region_name: str
@@ -69,14 +67,14 @@ class CustomRegionResponse(ShanghaiBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CustomRegionList(ShanghaiBaseModel):
+class CustomRegionList(BaseModel):
     """自定义区域列表响应模型"""
     success: bool = True
     regions: List[CustomRegionResponse]
     total: int
 
 
-class CustomDataEdit(ShanghaiBaseModel):
+class CustomDataEdit(BaseModel):
     """編輯 custom 數據請求"""
     created_at: datetime  # 用於識別要編輯的記錄
     簡稱: Optional[str] = None
@@ -88,12 +86,12 @@ class CustomDataEdit(ShanghaiBaseModel):
     說明: Optional[str] = None
 
 
-class BatchDeleteRequest(ShanghaiBaseModel):
+class BatchDeleteRequest(BaseModel):
     """批量刪除請求"""
     created_at_list: List[datetime]
 
 
-class CustomPointGroupResponse(ShanghaiBaseModel):
+class CustomPointGroupResponse(BaseModel):
     point_key: str
     簡稱: str
     音典分區: str
@@ -102,13 +100,13 @@ class CustomPointGroupResponse(ShanghaiBaseModel):
     updated_at: datetime
 
 
-class CustomPointGroupListResponse(ShanghaiBaseModel):
+class CustomPointGroupListResponse(BaseModel):
     success: bool = True
     data: List[CustomPointGroupResponse]
     total: int
 
 
-class CustomFeatureGroupResponse(ShanghaiBaseModel):
+class CustomFeatureGroupResponse(BaseModel):
     feature_key: str
     特徵: str
     聲韻調: str
@@ -116,13 +114,13 @@ class CustomFeatureGroupResponse(ShanghaiBaseModel):
     updated_at: datetime
 
 
-class CustomFeatureGroupListResponse(ShanghaiBaseModel):
+class CustomFeatureGroupListResponse(BaseModel):
     success: bool = True
     data: List[CustomFeatureGroupResponse]
     total: int
 
 
-class CustomDataRecord(ShanghaiBaseModel):
+class CustomDataRecord(BaseModel):
     簡稱: str
     音典分區: str
     經緯度: str
@@ -135,6 +133,12 @@ class CustomDataRecord(ShanghaiBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CustomDataListResponse(ShanghaiBaseModel):
+class CustomDataListResponse(BaseModel):
     success: bool = True
+    data: List[CustomDataRecord]
+
+
+class CustomDataAllResponse(BaseModel):
+    username: str
+    total: int
     data: List[CustomDataRecord]
