@@ -1,4 +1,4 @@
-﻿from typing import Union, List
+from typing import Union, List
 import math
 import re
 
@@ -20,7 +20,7 @@ def fetch_dialect_region(input_data: Union[str, List[str]], query_db=QUERY_DB_AD
         pool = get_db_pool(db_path)
         with pool.get_connection() as conn:
             cursor = conn.cursor()
-            query = f"SELECT 音典分區 FROM {table_name} WHERE 簡稱 = ?"
+            query = f"SELECT 音典分區, 經緯度 FROM {table_name} WHERE 簡稱 = ?"
             cursor.execute(query, (query_str,))
             result = cursor.fetchone()
         return result
@@ -31,12 +31,12 @@ def fetch_dialect_region(input_data: Union[str, List[str]], query_db=QUERY_DB_AD
     # 如果在主資料庫中找不到結果，則查詢補充資料庫的表 informations，並根據 user_id 進行過濾
     if (not result) and db and user:
         # if db and user:
-        result = db.query(Information.音典分區).filter(Information.簡稱 == query_str,
-                                                       Information.user_id == user.id).first()
+        result = db.query(Information.音典分區, Information.經緯度).filter(Information.簡稱 == query_str,
+                                                                          Information.user_id == user.id).first()
 
-    # 如果找到結果，返回分區；否則返回錯誤消息
+    # 如果找到結果，返回分區及經緯度；否則返回錯誤消息
     if result:
-        return {"音典分區": result[0]}
+        return {"音典分區": result[0], "經緯度": result[1]}
     else:
         return {"error": "未找到對應的音典分區"}
 
