@@ -66,3 +66,6 @@ temp_*.json
 
 # Ignore local test work by default; tracked tests remain tracked.
 /test/
+
+fastapi_tools/
+benchmark/
