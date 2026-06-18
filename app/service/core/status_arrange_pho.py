@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 
 import pandas as pd
 from fastapi import HTTPException
@@ -376,7 +377,6 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 baidu_dict[(loc, hz)].append(pron)
 
     # 使用Python字典进行分组（代替pandas groupby）
-    from collections import defaultdict
     
     # 按地点分组数据
     loc_data = defaultdict(list)
