@@ -4,15 +4,31 @@ import pandas as pd
 from fastapi import HTTPException
 
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
-from app.common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES
+from app.common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES, POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
 from app.service.core.process_sp_input import auto_convert_batch
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _is_wendu_mark(value) -> bool:
+    return _mark_to_text(value) in WENDU_MARKS
+
+
+def _is_baidu_mark(value) -> bool:
+    return _mark_to_text(value) in BAIDU_MARKS
+
 
 def _quote_identifier(name: str) -> str:
-    return f'"{name.replace("\"", "\"\"")}"'
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
 
 
 """
@@ -327,7 +343,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         poly_query = f"""
         SELECT 簡稱, 漢字, GROUP_CONCAT(音節, '|') as prons
         FROM {table}
-        WHERE 多音字 = '1'
+        WHERE CAST(多音字 AS TEXT) IN ('1', '2', '3')
         AND 簡稱 IN ({loc_placeholders})
         AND 漢字 IN ({char_placeholders})
         GROUP BY 簡稱, 漢字
@@ -337,6 +353,27 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
         # 构建多音字字典 {(loc, hz): prons}
         poly_dict = {(row[0], row[1]): row[2] for row in poly_rows}
+
+        detail_query = f"""
+        SELECT 簡稱, 漢字, 多音字, 音節
+        FROM {table}
+        WHERE CAST(多音字 AS TEXT) IN ('2', '3')
+        AND 簡稱 IN ({loc_placeholders})
+        AND 漢字 IN ({char_placeholders})
+        """
+        cursor.execute(detail_query, locations + char_list)
+        detail_rows = cursor.fetchall()
+
+        wendu_dict = defaultdict(list)
+        baidu_dict = defaultdict(list)
+        for row in detail_rows:
+            loc, hz, mark, pron = row
+            if not pron:
+                continue
+            if _is_wendu_mark(mark) and pron not in wendu_dict[(loc, hz)]:
+                wendu_dict[(loc, hz)].append(pron)
+            if _is_baidu_mark(mark) and pron not in baidu_dict[(loc, hz)]:
+                baidu_dict[(loc, hz)].append(pron)
 
     # 使用Python字典进行分组（代替pandas groupby）
     from collections import defaultdict
@@ -386,12 +423,20 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
                 # 构建多音字详情
                 poly_details = []
+                wendu_details = []
+                baidu_details = []
                 for hz in unique_chars:
                     prons = poly_dict.get((loc, hz))
                     if prons:
                         poly_details.append(f"{hz}:{prons}")
+                    w_prons = wendu_dict.get((loc, hz))
+                    if w_prons:
+                        wendu_details.append(f"{hz}:{'|'.join(w_prons)}")
+                    b_prons = baidu_dict.get((loc, hz))
+                    if b_prons:
+                        baidu_details.append(f"{hz}:{'|'.join(b_prons)}")
 
-                results.append({
+                row_payload = {
                     "地點": loc,
                     "特徵類別": feature,
                     "特徵值": user_input,
@@ -400,7 +445,13 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                     "佔比": round(count / total_chars, 4) if total_chars else 0.0,
                     "對應字": unique_chars,
                     "多音字詳情": "; ".join(poly_details) if poly_details else ""
-                })
+                }
+                if wendu_details:
+                    row_payload["文讀詳情"] = "; ".join(wendu_details)
+                if baidu_details:
+                    row_payload["白讀詳情"] = "; ".join(baidu_details)
+
+                results.append(row_payload)
 
     return pd.DataFrame(results)
 

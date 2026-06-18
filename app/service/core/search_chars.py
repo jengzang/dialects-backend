@@ -2,6 +2,7 @@ import numpy as np
 from fastapi import HTTPException
 
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
+from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS, WENDU_LABEL, BAIDU_LABEL
 
 from app.common.s2t import s2t_pro
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
@@ -10,6 +11,41 @@ from app.sql.db_pool import get_db_pool
 
 
 VALID_RESPONSE_MODES = {"legacy", "compact"}
+
+
+
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _mark_label(value) -> str:
+    mark = _mark_to_text(value)
+    if mark in WENDU_MARKS:
+        return WENDU_LABEL
+    if mark in BAIDU_MARKS:
+        return BAIDU_LABEL
+    return ""
+
+
+def _note_has_label(note: str, label: str) -> bool:
+    if not note or not label:
+        return False
+    return label in note
+
+
+def _merge_note_and_label(note: str, label: str) -> str:
+    base = (note or '').strip()
+    if not label:
+        return base
+    if _note_has_label(base, label):
+        return base
+    if not base or base == '_':
+        return label
+    return f"{label}；{base}"
 
 
 def search_characters(
@@ -255,8 +291,8 @@ def search_characters(
 
                         for r in dialect_results:
                             syl = r['音節']
-                            note = (r['註釋'] or '').strip()
-                            if r['多音字'] == 1:
+                            note = _merge_note_and_label((r['註釋'] or '').strip(), _mark_label(r['多音字']))
+                            if _is_polyphonic_mark(r['多音字']):
                                 is_polyphonic = True
                             if syl not in syllable2notes:
                                 syllable2notes[syl] = set()
@@ -267,7 +303,7 @@ def search_characters(
                         if is_polyphonic and len(syllable2notes) <= 1:
                             for rr in char2all_syllables.get(candidate, []):
                                 syl = rr['音節']
-                                note = (rr['註釋'] or '').strip()
+                                note = _merge_note_and_label((rr['註釋'] or '').strip(), _mark_label(rr['多音字']))
                                 if syl not in syllable2notes:
                                     syllable2notes[syl] = set()
                                 if note:

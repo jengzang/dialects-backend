@@ -6,7 +6,10 @@ from fastapi import HTTPException
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 from app.service.core.matrix import MERGE_MAP
 from app.service.core.process_sp_input import split_pho_input
-from app.common.constants import AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column
+from app.common.constants import (
+    AMBIG_VALUES, HIERARCHY_COLUMNS, s2t_column,
+    POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS,
+)
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
@@ -28,6 +31,22 @@ from app.sql.db_pool import get_db_pool
 
 4. 返回的資料可以用來分析語音特徵在不同地點的分布狀況與音系特點
 """
+
+
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _is_wendu_mark(value) -> bool:
+    return _mark_to_text(value) in WENDU_MARKS
+
+
+def _is_baidu_mark(value) -> bool:
+    return _mark_to_text(value) in BAIDU_MARKS
 
 
 def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table="dialects"):
@@ -66,46 +85,62 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
         for feature in features:
             feature_idx = col_indices[feature]
             feature_dict = {}
-            
+
             # 使用字典进行分组（代替pandas groupby）
             from collections import defaultdict
             groups = defaultdict(list)
-            
+
             for row in all_rows:
                 feature_value = row[feature_idx]
                 if feature_value:  # 跳过NULL值
                     groups[feature_value].append(row)
-            
+
             # 处理每个特征值
             for feature_value, rows in groups.items():
                 # 提取唯一汉字
                 chars = list(set(row[col_indices['漢字']] for row in rows))
-                
+
                 # 构建sub_df
                 sub_df = pd.DataFrame(
-                    [[row[col_indices['簡稱']], row[col_indices['漢字']], 
-                      row[feature_idx], row[col_indices['音節']], row[col_indices['多音字']]] 
+                    [[row[col_indices['簡稱']], row[col_indices['漢字']],
+                      row[feature_idx], row[col_indices['音節']], row[col_indices['多音字']]]
                      for row in rows],
                     columns=['簡稱', '漢字', feature, '音節', '多音字']
                 )
-                
-                # 处理多音字
+
+                # 处理多音字 / 文白读
                 poly_dict = defaultdict(set)
+                wendu_dict = defaultdict(set)
+                baidu_dict = defaultdict(set)
                 for row in rows:
-                    if row[col_indices['多音字']] == '1':
-                        hz = row[col_indices['漢字']]
-                        pron = row[col_indices['音節']]
-                        if pron:
-                            poly_dict[hz].add(pron)
-                
+                    mark = row[col_indices['多音字']]
+                    hz = row[col_indices['漢字']]
+                    pron = row[col_indices['音節']]
+                    if not pron:
+                        continue
+                    if _is_polyphonic_mark(mark):
+                        poly_dict[hz].add(pron)
+                    if _is_wendu_mark(mark):
+                        wendu_dict[hz].add(pron)
+                    if _is_baidu_mark(mark):
+                        baidu_dict[hz].add(pron)
+
                 poly_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in poly_dict.items()]
-                
-                feature_dict[feature_value] = {
+                wendu_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in wendu_dict.items()]
+                baidu_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in baidu_dict.items()]
+
+                feature_payload = {
                     "漢字": chars,
                     "sub_df": sub_df,
                     "多音字詳情": poly_details
                 }
-            
+                if wendu_details:
+                    feature_payload["文讀詳情"] = wendu_details
+                if baidu_details:
+                    feature_payload["白讀詳情"] = baidu_details
+
+                feature_dict[feature_value] = feature_payload
+
             result[feature] = feature_dict
 
     return result
@@ -485,7 +520,18 @@ def pho2sta(locations, regions, features, status_inputs,
                     table=table,
                 )
 
-                results.extend(result if isinstance(result, list) else [result])
+                if isinstance(result, list):
+                    extra_payload = {}
+                    if data.get("文讀詳情"):
+                        extra_payload["文讀詳情"] = data["文讀詳情"]
+                    if data.get("白讀詳情"):
+                        extra_payload["白讀詳情"] = data["白讀詳情"]
+                    if extra_payload:
+                        for item in result:
+                            item.update(extra_payload)
+                    results.extend(result)
+                else:
+                    results.append(result)
 
     return results
 
@@ -497,21 +543,16 @@ def pho2sta(locations, regions, features, status_inputs,
 #     locations = ['高州泗水 高州根子']
 #     # features = ['聲母', '韻母', '聲調']
 #     features = ['韻母']
-#     # group_inputs = ['組', '攝等', '清濁調']  # [OK] 用戶指定分組欄位
-#     group_inputs = ['攝']  # [OK] 用戶指定分組欄位
-#     pho_value = ['l', 'm', 'an']
-#     regions = ['封綏', '儋州']
-#     results = pho2sta(locations, regions, features, group_inputs, pho_value)
-#
-#     for row in results:
-#         print(row)
-
-# location = ['東莞莞城', '雲浮富林']
-# result = get_feature_counts(location)
-# for loc, features in result.items():
-#     print(f"地点: {loc}")
-#     for feature, values in features.items():
-#         print(f"  {feature}:")
-#         for value, count in values.items():
-#             print(f"    {value}: {count} 字")
-#     print("\n")
+#     status_inputs = ['果']
+#     group_inputs = ['攝']
+#     # pho_values = ['m', 'ŋ']
+#     # pho_values = ['an', 'uɐt']
+#     # results = pho2sta(locations, regions, features, group_inputs, pho_values)
+#     results = pho2sta(locations, features, status_inputs, pho_values=['i'],
+#                      # query_db_path='../data/query.db',
+#                      dialect_db_path='../data/dialects.db',
+#                      # char_db_path='../data/characters.db',
+#                      region_mode='yindian')
+#     # results = pd.DataFrame(results)
+#     print(results)
+#     # print(results[['地點', '特徵類別', '特徵值','分組值', '字數', '佔比', '對應字']].to_string(index=False))
