@@ -560,7 +560,7 @@ async def analyze_file(task_id: str):
         raise
     except Exception as e:
         task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(e), stage="failed")
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"分析失败: {str(e)}")
 
 
 @router.post("/analyze_async", response_model=AnalyzeTaskResponse)

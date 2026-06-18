@@ -25,7 +25,7 @@ API 配置文件
 # ========== API 限流配置（基于请求次数）==========
 # 使用 Redis 计数器实现，性能极高（<1ms）
 MAX_USER_REQUESTS_PER_HOUR = 1000  # 认证用户：1000次/小时（平均每分钟16次）
-MAX_IP_REQUESTS_PER_HOUR = 100     # 游客：100次/小时（平均每分钟1-2次）
+MAX_IP_REQUESTS_PER_HOUR = 50     # 游客：50次/小时（平均每分钟0.8次）
 
 # 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
 MAX_USER_USAGE_PER_HOUR = 2000  # 秒（已废弃）
@@ -79,6 +79,7 @@ IGNORE_API = [
     "/sql/query/count",  # keep hourly/daily aggregate only
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
+    "/user/custom/counts",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============
