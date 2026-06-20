@@ -26,6 +26,38 @@ def _is_wendu_mark(value) -> bool:
 def _is_baidu_mark(value) -> bool:
     return _mark_to_text(value) in BAIDU_MARKS
 
+def _format_polyphonic_detail(prons, w_prons=None, b_prons=None) -> str:
+    """
+    將多音字詳情格式化為：
+    文:tsi1|白:ti1
+
+    普通多音讀音不加前綴；
+    文讀音節加「文:」；
+    白讀音節加「白:」。
+    """
+    if not prons:
+        return ""
+
+    all_prons = [p for p in str(prons).split("|") if p]
+    w_set = set(w_prons or [])
+    b_set = set(b_prons or [])
+
+    parts = []
+    added = set()
+
+    for pron in all_prons:
+        if pron in w_set:
+            item = f"文·{pron}"
+        elif pron in b_set:
+            item = f"白·{pron}"
+        else:
+            item = pron
+
+        if item not in added:
+            parts.append(item)
+            added.add(item)
+
+    return "|".join(parts)
 
 def _quote_identifier(name: str) -> str:
     escaped = name.replace('"', '""')
@@ -397,7 +429,8 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 "字數": 0,
                 "佔比": 0.0,
                 "對應字": [],
-                "多音字詳情": "[X] 無符合漢字"
+                "多音字詳情": "[X] 無符合漢字",
+                "color": {}
             })
             continue
 
@@ -410,11 +443,23 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
             
             # 按特征值分组
             feature_groups = defaultdict(set)  # {feature_value: set(chars)}
+
+            # 新增：记录“当前分组值 fval 下，每个字实际命中的多音/文读/白读标记”
+            # 结构：{fval: {hz: {"1", "2", "3"}}}
+            feature_color_marks = defaultdict(lambda: defaultdict(set))
+
             for row in rows:
                 fval = row[feature_idx]
                 if fval:  # 跳过NULL
                     hz = row[col_indices['漢字']]
+                    mark = _mark_to_text(row[col_indices['多音字']])
+
                     feature_groups[fval].add(hz)
+
+                    # 注意：这里是基于当前 feature 的当前 fval 记录 mark
+                    # 所以 color 后面会严格按照当前分组值判断
+                    if mark in POLYPHONIC_MARKS:
+                        feature_color_marks[fval][hz].add(mark)
 
             # 生成结果
             for fval, chars_set in feature_groups.items():
@@ -425,16 +470,39 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 poly_details = []
                 wendu_details = []
                 baidu_details = []
+
+                # 新增：构建当前统计行的上色信息
+                color = {}
+
                 for hz in unique_chars:
                     prons = poly_dict.get((loc, hz))
-                    if prons:
-                        poly_details.append(f"{hz}:{prons}")
                     w_prons = wendu_dict.get((loc, hz))
+                    b_prons = baidu_dict.get((loc, hz))
+
+                    if prons:
+                        detail = _format_polyphonic_detail(prons, w_prons, b_prons)
+                        if detail:
+                            poly_details.append(f"{hz}:{detail}")
+
                     if w_prons:
                         wendu_details.append(f"{hz}:{'|'.join(w_prons)}")
-                    b_prons = baidu_dict.get((loc, hz))
                     if b_prons:
                         baidu_details.append(f"{hz}:{'|'.join(b_prons)}")
+
+                    marks = feature_color_marks.get(fval, {}).get(hz, set())
+
+                    has_wendu = bool(marks & WENDU_MARKS)
+                    has_baidu = bool(marks & BAIDU_MARKS)
+                    is_polyphonic = bool(marks & POLYPHONIC_MARKS)
+
+                    if has_wendu and has_baidu:
+                        color.setdefault("文白讀", []).append(hz)
+                    elif has_wendu:
+                        color.setdefault("文讀", []).append(hz)
+                    elif has_baidu:
+                        color.setdefault("白讀", []).append(hz)
+                    elif is_polyphonic:
+                        color.setdefault("多音字", []).append(hz)
 
                 row_payload = {
                     "地點": loc,
@@ -444,7 +512,8 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                     "字數": count,
                     "佔比": round(count / total_chars, 4) if total_chars else 0.0,
                     "對應字": unique_chars,
-                    "多音字詳情": "; ".join(poly_details) if poly_details else ""
+                    "多音字詳情": "; ".join(poly_details) if poly_details else "",
+                    "color": color
                 }
                 if wendu_details:
                     row_payload["文讀詳情"] = "; ".join(wendu_details)
@@ -459,7 +528,6 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
             if col in df.columns:
                 df[col] = df[col].where(df[col].notna(), None)
     return df
-
 
 def convert_path_str(path_str: str, table_name: str = "characters") -> str:
         """

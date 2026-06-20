@@ -242,7 +242,7 @@ def search_characters(
             if polyphonic_chars:
                 poly_placeholders = ','.join('?' * len(polyphonic_chars))
                 all_syllables_query = f"""
-                    SELECT 漢字, 音節, 註釋
+                    SELECT 漢字, 音節, 多音字, 註釋
                     FROM dialects
                     WHERE 漢字 IN ({poly_placeholders})
                 """
@@ -287,37 +287,56 @@ def search_characters(
                         dialect_results = char2loc2data.get(candidate, {}).get(location, [])
 
                         syllable2notes = {}
+                        syllable2types = {}
                         is_polyphonic = False
 
                         for r in dialect_results:
                             syl = r['音節']
-                            note = _merge_note_and_label((r['註釋'] or '').strip(), _mark_label(r['多音字']))
+                            note = (r['註釋'] or '').strip()
+                            type_label = _mark_label(r['多音字'])
+
                             if _is_polyphonic_mark(r['多音字']):
                                 is_polyphonic = True
+
                             if syl not in syllable2notes:
                                 syllable2notes[syl] = set()
-                            if note:
+                            if syl not in syllable2types:
+                                syllable2types[syl] = set()
+
+                            if note and note != '_':
                                 syllable2notes[syl].add(note)
+                            if type_label:
+                                syllable2types[syl].add(type_label)
 
                         # 如果是多音字但只有一个或零个音节，补充全部音节
                         if is_polyphonic and len(syllable2notes) <= 1:
                             for rr in char2all_syllables.get(candidate, []):
                                 syl = rr['音節']
-                                note = _merge_note_and_label((rr['註釋'] or '').strip(), _mark_label(rr['多音字']))
+                                note = (rr['註釋'] or '').strip()
+                                type_label = _mark_label(rr['多音字'])
+
                                 if syl not in syllable2notes:
                                     syllable2notes[syl] = set()
-                                if note:
+                                if syl not in syllable2types:
+                                    syllable2types[syl] = set()
+
+                                if note and note != '_':
                                     syllable2notes[syl].add(note)
+                                if type_label:
+                                    syllable2types[syl].add(type_label)
 
                         syllables = list(syllable2notes.keys())
                         notes = ['; '.join(sorted(syllable2notes[syl])) if syllable2notes[syl] else '_'
+                                 for syl in syllables]
+                        types = ['; '.join(sorted(syllable2types[syl])) if syllable2types[syl] else '_'
                                  for syl in syllables]
 
                         row = {
                             'char': candidate,
                             '音节': syllables,
                             'location': location,
-                            'notes': notes
+                            'notes': notes,
+                            'type': types
                         }
                         if response_mode == "legacy":
                             row['positions'] = char2positions.get(candidate, [])
@@ -335,5 +354,3 @@ def search_characters(
         }
 
     return result
-
-
