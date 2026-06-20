@@ -119,10 +119,16 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
                 name_list = []
 
                 for part in raw_parts:
+                    clean_part = re.sub(r'[-/ʔˀ]', '', part)
                     # 提取数字部分 (value)
-                    value = ''.join(re.findall(r'\d+', part))
+                    value = ''.join(re.findall(r'\d+', clean_part))
                     # 提取汉字部分 (name)
-                    name = ''.join(re.findall(r'[^\d,]+', part))
+                    name = ''.join(re.findall(r'[^\d,]+', clean_part))
+
+                    # # 提取数字部分 (value)
+                    # value = ''.join(re.findall(r'\d+', part))
+                    # # 提取汉字部分 (name)
+                    # name = ''.join(re.findall(r'[^\d,]+', part))
 
                     # 如果 name 中包含 "入"，则给 value 添加前缀
                     if "入" in name:
@@ -217,10 +223,16 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
                 name_list = []
 
                 for part in raw_parts:
+                    clean_part = re.sub(r'[-/ʔˀ]', '', part)
                     # 提取数字部分 (value)
-                    value = ''.join(re.findall(r'\d+', part))
+                    value = ''.join(re.findall(r'\d+', clean_part))
                     # 提取汉字部分 (name)
-                    name = ''.join(re.findall(r'[^\d,]+', part))
+                    name = ''.join(re.findall(r'[^\d,]+', clean_part))
+
+                    # # 提取数字部分 (value)
+                    # value = ''.join(re.findall(r'\d+', part))
+                    # # 提取汉字部分 (name)
+                    # name = ''.join(re.findall(r'[^\d,]+', part))
 
                     # 如果 name 中包含 "入"，则给 value 添加前缀
                     if "入" in name:
