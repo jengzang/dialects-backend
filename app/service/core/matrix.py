@@ -17,6 +17,8 @@ from app.common.constants import (
     POLYPHONIC_MARKS,
     WENDU_MARKS,
     BAIDU_MARKS,
+    WENDU_LABEL,
+    BAIDU_LABEL
 )
 
 MERGE_MAP = {}
@@ -62,25 +64,44 @@ def _is_baidu_mark(value) -> bool:
     return _mark_to_text(value) in BAIDU_MARKS
 
 
-def _serialize_matrix_read_stats_cell(cell: Dict) -> Dict[str, Dict[str, Any]]:
+def _serialize_matrix_read_stats_cell(
+    cell: Dict,
+    all_readings_by_char: Dict = None,
+) -> Dict[str, Dict[str, Any]]:
     marks_by_char = cell.get("_marks_by_char", {})
+    all_readings_by_char = all_readings_by_char or {}
+
     wenbai_chars = {
         char
         for char, marks in marks_by_char.items()
         if marks & WENDU_MARKS and marks & BAIDU_MARKS
     }
 
-    def build(chars) -> Dict[str, Any]:
+    def build(chars, with_details=False) -> Dict[str, Any]:
         sorted_chars = sorted(chars)
-        return {"count": len(sorted_chars), "chars": sorted_chars}
+
+        result = {
+            "count": len(sorted_chars),
+            "chars": sorted_chars,
+        }
+
+        if with_details:
+            details = {
+                char: all_readings_by_char.get(char, [])
+                for char in sorted_chars
+                if all_readings_by_char.get(char)
+            }
+            if details:
+                result["details"] = details
+
+        return result
 
     return {
-        "polyphonic": build(cell.get("polyphonic", set())),
+        "polyphonic": build(cell.get("polyphonic", set()), with_details=True),
         "wendu": build(cell.get("wendu", set())),
         "baidu": build(cell.get("baidu", set())),
         "wenbai": build(wenbai_chars),
     }
-
 
 def custom_phonology_sort(items):
     """
@@ -342,7 +363,7 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         rows = cursor.fetchall()
 
         detail_query = f"""
-            SELECT 簡稱, 聲母, 韻母, 聲調, 漢字, 多音字
+            SELECT 簡稱, 聲母, 韻母, 聲調, 漢字, 多音字, 音節
             FROM {table}
             WHERE 簡稱 IN ({placeholders})
               AND 簡稱 IS NOT NULL
@@ -350,6 +371,7 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
               AND 韻母 IS NOT NULL
               AND 聲調 IS NOT NULL
               AND 漢字 IS NOT NULL
+              AND 音節 IS NOT NULL
         """
         cursor.execute(detail_query)
         detail_rows = cursor.fetchall()
@@ -375,6 +397,9 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
             )
         )
     )
+
+    # 按 地点 + 汉字 聚合该字全部多音读音
+    all_readings_by_location_char = defaultdict(lambda: defaultdict(list))
 
     # 处理查询结果
     for row in rows:
@@ -403,11 +428,24 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         tone = row[3]
         char = row[4]
         mark = _mark_to_text(row[5])
+        syllable = row[6]
 
         cell = read_stats_by_location[location][initial][final][tone]
+
         if _is_polyphonic_mark(mark):
             cell["polyphonic"].add(char)
             cell["_marks_by_char"][char].add(mark)
+
+            if _is_wendu_mark(mark):
+                reading = f"{WENDU_LABEL}:{syllable}"
+            elif _is_baidu_mark(mark):
+                reading = f"{BAIDU_LABEL}:{syllable}"
+            else:
+                reading = syllable
+
+            if reading not in all_readings_by_location_char[location][char]:
+                all_readings_by_location_char[location][char].append(reading)
+
         if _is_wendu_mark(mark):
             cell["wendu"].add(char)
         if _is_baidu_mark(mark):
@@ -428,7 +466,8 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
                 for tone in tones_dict:
                     matrix_read_stats[initial][final][tone] = (
                         _serialize_matrix_read_stats_cell(
-                            read_stats_by_location[location][initial][final][tone]
+                            read_stats_by_location[location][initial][final][tone],
+                            all_readings_by_location_char[location],
                         )
                     )
 
@@ -447,7 +486,6 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         }
 
     return result
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 音韻餅圖：共用查詢層
