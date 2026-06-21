@@ -15,7 +15,44 @@ from typing import List, Dict, Optional, Set
 import hashlib
 
 from app.sql.db_pool import get_db_pool
+from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
 from app.service.core.matrix import custom_phonology_sort
+
+
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _is_wendu_mark(value) -> bool:
+    return _mark_to_text(value) in WENDU_MARKS
+
+
+def _is_baidu_mark(value) -> bool:
+    return _mark_to_text(value) in BAIDU_MARKS
+
+
+def _read_stats_from_sets(read_bucket: Dict, char_to_index: Dict[str, int]) -> Dict:
+    marks_by_char = read_bucket.get("_marks_by_char", {})
+    wenbai_chars = {
+        char
+        for char, marks in marks_by_char.items()
+        if marks & WENDU_MARKS and marks & BAIDU_MARKS
+    }
+
+    def build(chars: Set[str]) -> Dict:
+        indices = sorted(char_to_index[char] for char in chars if char in char_to_index)
+        return {"count": len(indices), "char_indices": indices}
+
+    return {
+        "polyphonic": build(read_bucket.get("polyphonic", set())),
+        "wendu": build(read_bucket.get("wendu", set())),
+        "baidu": build(read_bucket.get("baidu", set())),
+        "wenbai": build(wenbai_chars),
+    }
 
 
 def get_feature_counts(locations, db_path, table="dialects"):
@@ -174,7 +211,7 @@ def get_feature_statistics(
         # 组装单个特征的查询
         where_clause = " AND ".join(where_clauses)
         query_part = f"""
-            SELECT 簡稱, '{feature}' as feature_type, {feature} as value, 漢字
+            SELECT 簡稱, '{feature}' as feature_type, {feature} as value, 漢字, 多音字
             FROM {table}
             WHERE {where_clause}
               AND {feature} IS NOT NULL
@@ -208,17 +245,40 @@ def get_feature_statistics(
 
     # 按 (location, feature_type, value) 分组数据
     grouped_data = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+    read_grouped = defaultdict(
+        lambda: defaultdict(
+            lambda: defaultdict(
+                lambda: {
+                    "polyphonic": set(),
+                    "wendu": set(),
+                    "baidu": set(),
+                    "_marks_by_char": defaultdict(set),
+                }
+            )
+        )
+    )
 
     for row in all_rows:
         location = row[0]    # 簡稱
         feature_type = row[1]  # feature_type
         value = row[2]       # 特征值
         char = row[3]        # 漢字
+        mark = row[4]        # 多音字
 
         if not location or not feature_type or not value or not char:
             continue
 
         grouped_data[location][feature_type][value].add(char)
+        read_bucket = read_grouped[location][feature_type][value]
+        mark_text = _mark_to_text(mark)
+
+        if _is_polyphonic_mark(mark_text):
+            read_bucket["polyphonic"].add(char)
+            read_bucket["_marks_by_char"][char].add(mark_text)
+        if _is_wendu_mark(mark_text):
+            read_bucket["wendu"].add(char)
+        if _is_baidu_mark(mark_text):
+            read_bucket["baidu"].add(char)
 
     # 计算每个地点的分母（total_chars）
     denominators = _calculate_denominators(locations, chars, filters, db_path, table)
@@ -254,7 +314,11 @@ def get_feature_statistics(
                 feature_dict[value] = {
                     "count": count,
                     "ratio": ratio,
-                    "char_indices": char_indices
+                    "char_indices": char_indices,
+                    "read_stats": _read_stats_from_sets(
+                        read_grouped[location][feature][value],
+                        char_to_index,
+                    ),
                 }
 
             loc_data[feature] = feature_dict
