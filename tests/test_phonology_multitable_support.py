@@ -1,10 +1,14 @@
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
 from app.routes.core.phonology import run_phonology_analysis
 from app.schemas.core.phonology import AnalysisPayload
+from app.service.core.feature_stats import get_feature_statistics
 from app.service.core.status_arrange_pho import sta2pho, run_status
 
 
@@ -93,6 +97,51 @@ class PhonologyMultiTableSupportTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs["table"] == "fenyun" for call in mock_run_status.call_args_list))
         generated_inputs = [call.args[0][0] for call in mock_run_status.call_args_list]
         self.assertEqual(generated_inputs, ["[云]{聲母}", "[以]{聲母}"])
+
+    def test_feature_stats_returns_wenbai_read_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "dialects.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE dialects (
+                        簡稱 TEXT,
+                        漢字 TEXT,
+                        聲母 TEXT,
+                        韻母 TEXT,
+                        聲調 TEXT,
+                        多音字 TEXT
+                    )
+                    """
+                )
+                conn.executemany(
+                    "INSERT INTO dialects VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        ("測試點", "A", "k", "a", "陰平", "1"),
+                        ("測試點", "B", "k", "a", "陰平", "2"),
+                        ("測試點", "B", "k", "a", "陰平", "3"),
+                        ("測試點", "C", "k", "a", "陰平", "2"),
+                        ("測試點", "D", "k", "a", "陰平", "3"),
+                        ("測試點", "E", "k", "a", "陰平", None),
+                    ],
+                )
+
+            result = get_feature_statistics(
+                locations=["測試點"],
+                features=["聲母"],
+                db_path=str(db_path),
+            )
+
+        self.assertEqual(result["chars_map"], ["A", "B", "C", "D", "E"])
+        self.assertEqual(
+            result["data"]["測試點"]["聲母"]["k"]["read_stats"],
+            {
+                "polyphonic": {"count": 4, "char_indices": [0, 1, 2, 3]},
+                "wendu": {"count": 2, "char_indices": [1, 2]},
+                "baidu": {"count": 2, "char_indices": [1, 3]},
+                "wenbai": {"count": 1, "char_indices": [1]},
+            },
+        )
 
 
 if __name__ == "__main__":
