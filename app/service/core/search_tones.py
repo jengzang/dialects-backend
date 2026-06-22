@@ -120,8 +120,9 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
 
                 for part in raw_parts:
                     clean_part = re.sub(r'[-/ʔˀ]', '', part)
-                    # 提取数字部分 (value)
-                    value = ''.join(re.findall(r'\d+', clean_part))
+                    value_part = re.sub(r'[ʔˀ]', '', part)
+                    # 提取数字部分 (value)，保留 / 和 - 的结构语义
+                    value = ''.join(re.findall(r'[\d/-]+', value_part))
                     # 提取汉字部分 (name)
                     name = ''.join(re.findall(r'[^\d,]+', clean_part))
 
@@ -224,8 +225,9 @@ def search_tones(locations=None, regions=None, get_raw: bool = False, db_path=QU
 
                 for part in raw_parts:
                     clean_part = re.sub(r'[-/ʔˀ]', '', part)
-                    # 提取数字部分 (value)
-                    value = ''.join(re.findall(r'\d+', clean_part))
+                    value_part = re.sub(r'[ʔˀ]', '', part)
+                    # 提取数字部分 (value)，保留 / 和 - 的结构语义
+                    value = ''.join(re.findall(r'[\d/-]+', value_part))
                     # 提取汉字部分 (name)
                     name = ''.join(re.findall(r'[^\d,]+', clean_part))
 

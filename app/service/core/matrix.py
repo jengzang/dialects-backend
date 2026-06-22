@@ -441,7 +441,7 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
             elif _is_baidu_mark(mark):
                 reading = f"{BAIDU_LABEL}:{syllable}"
             else:
-                reading = syllable
+                reading = f"其他:{syllable}"
 
             if reading not in all_readings_by_location_char[location][char]:
                 all_readings_by_location_char[location][char].append(reading)

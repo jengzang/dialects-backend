@@ -299,63 +299,33 @@ def analyze_characters_from_cached_df(
     if not char_list:
         return []
 
-    from app.common.path import CHARACTERS_DB_PATH
-    pool = get_db_pool(CHARACTERS_DB_PATH)
+    if char_df.empty:
+        return pd.DataFrame()
 
-    with pool.get_connection() as conn:
-        cursor = conn.cursor()
-        placeholders = ','.join(['?'] * len(char_list))
-        group_cols = ', '.join(group_fields)
+    working_df = char_df[char_df["漢字"].isin(char_list)].copy()
+    if working_df.empty:
+        return pd.DataFrame()
 
-        query = f"""
-        SELECT
-            {group_cols},
-            GROUP_CONCAT(DISTINCT 漢字) as chars,
-            COUNT(DISTINCT 漢字) as count
-        FROM {table}
-        WHERE 漢字 IN ({placeholders})
-        """
-        for field in group_fields:
-            query += f" AND {field} IS NOT NULL"
-        query += f" GROUP BY {group_cols}"
-        cursor.execute(query, char_list)
-        rows = cursor.fetchall()
+    multi_status_col = schema.get("multi_status_column", "多地位標記")
+    multi_cols_groups = schema.get("multi_status_cols", [["攝", "呼", "等", "韻", "調"], ["部位", "方式", "母"]])
+    all_multi_cols = [c for grp in multi_cols_groups for c in grp]
 
-        # 多地位详情查询
-        multi_cols_groups = schema.get("multi_status_cols", [["攝", "呼", "等", "韻", "調"], ["部位", "方式", "母"]])
-        all_multi_cols = [c for grp in multi_cols_groups for c in grp]
-        multi_select = ", ".join(all_multi_cols)
-        multi_status_col = schema.get("multi_status_column", "多地位標記")
-        multi_query = f"""
-        SELECT 漢字, {multi_select}
-        FROM {table}
-        WHERE 漢字 IN ({placeholders})
-        AND {multi_status_col} = '1'
-        """
-        cursor.execute(multi_query, char_list)
-        multi_rows = cursor.fetchall()
-
-    # 构建多地位字字典
-    from collections import defaultdict
-    multi_dict = defaultdict(list)
-    col_offset = 1  # row[0] is 漢字
-    for row in multi_rows:
-        hz = row[0]
-        group_strs = []
-        offset = col_offset
-        for grp in multi_cols_groups:
-            vals = [str(row[offset + i]) for i in range(len(grp)) if row[offset + i] is not None]
-            group_strs.append("·".join(vals))
-            offset += len(grp)
-        multi_dict[hz].append(",".join(s for s in group_strs if s))
+    for col in all_multi_cols + [multi_status_col]:
+        if col not in working_df.columns:
+            working_df[col] = None
 
     total_chars = len(set(sub_df["漢字"]))
     grouped_result = []
 
-    for row in rows:
-        group_keys = row[:len(group_fields)]
-        chars_str = row[len(group_fields)]
-        count = row[len(group_fields) + 1]
+    working_df = working_df.dropna(subset=group_fields)
+    if working_df.empty:
+        return pd.DataFrame()
+
+    grouped = working_df.groupby(group_fields)
+
+    for group_keys, group_df in grouped:
+        if not isinstance(group_keys, tuple):
+            group_keys = (group_keys,)
 
         value_parts = []
         for field, val in zip(group_fields, group_keys):
@@ -366,11 +336,21 @@ def analyze_characters_from_cached_df(
             value_parts.append(val)
         group_value = "·".join(value_parts)
 
-        unique_chars = chars_str.split(',') if chars_str else []
-        poly_details = [
-            f"{hz}: {' | '.join(multi_dict[hz])}"
-            for hz in unique_chars if hz in multi_dict
-        ]
+        unique_chars = group_df["漢字"].unique().tolist()
+        count = len(unique_chars)
+
+        poly_details = []
+        poly_chars = group_df[group_df[multi_status_col] == "1"]["漢字"].unique()
+        for hz in poly_chars:
+            sub = working_df[(working_df["漢字"] == hz) & (working_df[multi_status_col] == "1")]
+            summary = []
+            for _, row in sub.iterrows():
+                group_strs = []
+                for grp in multi_cols_groups:
+                    vals = [str(row[c]) for c in grp if pd.notna(row.get(c))]
+                    group_strs.append("·".join(vals))
+                summary.append(",".join(s for s in group_strs if s))
+            poly_details.append(f"{hz}: {' | '.join(summary)}")
 
         grouped_result.append({
             "地點": loc,
@@ -520,16 +500,43 @@ def pho2sta(locations, regions, features, status_inputs,
                     table=table,
                 )
 
+                wendu_map = {}
+                for detail in data.get("文讀詳情") or []:
+                    if ":" in detail:
+                        hz, value = detail.split(":", 1)
+                        wendu_map[hz] = value
+                baidu_map = {}
+                for detail in data.get("白讀詳情") or []:
+                    if ":" in detail:
+                        hz, value = detail.split(":", 1)
+                        baidu_map[hz] = value
+
+                def _filter_details_for_chars(chars):
+                    current_chars = set(chars or [])
+                    filtered = {}
+                    if wendu_map:
+                        filtered_wendu = [f"{hz}:{wendu_map[hz]}" for hz in current_chars if hz in wendu_map]
+                        if filtered_wendu:
+                            filtered["文讀詳情"] = filtered_wendu
+                    if baidu_map:
+                        filtered_baidu = [f"{hz}:{baidu_map[hz]}" for hz in current_chars if hz in baidu_map]
+                        if filtered_baidu:
+                            filtered["白讀詳情"] = filtered_baidu
+                    return filtered
+
                 if isinstance(result, list):
-                    extra_payload = {}
-                    if data.get("文讀詳情"):
-                        extra_payload["文讀詳情"] = data["文讀詳情"]
-                    if data.get("白讀詳情"):
-                        extra_payload["白讀詳情"] = data["白讀詳情"]
-                    if extra_payload:
-                        for item in result:
-                            item.update(extra_payload)
+                    for item in result:
+                        item.update(_filter_details_for_chars(item.get("對應字")))
                     results.extend(result)
+                elif isinstance(result, pd.DataFrame):
+                    result = result.copy()
+                    result["文讀詳情"] = result["對應字"].apply(
+                        lambda chars: _filter_details_for_chars(chars).get("文讀詳情")
+                    )
+                    result["白讀詳情"] = result["對應字"].apply(
+                        lambda chars: _filter_details_for_chars(chars).get("白讀詳情")
+                    )
+                    results.append(result)
                 else:
                     results.append(result)
 
