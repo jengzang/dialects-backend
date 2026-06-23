@@ -328,7 +328,9 @@ def analyze_characters_from_cached_df(
         loc,
         sub_df,
         group_fields=None,
-        table="characters"
+        table="characters",
+        char_row_map=None,
+        ordered_char_rows=None,
 ):
     from app.common.constants import get_table_schema
     schema = get_table_schema(table)
@@ -347,7 +349,20 @@ def analyze_characters_from_cached_df(
     if char_df.empty:
         return pd.DataFrame()
 
-    working_df = char_df[char_df["漢字"].isin(char_list)].copy()
+    if char_row_map is not None:
+        row_indexes = []
+        seen_indexes = set()
+        source_chars = ordered_char_rows if ordered_char_rows is not None else char_list
+        for hz in source_chars:
+            for idx in char_row_map.get(hz, []):
+                if idx not in seen_indexes:
+                    seen_indexes.add(idx)
+                    row_indexes.append(idx)
+        if not row_indexes:
+            return pd.DataFrame()
+        working_df = char_df.loc[row_indexes].copy()
+    else:
+        working_df = char_df[char_df["漢字"].isin(char_list)].copy()
     if working_df.empty:
         return pd.DataFrame()
 
@@ -506,6 +521,13 @@ def pho2sta(locations, regions, features, status_inputs,
                     (all_chars_df[col_name] != "1")
                 ]
 
+    char_row_map = {}
+    if not all_chars_df.empty:
+        reset_df = all_chars_df.reset_index(drop=True)
+        all_chars_df = reset_df
+        for idx, hz in enumerate(all_chars_df["漢字"].tolist()):
+            char_row_map.setdefault(hz, []).append(idx)
+
     results = []
 
     for loc in unique_abbrs:
@@ -532,7 +554,8 @@ def pho2sta(locations, regions, features, status_inputs,
 
             for feature_value, data in feature_items:
                 sub_df = data["sub_df"]
-                loc_chars = sub_df[sub_df["簡稱"] == loc]["漢字"].unique().tolist()
+                ordered_loc_chars = sub_df[sub_df["簡稱"] == loc]["漢字"].drop_duplicates().tolist()
+                loc_chars = ordered_loc_chars
                 # print(f"     ➤ 運算特徵值：{feature_value}（字數：{len(loc_chars)}）")
 
                 if not loc_chars:
@@ -549,6 +572,8 @@ def pho2sta(locations, regions, features, status_inputs,
                     sub_df=sub_df[sub_df["簡稱"] == loc],
                     group_fields=group_fields,
                     table=table,
+                    char_row_map=char_row_map,
+                    ordered_char_rows=ordered_loc_chars,
                 )
 
                 wendu_map = {}
