@@ -134,6 +134,8 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
                 poly_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in poly_dict.items()]
                 wendu_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in wendu_dict.items()]
                 baidu_details = [f"{hz}:{';'.join(sorted(prons))}" for hz, prons in baidu_dict.items()]
+                wendu_details_map = {hz: ';'.join(sorted(prons)) for hz, prons in wendu_dict.items()}
+                baidu_details_map = {hz: ';'.join(sorted(prons)) for hz, prons in baidu_dict.items()}
 
                 feature_payload = {
                     "漢字": chars,
@@ -144,6 +146,10 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
                     feature_payload["文讀詳情"] = wendu_details
                 if baidu_details:
                     feature_payload["白讀詳情"] = baidu_details
+                if wendu_details_map:
+                    feature_payload["文讀詳情map"] = wendu_details_map
+                if baidu_details_map:
+                    feature_payload["白讀詳情map"] = baidu_details_map
 
                 feature_dict[feature_value] = feature_payload
 
@@ -576,16 +582,20 @@ def pho2sta(locations, regions, features, status_inputs,
                     ordered_char_rows=ordered_loc_chars,
                 )
 
-                wendu_map = {}
-                for detail in data.get("文讀詳情") or []:
-                    if ":" in detail:
-                        hz, value = detail.split(":", 1)
-                        wendu_map[hz] = value
-                baidu_map = {}
-                for detail in data.get("白讀詳情") or []:
-                    if ":" in detail:
-                        hz, value = detail.split(":", 1)
-                        baidu_map[hz] = value
+                wendu_map = data.get("文讀詳情map")
+                if wendu_map is None:
+                    wendu_map = {}
+                    for detail in data.get("文讀詳情") or []:
+                        if ":" in detail:
+                            hz, value = detail.split(":", 1)
+                            wendu_map[hz] = value
+                baidu_map = data.get("白讀詳情map")
+                if baidu_map is None:
+                    baidu_map = {}
+                    for detail in data.get("白讀詳情") or []:
+                        if ":" in detail:
+                            hz, value = detail.split(":", 1)
+                            baidu_map[hz] = value
 
                 def _filter_details_for_chars(chars):
                     current_chars = set(chars or [])
