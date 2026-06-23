@@ -68,7 +68,9 @@ RECORD_API = [
     "/api/feature_counts",
     "/api/feature_stats",
     "/api/pho_pie*",
-    "/user/custom/*",
+    "/user/custom/batch-create",
+    "/user/custom/edit",
+    "/user/custom/batch-delete",
     "/api/custom_regions",
     "/api/villages/*",
 ]
