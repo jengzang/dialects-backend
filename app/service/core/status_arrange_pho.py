@@ -498,18 +498,18 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                     "多音字詳情": "; ".join(poly_details) if poly_details else "",
                     "color": color
                 }
-                if wendu_details:
-                    row_payload["文讀詳情"] = "; ".join(wendu_details)
-                if baidu_details:
-                    row_payload["白讀詳情"] = "; ".join(baidu_details)
+                # if wendu_details:
+                #     row_payload["文讀詳情"] = "; ".join(wendu_details)
+                # if baidu_details:
+                #     row_payload["白讀詳情"] = "; ".join(baidu_details)
 
                 results.append(row_payload)
 
     df = pd.DataFrame(results)
-    if not df.empty:
-        for col in ["文讀詳情", "白讀詳情"]:
-            if col in df.columns:
-                df[col] = df[col].where(df[col].notna(), None)
+    # if not df.empty:
+    #     for col in ["文讀詳情", "白讀詳情"]:
+    #         if col in df.columns:
+    #             df[col] = df[col].where(df[col].notna(), None)
     return df
 
 def convert_path_str(path_str: str, table_name: str = "characters") -> str:
