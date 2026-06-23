@@ -146,6 +146,45 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
     return result
 
 
+def query_dialect_feature_values(locations, features, pho_values=None, db_path=DIALECTS_DB_USER, table="dialects"):
+    if not locations or not features:
+        return {}
+    allowed_features = {"聲母", "韻母", "聲調"}
+    features = [f for f in features if f in allowed_features]
+    if not features:
+        return {}
+
+    pho_values = split_pho_input(pho_values or [])
+    if not pho_values:
+        return {}
+
+    pool = get_db_pool(db_path)
+    matched_values = {feature: set() for feature in features}
+
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        query = f"SELECT {', '.join(features)} FROM {table} WHERE 簡稱 IN ({','.join(['?'] * len(locations))})"
+        cursor.execute(query, locations)
+        all_rows = cursor.fetchall()
+
+        for row in all_rows:
+            for idx, feature in enumerate(features):
+                feature_value = row[idx]
+                if not feature_value:
+                    continue
+                for pho_value in pho_values:
+                    if any('\u4e00' <= char <= '\u9fff' for char in pho_value):
+                        if re.search(pho_value, feature_value):
+                            matched_values[feature].add(feature_value)
+                            break
+                    else:
+                        if feature_value == pho_value:
+                            matched_values[feature].add(feature_value)
+                            break
+
+    return matched_values
+
+
 def analyze_characters_from_db(
         char_list,
         feature_type,
@@ -412,6 +451,13 @@ def pho2sta(locations, regions, features, status_inputs,
     unique_abbrs = list({abbr for res in match_results for abbr in res[0]})
     # print(f"\n📍 確認匹配地點：{unique_abbrs}")
 
+    matched_feature_values = query_dialect_feature_values(
+        unique_abbrs,
+        features,
+        pho_values=pho_values,
+        db_path=dialect_db_path,
+    ) if pho_values else {}
+
     # 【性能优化】批量查询 characters.db（一次查询代替 N 次查询）
     dialect_output = query_dialect_features(unique_abbrs, features, db_path=dialect_db_path)
 
@@ -456,25 +502,12 @@ def pho2sta(locations, regions, features, status_inputs,
             if pho_values:
                 print(pho_values)
                 filtered_items = []
+                matched_values = matched_feature_values.get(feature) or set()
                 for fv, d in feature_items:
-                    # 檢查 pho_values 中的每個元素
-                    match_found = False
-                    for pho_value in pho_values:
-                        # 如果 pho_value 含有漢字，則進行模糊匹配
-                        if any('\u4e00' <= char <= '\u9fff' for char in pho_value):  # 檢查是否包含漢字
-                            if re.search(pho_value, fv):  # 模糊匹配
-                                match_found = True
-                                break
-                        else:
-                            # 如果沒有漢字，則進行完全匹配
-                            if fv == pho_value:
-                                match_found = True
-                                break
-                    if match_found:
+                    if fv in matched_values:
                         filtered_items.append((fv, d))
 
                 if filtered_items:
-                    # print(f"     📌 過濾特徵值：{[fv for fv, _ in filtered_items]}")
                     feature_items = filtered_items
                 else:
                     print("     [!] 無匹配特徵值，fallback 使用全部")
