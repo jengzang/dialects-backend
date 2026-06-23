@@ -11,19 +11,42 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import sqlite3
 import json
-import numpy as np
-from scipy.spatial.distance import cosine, euclidean, cityblock
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
 
 from ..dependencies import get_db, execute_query, execute_single
 from ..config import DEFAULT_RUN_ID
 from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/regional")
+
+def _np():
+    import numpy as np
+    return np
+
+
+def _scipy_distance():
+    from scipy.spatial.distance import cosine, euclidean, cityblock
+    return {"cosine": cosine, "euclidean": euclidean, "cityblock": cityblock}
+
+
+def _sklearn_decomposition():
+    from sklearn.decomposition import PCA
+    return PCA
+
+
+def _sklearn_manifold():
+    from sklearn.manifold import TSNE
+    return TSNE
+
+
+def _sklearn_cluster():
+    from sklearn.cluster import KMeans, DBSCAN
+    from sklearn.mixture import GaussianMixture
+    return {"KMeans": KMeans, "DBSCAN": DBSCAN, "GaussianMixture": GaussianMixture}
+
+
+def _standard_scaler():
+    from sklearn.preprocessing import StandardScaler
+    return StandardScaler
 
 
 def compute_city_aggregates(
@@ -843,7 +866,7 @@ def get_semantic_vector_by_hierarchy(
     county: Optional[str],
     township: Optional[str],
     run_id: str
-) -> tuple[np.ndarray, List[str], str, dict]:
+) -> tuple[object, List[str], str, dict]:
     """
     通过层级路径参数获取区域的9维语义向量
 
@@ -930,7 +953,7 @@ def get_semantic_vector_by_hierarchy(
         'township': township
     }
 
-    return np.array(intensities), categories, region_name, hierarchy_info
+    return _np().array(intensities), categories, region_name, hierarchy_info
 
 
 @router.post("/vectors/compare", response_model=VectorCompareResponse)
@@ -1020,13 +1043,13 @@ def compare_regional_vectors(
 
     # 计算相似度和距离指标
     # 1. 余弦相似度 (值越大越相似，范围 0-1)
-    cosine_sim = float(1 - cosine(vector1, vector2))
+    cosine_sim = float(1 - _scipy_distance()["cosine"](vector1, vector2))
 
     # 2. 欧氏距离 (值越小越相似)
-    euclidean_dist = float(euclidean(vector1, vector2))
+    euclidean_dist = float(_scipy_distance()["euclidean"](vector1, vector2))
 
     # 3. 曼哈顿距离 (值越小越相似)
-    manhattan_dist = float(cityblock(vector1, vector2))
+    manhattan_dist = float(_scipy_distance()["cityblock"](vector1, vector2))
 
     # 4. 向量差异 (region1 - region2)
     vector_diff = (vector1 - vector2).tolist()
@@ -1063,7 +1086,7 @@ def get_multiple_vectors(
     db: sqlite3.Connection,
     regions: List[RegionSpec],
     run_id: str
-) -> tuple[np.ndarray, List[Dict[str, Any]], List[str]]:
+) -> tuple[object, List[Dict[str, Any]], List[str]]:
     """
     获取多个区域的向量
 
@@ -1101,7 +1124,7 @@ def get_multiple_vectors(
         if categories is None:
             categories = cats
 
-    return np.array(vectors), region_infos, categories
+    return _np().array(vectors), region_infos, categories
 
 
 @router.post("/vectors/compare/batch", response_model=BatchCompareResponse)
@@ -1156,22 +1179,22 @@ def batch_compare_vectors(
     n = len(vectors)
 
     # 计算相似度矩阵（余弦相似度）
-    similarity_matrix = np.zeros((n, n))
+    similarity_matrix = _np().zeros((n, n))
     for i in range(n):
         for j in range(n):
             if i == j:
                 similarity_matrix[i][j] = 1.0
             elif i < j:
-                sim = 1 - cosine(vectors[i], vectors[j])
+                sim = 1 - _scipy_distance()["cosine"](vectors[i], vectors[j])
                 similarity_matrix[i][j] = sim
                 similarity_matrix[j][i] = sim
 
     # 计算距离矩阵（欧氏距离）
-    distance_matrix = np.zeros((n, n))
+    distance_matrix = _np().zeros((n, n))
     for i in range(n):
         for j in range(n):
             if i < j:
-                dist = euclidean(vectors[i], vectors[j])
+                dist = _scipy_distance()["euclidean"](vectors[i], vectors[j])
                 distance_matrix[i][j] = dist
                 distance_matrix[j][i] = dist
 
@@ -1243,13 +1266,13 @@ def reduce_vectors(
     vectors, region_infos, categories = get_multiple_vectors(db, request.regions, run_id)
 
     # 标准化
-    scaler = StandardScaler()
+    scaler = _standard_scaler()()
     vectors_scaled = scaler.fit_transform(vectors)
 
     # 降维
     explained_variance = None
     if request.method == "pca":
-        reducer = PCA(n_components=request.n_components)
+        reducer = _sklearn_decomposition()(n_components=request.n_components)
         coordinates = reducer.fit_transform(vectors_scaled)
         explained_variance = reducer.explained_variance_ratio_.tolist()
     else:  # tsne
@@ -1260,7 +1283,7 @@ def reduce_vectors(
                 detail=f"t-SNE requires at least {request.n_components + 1} regions"
             )
         perplexity = min(30, len(vectors) - 1)
-        reducer = TSNE(n_components=request.n_components, perplexity=perplexity, random_state=42)
+        reducer = _sklearn_manifold()(n_components=request.n_components, perplexity=perplexity, random_state=42)
         coordinates = reducer.fit_transform(vectors_scaled)
 
     return ReduceResponse(
@@ -1357,25 +1380,25 @@ def cluster_vectors(
     vectors, region_infos, categories = get_multiple_vectors(db, request.regions, run_id)
 
     # 标准化
-    scaler = StandardScaler()
+    scaler = _standard_scaler()()
     vectors_scaled = scaler.fit_transform(vectors)
 
     # 聚类
     cluster_centers = None
     if request.method == "kmeans":
-        clusterer = KMeans(n_clusters=request.n_clusters, random_state=42)
+        clusterer = _sklearn_cluster()["KMeans"](n_clusters=request.n_clusters, random_state=42)
         labels = clusterer.fit_predict(vectors_scaled)
         # 反标准化中心点
         cluster_centers = scaler.inverse_transform(clusterer.cluster_centers_)
         n_clusters = request.n_clusters
 
     elif request.method == "dbscan":
-        clusterer = DBSCAN(eps=request.eps, min_samples=request.min_samples)
+        clusterer = _sklearn_cluster()["DBSCAN"](eps=request.eps, min_samples=request.min_samples)
         labels = clusterer.fit_predict(vectors_scaled)
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
 
     else:  # gmm
-        clusterer = GaussianMixture(n_components=request.n_clusters, random_state=42)
+        clusterer = _sklearn_cluster()["GaussianMixture"](n_components=request.n_clusters, random_state=42)
         labels = clusterer.fit_predict(vectors_scaled)
         # 反标准化中心点
         cluster_centers = scaler.inverse_transform(clusterer.means_)
