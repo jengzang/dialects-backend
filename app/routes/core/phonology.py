@@ -64,7 +64,7 @@ def run_phonology_analysis(
         regions: list,
         features: list,
         status_inputs: list = None,
-        group_inputs: list = None,
+        group_inputs: List[str] = None,
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
         region_mode='yindian',
@@ -79,7 +79,7 @@ def run_phonology_analysis(
         locations: 方言點名稱
         features: 語音特徵欄位
         status_inputs: 語音條件字串（如 '知組三'），僅限 's2p'
-        group_inputs: 要分組的欄位（如 '組聲'），僅限 'p2s'
+        group_inputs: 要分組的中古欄位列表（如 ['組', '聲']），僅限 'p2s'
         pho_values: 音值條件（如 ['l', 'm', 'an']），僅限 'p2s'
 
     回傳：
