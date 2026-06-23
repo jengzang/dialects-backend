@@ -7,7 +7,6 @@ from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
-import pandas as pd
 from pathlib import Path
 import sys
 import os
@@ -35,16 +34,40 @@ from app.tools.config import (
     CLEANUP_POLICY_CHECK_WORKSPACE,
     TASK_CLEANUP_30M_SECONDS,
 )
-from .check_core import 處理自定義編輯指令, 檢查資料格式, 整理並顯示調值
-from .format_convert import (
-    process_音典,
-    process_跳跳老鼠,
-    process_縣志_excel,
-    process_縣志_word,
-    extract_onset_rime_from_ipa, extract_all_from_files
-)
 
 router = APIRouter()
+
+def _pd():
+    import pandas as pd
+    return pd
+
+
+def _check_core():
+    from .check_core import 處理自定義編輯指令, 檢查資料格式, 整理並顯示調值
+    return {
+        "處理自定義編輯指令": 處理自定義編輯指令,
+        "檢查資料格式": 檢查資料格式,
+        "整理並顯示調值": 整理並顯示調值,
+    }
+
+
+def _format_convert():
+    from .format_convert import (
+        process_音典,
+        process_跳跳老鼠,
+        process_縣志_excel,
+        process_縣志_word,
+        extract_onset_rime_from_ipa,
+        extract_all_from_files,
+    )
+    return {
+        "process_音典": process_音典,
+        "process_跳跳老鼠": process_跳跳老鼠,
+        "process_縣志_excel": process_縣志_excel,
+        "process_縣志_word": process_縣志_word,
+        "extract_onset_rime_from_ipa": extract_onset_rime_from_ipa,
+        "extract_all_from_files": extract_all_from_files,
+    }
 
 
 # ==================== Pydantic模型定义 ====================
@@ -153,7 +176,7 @@ def _touch_check_cleanup(task_id: str, reason: str) -> None:
         reason=reason,
     )
 
-def find_standard_column(df: pd.DataFrame, standard_name: str) -> Optional[str]:
+def find_standard_column(df, standard_name: str) -> Optional[str]:
     """
     根据col_map查找标准列名
 
@@ -174,7 +197,7 @@ def find_standard_column(df: pd.DataFrame, standard_name: str) -> Optional[str]:
 def analyze_excel_file(
     file_path: Path,
     progress_callback=None,
-) -> tuple[pd.DataFrame, List[ErrorItem], Dict[str, int], str, str]:
+) -> tuple[object, List[ErrorItem], Dict[str, int], str, str]:
     """
     分析Excel文件，检查错误（使用原有的檢查資料格式函数）
 
@@ -185,6 +208,7 @@ def analyze_excel_file(
         progress_callback("read_file", 10.0, "正在读取文件...")
 
     # 读取Excel文件
+    pd = _pd()
     df = pd.read_excel(file_path, dtype=str)
 
     if progress_callback:
@@ -210,7 +234,7 @@ def analyze_excel_file(
 
     f = io.StringIO()
     with redirect_stdout(f):
-        檢查資料格式(df, col_hanzi, col_ipa, display=False, col_note=col_note)
+        _check_core()["檢查資料格式"](df, col_hanzi, col_ipa, display=False, col_note=col_note)
 
     check_output = f.getvalue()
 
@@ -375,10 +399,11 @@ async def upload_file(
             task_dir = file_manager.get_task_dir(task_id, "check")
             output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
 
-            process_縣志_word(str(file_path), level, output_path=str(output_tsv))
+            _format_convert()["process_縣志_word"](str(file_path), level, output_path=str(output_tsv))
 
             # TSV转换为XLSX
             if output_tsv.exists():
+                pd = _pd()
                 df = pd.read_csv(output_tsv, sep="\t", dtype=str)
                 converted_path = task_dir / f"{Path(file.filename).stem}.xlsx"
                 df.to_excel(converted_path, index=False)
@@ -389,6 +414,7 @@ async def upload_file(
         # TSV格式：转换为XLSX
         elif ext == '.tsv':
             print(f"[FORMAT] 检测到TSV文件，转换为Excel")
+            pd = _pd()
             df = pd.read_csv(file_path, sep="\t", dtype=str)
             task_dir = file_manager.get_task_dir(task_id, "check")
             converted_path = task_dir / f"{Path(file.filename).stem}.xlsx"
@@ -398,6 +424,7 @@ async def upload_file(
 
         # Excel格式：检查是否为标准格式
         elif ext in {'.xlsx', '.xls'}:
+            pd = _pd()
             df = pd.read_excel(file_path, dtype=str)
             df_cols = df.columns.tolist()
 
@@ -419,17 +446,18 @@ async def upload_file(
                 # 根据format_type选择处理方式
                 if format_type == '跳跳老鼠':
                     print(f"[FORMAT] 使用跳跳老鼠格式处理")
-                    process_跳跳老鼠(str(file_path), level, output_path=str(output_tsv))
+                    _format_convert()["process_跳跳老鼠"](str(file_path), level, output_path=str(output_tsv))
                 elif format_type == '縣志':
                     print(f"[FORMAT] 使用县志格式处理")
-                    process_縣志_excel(str(file_path), level, output_path=str(output_tsv))
+                    _format_convert()["process_縣志_excel"](str(file_path), level, output_path=str(output_tsv))
                 else:
                     # 默认使用音典格式
                     print(f"[FORMAT] 使用音典格式处理")
-                    process_音典(str(file_path), level, output_path=str(output_tsv))
+                    _format_convert()["process_音典"](str(file_path), level, output_path=str(output_tsv))
 
                 # TSV转换为XLSX
                 if output_tsv.exists():
+                    pd = _pd()
                     df = pd.read_csv(output_tsv, sep="\t", dtype=str)
                     converted_path = task_dir / f"{Path(file.filename).stem}.xlsx"
                     df.to_excel(converted_path, index=False)
@@ -438,10 +466,11 @@ async def upload_file(
                     print(f"[FORMAT] 特殊格式已转换为标准Excel: {converted_path}")
 
         # 读取最终文件
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
 
         print(f"[INFO] 开始提取声母、韵母、声调...")
-        df_extracted = extract_all_from_files(str(file_path), preserve_empty_rows=True)
+        df_extracted = _format_convert()["extract_all_from_files"](str(file_path), preserve_empty_rows=True)
 
         # 【新增】验证行数一致
         if len(df_extracted) != len(df):
@@ -631,6 +660,7 @@ async def execute_commands(request: CommandRequest):
         command_str = "; ".join(commands)
 
         # 2. 讀取 Excel
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
 
         # 3. 獲取列名
@@ -638,11 +668,11 @@ async def execute_commands(request: CommandRequest):
         col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         # 4. 執行指令
-        results, errors = 處理自定義編輯指令(df, col_hanzi, col_ipa, command_str)
+        results, errors = _check_core()["處理自定義編輯指令"](df, col_hanzi, col_ipa, command_str)
         for idx, row in df.iterrows():
             ipa = str(row.get(col_ipa, "")).strip()
             if ipa:
-                onset, rime, tone = extract_onset_rime_from_ipa(ipa)
+                onset, rime, tone = _format_convert()["extract_onset_rime_from_ipa"](ipa)
                 df.at[idx, '声母'] = onset
                 df.at[idx, '韵母'] = rime
                 df.at[idx, '声调'] = tone
@@ -704,6 +734,7 @@ async def save_changes(request: SaveChangesRequest):
 
     try:
         # 读取Excel
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
         col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
@@ -724,7 +755,7 @@ async def save_changes(request: SaveChangesRequest):
         for idx in modified_ipa_rows:
             ipa = str(df.at[idx, col_ipa]).strip()
             if ipa:
-                onset, rime, tone = extract_onset_rime_from_ipa(ipa)
+                onset, rime, tone = _format_convert()["extract_onset_rime_from_ipa"](ipa)
                 df.at[idx, '声母'] = onset
                 df.at[idx, '韵母'] = rime
                 df.at[idx, '声调'] = tone
@@ -822,6 +853,7 @@ async def get_data(request: GetDataRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
         df = df.fillna("")
 
@@ -878,6 +910,7 @@ async def get_tone_stats(request: GetDataRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
 
         # 获取列名
@@ -885,7 +918,7 @@ async def get_tone_stats(request: GetDataRequest):
         col_ipa = task['data'].get("col_ipa") or find_standard_column(df, '音標')
 
         # 调用核心函数获取调值统计
-        tone_stats = 整理並顯示調值(df, col_hanzi, col_ipa)
+        tone_stats = _check_core()["整理並顯示調值"](df, col_hanzi, col_ipa)
 
         return {
             "success": True,
@@ -913,6 +946,7 @@ async def update_row(request: UpdateRowRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
         df_index = request.row - 2  # Excel行号转DataFrame索引
 
@@ -937,7 +971,7 @@ async def update_row(request: UpdateRowRequest):
                 df.at[df_index, col_name] = value
                 # 【新增】如果修改了IPA，重新提取声韵
                 if key == "ipa":
-                    onset, rime, tone = extract_onset_rime_from_ipa(value)
+                    onset, rime, tone = _format_convert()["extract_onset_rime_from_ipa"](value)
                     df.at[df_index, '声母'] = onset
                     df.at[df_index, '韵母'] = rime
                     df.at[df_index, '声调'] = tone
@@ -984,6 +1018,7 @@ async def batch_delete(request: BatchDeleteRequest):
         raise HTTPException(status_code=404, detail="文件不存在")
 
     try:
+        pd = _pd()
         df = pd.read_excel(file_path, dtype=str)
 
         # 转换Excel行号为DataFrame索引（Excel行号从2开始）
