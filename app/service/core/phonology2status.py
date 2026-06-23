@@ -451,21 +451,19 @@ def pho2sta(locations, regions, features, status_inputs,
 
     pho_values = split_pho_input(pho_values or [])
 
+    normalized_group_inputs = [
+        convert_simplified_to_traditional(item)
+        for item in (status_inputs or [])
+        if item
+    ]
+
     grouping_columns_map = {}
-    for idx, feature in enumerate(features):
-        user_input = status_inputs[idx] if idx < len(status_inputs) else ""
-
-        # [OK] 最開始就做簡體轉繁體轉換
-        user_input = convert_simplified_to_traditional(user_input)
-
-        # 嘗試匹配欄位（使用表的層級列）
-        user_columns = [col for col in schema["hierarchy"] if col in user_input]
-
-        if user_columns:
-            print(f"[OK] 特徵【{feature}】使用分組欄位：{user_columns}")
-            grouping_columns_map[feature] = user_columns
+    for feature in features:
+        if normalized_group_inputs:
+            print(f"[OK] 特徵【{feature}】使用分組欄位：{normalized_group_inputs}")
+            grouping_columns_map[feature] = normalized_group_inputs
         else:
-            print(f"[X] 輸入「{user_input}」未匹配任何欄位，特徵【{feature}】將使用預設分組欄位")
+            print(f"[X] 未提供 group_inputs，特徵【{feature}】將使用預設分組欄位")
             grouping_columns_map[feature] = None
 
     locations_new = query_dialect_abbreviations(regions, locations, db_path=query_db_path, region_mode=region_mode)
