@@ -49,7 +49,7 @@ def _is_baidu_mark(value) -> bool:
     return _mark_to_text(value) in BAIDU_MARKS
 
 
-def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table="dialects"):
+def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table="dialects", feature_value_filter=None):
     if not locations or not features:
         return {}
     allowed_features = {"聲母", "韻母", "聲調"}
@@ -60,9 +60,11 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
     從 dialects 數據庫中查出指定地點與特徵（如聲母、韻母等）對應的漢字。
 
     性能优化：使用SQL层面的GROUP BY代替pandas处理（5-10倍性能提升）
+    可選地按 feature_value_filter 只構建命中的 bucket；未提供時保持原行為。
     """
     pool = get_db_pool(db_path)
     result = {}
+    feature_value_filter = feature_value_filter or {}
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
@@ -85,6 +87,7 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
         for feature in features:
             feature_idx = col_indices[feature]
             feature_dict = {}
+            allowed_values = feature_value_filter.get(feature)
 
             # 使用字典进行分组（代替pandas groupby）
             from collections import defaultdict
@@ -92,8 +95,11 @@ def query_dialect_features(locations, features, db_path=DIALECTS_DB_USER, table=
 
             for row in all_rows:
                 feature_value = row[feature_idx]
-                if feature_value:  # 跳过NULL值
-                    groups[feature_value].append(row)
+                if not feature_value:  # 跳过NULL值
+                    continue
+                if allowed_values is not None and feature_value not in allowed_values:
+                    continue
+                groups[feature_value].append(row)
 
             # 处理每个特征值
             for feature_value, rows in groups.items():
@@ -458,8 +464,20 @@ def pho2sta(locations, regions, features, status_inputs,
         db_path=dialect_db_path,
     ) if pho_values else {}
 
+    feature_value_filter = {
+        feature: values if values else None
+        for feature, values in matched_feature_values.items()
+    }
+    if not feature_value_filter:
+        feature_value_filter = None
+
     # 【性能优化】批量查询 characters.db（一次查询代替 N 次查询）
-    dialect_output = query_dialect_features(unique_abbrs, features, db_path=dialect_db_path)
+    dialect_output = query_dialect_features(
+        unique_abbrs,
+        features,
+        db_path=dialect_db_path,
+        feature_value_filter=feature_value_filter,
+    )
 
     # 收集所有需要查询的汉字
     all_chars = set()
