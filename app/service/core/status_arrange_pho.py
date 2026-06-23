@@ -352,10 +352,10 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 【SQL优化】一次性查询所有数据
+        # 一次性查询所有后续处理所需的数据，避免对相同 loc/char 集合重复扫表。
         loc_placeholders = ','.join(['?'] * len(locations))
         char_placeholders = ','.join(['?'] * len(char_list))
-        
+
         query = f"""
         SELECT 簡稱, 漢字, {', '.join(features)}, 多音字, 音節
         FROM {table}
@@ -367,59 +367,43 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
         print(f"[OK] 查詢結果：載入 {len(all_rows)} 條資料")
 
-        # 构建列索引
-        col_indices = {'簡稱': 0, '漢字': 1, '多音字': len(features) + 2, '音節': len(features) + 3}
-        for i, feat in enumerate(features):
-            col_indices[feat] = i + 2
+    # 构建列索引
+    col_indices = {'簡稱': 0, '漢字': 1, '多音字': len(features) + 2, '音節': len(features) + 3}
+    for i, feat in enumerate(features):
+        col_indices[feat] = i + 2
 
-        # 【SQL优化】查询多音字（使用SQL GROUP BY）
-        poly_query = f"""
-        SELECT 簡稱, 漢字, GROUP_CONCAT(音節, '|') as prons
-        FROM {table}
-        WHERE CAST(多音字 AS TEXT) IN ('1', '2', '3')
-        AND 簡稱 IN ({loc_placeholders})
-        AND 漢字 IN ({char_placeholders})
-        GROUP BY 簡稱, 漢字
-        """
-        cursor.execute(poly_query, locations + char_list)
-        poly_rows = cursor.fetchall()
-
-        # 构建多音字字典 {(loc, hz): prons}
-        poly_dict = {(row[0], row[1]): row[2] for row in poly_rows}
-
-        detail_query = f"""
-        SELECT 簡稱, 漢字, 多音字, 音節
-        FROM {table}
-        WHERE CAST(多音字 AS TEXT) IN ('2', '3')
-        AND 簡稱 IN ({loc_placeholders})
-        AND 漢字 IN ({char_placeholders})
-        """
-        cursor.execute(detail_query, locations + char_list)
-        detail_rows = cursor.fetchall()
-
-        wendu_dict = defaultdict(list)
-        baidu_dict = defaultdict(list)
-        for row in detail_rows:
-            loc, hz, mark, pron = row
-            if not pron:
-                continue
-            if _is_wendu_mark(mark) and pron not in wendu_dict[(loc, hz)]:
-                wendu_dict[(loc, hz)].append(pron)
-            if _is_baidu_mark(mark) and pron not in baidu_dict[(loc, hz)]:
-                baidu_dict[(loc, hz)].append(pron)
-
-    # 使用Python字典进行分组（代替pandas groupby）
-    
-    # 按地点分组数据
+    # 预聚合，保证逻辑与旧实现完全一致：
+    # - poly_dict 维持 all_rows 原顺序拼接音节
+    # - 文/白读详情维持首次出现顺序去重
+    # - 后续 color 判断仍按 feature/fval 下真实命中的 marks 来做
     loc_data = defaultdict(list)
+    poly_parts = defaultdict(list)
+    wendu_dict = defaultdict(list)
+    baidu_dict = defaultdict(list)
+
     for row in all_rows:
         loc = row[col_indices['簡稱']]
+        hz = row[col_indices['漢字']]
         loc_data[loc].append(row)
+
+        mark = row[col_indices['多音字']]
+        pron = row[col_indices['音節']]
+        if not pron:
+            continue
+
+        if _mark_to_text(mark) in POLYPHONIC_MARKS:
+            poly_parts[(loc, hz)].append(pron)
+        if _is_wendu_mark(mark) and pron not in wendu_dict[(loc, hz)]:
+            wendu_dict[(loc, hz)].append(pron)
+        if _is_baidu_mark(mark) and pron not in baidu_dict[(loc, hz)]:
+            baidu_dict[(loc, hz)].append(pron)
+
+    poly_dict = {key: '|'.join(values) for key, values in poly_parts.items()}
 
     # 处理每个地点
     for loc in locations:
         rows = loc_data.get(loc, [])
-        
+
         if not rows:
             results.append({
                 "地點": loc,
@@ -440,11 +424,11 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         # 处理每个特征
         for feature in features:
             feature_idx = col_indices[feature]
-            
+
             # 按特征值分组
             feature_groups = defaultdict(set)  # {feature_value: set(chars)}
 
-            # 新增：记录“当前分组值 fval 下，每个字实际命中的多音/文读/白读标记”
+            # 记录“当前分组值 fval 下，每个字实际命中的多音/文读/白读标记”
             # 结构：{fval: {hz: {"1", "2", "3"}}}
             feature_color_marks = defaultdict(lambda: defaultdict(set))
 
@@ -456,8 +440,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
                     feature_groups[fval].add(hz)
 
-                    # 注意：这里是基于当前 feature 的当前 fval 记录 mark
-                    # 所以 color 后面会严格按照当前分组值判断
+                    # 基于当前 feature 的当前 fval 记录 mark
                     if mark in POLYPHONIC_MARKS:
                         feature_color_marks[fval][hz].add(mark)
 
@@ -471,7 +454,7 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 wendu_details = []
                 baidu_details = []
 
-                # 新增：构建当前统计行的上色信息
+                # 构建当前统计行的上色信息
                 color = {}
 
                 for hz in unique_chars:
