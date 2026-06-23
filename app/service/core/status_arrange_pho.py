@@ -189,17 +189,11 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     """
     📌 批量查询多个path_string，使用UNION ALL优化性能
 
-    Args:
-        path_strings: List[str], 多个查询字符串
-        exclude_columns: List[str] or None
-
-    Returns:
-        List[Tuple[str, List[str], List[str]]], 每个元素为 (path_string, characters, multi_chars)
-
-    性能优化：
-    - 使用UNION ALL合并多个查询（减少数据库连接开销）
-    - 一次性获取所有结果，在Python层面分组
-    - 预期提升：30-50%
+    修复点：
+    - 避免一次性 UNION ALL 太多 SELECT，触发 SQLite:
+      sqlite3.OperationalError: too many terms in compound SELECT
+    - 将 UNION ALL 查询分块执行
+    - 将多地位字查询里的 IN (...) 也分块，避免参数过多
     """
     if not path_strings:
         return []
@@ -236,13 +230,18 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     if not parsed_queries:
         return []
 
+    # SQLite compound SELECT 默认/常见上限较低，保守一点
+    MAX_UNION_TERMS = 400
+
+    # 避免 IN (...) 参数过多，保守一点
+    MAX_SQL_PARAMS = 800
+
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 【批量优化】构建UNION ALL查询
-        union_queries = []
-        all_params = []
+        # 【批量优化】构建 UNION ALL 子查询，但不再一次性执行全部
+        query_items = []
 
         for query_info in parsed_queries:
             conditions = []
@@ -265,24 +264,33 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
                 for col_name in exclude_columns:
                     subquery += f" AND ({col_name} != 1 AND {col_name} != '1')"
 
-            union_queries.append(subquery)
-            all_params.extend(params)
+            query_items.append((subquery, params))
 
-        # 执行UNION ALL查询
-        union_query = " UNION ALL ".join(union_queries)
-        cursor.execute(union_query, all_params)
-
-        # 按query_idx分组结果
+        # 分块执行 UNION ALL 查询
         results_by_idx = {}
-        for row in cursor.fetchall():
-            query_idx, char = row
-            if query_idx not in results_by_idx:
-                results_by_idx[query_idx] = []
-            if char:
-                results_by_idx[query_idx].append(char)
+
+        for start in range(0, len(query_items), MAX_UNION_TERMS):
+            chunk_items = query_items[start:start + MAX_UNION_TERMS]
+
+            union_query = " UNION ALL ".join(item[0] for item in chunk_items)
+
+            chunk_params = []
+            for _, params in chunk_items:
+                chunk_params.extend(params)
+
+            cursor.execute(union_query, chunk_params)
+
+            # 按 query_idx 分组结果
+            for row in cursor.fetchall():
+                query_idx, char = row
+                if query_idx not in results_by_idx:
+                    results_by_idx[query_idx] = []
+                if char:
+                    results_by_idx[query_idx].append(char)
 
         # 批量查询多地位字
         final_results = []
+
         for query_info in parsed_queries:
             idx = query_info['idx']
             characters = results_by_idx.get(idx, [])
@@ -306,23 +314,36 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
             where_clause = " AND ".join(conditions)
             filter_cols_concat = " || '|' || ".join(query_info['filter_columns'])
 
-            multi_query = f"""
-            SELECT 漢字
-            FROM {table}
-            WHERE {where_clause}
-            AND 多地位標記 = '1'
-            AND 漢字 IN ({','.join(['?'] * len(characters))})
-            GROUP BY 漢字
-            HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
-            """
+            multi_chars = []
+            seen_multi_chars = set()
 
-            cursor.execute(multi_query, params + characters)
-            multi_chars = [row[0] for row in cursor.fetchall()]
+            # 防止 params + characters 太多
+            char_chunk_size = max(1, MAX_SQL_PARAMS - len(params))
+
+            for start in range(0, len(characters), char_chunk_size):
+                char_chunk = characters[start:start + char_chunk_size]
+
+                multi_query = f"""
+                SELECT 漢字
+                FROM {table}
+                WHERE {where_clause}
+                AND 多地位標記 = '1'
+                AND 漢字 IN ({','.join(['?'] * len(char_chunk))})
+                GROUP BY 漢字
+                HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
+                """
+
+                cursor.execute(multi_query, params + char_chunk)
+
+                for row in cursor.fetchall():
+                    char = row[0]
+                    if char not in seen_multi_chars:
+                        seen_multi_chars.add(char)
+                        multi_chars.append(char)
 
             final_results.append((query_info['path_string'], characters, multi_chars))
 
     return final_results
-
 
 def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS_DB_USER, table="dialects"):
     """
