@@ -41,6 +41,7 @@ app/statics/
 
 # Temporary files
 *.tmp
+*tmp
 *.temp
 *.tar
 *.tar.gz
