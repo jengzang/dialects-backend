@@ -56,21 +56,20 @@ class AnalysisPayload(BaseModel):
             raise ValueError("group_inputs 必須是列表，請改為例如 ['攝', '組'] 的形式傳入")
         return v
 
-    @field_validator('group_inputs')
-    @classmethod
-    def validate_group_inputs(cls, v, info):
-        if v is None:
-            return v
-        if not v:
-            return None
+    @model_validator(mode="after")
+    def validate_group_inputs_against_table(self):
+        if self.group_inputs is None:
+            return self
+        if not self.group_inputs:
+            self.group_inputs = None
+            return self
         from app.common.constants import get_table_schema
-        table_name = info.data.get('table_name', 'characters') if info.data else 'characters'
-        schema = get_table_schema(table_name)
+        schema = get_table_schema(self.table_name)
         hierarchy = schema.get('hierarchy', [])
-        invalid = [item for item in v if item not in hierarchy]
+        invalid = [item for item in self.group_inputs if item not in hierarchy]
         if invalid:
             raise ValueError(f"group_inputs 含有當前表不支持的欄位：{invalid}；可用欄位為：{hierarchy}")
-        return v
+        return self
 
 
 class CharListRequest(BaseModel):
@@ -197,21 +196,20 @@ class YinWeiAnalysis(BaseModel):
             raise ValueError("group_inputs 必須是列表，請改為例如 ['攝', '組'] 的形式傳入")
         return v
 
-    @field_validator('group_inputs')
-    @classmethod
-    def validate_group_inputs(cls, v, info):
-        if v is None:
-            return v
-        if not v:
-            return None
+    @model_validator(mode="after")
+    def validate_group_inputs_against_table(self):
+        if self.group_inputs is None:
+            return self
+        if not self.group_inputs:
+            self.group_inputs = None
+            return self
         from app.common.constants import get_table_schema
-        table_name = info.data.get('table_name', 'characters') if info.data else 'characters'
-        schema = get_table_schema(table_name)
+        schema = get_table_schema(self.table_name)
         hierarchy = schema.get('hierarchy', [])
-        invalid = [item for item in v if item not in hierarchy]
+        invalid = [item for item in self.group_inputs if item not in hierarchy]
         if invalid:
             raise ValueError(f"group_inputs 含有當前表不支持的欄位：{invalid}；可用欄位為：{hierarchy}")
-        return v
+        return self
 
     @field_validator('features')
     @classmethod
