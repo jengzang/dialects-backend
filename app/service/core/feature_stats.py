@@ -124,6 +124,62 @@ def get_feature_counts(locations, db_path, table="dialects"):
 
     return result
 
+def calculate_aggregated_feature_counts(location_data):
+    """
+    根据地点维度的原始统计数据，计算汇总数据。
+
+    输入：
+    {
+        "广州": {
+            "聲母": {"p": 10, "t": 8},
+            "韻母": {"a": 12}
+        },
+        "香港": {
+            "聲母": {"p": 7},
+            "韻母": {"a": 9}
+        }
+    }
+
+    输出：
+    {
+        "聲母": {
+            "p": {
+                "totalCount": 17,
+                "locationCount": 2,
+                "locations": ["广州", "香港"]
+            },
+            "t": {
+                "totalCount": 8,
+                "locationCount": 1,
+                "locations": ["广州"]
+            }
+        }
+    }
+    """
+    aggregated = defaultdict(lambda: defaultdict(lambda: {
+        "totalCount": 0,
+        "locationCount": 0,
+        "locations": []
+    }))
+
+    for location_name, location_data_item in (location_data or {}).items():
+        for feature_type, features in (location_data_item or {}).items():
+            for syllable, count in (features or {}).items():
+                count = int(count or 0)
+                if count <= 0:
+                    continue
+
+                item = aggregated[feature_type][syllable]
+                item["totalCount"] += count
+                item["locationCount"] += 1
+                item["locations"].append(location_name)
+
+    # 转成普通 dict，避免 defaultdict 返回到前端
+    return {
+        feature_type: dict(features)
+        for feature_type, features in aggregated.items()
+    }
+
 
 def get_feature_statistics(
     locations: List[str],
