@@ -12,11 +12,10 @@ class AnalysisPayload(BaseModel):
     - regions: 輸入分區（某一級分區，例如嶺南，可多個）
     - features: 要查詢的特徵（聲母/韻母/聲調）必須完全匹配，用繁體字
     - status_inputs: 要查詢的中古地位，可帶類名（例如莊組），也可不帶（例如來）；
-                   並且支持-全匹配（例如宕-等，會自動匹配宕一、宕三）；後端會進行簡繁轉換，可輸入簡體
-                   s2p模式需要的輸入，若留空，則韻母查所有攝，聲母查三十六母，聲調查清濁+調
-    - group_inputs: 分組特徵，輸入中古的類名（例如攝，則按韻攝整理某個音位）
-                  可輸入簡體，支持簡體轉繁體
-                   p2s模式需要的輸入，若不填，則韻母按攝分類，聲母按聲分類，聲調按清濁+調分類。
+                  並且支持-全匹配（例如宕-等，會自動匹配宕一、宕三）；後端會進行簡繁轉換，可輸入簡體
+                  s2p模式需要的輸入，若留空，則韻母查所有攝，聲母查三十六母，聲調查清濁+調
+    - group_inputs: p2s 模式下的中古分組欄位列表；所有 feature 共用同一組欄位，
+                   例如 ['攝', '組'] 表示對每個 feature 都按 攝+組 聯合分組
     - pho_values: 要查詢的具體音值，p2s模式下的輸入，若留空，則查所有音值
     - 若為s2p,返回一個帶有地點、特徵（聲韻調）、分類值（中古地位）、值（具體音值）、對應字（所有查到的字）、
             字數、佔比（在所有查得的值中佔比）、多音字 的數組。p2s也是類似
@@ -26,7 +25,7 @@ class AnalysisPayload(BaseModel):
     regions: List[str] = Field(default_factory=list)
     features: List[str] = Field(default_factory=list)
     status_inputs: Union[str, List[str], None] = None
-    group_inputs: Union[str, List[str], None] = None
+    group_inputs: Optional[List[str]] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
     table_name: str = Field(
@@ -47,6 +46,30 @@ class AnalysisPayload(BaseModel):
         if v not in VALID_CHARACTER_TABLES:
             raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
         return v
+
+    @field_validator('group_inputs', mode='before')
+    @classmethod
+    def validate_group_inputs_type(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            raise ValueError("group_inputs 必須是列表，請改為例如 ['攝', '組'] 的形式傳入")
+        return v
+
+    @model_validator(mode="after")
+    def validate_group_inputs_against_table(self):
+        if self.group_inputs is None:
+            return self
+        if not self.group_inputs:
+            self.group_inputs = None
+            return self
+        from app.common.constants import get_table_schema
+        schema = get_table_schema(self.table_name)
+        hierarchy = schema.get('hierarchy', [])
+        invalid = [item for item in self.group_inputs if item not in hierarchy]
+        if invalid:
+            raise ValueError(f"group_inputs 含有當前表不支持的欄位：{invalid}；可用欄位為：{hierarchy}")
+        return self
 
 
 class CharListRequest(BaseModel):
@@ -138,7 +161,7 @@ class YinWeiAnalysis(BaseModel):
     locations: List[str] = Field(default_factory=list)
     regions: List[str] = Field(default_factory=list)
     features: List[str] = Field(default_factory=list)
-    group_inputs: Union[str, List[str], None] = None
+    group_inputs: Optional[List[str]] = None
     pho_values: Union[str, List[str], None] = None
     region_mode: str = "yindian"
     exclude_columns: Optional[List[str]] = Field(
@@ -163,6 +186,30 @@ class YinWeiAnalysis(BaseModel):
         if v not in VALID_CHARACTER_TABLES:
             raise ValueError(f"Invalid table_name: {v}. Must be one of {VALID_CHARACTER_TABLES}")
         return v
+
+    @field_validator('group_inputs', mode='before')
+    @classmethod
+    def validate_group_inputs_type(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            raise ValueError("group_inputs 必須是列表，請改為例如 ['攝', '組'] 的形式傳入")
+        return v
+
+    @model_validator(mode="after")
+    def validate_group_inputs_against_table(self):
+        if self.group_inputs is None:
+            return self
+        if not self.group_inputs:
+            self.group_inputs = None
+            return self
+        from app.common.constants import get_table_schema
+        schema = get_table_schema(self.table_name)
+        hierarchy = schema.get('hierarchy', [])
+        invalid = [item for item in self.group_inputs if item not in hierarchy]
+        if invalid:
+            raise ValueError(f"group_inputs 含有當前表不支持的欄位：{invalid}；可用欄位為：{hierarchy}")
+        return self
 
     @field_validator('features')
     @classmethod

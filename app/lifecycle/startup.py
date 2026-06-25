@@ -18,6 +18,8 @@ from app.common.path import (
 )
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
+from app.geo_query.loader import load_geo_query_engine
 
 
 def initialize_db_pools() -> None:
@@ -106,6 +108,20 @@ def warm_dialect_cache() -> None:
     print("=" * 60)
 
 
+def initialize_geo_query_engine() -> None:
+    print("=" * 60)
+    print("[GEO] Initializing AreaCity Python query engine...")
+    try:
+        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+            from scripts.geo.build_lowmem_index import main as build_geo_index
+            build_geo_index()
+        load_geo_query_engine()
+        print("[OK] Geo query engine ready")
+    except Exception as exc:
+        print(f"[WARN] Geo query engine init failed: {exc}")
+    print("=" * 60)
+
+
 def _get_email_delivery_mode() -> str:
     if RESEND_API_KEY and RESEND_FROM_EMAIL:
         return "resend"
@@ -136,6 +152,7 @@ def run_process_startup() -> None:
     migrate_logs_database()
     cleanup_old_temp_files()
     warm_dialect_cache()
+    initialize_geo_query_engine()
 
 
 async def shutdown_process_resources() -> None:

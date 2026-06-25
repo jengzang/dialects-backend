@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-06-18T16:18:44.284046+00:00",
+  "source_file": "data/geo/source/ok_geo.csv",
+  "source_crs": "GCJ-02",
+  "target_crs": "WGS84",
+  "total_rows": 3635,
+  "geo_empty_count": 378,
+  "polygon_empty_count": 378,
+  "output_files": {
+    "data/geo/generated/geojson/wgs84/areacity_full_level0-2.geojson": 3635,
+    "data/geo/generated/geojson/wgs84/areacity_level0.geojson": 34,
+    "data/geo/generated/geojson/wgs84/areacity_level1.geojson": 392,
+    "data/geo/generated/geojson/wgs84/areacity_level2.geojson": 3209
+  }
+}

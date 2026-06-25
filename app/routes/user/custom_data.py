@@ -10,6 +10,7 @@ from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.user.core.models import Information, UserRegion
 from app.service.user.submission.submit import get_max_value
 from app.schemas.admin.submissions import InformationBase
+
 from app.schemas.user import (
     CustomDataEdit,
     BatchDeleteRequest,
@@ -19,6 +20,7 @@ from app.schemas.user import (
     CustomPointGroupResponse,
     CustomDataListResponse,
     CustomDataRecord,
+    CustomDataAllResponse,
 )
 
 router = APIRouter()
@@ -140,13 +142,17 @@ def list_grouped_features_for_user(user: User, keyword: Optional[str] = None) ->
         session_info.close()
 
 
-def list_records_by_point_for_user(user: User, location: str, region: str) -> List[dict]:
+def list_records_by_point_for_user(user: User, location: Optional[str] = None, region: Optional[str] = None) -> List[dict]:
     session_info = SessionLocal_info()
     try:
+        filters = [Information.user_id == user.id]
+        if location:
+            filters.append(Information.簡稱 == location)
+        if region:
+            filters.append(Information.音典分區 == region)
+
         rows = session_info.query(Information).filter(
-            Information.user_id == user.id,
-            Information.簡稱 == location,
-            Information.音典分區 == region,
+            *filters
         ).order_by(
             Information.created_at.asc(),
             Information.id.asc(),
@@ -174,7 +180,7 @@ def list_records_by_feature_for_user(user: User, feature: str, phonology: str) -
         session_info.close()
 
 
-@router.get("/all")
+@router.get("/all", response_model=CustomDataAllResponse)
 async def get_all_own_custom_data(
     current_user: Optional[User] = Depends(get_current_user)
 ):
@@ -228,11 +234,13 @@ async def get_user_custom_feature_groups(
 
 @router.get("/data-by-point", response_model=CustomDataListResponse)
 async def get_custom_data_by_point(
-    location: str = Query(..., description="方言點簡稱"),
-    region: str = Query(..., description="音典分區"),
+    location: Optional[str] = Query(None, description="方言點簡稱"),
+    region: Optional[str] = Query(None, description="音典分區"),
     current_user: Optional[User] = Depends(get_current_user),
 ):
     user = _require_current_user(current_user)
+    if not location and not region:
+        raise HTTPException(status_code=400, detail="必须提供地点或分区参数之一")
     return {"success": True, "data": list_records_by_point_for_user(user, location, region)}
 
 

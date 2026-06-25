@@ -1,0 +1,33 @@
+{
+  "full_exists": true,
+  "full_type": true,
+  "full_feature_count": 3635,
+  "levels": {
+    "0": {
+      "exists": true,
+      "type_ok": true,
+      "feature_count": 34,
+      "all_match_deep": true,
+      "all_have_geometry": true
+    },
+    "1": {
+      "exists": true,
+      "type_ok": true,
+      "feature_count": 392,
+      "all_match_deep": true,
+      "all_have_geometry": false
+    },
+    "2": {
+      "exists": true,
+      "type_ok": true,
+      "feature_count": 3209,
+      "all_match_deep": true,
+      "all_have_geometry": false
+    }
+  },
+  "full_deep_values": [
+    0,
+    1,
+    2
+  ]
+}

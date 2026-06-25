@@ -1,15 +1,63 @@
 import re
+from collections import defaultdict
 
 import pandas as pd
 from fastapi import HTTPException
 
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_USER, CHARACTERS_DB_PATH
-from app.common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES
+from app.common.constants import HIERARCHY_COLUMNS, AMBIG_VALUES, POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
 from app.service.core.process_sp_input import auto_convert_batch
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
 from app.sql.db_pool import get_db_pool
 
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _is_wendu_mark(value) -> bool:
+    return _mark_to_text(value) in WENDU_MARKS
+
+
+def _is_baidu_mark(value) -> bool:
+    return _mark_to_text(value) in BAIDU_MARKS
+
+def _format_polyphonic_detail(prons, w_prons=None, b_prons=None) -> str:
+    """
+    將多音字詳情格式化為：
+    文:tsi1|白:ti1
+
+    普通多音讀音不加前綴；
+    文讀音節加「文:」；
+    白讀音節加「白:」。
+    """
+    if not prons:
+        return ""
+
+    all_prons = [p for p in str(prons).split("|") if p]
+    w_set = set(w_prons or [])
+    b_set = set(b_prons or [])
+
+    parts = []
+    added = set()
+
+    for pron in all_prons:
+        if pron in w_set:
+            item = f"文·{pron}"
+        elif pron in b_set:
+            item = f"白·{pron}"
+        else:
+            item = pron
+
+        if item not in added:
+            parts.append(item)
+            added.add(item)
+
+    return "|".join(parts)
 
 def _quote_identifier(name: str) -> str:
     escaped = name.replace('"', '""')
@@ -141,17 +189,11 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     """
     📌 批量查询多个path_string，使用UNION ALL优化性能
 
-    Args:
-        path_strings: List[str], 多个查询字符串
-        exclude_columns: List[str] or None
-
-    Returns:
-        List[Tuple[str, List[str], List[str]]], 每个元素为 (path_string, characters, multi_chars)
-
-    性能优化：
-    - 使用UNION ALL合并多个查询（减少数据库连接开销）
-    - 一次性获取所有结果，在Python层面分组
-    - 预期提升：30-50%
+    修复点：
+    - 避免一次性 UNION ALL 太多 SELECT，触发 SQLite:
+      sqlite3.OperationalError: too many terms in compound SELECT
+    - 将 UNION ALL 查询分块执行
+    - 将多地位字查询里的 IN (...) 也分块，避免参数过多
     """
     if not path_strings:
         return []
@@ -188,13 +230,18 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
     if not parsed_queries:
         return []
 
+    # SQLite compound SELECT 默认/常见上限较低，保守一点
+    MAX_UNION_TERMS = 400
+
+    # 避免 IN (...) 参数过多，保守一点
+    MAX_SQL_PARAMS = 800
+
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 【批量优化】构建UNION ALL查询
-        union_queries = []
-        all_params = []
+        # 【批量优化】构建 UNION ALL 子查询，但不再一次性执行全部
+        query_items = []
 
         for query_info in parsed_queries:
             conditions = []
@@ -217,24 +264,33 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
                 for col_name in exclude_columns:
                     subquery += f" AND ({col_name} != 1 AND {col_name} != '1')"
 
-            union_queries.append(subquery)
-            all_params.extend(params)
+            query_items.append((subquery, params))
 
-        # 执行UNION ALL查询
-        union_query = " UNION ALL ".join(union_queries)
-        cursor.execute(union_query, all_params)
-
-        # 按query_idx分组结果
+        # 分块执行 UNION ALL 查询
         results_by_idx = {}
-        for row in cursor.fetchall():
-            query_idx, char = row
-            if query_idx not in results_by_idx:
-                results_by_idx[query_idx] = []
-            if char:
-                results_by_idx[query_idx].append(char)
+
+        for start in range(0, len(query_items), MAX_UNION_TERMS):
+            chunk_items = query_items[start:start + MAX_UNION_TERMS]
+
+            union_query = " UNION ALL ".join(item[0] for item in chunk_items)
+
+            chunk_params = []
+            for _, params in chunk_items:
+                chunk_params.extend(params)
+
+            cursor.execute(union_query, chunk_params)
+
+            # 按 query_idx 分组结果
+            for row in cursor.fetchall():
+                query_idx, char = row
+                if query_idx not in results_by_idx:
+                    results_by_idx[query_idx] = []
+                if char:
+                    results_by_idx[query_idx].append(char)
 
         # 批量查询多地位字
         final_results = []
+
         for query_info in parsed_queries:
             idx = query_info['idx']
             characters = results_by_idx.get(idx, [])
@@ -258,23 +314,36 @@ def query_characters_by_path_batch(path_strings, db_path=CHARACTERS_DB_PATH, tab
             where_clause = " AND ".join(conditions)
             filter_cols_concat = " || '|' || ".join(query_info['filter_columns'])
 
-            multi_query = f"""
-            SELECT 漢字
-            FROM {table}
-            WHERE {where_clause}
-            AND 多地位標記 = '1'
-            AND 漢字 IN ({','.join(['?'] * len(characters))})
-            GROUP BY 漢字
-            HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
-            """
+            multi_chars = []
+            seen_multi_chars = set()
 
-            cursor.execute(multi_query, params + characters)
-            multi_chars = [row[0] for row in cursor.fetchall()]
+            # 防止 params + characters 太多
+            char_chunk_size = max(1, MAX_SQL_PARAMS - len(params))
+
+            for start in range(0, len(characters), char_chunk_size):
+                char_chunk = characters[start:start + char_chunk_size]
+
+                multi_query = f"""
+                SELECT 漢字
+                FROM {table}
+                WHERE {where_clause}
+                AND 多地位標記 = '1'
+                AND 漢字 IN ({','.join(['?'] * len(char_chunk))})
+                GROUP BY 漢字
+                HAVING COUNT(DISTINCT {filter_cols_concat}) > 1
+                """
+
+                cursor.execute(multi_query, params + char_chunk)
+
+                for row in cursor.fetchall():
+                    char = row[0]
+                    if char not in seen_multi_chars:
+                        seen_multi_chars.add(char)
+                        multi_chars.append(char)
 
             final_results.append((query_info['path_string'], characters, multi_chars))
 
     return final_results
-
 
 def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS_DB_USER, table="dialects"):
     """
@@ -304,10 +373,10 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 【SQL优化】一次性查询所有数据
+        # 一次性查询所有后续处理所需的数据，避免对相同 loc/char 集合重复扫表。
         loc_placeholders = ','.join(['?'] * len(locations))
         char_placeholders = ','.join(['?'] * len(char_list))
-        
+
         query = f"""
         SELECT 簡稱, 漢字, {', '.join(features)}, 多音字, 音節
         FROM {table}
@@ -319,39 +388,43 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
         print(f"[OK] 查詢結果：載入 {len(all_rows)} 條資料")
 
-        # 构建列索引
-        col_indices = {'簡稱': 0, '漢字': 1, '多音字': len(features) + 2, '音節': len(features) + 3}
-        for i, feat in enumerate(features):
-            col_indices[feat] = i + 2
+    # 构建列索引
+    col_indices = {'簡稱': 0, '漢字': 1, '多音字': len(features) + 2, '音節': len(features) + 3}
+    for i, feat in enumerate(features):
+        col_indices[feat] = i + 2
 
-        # 【SQL优化】查询多音字（使用SQL GROUP BY）
-        poly_query = f"""
-        SELECT 簡稱, 漢字, GROUP_CONCAT(音節, '|') as prons
-        FROM {table}
-        WHERE 多音字 = '1'
-        AND 簡稱 IN ({loc_placeholders})
-        AND 漢字 IN ({char_placeholders})
-        GROUP BY 簡稱, 漢字
-        """
-        cursor.execute(poly_query, locations + char_list)
-        poly_rows = cursor.fetchall()
-
-        # 构建多音字字典 {(loc, hz): prons}
-        poly_dict = {(row[0], row[1]): row[2] for row in poly_rows}
-
-    # 使用Python字典进行分组（代替pandas groupby）
-    from collections import defaultdict
-    
-    # 按地点分组数据
+    # 预聚合，保证逻辑与旧实现完全一致：
+    # - poly_dict 维持 all_rows 原顺序拼接音节
+    # - 文/白读详情维持首次出现顺序去重
+    # - 后续 color 判断仍按 feature/fval 下真实命中的 marks 来做
     loc_data = defaultdict(list)
+    poly_parts = defaultdict(list)
+    wendu_dict = defaultdict(list)
+    baidu_dict = defaultdict(list)
+
     for row in all_rows:
         loc = row[col_indices['簡稱']]
+        hz = row[col_indices['漢字']]
         loc_data[loc].append(row)
+
+        mark = row[col_indices['多音字']]
+        pron = row[col_indices['音節']]
+        if not pron:
+            continue
+
+        if _mark_to_text(mark) in POLYPHONIC_MARKS:
+            poly_parts[(loc, hz)].append(pron)
+        if _is_wendu_mark(mark) and pron not in wendu_dict[(loc, hz)]:
+            wendu_dict[(loc, hz)].append(pron)
+        if _is_baidu_mark(mark) and pron not in baidu_dict[(loc, hz)]:
+            baidu_dict[(loc, hz)].append(pron)
+
+    poly_dict = {key: '|'.join(values) for key, values in poly_parts.items()}
 
     # 处理每个地点
     for loc in locations:
         rows = loc_data.get(loc, [])
-        
+
         if not rows:
             results.append({
                 "地點": loc,
@@ -361,7 +434,8 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                 "字數": 0,
                 "佔比": 0.0,
                 "對應字": [],
-                "多音字詳情": "[X] 無符合漢字"
+                "多音字詳情": "[X] 無符合漢字",
+                "color": {}
             })
             continue
 
@@ -371,14 +445,25 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
         # 处理每个特征
         for feature in features:
             feature_idx = col_indices[feature]
-            
+
             # 按特征值分组
             feature_groups = defaultdict(set)  # {feature_value: set(chars)}
+
+            # 记录“当前分组值 fval 下，每个字实际命中的多音/文读/白读标记”
+            # 结构：{fval: {hz: {"1", "2", "3"}}}
+            feature_color_marks = defaultdict(lambda: defaultdict(set))
+
             for row in rows:
                 fval = row[feature_idx]
                 if fval:  # 跳过NULL
                     hz = row[col_indices['漢字']]
+                    mark = _mark_to_text(row[col_indices['多音字']])
+
                     feature_groups[fval].add(hz)
+
+                    # 基于当前 feature 的当前 fval 记录 mark
+                    if mark in POLYPHONIC_MARKS:
+                        feature_color_marks[fval][hz].add(mark)
 
             # 生成结果
             for fval, chars_set in feature_groups.items():
@@ -387,12 +472,43 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
 
                 # 构建多音字详情
                 poly_details = []
+                wendu_details = []
+                baidu_details = []
+
+                # 构建当前统计行的上色信息
+                color = {}
+
                 for hz in unique_chars:
                     prons = poly_dict.get((loc, hz))
-                    if prons:
-                        poly_details.append(f"{hz}:{prons}")
+                    w_prons = wendu_dict.get((loc, hz))
+                    b_prons = baidu_dict.get((loc, hz))
 
-                results.append({
+                    if prons:
+                        detail = _format_polyphonic_detail(prons, w_prons, b_prons)
+                        if detail:
+                            poly_details.append(f"{hz}:{detail}")
+
+                    if w_prons:
+                        wendu_details.append(f"{hz}:{'|'.join(w_prons)}")
+                    if b_prons:
+                        baidu_details.append(f"{hz}:{'|'.join(b_prons)}")
+
+                    marks = feature_color_marks.get(fval, {}).get(hz, set())
+
+                    has_wendu = bool(marks & WENDU_MARKS)
+                    has_baidu = bool(marks & BAIDU_MARKS)
+                    is_polyphonic = bool(marks & POLYPHONIC_MARKS)
+
+                    if has_wendu and has_baidu:
+                        color.setdefault("文白讀", []).append(hz)
+                    elif has_wendu:
+                        color.setdefault("文讀", []).append(hz)
+                    elif has_baidu:
+                        color.setdefault("白讀", []).append(hz)
+                    elif is_polyphonic:
+                        color.setdefault("多音字", []).append(hz)
+
+                row_payload = {
                     "地點": loc,
                     "特徵類別": feature,
                     "特徵值": user_input,
@@ -400,11 +516,22 @@ def query_by_status(char_list, locations, features, user_input, db_path=DIALECTS
                     "字數": count,
                     "佔比": round(count / total_chars, 4) if total_chars else 0.0,
                     "對應字": unique_chars,
-                    "多音字詳情": "; ".join(poly_details) if poly_details else ""
-                })
+                    "多音字詳情": "; ".join(poly_details) if poly_details else "",
+                    "color": color
+                }
+                # if wendu_details:
+                #     row_payload["文讀詳情"] = "; ".join(wendu_details)
+                # if baidu_details:
+                #     row_payload["白讀詳情"] = "; ".join(baidu_details)
 
-    return pd.DataFrame(results)
+                results.append(row_payload)
 
+    df = pd.DataFrame(results)
+    # if not df.empty:
+    #     for col in ["文讀詳情", "白讀詳情"]:
+    #         if col in df.columns:
+    #             df[col] = df[col].where(df[col].notna(), None)
+    return df
 
 def convert_path_str(path_str: str, table_name: str = "characters") -> str:
         """

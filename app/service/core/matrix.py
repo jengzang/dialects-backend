@@ -11,7 +11,15 @@ from fastapi import HTTPException
 
 from app.sql.db_pool import get_db_pool
 from app.common.path import CHARACTERS_DB_PATH, DIALECTS_DB_USER
-from app.common.constants import HIERARCHY_COLUMNS, custom_order
+from app.common.constants import (
+    HIERARCHY_COLUMNS,
+    custom_order,
+    POLYPHONIC_MARKS,
+    WENDU_MARKS,
+    BAIDU_MARKS,
+    WENDU_LABEL,
+    BAIDU_LABEL
+)
 
 MERGE_MAP = {}
 # IPA 符號合併映射表
@@ -39,6 +47,61 @@ MERGE_MAP.update({k: "ŋʷ" for k in ["ŋʷ", "ŋw", "ŋʋ"]})
 MERGE_MAP.update({k: "ŋ" for k in ["ŋ", "ŋ̊", "ŋɡ", "ŋ͡ɡ", "ng", "nɡ"]})
 MERGE_MAP.update({k: "ɡ" for k in ["ɡ", "g", "ɡ̊", "ᵑɡ"]})
 MERGE_MAP.update({k: "b" for k in ["b̥", "ɓw", "ɓ", "ᵐb", "b", "bv"]})
+
+def _mark_to_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _is_polyphonic_mark(value) -> bool:
+    return _mark_to_text(value) in POLYPHONIC_MARKS
+
+
+def _is_wendu_mark(value) -> bool:
+    return _mark_to_text(value) in WENDU_MARKS
+
+
+def _is_baidu_mark(value) -> bool:
+    return _mark_to_text(value) in BAIDU_MARKS
+
+
+def _serialize_matrix_read_stats_cell(
+    cell: Dict,
+    all_readings_by_char: Dict = None,
+) -> Dict[str, Dict[str, Any]]:
+    marks_by_char = cell.get("_marks_by_char", {})
+    all_readings_by_char = all_readings_by_char or {}
+
+    wenbai_chars = {
+        char
+        for char, marks in marks_by_char.items()
+        if marks & WENDU_MARKS and marks & BAIDU_MARKS
+    }
+
+    def build(chars, with_details=False) -> Dict[str, Any]:
+        sorted_chars = sorted(chars)
+
+        result = {
+            "count": len(sorted_chars),
+            "chars": sorted_chars,
+        }
+
+        if with_details:
+            details = {
+                char: all_readings_by_char.get(char, [])
+                for char in sorted_chars
+                if all_readings_by_char.get(char)
+            }
+            if details:
+                result["details"] = details
+
+        return result
+
+    return {
+        "polyphonic": build(cell.get("polyphonic", set()), with_details=True),
+        "wendu": build(cell.get("wendu", set())),
+        "baidu": build(cell.get("baidu", set())),
+        "wenbai": build(wenbai_chars),
+    }
 
 def custom_phonology_sort(items):
     """
@@ -299,6 +362,20 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         cursor.execute(query)
         rows = cursor.fetchall()
 
+        detail_query = f"""
+            SELECT 簡稱, 聲母, 韻母, 聲調, 漢字, 多音字, 音節
+            FROM {table}
+            WHERE 簡稱 IN ({placeholders})
+              AND 簡稱 IS NOT NULL
+              AND 聲母 IS NOT NULL
+              AND 韻母 IS NOT NULL
+              AND 聲調 IS NOT NULL
+              AND 漢字 IS NOT NULL
+              AND 音節 IS NOT NULL
+        """
+        cursor.execute(detail_query)
+        detail_rows = cursor.fetchall()
+
     # 按地点分组的数据
     locations_data = defaultdict(lambda: {
         "matrix": defaultdict(lambda: defaultdict(dict)),
@@ -306,6 +383,23 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         "finals": set(),
         "tones": set()
     })
+    read_stats_by_location = defaultdict(
+        lambda: defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: {
+                        "polyphonic": set(),
+                        "wendu": set(),
+                        "baidu": set(),
+                        "_marks_by_char": defaultdict(set),
+                    }
+                )
+            )
+        )
+    )
+
+    # 按 地点 + 汉字 聚合该字全部多音读音
+    all_readings_by_location_char = defaultdict(lambda: defaultdict(list))
 
     # 处理查询结果
     for row in rows:
@@ -327,6 +421,36 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
         loc_data["finals"].add(final)
         loc_data["tones"].add(tone)
 
+    for row in detail_rows:
+        location = row[0]
+        initial = row[1]
+        final = row[2]
+        tone = row[3]
+        char = row[4]
+        mark = _mark_to_text(row[5])
+        syllable = row[6]
+
+        cell = read_stats_by_location[location][initial][final][tone]
+
+        if _is_polyphonic_mark(mark):
+            cell["polyphonic"].add(char)
+            cell["_marks_by_char"][char].add(mark)
+
+            if _is_wendu_mark(mark):
+                reading = f"{WENDU_LABEL}:{syllable}"
+            elif _is_baidu_mark(mark):
+                reading = f"{BAIDU_LABEL}:{syllable}"
+            else:
+                reading = f"其他:{syllable}"
+
+            if reading not in all_readings_by_location_char[location][char]:
+                all_readings_by_location_char[location][char].append(reading)
+
+        if _is_wendu_mark(mark):
+            cell["wendu"].add(char)
+        if _is_baidu_mark(mark):
+            cell["baidu"].add(char)
+
     # 转换为最终格式
     result = {
         "locations": sorted(list(locations_data.keys())),
@@ -334,6 +458,19 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
     }
 
     for location, loc_data in locations_data.items():
+        matrix_read_stats = {}
+        for initial, finals_dict in loc_data["matrix"].items():
+            matrix_read_stats[initial] = {}
+            for final, tones_dict in finals_dict.items():
+                matrix_read_stats[initial][final] = {}
+                for tone in tones_dict:
+                    matrix_read_stats[initial][final][tone] = (
+                        _serialize_matrix_read_stats_cell(
+                            read_stats_by_location[location][initial][final][tone],
+                            all_readings_by_location_char[location],
+                        )
+                    )
+
         result["data"][location] = {
             "initials": custom_phonology_sort(list(loc_data["initials"])),
             "finals": custom_phonology_sort(list(loc_data["finals"])),
@@ -344,11 +481,11 @@ def get_all_phonology_matrices(locations=None, db_path=DIALECTS_DB_USER, table="
                     for final, tones_dict in finals_dict.items()
                 }
                 for initial, finals_dict in loc_data["matrix"].items()
-            }
+            },
+            "matrix_read_stats": matrix_read_stats,
         }
 
     return result
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 音韻餅圖：共用查詢層

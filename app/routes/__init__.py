@@ -22,6 +22,7 @@ from app.routes.geo.get_locs import router as locs_router
 from app.routes.geo.get_partitions import router as partitions_router
 from app.routes.geo.get_regions import router as region_router
 from app.routes.geo.locations import router as locations_router
+from app.routes.geo.areacity_query import router as areacity_query_router
 from app.routes.user.custom_query import router as custom_query_router
 from app.routes.user.custom_regions import router as custom_regions_router
 from app.routes.user.form_submit import router as form_router
@@ -38,6 +39,7 @@ def setup_routes(app: FastAPI):
     app.include_router(partitions_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(locations_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(region_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(areacity_query_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(batch_match_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(coordinates_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(form_router, prefix="/api", tags=["custom"], dependencies=[Depends(ApiLimiter)])
