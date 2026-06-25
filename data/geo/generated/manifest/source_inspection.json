@@ -1,0 +1,57 @@
+{
+  "source": "data/geo/source/ok_geo.csv",
+  "fieldnames": [
+    "id",
+    "pid",
+    "deep",
+    "name",
+    "ext_path",
+    "geo",
+    "polygon"
+  ],
+  "total_rows": 3635,
+  "deep_counts": {
+    "0": 34,
+    "1": 392,
+    "2": 3209
+  },
+  "geo_empty_count": 378,
+  "polygon_empty_count": 378,
+  "sample_rows": [
+    {
+      "id": "11",
+      "pid": "0",
+      "deep": 0,
+      "name": "北京市",
+      "ext_path": "北京市"
+    },
+    {
+      "id": "1101",
+      "pid": "11",
+      "deep": 1,
+      "name": "北京市",
+      "ext_path": "北京市 北京市"
+    },
+    {
+      "id": "110101",
+      "pid": "1101",
+      "deep": 2,
+      "name": "东城区",
+      "ext_path": "北京市 北京市 东城区"
+    },
+    {
+      "id": "110102",
+      "pid": "1101",
+      "deep": 2,
+      "name": "西城区",
+      "ext_path": "北京市 北京市 西城区"
+    },
+    {
+      "id": "110105",
+      "pid": "1101",
+      "deep": 2,
+      "name": "朝阳区",
+      "ext_path": "北京市 北京市 朝阳区"
+    }
+  ]
+}

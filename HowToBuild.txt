@@ -33,6 +33,7 @@ docker run -d --name myapp \
   -v /srv/myapp/logs:/app/logs \
   -v /srv/myapp/statics:/app/app/statics \
   --memory="1.5g" \
+  --memory-swap="2.5g" \
   --memory-reservation="1g" \
   --cpus="1.5" \
   --oom-kill-disable=false \

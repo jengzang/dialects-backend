@@ -85,5 +85,10 @@ DB_MAPPING = {
     # "auth": USER_DATABASE_PATH
 }
 # 管理员专属数据库
-# ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs", "supple", "auth"}
-ADMIN_ONLY_DBS = {"query_admin", "dialects_admin", "logs"}
+ADMIN_ONLY_DBS = {
+    "query_admin", 
+    "dialects_admin", 
+    "logs",
+    # "supple", 
+    # "auth"
+}

@@ -30,6 +30,8 @@ data/*.db-wal
 # GeoLite2 database files
 data/dependency/*.mmdb
 
+data/geo/
+
 # Logs
 *.log
 logs/
@@ -41,6 +43,7 @@ app/statics/
 
 # Temporary files
 *.tmp
+*tmp
 *.temp
 *.tar
 *.tar.gz
@@ -66,3 +69,6 @@ temp_*.json
 
 # Ignore local test work by default; tracked tests remain tracked.
 /test/
+
+fastapi_tools/
+benchmark/

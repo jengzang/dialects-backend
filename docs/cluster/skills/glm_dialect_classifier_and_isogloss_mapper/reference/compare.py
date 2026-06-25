@@ -1,0 +1,179 @@
+# -*- coding: utf-8 -*-
+
+"""用于方言比较的工具函数."""
+
+__author__ = '黄艺华 <lernanto@foxmail.com>'
+
+
+import argparse
+import logging
+import numpy
+import pandas
+import sklearn.compose
+import sklearn.feature_extraction.text
+import sklearn.preprocessing
+
+
+logger = logging.getLogger(__name__)
+if not logger.hasHandlers():
+    logger.addHandler(logging.StreamHandler())
+
+
+def load_rules(fname, characters=None):
+    """
+    加载语音规则.
+
+    Parameters:
+        fname (str): 语音规则文件路径
+        characters (`pandas.Series`): 字 ID 到字的映射表，用于显示
+
+    Returns:
+        rules (`pandas.DataFrame`): JSON 格式的语音规则表
+    """
+
+    rules = pandas.read_json(fname, orient='records', encoding='utf-8')
+    rules['id'] = rules.get('id')
+    rules['id'] = rules['id'].fillna(rules.index.to_series()).astype(str)
+    rules.set_index('id', inplace=True)
+    logger.debug(f'loaded {len(rules)} rules from {fname} .')
+
+    if characters is not None:
+        def cids2chars(cids):
+            chars = characters.reindex(cids)
+            return ''.join(numpy.where(chars.notna(), chars, cids))
+
+        rules['char1'] = rules['cid1'].apply(cids2chars)
+        rules['char2'] = rules['cid2'].apply(cids2chars)
+
+    return rules
+
+def compliance(
+    data: pandas.DataFrame,
+    rules: pandas.DataFrame,
+    dtype: numpy.dtype = numpy.float32,
+    norm: int | None = 2
+) -> pandas.DataFrame:
+    """
+    计算方言字音对语音规则的符合度
+    
+    针对若干条读音规则，每条规则由2个字集组成，字集中每个字在一个方言中的读音为字集的读音分布，
+    2个字集的读音分布归一化后的内积为字集的读音相似度，即方言对该规则的符合度，取值为 [0, 1]。
+    当取 L2 归一化时，即为余弦相似度。
+
+    Parameters:
+        data: 方言字音数据表
+        rules: 语音规则数据表
+        norm: 计算相似度时归一化的范数，None 表示不归一化
+
+    Returns:
+        similarities: 读音相似度数据表，每行为一个方言，每列为一条规则
+    """
+
+    comp = []
+    for feature, rule in rules.groupby('feature'):
+        feature_data = data.loc[:, pandas.IndexSlice[:, feature]]
+
+        # 先对方言读音 one-hot 编码
+        transformer = sklearn.compose.make_column_transformer(
+            *[(sklearn.feature_extraction.text.CountVectorizer(
+                lowercase=False,
+                tokenizer=str.split,
+                stop_words=None,
+                token_pattern=None,
+                dtype=dtype
+            ), i) for i in range(feature_data.shape[1])]
+        )
+        code = transformer.fit_transform(feature_data.fillna(''))
+
+        lim = numpy.empty(len(transformer.transformers_) + 1, dtype=int)
+        lim[0] = 0
+        numpy.cumsum(
+            [len(t[1].vocabulary_) for t in transformer.transformers_],
+            out=lim[1:]
+        )
+
+        # 计算字集的读音向量
+        code1 = numpy.empty((rule.shape[0], code.shape[1]), dtype=dtype)
+        code2 = numpy.empty((rule.shape[0], code.shape[1]), dtype=dtype)
+        for i, (_, r) in enumerate(rule.iterrows()):
+            idx1 = data.index.get_indexer(r['cid1'])
+            code1[i] = numpy.asarray(code[idx1[idx1 >= 0]].sum(axis=0))[0]
+            idx2 = data.index.get_indexer(r['cid2'])
+            code2[i] = numpy.asarray(code[idx2[idx2 >= 0]].sum(axis=0))[0]
+
+        # 计算读音分布相似度，对读音向量分别归一化后内积
+        sim = numpy.empty((feature_data.shape[1], rule.shape[0]), dtype=dtype)
+        for i in range(feature_data.shape[1]):
+            x1 = code1[:, lim[i]:lim[i + 1]]
+            x2 = code2[:, lim[i]:lim[i + 1]]
+            if norm is not None:
+                x1 /= numpy.linalg.norm(x1, norm, axis=1, keepdims=True)
+                x2 /= numpy.linalg.norm(x2, norm, axis=1, keepdims=True)
+
+            numpy.sum(x1 * x2, axis=1, out=sim[i])
+
+        comp.append(pandas.DataFrame(
+            sim,
+            index=feature_data.columns.get_level_values(0),
+            columns=rule.index
+        ))
+
+    # 结果数据按输入规则的顺序重新排序
+    return pandas.concat(comp, axis=1).reindex(rules.index, axis=1)
+
+
+if __name__ == '__main__':
+    from ......skills.glm_dialect_classifier_and_isogloss_mapper.reference import datasets, preprocess
+
+
+    parser = argparse.ArgumentParser(globals().get('__doc__'))
+    parser.add_argument(
+        '-l',
+        '--log-level',
+        default='WARNING',
+        help='日志级别'
+    )
+    parser.add_argument('-r', '--rule-file', default='rules.json', help='语音规则文件')
+    parser.add_argument(
+        '-n',
+        '--norm',
+        type=int,
+        default=2,
+        help='把规则符合度归一化到 [0, 1]'
+    )
+    parser.add_argument('dataset', help='指定输入方言数据集')
+    parser.add_argument('output', nargs='?', help='输出文件名')
+    args = parser.parse_args()
+
+    logger.setLevel(getattr(logging, args.log_level.upper()))
+
+    dataset = datasets.get(args.dataset)
+    output = f'{dataset.name}_compliance_l{args.norm}.csv' \
+        if args.output is None else args.output
+
+    logger.info(
+        f'compute rule compliance for {dataset.name}, '
+        f'norm = {args.norm}, output = {output}'
+    )
+
+    rules = load_rules(args.rule_file)
+    encoder = sklearn.preprocessing.LabelEncoder()
+    rules['feature_id'] = encoder.fit_transform(rules['feature'])
+
+    data = dataset.data
+    if 'cid' not in data.columns:
+        # 没有字 ID 的数据集使用字形作为 ID
+        data = data.rename(columns={'character': 'cid'}).dropna(subset='cid')
+
+    data = preprocess.transform(
+        data,
+        index='cid',
+        columns='did',
+        values=encoder.classes_,
+        aggfunc=lambda x: ' '.join(x.dropna())
+    )
+
+    comp = compliance(data, rules, norm=args.norm if args.norm > 0 else None)
+    comp.insert(0, 'dataset', dataset.name)
+    comp.insert(1, 'did', comp.index)
+    comp.to_csv(output, index=False, encoding='utf-8', lineterminator='\n')
