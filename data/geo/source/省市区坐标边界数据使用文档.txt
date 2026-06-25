@@ -1,0 +1,32 @@
+# 省市区3级坐标边界数据
+
+更新时间：2026-04-03
+数据版本：2025.251231.260403 （文件：ok_geo.csv）
+
+GitHub: https://github.com/xiangyuecn/AreaCity-JsSpider-StatsGov
+Gitee镜像库: https://gitee.com/xiangyuecn/AreaCity-JsSpider-StatsGov
+
+转换工具软件文档，下载转换工具：https://xiangyuecn.github.io/AreaCity-JsSpider-StatsGov/assets/AreaCity-Geo-Transform-Tools.html ，支持将ok_geo.csv导入数据库、转换成shp、geojson、sql格式、转换坐标系
+
+高性能坐标数据、边界数据查询工具（1秒可查1万个以上坐标对应的城市信息）：https://gitee.com/xiangyuecn/AreaCity-Query-Geometry
+
+乡镇级数据文档，下载数据、购买：https://xiangyuecn.github.io/AreaCity-JsSpider-StatsGov/assets/geo-level4.html
+
+数据在线测试和预览（ECharts Map四级下钻）： https://xiangyuecn.github.io/AreaCity-JsSpider-StatsGov/assets/geo-echarts.html
+
+> 备用地址：如果以上地址无法正常访问，请将地址前半部分修改成 https://xiangyuecn.github.io/AreaCity-JsSpider-StatsGov/ 即可正常访问。
+
+
+## 坐标边界数据
+1. 【免费】【GEO三级】ok_geo.csv 为省市区3级的坐标边界开源免费数据，可以免费使用转换工具软件导出，另外配套提供高性能坐标查询工具，1秒可查1万个以上坐标对应的城市信息。
+
+2. 【免费】【GEO四级】ok_geo4_ETD*_free.csv 请到开源库内下载使用，为免费体验版乡镇第4级坐标边界数据，包含了广东深圳+中山、香港、澳门四个地区的第4级数据，使用转换工具软件无限制导出。
+3. 【付费】【GEO四级】ok_geo4_ETD*.csv 请到开源库内下载使用，为付费版乡镇第4级坐标边界数据，为全国的第4级（乡镇这级）的完整数据（前3级省市区的在ok_geo文件内），需购买后才能导出，上面的乡镇数据文档链接有价格公示，如何购买：请先加客服QQ 1251654593，联系客服后付款，提供需要购买的省份城市、和打开转换工具软件后底下显示的ID信息，然后客服给你签发数据密钥，使用此密钥就可以导出对应的数据了。
+
+
+## 省市区镇4级行政区划数据
+1. 【免费】【四级】ok_data_level4.csv 请到开源库内下载使用，为省市区镇4级完整开源免费数据，可以免费使用转换工具软件导出。
+
+
+
+更多内容，请阅读上面的文档链接。

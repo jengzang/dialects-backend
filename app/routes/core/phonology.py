@@ -17,7 +17,7 @@ from app.sql.db_selector import get_dialects_db, get_query_db
 # from app.auth.models import User
 from app.schemas import AnalysisPayload, FeatureStatsRequest
 
-from app.service.core.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key
+from app.service.core.feature_stats import get_feature_counts, get_feature_statistics, generate_cache_key, calculate_aggregated_feature_counts
 from app.service.core.phonology2status import pho2sta
 from app.service.core.status_arrange_pho import sta2pho
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
@@ -64,7 +64,7 @@ def run_phonology_analysis(
         regions: list,
         features: list,
         status_inputs: list = None,
-        group_inputs: list = None,
+        group_inputs: List[str] = None,
         pho_values: list = None,
         dialects_db=DIALECTS_DB_USER,
         region_mode='yindian',
@@ -79,7 +79,7 @@ def run_phonology_analysis(
         locations: 方言點名稱
         features: 語音特徵欄位
         status_inputs: 語音條件字串（如 '知組三'），僅限 's2p'
-        group_inputs: 要分組的欄位（如 '組聲'），僅限 'p2s'
+        group_inputs: 要分組的中古欄位列表（如 ['組', '聲']），僅限 'p2s'
         pho_values: 音值條件（如 ['l', 'm', 'an']），僅限 'p2s'
 
     回傳：
@@ -108,13 +108,25 @@ def run_phonology_analysis(
 @router.get("/feature_counts")
 async def feature_counts(
     locations: List[str] = Query(...),
+    new_format: bool = Query(False),
     dialects_db: str = Depends(get_dialects_db)
 ):
     try:
         result = get_feature_counts(locations, dialects_db)
+
         if not result:
             raise HTTPException(status_code=404, detail="No data found for the given locations.")
-        return result
+
+        # 不传 new_format，保持旧格式
+        if not new_format:
+            return result
+
+        # 传 new_format=true，返回新格式
+        return {
+            "locations": result,
+            "aggregated": calculate_aggregated_feature_counts(result)
+        }
+
     except HTTPException:
         raise
     except Exception as e:

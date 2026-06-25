@@ -25,7 +25,7 @@ API 配置文件
 # ========== API 限流配置（基于请求次数）==========
 # 使用 Redis 计数器实现，性能极高（<1ms）
 MAX_USER_REQUESTS_PER_HOUR = 1000  # 认证用户：1000次/小时（平均每分钟16次）
-MAX_IP_REQUESTS_PER_HOUR = 100     # 游客：100次/小时（平均每分钟1-2次）
+MAX_IP_REQUESTS_PER_HOUR = 50     # 游客：50次/小时（平均每分钟0.8次）
 
 # 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
 MAX_USER_USAGE_PER_HOUR = 2000  # 秒（已废弃）
@@ -68,7 +68,9 @@ RECORD_API = [
     "/api/feature_counts",
     "/api/feature_stats",
     "/api/pho_pie*",
-    "/user/custom/*",
+    "/user/custom/batch-create",
+    "/user/custom/edit",
+    "/user/custom/batch-delete",
     "/api/custom_regions",
     "/api/villages/*",
 ]
@@ -79,6 +81,7 @@ IGNORE_API = [
     "/sql/query/count",  # keep hourly/daily aggregate only
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
+    "/user/custom/counts",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============
@@ -167,12 +170,12 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
-    }, "/api/search_chars": {
+    }, "/api/search_chars/": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,
         "log_body": False,  # GET 请求无 body，不需要记录
-    }, "/api/search_tones": {
+    }, "/api/search_tones/": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,
@@ -218,7 +221,7 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": False,
     }, "/api/get_partitions": {
-        "rate_limit": False,
+        "rate_limit": True,
         "require_login": False,
         "log_params": True,
         "log_body": False,
@@ -233,6 +236,12 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
+    },
+        "/api/feature_counts": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": False,
+        "log_body": False,
     },
     "/api/pho_pie_by_value": {
         "rate_limit": True,
@@ -343,6 +352,7 @@ API_WHITELIST = [
     "/explore*",  # 探索页
     "/statics/*",  # 静态文件（CSS、JS、图片等）
     "/villagesML*",
+    "/sitemap",
     "/auth*",
 ]
 
@@ -386,8 +396,8 @@ API_BLACKLIST = [
   3. 精确匹配路由配置
   4. 通配符匹配路由配置
   5. 使用默认配置
-
 用途：详细查询分析、调试、用户意图分析
+- *注意：现在已经不使用这个中间件、不再记录（2026-05）
 
 
 ## 匹配优先级（ApiLoggingMiddleware）
@@ -407,6 +417,7 @@ API_BLACKLIST = [
 - 提交表单、创建数据：启用 log_body
 - 频繁轮询的进度查询：不启用（避免日志爆炸）
 - 包含敏感 ID 的路由：不启用（避免泄露 task_id 等）
+- *注意：现在已经不使用这两个参数（2026-05）
 
 ### 什么时候启用 rate_limit？
 - 计算密集型 API：启用（防止滥用）

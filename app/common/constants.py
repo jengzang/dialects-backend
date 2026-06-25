@@ -75,6 +75,12 @@ AMBIG_VALUES = {
     '影', '日', '曉', '泥', '章', '精'
 }
 
+POLYPHONIC_MARKS = {"1", "2", "3"}
+WENDU_MARKS = {"2"}
+BAIDU_MARKS = {"3"}
+WENDU_LABEL = "文讀"
+BAIDU_LABEL = "白讀"
+
 custom_order = [
     'p', 'pʰ', 't', 'tʰ', 'k', 'kʰ', 'f', 'ʋ', 'ɸ', 'h',
     'x', 'l', 'n', 'm', 'ŋ', 'ɲ', 'ȵ', 'j', 'z', 's', 'ʃ',

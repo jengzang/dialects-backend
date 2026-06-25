@@ -608,6 +608,40 @@ GET /api/search_tones/?tone=平声&locations=广州,厦门,福州
 }
 ```
 
+#### 文白读附加信息
+
+`phonology_matrix` 保持原有 `matrix` 结构不变，并新增并列字段 `matrix_read_stats`。前端旧逻辑可以继续只读取 `matrix`；需要高亮文读、白读时读取同路径下的统计信息。
+
+```json
+{
+  "data": {
+    "广州": {
+      "matrix": {
+        "k": {
+          "a": {
+            "阴平": ["甲", "乙", "乙", "丙"]
+          }
+        }
+      },
+      "matrix_read_stats": {
+        "k": {
+          "a": {
+            "阴平": {
+              "polyphonic": {"count": 2, "chars": ["甲", "乙"]},
+              "wendu": {"count": 1, "chars": ["乙"]},
+              "baidu": {"count": 1, "chars": ["乙"]},
+              "wenbai": {"count": 1, "chars": ["乙"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+统计口径按字去重：`多音字=1/2/3` 计入 `polyphonic`，`2` 计入 `wendu`，`3` 计入 `baidu`，同一格内同一字同时有 `2` 和 `3` 时计入 `wenbai`。
+
 #### 缓存策略
 - Redis 缓存，TTL：1 小时
 - 键格式：`phonology_matrix:{location}:{hash(filters)}`
@@ -615,6 +649,28 @@ GET /api/search_tones/?tone=平声&locations=广州,厦门,福州
 
 #### 前端渲染说明
 前端使用该数据生成交互式韵图表格，用户可点击单元格查看详细信息。
+
+---
+
+### 5.1 特征统计（feature_stats）文白读附加字段
+
+`POST /api/feature_stats` 保持原有 `count`、`ratio`、`char_indices` 不变，并在每个音值桶新增 `read_stats`。
+
+```json
+{
+  "count": 150,
+  "ratio": 0.05,
+  "char_indices": [0, 1, 2],
+  "read_stats": {
+    "polyphonic": {"count": 2, "char_indices": [0, 3]},
+    "wendu": {"count": 1, "char_indices": [3]},
+    "baidu": {"count": 1, "char_indices": [3]},
+    "wenbai": {"count": 1, "char_indices": [3]}
+  }
+}
+```
+
+`read_stats` 使用同一个 `chars_map` 索引，不重复返回汉字列表。
 
 ---
 
@@ -4909,4 +4965,3 @@ README 里最容易随着时间失真的内容包括：
 - 本地调试脚本、命令和观察点
 
 ---
-
