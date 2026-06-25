@@ -14,6 +14,15 @@ from app.common.numba_bootstrap import (
 # 尽量在任何 numba 相关模块被导入前，先把线程层环境准备好。
 bootstrap_numba_threading_environment()
 
+from app.common.numba_bootstrap import (
+    bootstrap_numba_threading_environment,
+    restart_current_python_process_for_numba_environment,
+)
+
+
+# 尽量在任何 numba 相关模块被导入前，先把线程层环境准备好。
+bootstrap_numba_threading_environment()
+
 # === Banner 配置 ===
 _banner_printed = False  # 在启动时打印（只打一次）
 

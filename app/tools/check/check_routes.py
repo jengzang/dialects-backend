@@ -686,6 +686,53 @@ async def get_check_progress(task_id: str):
     return AnalyzeTaskResponse(**payload)
 
 
+@router.post("/analyze_async", response_model=AnalyzeTaskResponse)
+async def start_analyze_async(task_id: str, background_tasks: BackgroundTasks):
+    """异步启动分析任务，供前端轮询进度使用。"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    file_path_raw = task['data'].get("file_path")
+    file_path = Path(file_path_raw) if file_path_raw else None
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    task_manager.update_task(
+        task_id,
+        status=TaskStatus.PROCESSING,
+        progress=0.0,
+        message="分析任务已启动",
+        stage="queued",
+    )
+
+    background_tasks.add_task(analyze_file_async, task_id, file_path)
+
+    payload = build_task_progress_payload(task_manager.get_task(task_id) or task)
+    payload["task_id"] = task_id
+    return AnalyzeTaskResponse(**payload)
+
+
+@router.get("/progress/{task_id}", response_model=AnalyzeTaskResponse)
+async def get_check_progress(task_id: str):
+    """获取异步分析任务进度。"""
+    task = maybe_timeout_task(
+        task_manager,
+        task_id,
+        timeout_seconds=CHECK_ANALYZE_TIMEOUT_SECONDS,
+        failure_status=TaskStatus.FAILED,
+        timeout_message="Check analyze task timeout: no heartbeat received within the expected window",
+        on_timeout=lambda current_task_id: _touch_check_cleanup(current_task_id, "analyze_async_timeout"),
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    payload = build_task_progress_payload(task)
+    payload["task_id"] = task_id
+    payload["analysis_result"] = task.get("data", {}).get("analysis_result")
+    return AnalyzeTaskResponse(**payload)
+
+
 @router.post("/execute", response_model=CommandResponse)
 async def execute_commands(request: CommandRequest):
     """
