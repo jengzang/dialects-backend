@@ -235,24 +235,6 @@ def search_characters(
                                 char2loc2data[char][loc] = []
                             char2loc2data[char][loc].append(row)
 
-            # [OK] 批量查询多音字的全部音节（用于补充）
-            char2all_syllables = {}
-            polyphonic_chars = [c for c in clean_str if char2is_multi.get(c, False)]
-
-            if polyphonic_chars:
-                poly_placeholders = ','.join('?' * len(polyphonic_chars))
-                all_syllables_query = f"""
-                    SELECT 漢字, 音節, 多音字, 註釋
-                    FROM dialects
-                    WHERE 漢字 IN ({poly_placeholders})
-                """
-                dialect_cursor.execute(all_syllables_query, polyphonic_chars)
-                for row in dialect_cursor.fetchall():
-                    char = row['漢字']
-                    if char not in char2all_syllables:
-                        char2all_syllables[char] = []
-                    char2all_syllables[char].append(row)
-
             # [OK] 构建最终结果（按原字分组，过滤空数据候选字）
             for 原字 in chars:
                 candidates = char2candidates.get(原字, [原字])
@@ -307,23 +289,6 @@ def search_characters(
                                 syllable2notes[syl].add(note)
                             if type_label:
                                 syllable2types[syl].add(type_label)
-
-                        # 如果是多音字但只有一个或零个音节，补充全部音节
-                        if is_polyphonic and len(syllable2notes) <= 1:
-                            for rr in char2all_syllables.get(candidate, []):
-                                syl = rr['音節']
-                                note = (rr['註釋'] or '').strip()
-                                type_label = _mark_label(rr['多音字'])
-
-                                if syl not in syllable2notes:
-                                    syllable2notes[syl] = set()
-                                if syl not in syllable2types:
-                                    syllable2types[syl] = set()
-
-                                if note and note != '_':
-                                    syllable2notes[syl].add(note)
-                                if type_label:
-                                    syllable2types[syl].add(type_label)
 
                         syllables = list(syllable2notes.keys())
                         notes = ['; '.join(sorted(syllable2notes[syl])) if syllable2notes[syl] else '_'
