@@ -97,9 +97,14 @@ class CharListRequest(BaseModel):
 class ZhongGuAnalysis(BaseModel):
     # --- 第一部分：用於查詢漢字 (傳給 process_chars_status/缓存层) ---
     path_strings: Optional[List[str]] = Field(
-        ...,
+        default=None,
         description="語音條件列表，例如 ['知組', '蟹攝'] 或 ['[知]{組}']",
         example=["[知]{組}", "[莊]{組}"]
+    )
+    chars: Optional[List[str]] = Field(
+        default=None,
+        description="可直接輸入的漢字集合；每個元素若為多字串會自動拆字，例如 ['笨蛋'] -> ['笨', '蛋']",
+        example=["笨", "蛋"]
     )
     column: Optional[List[str]] = Field(
         default=None,
@@ -142,7 +147,10 @@ class ZhongGuAnalysis(BaseModel):
     def check_locations_or_regions(self):
         if not self.locations and not self.regions:
             raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        if not self.path_strings and not self.chars:
+            raise ValueError("path_strings 和 chars 不能同時為空，至少提供其一")
         return self
+
     table_name: str = Field(
         default="characters",
         description="字符數據庫表名"

@@ -23,6 +23,19 @@ from app.sql.db_selector import get_dialects_db, get_query_db
 router = APIRouter()
 
 
+def _expand_chars_input(chars: Optional[List[str]]) -> List[str]:
+    expanded: List[str] = []
+    seen = set()
+    for item in chars or []:
+        if not isinstance(item, str):
+            continue
+        for char in item.strip():
+            if char and char not in seen:
+                expanded.append(char)
+                seen.add(char)
+    return expanded
+
+
 @router.post("/charlist")
 async def generate_combinations_and_query(payload: CharListRequest) -> List[Dict]:
     path_strings = payload.path_strings
@@ -65,14 +78,44 @@ async def analyze_zhonggu(
     user: Optional[User] = Depends(get_current_user),
     custom_db: Session = Depends(get_custom_db),
 ):
-    char_request_payload = CharListRequest(
-        path_strings=payload.path_strings,
-        column=payload.column,
-        combine_query=payload.combine_query,
-        exclude_columns=payload.exclude_columns,
-        table_name=payload.table_name,
-    )
-    cached_char_result = await generate_combinations_and_query(payload=char_request_payload)
+    cached_char_result: List[Dict] = []
+
+    if payload.path_strings:
+        char_request_payload = CharListRequest(
+            path_strings=payload.path_strings,
+            column=payload.column,
+            combine_query=payload.combine_query,
+            exclude_columns=payload.exclude_columns,
+            table_name=payload.table_name,
+        )
+        cached_char_result = await generate_combinations_and_query(payload=char_request_payload)
+
+    expanded_chars = _expand_chars_input(payload.chars)
+    if expanded_chars:
+        merged_chars = []
+        seen_chars = set()
+
+        for item in cached_char_result:
+            for char in item.get("chars") or item.get("汉字") or item.get("漢字") or []:
+                if char not in seen_chars:
+                    merged_chars.append(char)
+                    seen_chars.add(char)
+
+        for char in expanded_chars:
+            if char not in seen_chars:
+                merged_chars.append(char)
+                seen_chars.add(char)
+
+        if merged_chars:
+            merged_entry = {
+                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or "漢字集合",
+                "char_count": len(merged_chars),
+                "chars": merged_chars,
+                "字数": len(merged_chars),
+                "汉字": merged_chars,
+                "漢字": merged_chars,
+            }
+            cached_char_result = [merged_entry]
 
     if not cached_char_result:
         return {"status": "empty", "message": "無符合條件的漢字", "data": [], "custom_data": []}

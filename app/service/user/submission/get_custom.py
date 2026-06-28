@@ -8,6 +8,25 @@ from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
 
 
+def _dedupe_keep_order(items):
+    seen = set()
+    result = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def _split_location_inputs(locations):
+    parts = []
+    for location in locations or []:
+        if not isinstance(location, str):
+            continue
+        parts.extend(part.strip() for part in re.split(r"[ ,;/，；、]+", location) if part.strip())
+    return _dedupe_keep_order(parts)
+
+
 def get_from_submission(
     locations,
     regions,
@@ -25,7 +44,17 @@ def get_from_submission(
     if user is None:
         return []
 
-    all_locations = query_dialect_abbreviations_orm(db, user, regions, locations)
+    user_custom_locations = {
+        row[0]
+        for row in db.query(Information.簡稱)
+        .filter(Information.user_id == user.id)
+        .distinct()
+        .all()
+    }
+    normalized_locations = _split_location_inputs(locations)
+    direct_custom_locations = [loc for loc in normalized_locations if loc in user_custom_locations]
+    region_custom_locations = query_dialect_abbreviations_orm(db, user, regions, [])
+    all_locations = _dedupe_keep_order(region_custom_locations + direct_custom_locations)
     result = []
 
     for location in all_locations:
