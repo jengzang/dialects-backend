@@ -8,9 +8,6 @@ from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
 
 
-ALL_PHONOLOGY_DIMENSIONS = {"聲母", "韻母", "聲調"}
-
-
 def _dedupe_keep_order(items):
     seen = set()
     result = []
@@ -61,8 +58,6 @@ def get_from_submission(
     result = []
     effective_need_features = [feature for feature in (need_features or []) if feature]
     effective_phonology_list = [item for item in (phonology_list or []) if item]
-    if set(effective_phonology_list) == ALL_PHONOLOGY_DIMENSIONS:
-        effective_phonology_list = []
 
     for location in all_locations:
         q = db.query(Information).filter(
