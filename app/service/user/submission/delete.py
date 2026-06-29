@@ -9,6 +9,7 @@ def handle_form_deletion(form_data: dict, user: User, db: Session):
     location = form_data.get('location')
     # region = form_data.get('region', None)
     # coordinates = form_data.get('coordinates', None)
+    phonology = form_data.get('phonology')
     feature = form_data.get('feature')
     value = form_data.get('value')
     # description = form_data.get('description', None)
@@ -26,7 +27,12 @@ def handle_form_deletion(form_data: dict, user: User, db: Session):
         Information.特徵 == feature,
         Information.值 == value,
         Information.created_at == created_at
-    ).all()
+    )
+
+    if phonology:
+        records_to_delete = records_to_delete.filter(Information.聲韻調 == phonology)
+
+    records_to_delete = records_to_delete.all()
 
     if not records_to_delete:
         return {"success": False, "message": "[X] 找不到符合條件的資料以刪除"}

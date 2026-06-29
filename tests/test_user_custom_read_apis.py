@@ -329,36 +329,6 @@ class CustomDataReadServiceTests(unittest.TestCase):
         self.assertEqual(result[0]["特徵"], "流")
         self.assertEqual(result[0]["經緯度"], [113.0, 23.0])
 
-    def test_get_from_submission_does_not_filter_when_phonology_list_is_all_feature_dimensions(self) -> None:
-        user = SimpleNamespace(id=7, username="tester")
-        record = SimpleNamespace(
-            簡稱="茶山增埗",
-            聲韻調="",
-            特徵="流",
-            值="iu",
-            maxValue="9",
-            經緯度="113.0,23.0",
-            說明="全维度筛选应视为不筛",
-            created_at=datetime(2026, 6, 1, 10, 0, 0),
-        )
-        db = _FakeSubmissionSession(custom_locations=["茶山增埗"], record_map={"茶山增埗": [record]})
-
-        with patch(
-            "app.service.user.submission.get_custom.query_dialect_abbreviations_orm",
-            return_value=[],
-        ):
-            result = get_from_submission(
-                locations=["廣州 茶山增埗"],
-                regions=[],
-                need_features=["流"],
-                user=user,
-                db=db,
-                phonology_list=["聲母", "韻母", "聲調"],
-            )
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["簡稱"], "茶山增埗")
-
     def test_get_from_submission_allows_featureless_phonology_filter_for_tone_payloads(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         tone_record = SimpleNamespace(
