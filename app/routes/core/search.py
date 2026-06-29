@@ -18,6 +18,7 @@ from app.service.auth.database.models import User
 from app.service.core.search_chars import search_characters
 from app.service.core.search_tones import search_tones
 from app.service.geo.match_input_tip import match_locations_batch_all
+from app.service.user.submission.get_custom import get_from_submission
 from app.sql.db_selector import get_dialects_db, get_query_db
 
 router = APIRouter()
@@ -34,6 +35,7 @@ async def search_chars(
     response_mode: Literal["legacy", "compact"] = Query(
         "legacy", description="响应模式: legacy/compact"
     ),
+    include_custom: bool = Query(False, description="是否附带当前用户自定义数据"),
     db: Session = Depends(get_db),
     dialects_db: str = Depends(get_dialects_db),
     query_db: str = Depends(get_query_db),
@@ -76,15 +78,27 @@ async def search_chars(
             db_path=query_db,
             region_mode=region_mode,
         )
+        custom_data = []
+        if include_custom and user is not None:
+            custom_data = await run_in_threadpool(
+                get_from_submission,
+                locations_processed,
+                regions,
+                chars,
+                user,
+                db,
+                ["漢字"],
+            )
 
         if response_mode == "compact":
             return {
                 "result": result["result"],
                 "char_meta": result["char_meta"],
                 "tones_result": tones_result,
+                "custom_data": custom_data,
             }
 
-        return {"result": result, "tones_result": tones_result}
+        return {"result": result, "tones_result": tones_result, "custom_data": custom_data}
     finally:
         logger.debug("search_chars completed")
 
@@ -94,6 +108,7 @@ async def search_tones_o(
     locations: Optional[List[str]] = Query(None, description="地点列表"),
     regions: Optional[List[str]] = Query(None, description="分区列表"),
     region_mode: str = Query("yindian", description="分区模式: yindian/map"),
+    include_custom: bool = Query(False, description="是否附带当前用户自定义调值数据"),
     db: Session = Depends(get_db),
     query_db: str = Depends(get_query_db),
     user: Optional[User] = Depends(get_current_user),
@@ -115,7 +130,18 @@ async def search_tones_o(
             db_path=query_db,
             region_mode=region_mode,
         )
-        return {"tones_result": result}
+        custom_data = []
+        if include_custom and user is not None:
+            custom_data = await run_in_threadpool(
+                get_from_submission,
+                locations_processed,
+                regions,
+                [],
+                user,
+                db,
+                ["調值"],
+            )
+        return {"tones_result": result, "custom_data": custom_data}
     finally:
         logger.debug("search_tones completed")
 
