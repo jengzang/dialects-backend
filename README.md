@@ -161,9 +161,21 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 # 开发模式（单进程，自动重载）
 python run.py
 
-# 生产模式（多进程，推荐）
-gunicorn -c gunicorn_config.py app.main:app
+# 生产模式（主应用 3 workers，承接除新 GIS / Cluster 之外的主流量）
+gunicorn -c gunicorn_main.py app.entrypoints.main_app:app
+
+# 独立 GIS worker（/api/gis/**）
+gunicorn -c gunicorn_gis.py app.entrypoints.gis_app:app
+
+# 独立 Cluster worker（/api/tools/cluster/**）
+gunicorn -c gunicorn_cluster.py app.entrypoints.cluster_app:app
 ```
+
+说明：
+- `5000`：主应用入口（保留主页、老 geo、主查询、普通 tools、villages 等）
+- `5001`：仅承接 `/api/gis/**`
+- `5002`：仅承接 `/api/tools/cluster/**`
+- 这三套 gunicorn 需要由你现有的进程管理/转发层分别启动并按路径分流；后端代码本身不再把新 GIS 与 cluster 挂在主应用里。
 
 | 短參數 | 長參數 | 類型 | 可選值 | 默認值 | 功能描述                                      |
 | :--- | :--- | :--- | :--- | :--- |:------------------------------------------|
@@ -3215,8 +3227,6 @@ python run.py -r MINE
 ---
 
 ## 7. 当前日志、统计与诊断体系
-
-这一段是最近变化最大的部分，也是最需要在 README 里补充的。
 
 ### 7.1 `auth.db` 与 `logs.db` 已经分工
 

@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient
-from app.main import create_app
+from app.main import create_gis_app
 
 
 def dump_response(resp):
@@ -18,7 +18,7 @@ def dump_response(resp):
 
 
 def main() -> None:
-    app = create_app()
+    app = create_gis_app()
     client = TestClient(app, raise_server_exceptions=False)
 
     status_resp = client.get("/api/gis/status")
