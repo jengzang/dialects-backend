@@ -72,3 +72,4 @@ temp_*.json
 
 fastapi_tools/
 benchmark/
+.worktrees/
