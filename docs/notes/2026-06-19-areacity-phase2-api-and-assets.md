@@ -135,21 +135,21 @@
 
 ### 4.2 当前查询流程
 
-#### 点查 `/geo/query/point`
+#### 点查 `/gis/query/point`
 1. 将点转成点 bbox
 2. 通过 `grid_index` 找候选 subgeometry
 3. 再做 bbox 过滤
 4. 懒加载 geometry
 5. 用纯 Python 点在面内算法判断命中
 
-#### 容差点查 `/geo/query/point-with-tolerance`
+#### 容差点查 `/gis/query/point-with-tolerance`
 1. 先做普通点查
 2. 如无命中，则根据 `tolerance_metre` 构造 buffer bbox
 3. 用 `grid_index` 缩小候选范围
 4. 计算点到 polygon 边界的最短距离
 5. 每个 deep 返回最近命中项
 
-#### 几何查询 `/geo/query/geometry`
+#### 几何查询 `/gis/query/geometry`
 1. 计算输入几何 bbox
 2. 通过 `grid_index` + bbox 找候选
 3. 懒加载 geometry
@@ -157,7 +157,7 @@
    - 顶点落入对方 polygon
    - 线段相交
 
-#### 按 id 取边界 `/geo/boundary/by-id`
+#### 按 id 取边界 `/gis/boundary/by-id`
 1. 用 `feature_parts` 找到该 feature 对应的 sub_id 列表
 2. 读取 geometry
 3. 返回统一结构：
@@ -169,7 +169,7 @@
 统一前缀：`/api`
 
 ### 5.1 状态接口
-GET `/api/geo/status`
+GET `/api/gis/status`
 
 返回示例字段：
 - `loaded`
@@ -185,34 +185,34 @@ GET `/api/geo/status`
 - `geometry_path`
 
 ### 5.2 名称搜索
-GET `/api/geo/search?q=北京&deep=0`
+GET `/api/gis/search?q=北京&deep=0`
 
 参数：
 - `q`: 必填，最小长度 1
 - `deep`: 可选，0~2
 
 ### 5.3 children 查询
-GET `/api/geo/children?parent_id=11&deep=1`
+GET `/api/gis/children?parent_id=11&deep=1`
 
 参数：
 - `parent_id`: 可选，>=0
 - `deep`: 可选，0~2
 
 ### 5.4 边界读取
-GET `/api/geo/boundary/by-id?feature_id=11`
+GET `/api/gis/boundary/by-id?feature_id=11`
 
 参数：
 - `feature_id`: 必填，>=1
 
 ### 5.5 点查
-GET `/api/geo/query/point?lng=116.397128&lat=39.916527`
+GET `/api/gis/query/point?lng=116.397128&lat=39.916527`
 
 参数：
 - `lng`: -180~180
 - `lat`: -90~90
 
 ### 5.6 带容差点查
-GET `/api/geo/query/point-with-tolerance?lng=121.993491&lat=29.524288&tolerance_metre=2500`
+GET `/api/gis/query/point-with-tolerance?lng=121.993491&lat=29.524288&tolerance_metre=2500`
 
 参数：
 - `lng`: -180~180
@@ -220,7 +220,7 @@ GET `/api/geo/query/point-with-tolerance?lng=121.993491&lat=29.524288&tolerance_
 - `tolerance_metre`: >=0
 
 ### 5.7 几何查询
-POST `/api/geo/query/geometry`
+POST `/api/gis/query/geometry`
 
 Body:
 ```json
@@ -260,13 +260,13 @@ Body:
 - `.venv/bin/python scripts/geo/verify_fastapi_geo.py`
 
 已验证：
-- `/api/geo/status` -> 200
-- `/api/geo/search?q=北京` -> 200
-- `/api/geo/children?deep=0` -> 200
-- `/api/geo/boundary/by-id?feature_id=11` -> 200
-- `/api/geo/query/point` -> 200
-- `/api/geo/query/point-with-tolerance` -> 200
-- `/api/geo/query/geometry` -> 200
+- `/api/gis/status` -> 200
+- `/api/gis/search?q=北京` -> 200
+- `/api/gis/children?deep=0` -> 200
+- `/api/gis/boundary/by-id?feature_id=11` -> 200
+- `/api/gis/query/point` -> 200
+- `/api/gis/query/point-with-tolerance` -> 200
+- `/api/gis/query/geometry` -> 200
 - 非法 `lng=999` -> 422
 - 非法 geometry type `Point` -> 422
 
@@ -324,12 +324,12 @@ python3 scripts/geo/build_lowmem_index.py
 
 ### 启动服务后使用接口
 直接访问：
-- `/api/geo/status`
-- `/api/geo/search`
-- `/api/geo/query/point`
-- `/api/geo/query/point-with-tolerance`
-- `/api/geo/query/geometry`
-- `/api/geo/boundary/by-id`
+- `/api/gis/status`
+- `/api/gis/search`
+- `/api/gis/query/point`
+- `/api/gis/query/point-with-tolerance`
+- `/api/gis/query/geometry`
+- `/api/gis/boundary/by-id`
 
 ## 9. 总结
 
