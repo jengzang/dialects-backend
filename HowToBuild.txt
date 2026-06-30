@@ -26,6 +26,11 @@ docker run -d --name myapp -p 80:5000 \
   -v /srv/myapp/logs:/app/logs \
   myapp:latest
 # 用ngix（推荐：添加了 statics volume 挂载）
+# 当前 worker 拆分后，建议分别启动三套 gunicorn 入口：
+#   gunicorn -c gunicorn_main.py app.entrypoints.main_app:app      # 5000，主应用
+#   gunicorn -c gunicorn_gis.py app.entrypoints.gis_app:app        # 5001，仅 /api/gis/**
+#   gunicorn -c gunicorn_cluster.py app.entrypoints.cluster_app:app # 5002，仅 /api/tools/cluster/**
+# 现有的进程管理/转发层需要自行把三套进程拉起，并按路径把 /api/gis/**、/api/tools/cluster/** 分流到对应端口。
 docker run -d --name myapp \
   --network host \
   -e FORWARDED_ALLOW_IPS="*" \
