@@ -18,6 +18,7 @@ from app.service.auth.database.models import User
 from app.service.core.search_chars import search_characters
 from app.service.core.search_tones import search_tones
 from app.service.geo.match_input_tip import match_locations_batch_all
+from app.service.user.core.database import get_db as get_custom_db
 from app.service.user.submission.get_custom import get_from_submission
 from app.sql.db_selector import get_dialects_db, get_query_db
 
@@ -37,6 +38,7 @@ async def search_chars(
     ),
     include_custom: bool = Query(False, description="是否附带当前用户自定义数据"),
     db: Session = Depends(get_db),
+    custom_db: Session = Depends(get_custom_db),
     dialects_db: str = Depends(get_dialects_db),
     query_db: str = Depends(get_query_db),
     user: Optional[User] = Depends(get_current_user),
@@ -82,11 +84,11 @@ async def search_chars(
         if include_custom and user is not None:
             custom_data = await run_in_threadpool(
                 get_from_submission,
-                locations_processed,
+                locations or [],
                 regions,
                 chars,
                 user,
-                db,
+                custom_db,
                 ["漢字"],
             )
 
@@ -110,6 +112,7 @@ async def search_tones_o(
     region_mode: str = Query("yindian", description="分区模式: yindian/map"),
     include_custom: bool = Query(False, description="是否附带当前用户自定义调值数据"),
     db: Session = Depends(get_db),
+    custom_db: Session = Depends(get_custom_db),
     query_db: str = Depends(get_query_db),
     user: Optional[User] = Depends(get_current_user),
 ):
@@ -134,11 +137,11 @@ async def search_tones_o(
         if include_custom and user is not None:
             custom_data = await run_in_threadpool(
                 get_from_submission,
-                locations_processed,
+                locations or [],
                 regions,
                 [],
                 user,
-                db,
+                custom_db,
                 ["調值"],
             )
         return {"tones_result": result, "custom_data": custom_data}
