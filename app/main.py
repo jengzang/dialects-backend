@@ -10,6 +10,7 @@ from app.common.numba_bootstrap import bootstrap_numba_threading_environment
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 bootstrap_numba_threading_environment()
@@ -96,6 +97,26 @@ def _build_lifespan(
     return lifespan
 
 
+_LOCALE_PREFIXES = ("en", "zh-Hant", "zh-CN")
+
+# 所有後端路由前綴，SPA 兜底時不能攔截這些路徑（即使 404 也該正常返回）
+_BACKEND_PREFIXES = (
+    "/api",
+    "/admin",
+    "/user",
+    "/sql",
+    "/logs",
+    "/__ping",
+)
+
+
+def _is_backend_path(path: str) -> bool:
+    for p in _BACKEND_PREFIXES:
+        if path == p or path.startswith(f"{p}/") or path.startswith(f"{p}?"):
+            return True
+    return False
+
+
 def _apply_common_middlewares(app: FastAPI) -> None:
     if _RUN_TYPE == "WEB":
         cors_origins = ["https://dialects.yzup.top", "https://yzup.top"]
@@ -110,6 +131,25 @@ def _apply_common_middlewares(app: FastAPI) -> None:
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(RequestLogMiddleware)
+
+    @app.middleware("http")
+    async def strip_locale_prefix(request: Request, call_next):
+        path = request.url.path
+        for loc in _LOCALE_PREFIXES:
+            # /zh-CN/xxx → /xxx,  /zh-CN → /,  /zh-CN/ → /
+            prefix = f"/{loc}"
+            if path == prefix or path.startswith(f"{prefix}/"):
+                path = path[len(prefix):] or "/"
+                request.scope["path"] = path
+                request.scope["raw_path"] = path.encode()
+                break
+
+        response = await call_next(request)
+
+        if response.status_code == 404 and request.method == "GET" and not _is_backend_path(path):
+            return FileResponse(os.path.abspath("app/statics/index.html"))
+
+        return response
 
     if _RUN_TYPE == "EXE":
 
