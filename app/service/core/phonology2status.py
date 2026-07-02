@@ -613,6 +613,8 @@ def pho2sta(locations, regions, features, status_inputs,
                         item.update(_filter_details_for_chars(item.get("對應字")))
                     results.extend(result)
                 elif isinstance(result, pd.DataFrame):
+                    if result.empty:
+                        continue
                     result = result.copy()
                     result["文讀詳情"] = result["對應字"].apply(
                         lambda chars: _filter_details_for_chars(chars).get("文讀詳情")
