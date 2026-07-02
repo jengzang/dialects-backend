@@ -1,4 +1,6 @@
-﻿from typing import Dict, List, Optional
+﻿import base64
+import hashlib
+from typing import Dict, List, Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends
@@ -108,7 +110,7 @@ async def analyze_zhonggu(
 
         if merged_chars:
             merged_entry = {
-                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or "字集",
+                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or base64.urlsafe_b64encode(hashlib.shake_128("".join(sorted(merged_chars)).encode()).digest(6)).rstrip(b"=").decode(),
                 "char_count": len(merged_chars),
                 "chars": merged_chars,
                 "字数": len(merged_chars),
