@@ -108,7 +108,7 @@ async def analyze_zhonggu(
 
         if merged_chars:
             merged_entry = {
-                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or "漢字集合",
+                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or "字集",
                 "char_count": len(merged_chars),
                 "chars": merged_chars,
                 "字数": len(merged_chars),
