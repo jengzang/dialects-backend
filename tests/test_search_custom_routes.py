@@ -32,6 +32,7 @@ class SearchRoutesCustomDataTests(unittest.IsolatedAsyncioTestCase):
                 region_mode="yindian",
                 include_custom=True,
                 db=object(),
+                custom_db=object(),
                 query_db="query.db",
                 user=user,
             )
@@ -70,6 +71,7 @@ class SearchRoutesCustomDataTests(unittest.IsolatedAsyncioTestCase):
                 response_mode="compact",
                 include_custom=True,
                 db=object(),
+                custom_db=object(),
                 dialects_db="dialects.db",
                 query_db="query.db",
                 user=user,
