@@ -12,11 +12,49 @@ from app.service.auth.database.models import User, ApiUsageSummary
 
 
 # API category mapping
+# 与 leaderboard_service.CATEGORY_RULES 保持一致
 API_CATEGORIES = {
-    "音韵查询": ["/api/YinWei", "/api/ZhongGu", "/api/search_chars", "/api/search_tones"],
-    "字调查询": ["/api/get_locs", "/api/get_coordinates", "/api/batch_match"],
-    "音系分析": ["/api/phonology_classification_matrix", "/api/partitions", "/api/get_regions"],
-    "工具使用": ["/api/praat", "/api/check", "/api/merge", "/api/jyut2ipa"],
+    "音韵查询": [
+        "/api/ZhongGu",
+        "/api/YinWei",
+        "/api/phonology",
+        "/api/charlist",
+        "/api/feature_stats",
+        "/api/compare/ZhongGu",
+    ],
+    "字调查询": [
+        "/api/search_chars/",
+        "/api/search_tones/",
+        "/api/compare/chars",
+        "/api/compare/tones",
+        "/api/yubao/",
+    ],
+    "音系分析": [
+        "/api/phonology_matrix",
+        "/api/phonology_classification_matrix",
+        "/api/feature_counts",
+        "/api/pho_pie_by_value",
+        "/api/pho_pie_by_status",
+    ],
+    "工具使用": [
+        "/api/tools/check/analyze",
+        "/api/tools/jyut2ipa/process",
+        "/api/tools/merge/execute",
+        "/api/tools/praat/jobs",
+    ],
+    "其他查询": [
+        "/sql/query",
+        "/sql/tree/full",
+        "/sql/tree/lazy",
+        "/api/get_coordinates",
+        "/api/villages/",
+        "/api/locations/",
+    ],
+}
+
+# 排除规则：匹配到这些模式的路径不计入对应分类
+CATEGORY_EXCLUDES = {
+    "其他查询": ["/api/villages/admin/"],
 }
 
 
@@ -25,6 +63,10 @@ def categorize_api(path: str) -> str:
     for category, paths in API_CATEGORIES.items():
         for api_path in paths:
             if api_path in path:
+                # 检查排除规则
+                excludes = CATEGORY_EXCLUDES.get(category, [])
+                if any(ex in path for ex in excludes):
+                    continue
                 return category
     return "其他"
 
