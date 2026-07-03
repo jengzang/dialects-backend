@@ -125,9 +125,9 @@ def build_filter_conditions(
 
         col_name = all_column_names[col_index]
 
-        # 分离普通值和空值
-        has_empty = None in val_list
-        normal_values = [v for v in val_list if v is not None]
+        # 分离普通值和空值（含 "(空)" 占位符）
+        has_empty = None in val_list or _EMPTY_PLACEHOLDER in val_list
+        normal_values = [v for v in val_list if v is not None and v != _EMPTY_PLACEHOLDER]
 
         conditions = []
 
@@ -288,12 +288,10 @@ def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: L
         last_col_name = level_names[-1]
         last_original_value = row.get(last_col_name)
 
-        # 如果连叶子节点的名字都是空的，那确实该丢弃了
-        # 或者你也给它一个 "未命名节点" 的名字
         if last_original_value is None or str(last_original_value).strip() == "":
-            continue
-
-        leaf_name = str(last_original_value).strip()
+            leaf_name = _EMPTY_PLACEHOLDER
+        else:
+            leaf_name = str(last_original_value).strip()
 
         # === 分支逻辑：有数据提取 vs 无数据提取 ===
         if has_data:
@@ -438,23 +436,62 @@ async def get_full_tree(
             rows = [dict(row) for row in cursor.fetchall()]
 
             if len(rows) > MAX_FULL_TREE_ROWS:
-                # 跳过第0级，让 lazy bootstrap 返回原层级1
-                shifted_columns = params.level_columns[1:]
-                lazy_bootstrap = _build_lazy_children_response(
-                    cursor=cursor,
-                    table_q=table_q,
-                    all_column_names=all_column_names,
-                    level_columns=shifted_columns,
-                    parent_path=None,
-                    filters=params.filters,
-                )
+                # 对全量表查 DISTINCT col_0 + col_1，按 col_0 分组
+                # 保留父级上下文，避免重名冲突 + 空中间层断链
+                l0_name = level_col_names[0]
+                has_l1 = len(level_col_names) > 1
+                l1_name = level_col_names[1] if has_l1 else None
+
+                bootstrap: dict[str, list[str]] = {}
+                if has_l1:
+                    l0_q = _quote_identifier(l0_name)
+                    l1_q = _quote_identifier(l1_name)
+                    sql2 = f"SELECT DISTINCT {l0_q}, {l1_q} FROM {table_q}"
+                    where2, vals2 = build_filter_conditions(params.filters, all_column_names)
+                    if where2:
+                        sql2 += " WHERE " + " AND ".join(where2)
+                    sql2 += f" ORDER BY {l0_q} ASC, {l1_q} ASC"
+                    cursor.execute(sql2, vals2)
+
+                    seen_l1: dict[str, set[str]] = {}
+                    for row in cursor.fetchall():
+                        l0_val = (row[0] or '').strip()
+                        l1_val = (row[1] or '').strip()
+                        if not l0_val:
+                            continue
+                        if l0_val not in bootstrap:
+                            bootstrap[l0_val] = []
+                            seen_l1[l0_val] = set()
+                        if l1_val:
+                            if l1_val not in seen_l1[l0_val]:
+                                bootstrap[l0_val].append(l1_val)
+                                seen_l1[l0_val].add(l1_val)
+                        elif _EMPTY_PLACEHOLDER not in seen_l1[l0_val]:
+                            bootstrap[l0_val].append(_EMPTY_PLACEHOLDER)
+                            seen_l1[l0_val].add(_EMPTY_PLACEHOLDER)
+
+                    for children in bootstrap.values():
+                        children.sort()
+                else:
+                    # 只有一个层级，返回 level-0 值列表
+                    l0_q = _quote_identifier(l0_name)
+                    sql2 = f"SELECT DISTINCT {l0_q} FROM {table_q}"
+                    where2, vals2 = build_filter_conditions(params.filters, all_column_names)
+                    if where2:
+                        sql2 += " WHERE " + " AND ".join(where2)
+                    sql2 += f" ORDER BY {l0_q} ASC"
+                    cursor.execute(sql2, vals2)
+                    for row in cursor.fetchall():
+                        val = (row[0] or '').strip()
+                        if val:
+                            bootstrap[val] = []
+
                 return {
                     "mode": "lazy_fallback",
                     "reason": "full_tree_row_limit_exceeded",
                     "limit": MAX_FULL_TREE_ROWS,
                     "levels": len(params.level_columns),
-                    "lazy_bootstrap": lazy_bootstrap,
-                    "shifted_level_columns": shifted_columns,
+                    "lazy_bootstrap": bootstrap,
                 }
 
             # 3. 传入数据列名进行构建
