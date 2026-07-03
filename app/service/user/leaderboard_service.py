@@ -57,7 +57,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/compare/chars",
             "/api/compare/tones",
         ],
-        "prefixes": [],
+        "prefixes": ["/api/yubao/"],
         "exclude_prefixes": [],
     },
     "category_音系分析": {
@@ -85,6 +85,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
         "paths": [
             "/sql/query",
             "/sql/tree/full",
+            "/sql/tree/lazy",
             "/api/get_coordinates",
         ],
         "prefixes": ["/api/villages/","/api/locations/"],
@@ -92,10 +93,24 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
     },
 }
 
+SQL_TREE_RULE: RuleConfig = {
+    "paths": ["/sql/tree/full", "/sql/tree/lazy"],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+YUBAO_RULE: RuleConfig = {
+    "paths": [],
+    "prefixes": ["/api/yubao/"],
+    "exclude_prefixes": [],
+}
+
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
     "endpoint_group_locations": LOCATIONS_RULE,
+    "endpoint_group_sql_tree": SQL_TREE_RULE,
+    "endpoint_group_yubao": YUBAO_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -118,7 +133,6 @@ ENDPOINT_PATHS = [
     "/api/tools/merge/execute",
     "/api/tools/praat/jobs",
     "/sql/query",
-    "/sql/tree/full",
     "/api/get_coordinates",
 ]
 
