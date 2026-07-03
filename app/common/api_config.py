@@ -73,6 +73,7 @@ RECORD_API = [
     "/user/custom/batch-delete",
     "/api/custom_regions",
     "/api/villages/*",
+    "/api/yubao/*",
 ]
 
 # auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
@@ -200,7 +201,13 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
-    }, "/api/get_coordinates": {
+    }, "/api/yubao/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/get_coordinates": {
         "rate_limit": False,  # 不限流（查询类 API）
         "require_login": False,
         "log_params": True,
