@@ -32,7 +32,9 @@ router = APIRouter()
 
 _SCHEMA_CACHE = {}
 _SCHEMA_LOCK = threading.Lock()
-MAX_FULL_TREE_ROWS = 200000
+MAX_FULL_TREE_ROWS = 5000
+MAX_LAZY_ROOT_CHILDREN = 500
+_EMPTY_PLACEHOLDER = "(空)"
 
 
 def _quote_identifier(name: str) -> str:
@@ -148,6 +150,91 @@ def build_filter_conditions(
     return where_clauses, values
 
 
+def _build_lazy_children_response(
+    cursor,
+    table_q: str,
+    all_column_names: List[str],
+    level_columns: List[int],
+    parent_path: Optional[List[str]],
+    filters: Optional[Dict[int, List[str]]],
+):
+    parent_path = parent_path or []
+    target_level = len(parent_path)
+
+    if target_level >= len(level_columns):
+        return {
+            "level": target_level,
+            "parent_path": parent_path if parent_path else None,
+            "children": [],
+            "total": 0,
+            "truncated": False,
+        }
+
+    target_col_index = level_columns[target_level]
+    target_col_name = all_column_names[target_col_index]
+    target_col_q = _quote_identifier(target_col_name)
+    sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
+
+    where_clauses = []
+    values = []
+
+    for i, parent_value in enumerate(parent_path):
+        col_index = level_columns[i]
+        col_name = all_column_names[col_index]
+        if parent_value == _EMPTY_PLACEHOLDER:
+            col_q = _quote_identifier(col_name)
+            where_clauses.append(f"({col_q} IS NULL OR {col_q} = '')")
+        else:
+            where_clauses.append(f"{_quote_identifier(col_name)} = ?")
+            values.append(parent_value)
+
+    filter_clauses, filter_values = build_filter_conditions(filters, all_column_names)
+    where_clauses.extend(filter_clauses)
+    values.extend(filter_values)
+
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+
+    sql += f" ORDER BY {target_col_q} ASC"
+
+    row_limit = None
+    if target_level == 0:
+        row_limit = MAX_LAZY_ROOT_CHILDREN + 1
+        sql += f" LIMIT {row_limit}"
+
+    cursor.execute(sql, values)
+
+    children = []
+    seen = set()
+    has_empty = False
+    is_last_level = target_level == len(level_columns) - 1
+    for row in cursor.fetchall():
+        value = (row[0] or '').strip()
+        if value:
+            if value not in seen:
+                children.append(value)
+                seen.add(value)
+        else:
+            has_empty = True
+
+    # 非末级存在空值时用占位符，与 full tree 的 "(空)" 保持一致
+    if has_empty and not is_last_level:
+        children.append(_EMPTY_PLACEHOLDER)
+
+    truncated = False
+    if target_level == 0 and len(children) > MAX_LAZY_ROOT_CHILDREN:
+        truncated = True
+        children = children[:MAX_LAZY_ROOT_CHILDREN]
+
+    return {
+        "level": target_level,
+        "parent_path": parent_path if parent_path else None,
+        "children": children,
+        "total": len(children),
+        "truncated": truncated,
+    }
+
+
 def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: List[str] = None) -> Dict[str, Any]:
     """
     构建树形结构（优化版本）
@@ -174,7 +261,6 @@ def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: L
 
     tree = {}
     has_data = bool(data_names)  # 标记是否需要提取数据
-    PLACEHOLDER = "(空)"
     # 遍历每一行，构建树结构
     for row in rows:
         current = tree
@@ -188,7 +274,7 @@ def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: L
             # 处理空值逻辑
             if original_value is None or str(original_value).strip() == "":
                 # 方案：使用占位符
-                value = PLACEHOLDER
+                value = _EMPTY_PLACEHOLDER
                 # 进阶方案：甚至可以带上列名，比如 "未分类(区县级)"
                 # value = f"未分类({col_name})"
             else:
@@ -352,18 +438,30 @@ async def get_full_tree(
             rows = [dict(row) for row in cursor.fetchall()]
 
             if len(rows) > MAX_FULL_TREE_ROWS:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"结果集过大（超过 {MAX_FULL_TREE_ROWS} 行），"
-                        "请增加 filters 或改用 /sql/tree/lazy 分层加载。"
-                    ),
+                # 跳过第0级，让 lazy bootstrap 返回原层级1
+                shifted_columns = params.level_columns[1:]
+                lazy_bootstrap = _build_lazy_children_response(
+                    cursor=cursor,
+                    table_q=table_q,
+                    all_column_names=all_column_names,
+                    level_columns=shifted_columns,
+                    parent_path=None,
+                    filters=params.filters,
                 )
+                return {
+                    "mode": "lazy_fallback",
+                    "reason": "full_tree_row_limit_exceeded",
+                    "limit": MAX_FULL_TREE_ROWS,
+                    "levels": len(params.level_columns),
+                    "lazy_bootstrap": lazy_bootstrap,
+                    "shifted_level_columns": shifted_columns,
+                }
 
             # 3. 传入数据列名进行构建
             tree = build_tree_structure(rows, level_col_names, data_col_names)
 
             return {
+                "mode": "full",
                 "tree": tree,
                 "total_nodes": len(rows),
                 "levels": len(params.level_columns)
@@ -430,67 +528,14 @@ async def get_tree_children(
             # 验证列号
             validate_columns(params.level_columns, [], all_column_names)
 
-            # 确定要查询的层级
-            parent_path = params.parent_path or []
-            target_level = len(parent_path)
-
-            # 检查是否超出最大层级
-            if target_level >= len(params.level_columns):
-                return {
-                    "level": target_level,
-                    "parent_path": parent_path,
-                    "children": [],
-                    "total": 0
-                }
-
-            # 确定目标列
-            target_col_index = params.level_columns[target_level]
-            target_col_name = all_column_names[target_col_index]
-
-            # 构建SQL：只查询目标列的唯一值
-            target_col_q = _quote_identifier(target_col_name)
-            sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
-
-            where_clauses = []
-            values = []
-
-            # 添加父路径的WHERE条件
-            for i, parent_value in enumerate(parent_path):
-                col_index = params.level_columns[i]
-                col_name = all_column_names[col_index]
-                where_clauses.append(f"{_quote_identifier(col_name)} = ?")
-                values.append(parent_value)
-
-            # 添加全局过滤条件
-            filter_clauses, filter_values = build_filter_conditions(params.filters, all_column_names)
-            where_clauses.extend(filter_clauses)
-            values.extend(filter_values)
-
-            # 组合WHERE子句
-            if where_clauses:
-                sql += " WHERE " + " AND ".join(where_clauses)
-
-            # 排序
-            sql += f" ORDER BY {target_col_q} ASC"
-
-            # 执行查询
-            cursor.execute(sql, values)
-
-            # 提取结果并过滤空值
-            children = []
-            seen = set()  # 去重
-            for row in cursor.fetchall():
-                value = (row[0] or '').strip()
-                if value and value not in seen:
-                    children.append(value)
-                    seen.add(value)
-
-            return {
-                "level": target_level,
-                "parent_path": parent_path if parent_path else None,
-                "children": children,
-                "total": len(children)
-            }
+            return _build_lazy_children_response(
+                cursor=cursor,
+                table_q=table_q,
+                all_column_names=all_column_names,
+                level_columns=params.level_columns,
+                parent_path=params.parent_path,
+                filters=params.filters,
+            )
 
         except HTTPException:
             raise
