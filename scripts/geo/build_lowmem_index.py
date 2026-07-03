@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "data/geo/generated/geojson/wgs84/areacity_full_level0-2.geojson"
 OUT_DIR = ROOT / "data/geo/generated/engine/wgs84"
 INDEX_SQLITE_PATH = OUT_DIR / "areacity.index.sqlite"
-INDEX_PATH = OUT_DIR / "areacity.index.json"
 FEATURES_PATH = OUT_DIR / "areacity.features.jsonl"
 GEOM_PATH = OUT_DIR / "areacity.subgeom.bin"
 META_PATH = OUT_DIR / "areacity.meta.json"
@@ -87,15 +86,6 @@ def split_geometry(feature_id: int, deep: int, geometry: dict | None) -> list[di
     return parts
 
 
-def build_legacy_json_payload(index_records: list[dict[str, Any]], feature_parts: dict[int, list[int]]) -> dict[str, Any]:
-    return {
-        "subgeometries": index_records,
-        "grid_index": {},
-        "subgrid_index": {},
-        "feature_parts": feature_parts,
-    }
-
-
 def initialize_sqlite(path: Path) -> sqlite3.Connection:
     if path.exists():
         path.unlink()
@@ -154,14 +144,13 @@ def main() -> None:
     subgrid_span_histogram: dict[int, int] = defaultdict(int)
     feature_rows: list[str] = []
     geom_blobs: list[bytes] = []
-    index_records: list[dict[str, Any]] = []
-    feature_parts: dict[int, list[int]] = defaultdict(list)
 
     conn = initialize_sqlite(INDEX_SQLITE_PATH)
     cur = conn.cursor()
 
     sub_id = 1
     offset = 0
+    subgeometry_count = 0
     features_with_geometry = 0
     features_with_multiple_parts = 0
 
@@ -181,22 +170,6 @@ def main() -> None:
             raw = json.dumps(part["geometry"], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             geom_blobs.append(raw)
             min_lng, min_lat, max_lng, max_lat = part["bbox"]
-            record = {
-                "sub_id": sub_id,
-                "feature_id": part["feature_id"],
-                "deep": part["deep"],
-                "part_index": part["part_index"],
-                "part_kind": part["part_kind"],
-                "source_geometry_type": part["source_geometry_type"],
-                "bbox": [min_lng, min_lat, max_lng, max_lat],
-                "geom_offset": offset,
-                "geom_length": len(raw),
-                "subgrid_refs": part["subgrid_refs"],
-            }
-            index_records.append(record)
-            part_kind_histogram[part["part_kind"]] += 1
-            subgrid_span_histogram[len(part["subgrid_refs"])] += 1
-            feature_parts[part["feature_id"]].append(sub_id)
             cur.execute(
                 """
                 INSERT INTO subgeometries (
@@ -227,8 +200,11 @@ def main() -> None:
                 "INSERT INTO feature_parts (feature_id, sub_id, part_index) VALUES (?, ?, ?)",
                 (part["feature_id"], sub_id, part["part_index"]),
             )
+            part_kind_histogram[part["part_kind"]] += 1
+            subgrid_span_histogram[len(part["subgrid_refs"])] += 1
             offset += len(raw)
             sub_id += 1
+            subgeometry_count += 1
 
     conn.commit()
     conn.close()
@@ -244,7 +220,7 @@ def main() -> None:
         "source_crs": "WGS84",
         "target_crs": "WGS84",
         "feature_count": len(features),
-        "subgeometry_count": len(index_records),
+        "subgeometry_count": subgeometry_count,
         "features_with_geometry": features_with_geometry,
         "features_with_multiple_parts": features_with_multiple_parts,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -252,14 +228,11 @@ def main() -> None:
         "part_kind_histogram": {str(k): v for k, v in sorted(part_kind_histogram.items())},
         "subgrid_span_histogram": {str(k): v for k, v in sorted(subgrid_span_histogram.items())},
     }
-    legacy_payload = build_legacy_json_payload(index_records, feature_parts)
 
     FEATURES_PATH.write_text("\n".join(feature_rows) + "\n", encoding="utf-8")
     with GEOM_PATH.open("wb") as f_geom:
         for blob in geom_blobs:
             f_geom.write(blob)
-    with INDEX_PATH.open("w", encoding="utf-8") as f:
-        json.dump(legacy_payload, f, ensure_ascii=False, separators=(",", ":"))
     META_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(manifest, ensure_ascii=False, indent=2))

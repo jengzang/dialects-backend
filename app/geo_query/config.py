@@ -16,7 +16,6 @@ GEO_LEVEL0_GEOJSON_PATH = GEO_GEOJSON_WGS84_DIR / "areacity_level0.geojson"
 GEO_LEVEL1_GEOJSON_PATH = GEO_GEOJSON_WGS84_DIR / "areacity_level1.geojson"
 GEO_LEVEL2_GEOJSON_PATH = GEO_GEOJSON_WGS84_DIR / "areacity_level2.geojson"
 
-GEO_INDEX_JSON_PATH = GEO_ENGINE_WGS84_DIR / "areacity.index.json"
 GEO_INDEX_SQLITE_PATH = GEO_ENGINE_WGS84_DIR / "areacity.index.sqlite"
 GEO_FEATURES_JSONL_PATH = GEO_ENGINE_WGS84_DIR / "areacity.features.jsonl"
 GEO_SUBGEOM_WKB_PATH = GEO_ENGINE_WGS84_DIR / "areacity.subgeom.bin"
