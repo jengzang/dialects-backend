@@ -60,3 +60,94 @@ def test_yubao_readonly_endpoints_and_sql_page_size_limit():
         },
     )
     assert sql_limit_resp.status_code == 422
+
+
+def test_sql_tree_full_returns_lazy_fallback_when_result_too_large():
+    app = create_main_app()
+    client = TestClient(app)
+
+    resp = client.post(
+        '/sql/tree/full',
+        json={
+            'db_key': 'village',
+            'table_name': '广东省自然村',
+            'level_columns': [0, 1, 2, 3, 4],
+            'data_columns': [],
+            'filters': None,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['mode'] == 'lazy_fallback'
+    assert data['reason'] == 'full_tree_row_limit_exceeded'
+    assert data['limit'] == 5000
+    assert data['levels'] == 5
+    assert data['shifted_level_columns'] == [1, 2, 3, 4]
+    bootstrap = data['lazy_bootstrap']
+    assert bootstrap['level'] == 0
+    assert bootstrap['parent_path'] is None
+    assert len(bootstrap['children']) <= 100
+    assert bootstrap['total'] <= 100
+    assert bootstrap['truncated'] is False
+    # children 应该是原层级1的值（区县级），不是层级0（市级）
+    assert bootstrap['children']
+
+
+def test_sql_tree_lazy_root_is_limited_and_child_level_continues():
+    app = create_main_app()
+    client = TestClient(app)
+
+    root_resp = client.post(
+        '/sql/tree/lazy',
+        json={
+            'db_key': 'village',
+            'table_name': '广东省自然村',
+            'level_columns': [0, 1, 2, 3, 4],
+            'parent_path': None,
+            'filters': None,
+        },
+    )
+    assert root_resp.status_code == 200
+    root = root_resp.json()
+    assert root['level'] == 0
+    assert root['parent_path'] is None
+    assert len(root['children']) <= 100
+    assert root['total'] <= 100
+    assert root['truncated'] is False
+    assert root['children']
+
+    # 直接用第一个城市，空中间层会返回 ["(空)"] 占位符
+    first_city = root['children'][0]
+    child_resp = client.post(
+        '/sql/tree/lazy',
+        json={
+            'db_key': 'village',
+            'table_name': '广东省自然村',
+            'level_columns': [0, 1, 2, 3, 4],
+            'parent_path': [first_city],
+            'filters': None,
+        },
+    )
+    assert child_resp.status_code == 200
+    child = child_resp.json()
+    assert child['level'] == 1
+    assert child['parent_path'] == [first_city]
+    assert child['children'], f'{first_city} level-1 应该有子节点或占位符'
+    assert child['truncated'] is False
+
+    # 如果 level-1 是占位符（如东莞市不设区），验证能继续下钻到 level-2
+    if child['children'] == ['(空)']:
+        grandchild_resp = client.post(
+            '/sql/tree/lazy',
+            json={
+                'db_key': 'village',
+                'table_name': '广东省自然村',
+                'level_columns': [0, 1, 2, 3, 4],
+                'parent_path': [first_city, '(空)'],
+                'filters': None,
+            },
+        )
+        assert grandchild_resp.status_code == 200
+        grandchild = grandchild_resp.json()
+        assert grandchild['level'] == 2
+        assert grandchild['children']
