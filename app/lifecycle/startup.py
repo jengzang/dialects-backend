@@ -9,7 +9,7 @@ from app.common.path import (
     QUERY_DB_ADMIN,
     QUERY_DB_USER,
 )
-from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PATH
 from app.geo_query.loader import load_geo_query_engine
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
@@ -105,7 +105,7 @@ def initialize_geo_query_engine() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine...")
     try:
-        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
             from scripts.geo.build_lowmem_index import main as build_geo_index
             build_geo_index()
         load_geo_query_engine()
@@ -118,7 +118,7 @@ def initialize_geo_query_engine() -> None:
 def initialize_geo_query_engine_strict() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine (strict mode)...")
-    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
         from scripts.geo.build_lowmem_index import main as build_geo_index
         build_geo_index()
     load_geo_query_engine()

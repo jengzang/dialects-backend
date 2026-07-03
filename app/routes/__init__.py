@@ -15,7 +15,7 @@ from app.routes.core.matrix import router as matrix_router
 from app.routes.core.new_pho import router as new_pho_router
 from app.routes.core.phonology import router as phonology_router
 from app.routes.core.search import router as search_router
-# from app.routes.geo.areacity_query import router as areacity_query_router  # 暂时禁用 GIS 路由导入，避免主/容器部署误启用
+from app.routes.geo.areacity_query import router as areacity_query_router
 from app.routes.geo.batch_match import router as batch_match_router
 from app.routes.geo.get_coordinates import router as coordinates_router
 from app.routes.geo.get_locs import router as locs_router
@@ -57,9 +57,7 @@ def setup_main_routes(app: FastAPI):
 
 def setup_gis_routes(app: FastAPI):
     """Register only the new GIS API surface under /api/gis/**."""
-    # 暂时禁用 GIS 路由注册。
-    # app.include_router(areacity_query_router, prefix="/api", tags=["gis"], dependencies=[Depends(ApiLimiter)])
-    return None
+    app.include_router(areacity_query_router, prefix="/api", tags=["gis"], dependencies=[Depends(ApiLimiter)])
 
 
 def setup_routes(app: FastAPI):

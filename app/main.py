@@ -199,11 +199,9 @@ def create_main_app() -> FastAPI:
 
 
 def create_gis_app() -> FastAPI:
-    # 暂时关闭 GIS 独立应用入口，避免任何部署/容器路径误启用重内存 GIS 引擎。
-    # 如需恢复，请重新启用 app.routes.setup_gis_routes 与 run_gis_startup。
     return _create_app(
-        startup_fn=run_main_startup,
-        route_setup_fn=lambda app: None,
+        startup_fn=run_gis_startup,
+        route_setup_fn=setup_gis_routes,
         enable_background_services=False,
         enable_static_mounts=False,
     )

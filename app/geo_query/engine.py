@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from threading import Lock
 from typing import Callable
@@ -10,13 +11,20 @@ from .config import (
     GEO_CACHE_MAX_ITEMS,
     GEO_FEATURES_JSONL_PATH,
     GEO_GRID_FACTOR,
-    GEO_INDEX_JSON_PATH,
+    GEO_INDEX_SQLITE_PATH,
     GEO_META_JSON_PATH,
     GEO_POINT_TOLERANCE_METRE,
     GEO_SUBGEOM_WKB_PATH,
 )
 from .geometry_store import GeometryStore
-from .index_store import load_features, load_index
+from .index_store import (
+    connect_index_db,
+    count_subgeometries,
+    load_features,
+    load_subgeometry_by_ids,
+    query_candidate_records_by_bbox,
+    query_feature_part_ids,
+)
 from .models import EngineStatus, QueryResult, SubGeometryIndexRecord
 from .query_ops import geometry_query, point_query, point_query_with_tolerance
 
@@ -27,13 +35,11 @@ _CACHE_SENTINEL = object()
 class AreaCityQueryPy:
     def __init__(self):
         self.loaded = False
-        self.mode = "lowmem"
+        self.mode = "lowmem-sqlite"
         self.features = {}
         self.index_records: list[SubGeometryIndexRecord] = []
         self.record_by_sub_id: dict[int, SubGeometryIndexRecord] = {}
-        self.grid_index: dict[str, list[int]] = {}
-        self.subgrid_index: dict[str, list[int]] = {}
-        self.feature_parts: dict[int, list[int]] = {}
+        self.index_db_path: Path | None = None
         self.geometry_store: GeometryStore | None = None
         self.meta: dict = {}
         self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
@@ -41,7 +47,7 @@ class AreaCityQueryPy:
 
     def init_store_in_wkb_file(
         self,
-        index_path: Path = GEO_INDEX_JSON_PATH,
+        index_db_path: Path = GEO_INDEX_SQLITE_PATH,
         features_path: Path = GEO_FEATURES_JSONL_PATH,
         geometry_path: Path = GEO_SUBGEOM_WKB_PATH,
         meta_path: Path = GEO_META_JSON_PATH,
@@ -50,14 +56,18 @@ class AreaCityQueryPy:
             if self.loaded:
                 return
             self.features = load_features(features_path)
-            index_payload = load_index(index_path)
-            self.index_records = index_payload["records"]
-            self.record_by_sub_id = {record.sub_id: record for record in self.index_records}
-            self.grid_index = index_payload["grid_index"]
-            self.subgrid_index = index_payload.get("subgrid_index", {})
-            self.feature_parts = index_payload["feature_parts"]
+            conn = connect_index_db(index_db_path)
+            try:
+                subgeometry_count = count_subgeometries(conn)
+            finally:
+                conn.close()
+            self.index_records = []
+            self.record_by_sub_id = {}
+            self.index_db_path = index_db_path
             self.geometry_store = GeometryStore(geometry_path)
             self.meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+            if "subgeometry_count" not in self.meta:
+                self.meta["subgeometry_count"] = subgeometry_count
             self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
             self.loaded = True
 
@@ -66,6 +76,12 @@ class AreaCityQueryPy:
             raise RuntimeError("Geo query engine not initialized")
         if self.geometry_store is None:
             raise RuntimeError("Geometry store unavailable")
+        if self.index_db_path is None:
+            raise RuntimeError("SQLite index store unavailable")
+
+    def _connect_index_db(self) -> sqlite3.Connection:
+        assert self.index_db_path is not None
+        return connect_index_db(self.index_db_path)
 
     def _load_geometry(self, record: SubGeometryIndexRecord) -> dict | None:
         cached = self._geometry_cache.get(record.sub_id)
@@ -87,28 +103,12 @@ class AreaCityQueryPy:
         }
 
     def grid_candidates_for_bbox(self, bbox: tuple[float, float, float, float]) -> list[SubGeometryIndexRecord]:
-        factor = int(self.meta.get("grid_factor", GEO_GRID_FACTOR))
-        subgrid_factor = int(self.meta.get("subgrid_factor", factor))
-        min_lng, min_lat, max_lng, max_lat = bbox
-        x1 = int(min_lng * factor)
-        x2 = int(max_lng * factor)
-        y1 = int(min_lat * factor)
-        y2 = int(max_lat * factor)
-        sub_ids: set[int] = set()
-        for x in range(x1, x2 + 1):
-            for y in range(y1, y2 + 1):
-                sub_ids.update(self.grid_index.get(f"{x}:{y}", []))
-        sx1 = int(min_lng * subgrid_factor)
-        sx2 = int(max_lng * subgrid_factor)
-        sy1 = int(min_lat * subgrid_factor)
-        sy2 = int(max_lat * subgrid_factor)
-        refined_ids: set[int] = set()
-        for x in range(sx1, sx2 + 1):
-            for y in range(sy1, sy2 + 1):
-                refined_ids.update(self.subgrid_index.get(f"{x}:{y}", []))
-        if refined_ids:
-            sub_ids &= refined_ids
-        return [self.record_by_sub_id[sub_id] for sub_id in sub_ids if sub_id in self.record_by_sub_id]
+        self.check_init_is_ok()
+        conn = self._connect_index_db()
+        try:
+            return query_candidate_records_by_bbox(conn, bbox)
+        finally:
+            conn.close()
 
     def query_point(self, lng: float, lat: float, where: WhereFn = None) -> QueryResult:
         self.check_init_is_ok()
@@ -126,15 +126,17 @@ class AreaCityQueryPy:
         feature = self.features.get(feature_id)
         if not feature:
             return None
-        sub_ids = self.feature_parts.get(feature_id, [])
-        if not sub_ids:
+        conn = self._connect_index_db()
+        try:
+            sub_ids = query_feature_part_ids(conn, feature_id)
+            records = load_subgeometry_by_ids(conn, sub_ids)
+        finally:
+            conn.close()
+        if not records:
             return None
         geometries = []
         seen_part_keys = set()
-        for sub_id in sub_ids:
-            record = self.record_by_sub_id.get(sub_id)
-            if not record:
-                continue
+        for record in records:
             part_key = (record.source_geometry_type, record.part_index)
             if part_key in seen_part_keys:
                 continue
@@ -196,7 +198,7 @@ class AreaCityQueryPy:
             loaded=self.loaded,
             mode=self.mode,
             feature_count=len(self.features),
-            subgeometry_count=len(self.index_records),
+            subgeometry_count=int(self.meta.get("subgeometry_count", 0)),
             features_with_multiple_parts=int(self.meta.get("features_with_multiple_parts", 0)),
             split_mode=self.meta.get("split_mode", "unknown"),
             source_crs=self.meta.get("source_crs", "unknown"),
@@ -209,7 +211,7 @@ class AreaCityQueryPy:
             cache_hit_count=cache_stats["cache_hit_count"],
             cache_miss_count=cache_stats["cache_miss_count"],
             cache_eviction_count=cache_stats["cache_eviction_count"],
-            index_path=str(GEO_INDEX_JSON_PATH),
+            index_path=str(self.index_db_path) if self.index_db_path else str(GEO_INDEX_SQLITE_PATH),
             features_path=str(GEO_FEATURES_JSONL_PATH),
             geometry_path=str(GEO_SUBGEOM_WKB_PATH),
         )
