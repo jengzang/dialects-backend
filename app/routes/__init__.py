@@ -9,6 +9,7 @@ from .admin import router as admin_router
 from .auth import router as auth_router
 from .index import router as index_router
 from .user import router as user_router
+from .yubao import router as yubao_router
 from ..sql import setup_sql_routes
 from app.routes.core.compare import router as compare_router
 from app.routes.core.matrix import router as matrix_router
@@ -48,6 +49,7 @@ def setup_main_routes(app: FastAPI):
     app.include_router(custom_regions_router, tags=["custom"], dependencies=[Depends(ApiLimiter)])
     app.include_router(search_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(yubao_router, prefix="/api", tags=["yubao"], dependencies=[Depends(ApiLimiter)])
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])

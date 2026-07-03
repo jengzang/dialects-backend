@@ -7,7 +7,7 @@ class QueryParams(BaseModel):
     db_key: str
     table_name: str
     page: int = 1
-    page_size: int = Field(default=20, le=2000, description="每页数量，最大2000")
+    page_size: int = Field(default=20, le=50, description="每页数量，最大50")
     sort_by: Optional[str] = None
     sort_desc: bool = False
     filters: Dict[str, List[Any]] = {} # 格式: {"city": ["Beijing", "Shanghai"], "status": [1]}
@@ -19,8 +19,8 @@ class QueryParams(BaseModel):
     def validate_page_size(cls, v):
         if v < 1:
             raise ValueError('page_size must be at least 1')
-        if v > 2000:
-            raise ValueError('page_size cannot exceed 2000')
+        if v > 50:
+            raise ValueError('page_size cannot exceed 50')
         return v
 
 class MutationParams(BaseModel):
