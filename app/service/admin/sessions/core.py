@@ -255,14 +255,6 @@ def revoke_session(
 ) -> Dict[str, Any]:
     """
     撤销会话
-
-    Args:
-        db: 数据库会话
-        session_id: 会话ID
-        reason: 撤销原因
-
-    Returns:
-        结果字典
     """
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
@@ -282,20 +274,23 @@ def revoke_session(
     session.revoked_at = datetime.utcnow()
     session.revoked_reason = reason or "Revoked by admin"
 
-    # 撤销所有关联的 RefreshToken
-    db.query(RefreshToken).filter(
+    # 撤销所有关联的 RefreshToken，并统计撤销数量
+    revoked_tokens = db.query(RefreshToken).filter(
         RefreshToken.session_id == session_id,
         RefreshToken.revoked == False
-    ).update({"revoked": True})
+    ).update(
+        {"revoked": True},
+        synchronize_session=False
+    )
 
     db.commit()
     db.refresh(session)
 
     return {
         "success": True,
-        "session": build_session_detail(db, session)
+        "session": build_session_detail(db, session),
+        "revoked_tokens": revoked_tokens
     }
-
 
 def revoke_sessions_bulk(
     db: DBSession,
