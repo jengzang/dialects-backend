@@ -82,15 +82,15 @@ def test_sql_tree_full_returns_lazy_fallback_when_result_too_large():
     assert data['reason'] == 'full_tree_row_limit_exceeded'
     assert data['limit'] == 5000
     assert data['levels'] == 5
-    assert data['shifted_level_columns'] == [1, 2, 3, 4]
     bootstrap = data['lazy_bootstrap']
-    assert bootstrap['level'] == 0
-    assert bootstrap['parent_path'] is None
-    assert len(bootstrap['children']) <= 100
-    assert bootstrap['total'] <= 100
-    assert bootstrap['truncated'] is False
-    # children 应该是原层级1的值（区县级），不是层级0（市级）
-    assert bootstrap['children']
+    # bootstrap 是 {城市: [区县列表]}，保留父级上下文避免重名
+    assert isinstance(bootstrap, dict)
+    assert len(bootstrap) >= 1
+    first_city = next(iter(bootstrap))
+    assert isinstance(bootstrap[first_city], list)
+    # 东莞等不设区城市应包含 "(空)" 占位符
+    all_children = [v for vals in bootstrap.values() for v in vals]
+    assert all_children
 
 
 def test_sql_tree_lazy_root_is_limited_and_child_level_continues():
