@@ -64,22 +64,23 @@
 | **SQLite 数据库文件数** | 13 个 | 按 `data/*.db` 统计，包含 0 字节占位库 |
 | **SQLite 表总数** | 103 个 | 按所有 `.db` 中非 `sqlite_%` 表累加 |
 | **当前版本** | 2.0.1 | README 当前维护版本号 |
-| **最后更新** | 2026-03-27 | 本节最后核对日期 |
+| **最后更新** | 2026-07-03 | 本节最后核对日期 |
 
 ### 路由规模拆分（按源码目录统计）
 
 | 模块 | 路由数 |
 |------|------|
 | `app/routes/core` | 16 |
-| `app/routes/geo` | 7 |
-| `app/routes/user` | 11 |
+| `app/routes/geo` | 14 |
+| `app/routes/user` | 16 |
 | `app/routes/auth.py` | 9 |
-| `app/routes/index.py` | 9 |
+| `app/routes/index.py` | 4 |
 | `app/routes/admin` | 68 |
 | `app/routes/logging` | 14 |
 | `app/sql` | 14 |
-| `app/tools` | 27 |
+| `app/tools` | 40 |
 | `app/villagesML` | 107 |
+| `app/routes/yubao.py` | 4 |
 
 ### 当前数据库文件概览
 
@@ -161,21 +162,22 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 # 开发模式（单进程，自动重载）
 python run.py
 
-# 生产模式（主应用 3 workers，承接除新 GIS / Cluster 之外的主流量）
-gunicorn -c gunicorn_main.py app.entrypoints.main_app:app
+# 直接启动主应用
+python -m uvicorn app.entrypoints.main_app:app --host 127.0.0.1 --port 5000
 
-# 独立 GIS worker（/api/gis/**）
-gunicorn -c gunicorn_gis.py app.entrypoints.gis_app:app
+# 独立 GIS app（/api/gis/**）
+python -m uvicorn app.entrypoints.gis_app:app --host 127.0.0.1 --port 8095
 
-# 独立 Cluster worker（/api/tools/cluster/**）
-gunicorn -c gunicorn_cluster.py app.entrypoints.cluster_app:app
+# 独立 Cluster app（/api/tools/cluster/**）
+python -m uvicorn app.entrypoints.cluster_app:app --host 127.0.0.1 --port 8096
 ```
 
 说明：
-- `5000`：主应用入口（保留主页、老 geo、主查询、普通 tools、villages 等）
-- `5001`：仅承接 `/api/gis/**`
-- `5002`：仅承接 `/api/tools/cluster/**`
-- 这三套 gunicorn 需要由你现有的进程管理/转发层分别启动并按路径分流；后端代码本身不再把新 GIS 与 cluster 挂在主应用里。
+- `run.py` 仍是本地统一启动入口，支持 `WEB / EXE / MINE` 三种运行模式。
+- `app/main.py` 当前提供三种装配函数：`create_main_app()`、`create_gis_app()`、`create_cluster_app()`。
+- `app/entrypoints/gis_app.py` 已验证可独立启动并承接 `/api/gis/**`。
+- `app/entrypoints/cluster_app.py` 也可独立启动承接 `/api/tools/cluster/**`，但当前 `main app` 仍重新包含了 cluster routes，因此当前代码事实不是“cluster 已完全从 main 移除”。
+- README 此处只描述当前仓库已存在且已验证的入口，不再假设你线上一定采用三套 gunicorn 分流部署。
 
 | 短參數 | 長參數 | 類型 | 可選值 | 默認值 | 功能描述                                      |
 | :--- | :--- | :--- | :--- | :--- |:------------------------------------------|
