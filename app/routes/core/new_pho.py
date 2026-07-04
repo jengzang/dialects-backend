@@ -1,7 +1,9 @@
-﻿from typing import Dict, List, Optional
+﻿import base64
+import hashlib
+from typing import Dict, List, Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -108,7 +110,7 @@ async def analyze_zhonggu(
 
         if merged_chars:
             merged_entry = {
-                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or "漢字集合",
+                "query": " + ".join(item.get("query") for item in cached_char_result if item.get("query")) or base64.urlsafe_b64encode(hashlib.shake_128("".join(sorted(merged_chars)).encode()).digest(6)).rstrip(b"=").decode(),
                 "char_count": len(merged_chars),
                 "chars": merged_chars,
                 "字数": len(merged_chars),
@@ -157,7 +159,11 @@ async def analyze_yinwei(
     payload: YinWeiAnalysis,
     dialects_db: str = Depends(get_dialects_db),
     query_db: str = Depends(get_query_db),
+    user: Optional[User] = Depends(get_current_user),
+    custom_db: Session = Depends(get_custom_db),
 ):
+    if (not user or user.role != "admin") and not payload.pho_values:
+        raise HTTPException(status_code=403, detail="僅管理員可查詢全量音位數據，請輸入具體音值")
     try:
         analysis_results = await run_in_threadpool(
             pho2sta,
@@ -173,14 +179,26 @@ async def analyze_yinwei(
             table=payload.table_name,
         )
 
+        custom_data = []
+        if payload.include_custom and user is not None:
+            custom_data = await run_in_threadpool(
+                get_from_submission,
+                payload.locations,
+                payload.regions,
+                [],
+                user,
+                custom_db,
+                payload.features,
+            )
+
         if isinstance(analysis_results, pd.DataFrame):
-            return {"success": True, "results": analysis_results.to_dict(orient="records")}
+            return {"success": True, "results": analysis_results.to_dict(orient="records"), "custom_data": custom_data}
 
         if isinstance(analysis_results, list) and all(isinstance(df, pd.DataFrame) for df in analysis_results):
             if not analysis_results:
-                return {"success": True, "results": []}
+                return {"success": True, "results": [], "custom_data": custom_data}
             merged = pd.concat(analysis_results, ignore_index=True)
-            return {"success": True, "results": merged.to_dict(orient="records")}
+            return {"success": True, "results": merged.to_dict(orient="records"), "custom_data": custom_data}
 
         return {"success": False, "error": "Unexpected analysis result format"}
     except Exception as e:

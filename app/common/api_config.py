@@ -24,7 +24,7 @@ API 配置文件
 
 # ========== API 限流配置（基于请求次数）==========
 # 使用 Redis 计数器实现，性能极高（<1ms）
-MAX_USER_REQUESTS_PER_HOUR = 1000  # 认证用户：1000次/小时（平均每分钟16次）
+MAX_USER_REQUESTS_PER_HOUR = 500  # 认证用户：1000次/小时（平均每分钟16次）
 MAX_IP_REQUESTS_PER_HOUR = 50     # 游客：50次/小时（平均每分钟0.8次）
 
 # 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
@@ -73,6 +73,7 @@ RECORD_API = [
     "/user/custom/batch-delete",
     "/api/custom_regions",
     "/api/villages/*",
+    "/api/yubao/*",
 ]
 
 # auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
@@ -200,7 +201,13 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
-    }, "/api/get_coordinates": {
+    }, "/api/yubao/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    "/api/get_coordinates": {
         "rate_limit": False,  # 不限流（查询类 API）
         "require_login": False,
         "log_params": True,

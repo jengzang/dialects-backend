@@ -1,4 +1,5 @@
 import sqlite3
+from typing import Callable
 
 from app.common.config import (
     _RUN_TYPE,
@@ -16,6 +17,8 @@ from app.common.path import (
     QUERY_DB_ADMIN,
     QUERY_DB_USER,
 )
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PATH
+from app.geo_query.loader import load_geo_query_engine
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
 from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
@@ -112,7 +115,7 @@ def initialize_geo_query_engine() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine...")
     try:
-        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
             from scripts.geo.build_lowmem_index import main as build_geo_index
             build_geo_index()
         load_geo_query_engine()
@@ -122,37 +125,50 @@ def initialize_geo_query_engine() -> None:
     print("=" * 60)
 
 
-def _get_email_delivery_mode() -> str:
-    if RESEND_API_KEY and RESEND_FROM_EMAIL:
-        return "resend"
-    if SMTP_HOST and SMTP_USERNAME and SMTP_PASSWORD:
-        return "smtp"
-    return "console_fallback"
+def initialize_geo_query_engine_strict() -> None:
+    print("=" * 60)
+    print("[GEO] Initializing AreaCity Python query engine (strict mode)...")
+    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
+        from scripts.geo.build_lowmem_index import main as build_geo_index
+        build_geo_index()
+    load_geo_query_engine()
+    print("[OK] Geo query engine ready")
+    print("=" * 60)
 
 
-def print_auth_runtime_capabilities() -> None:
-    redis_enabled = _RUN_TYPE == "WEB"
-    capability_lines = [
-        f"[AUTH] runtime_mode={_RUN_TYPE}",
-        f"[AUTH] redis_enabled={'true' if redis_enabled else 'false'}",
-        "[AUTH] auth_session_store=database",
-        f"[AUTH] auth_user_cache={'redis' if redis_enabled else 'disabled'}",
-        f"[AUTH] auth_rate_limit={'redis' if redis_enabled else 'disabled'}",
-        f"[AUTH] auth_permission_cache={'redis' if redis_enabled else 'disabled'}",
-        f"[AUTH] email_delivery={_get_email_delivery_mode()}",
-    ]
-    for line in capability_lines:
-        print(line)
+def _run_startup_steps(*steps: Callable[[], None]) -> None:
+    for step in steps:
+        step()
 
 
 def run_process_startup() -> None:
-    print_auth_runtime_capabilities()
-    initialize_db_pools()
-    migrate_user_region_tables()
-    migrate_logs_database()
-    cleanup_old_temp_files()
-    warm_dialect_cache()
-    initialize_geo_query_engine()
+    run_main_startup()
+
+
+def run_main_startup() -> None:
+    _run_startup_steps(
+        initialize_db_pools,
+        migrate_user_region_tables,
+        migrate_logs_database,
+        cleanup_old_temp_files,
+        warm_dialect_cache,
+    )
+
+
+def run_gis_startup() -> None:
+    _run_startup_steps(
+        initialize_db_pools,
+        cleanup_old_temp_files,
+        initialize_geo_query_engine_strict,
+    )
+
+
+def run_cluster_startup() -> None:
+    _run_startup_steps(
+        initialize_db_pools,
+        cleanup_old_temp_files,
+        warm_dialect_cache,
+    )
 
 
 async def shutdown_process_resources() -> None:

@@ -1,4 +1,4 @@
-﻿# routes/__init__.py
+# app/routes/__init__.py
 """
 [PKG] Route registration for the FastAPI app.
 """
@@ -10,29 +10,33 @@ from .auth import router as auth_router
 from .auth_wechat_mini import router as auth_wechat_mini_router
 from .index import router as index_router
 from .user import router as user_router
+from .yubao import router as yubao_router
 from ..sql import setup_sql_routes
 from app.routes.core.compare import router as compare_router
 from app.routes.core.matrix import router as matrix_router
 from app.routes.core.new_pho import router as new_pho_router
 from app.routes.core.phonology import router as phonology_router
 from app.routes.core.search import router as search_router
+from app.routes.geo.areacity_query import router as areacity_query_router
 from app.routes.geo.batch_match import router as batch_match_router
 from app.routes.geo.get_coordinates import router as coordinates_router
 from app.routes.geo.get_locs import router as locs_router
 from app.routes.geo.get_partitions import router as partitions_router
 from app.routes.geo.get_regions import router as region_router
 from app.routes.geo.locations import router as locations_router
-from app.routes.geo.areacity_query import router as areacity_query_router
 from app.routes.user.custom_query import router as custom_query_router
 from app.routes.user.custom_regions import router as custom_regions_router
 from app.routes.user.form_submit import router as form_router
 from app.service.logging import setup_logs_routes
 from app.service.logging.dependencies import ApiLimiter
-from app.tools import setup_tools_routes
+from app.tools import (
+    setup_cluster_tool_routes,
+    setup_non_cluster_tool_routes,
+)
 from app.villagesML import setup_villages_routes
 
 
-def setup_routes(app: FastAPI):
+def setup_main_routes(app: FastAPI):
     app.include_router(phonology_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(matrix_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(new_pho_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
@@ -47,6 +51,7 @@ def setup_routes(app: FastAPI):
     app.include_router(custom_regions_router, tags=["custom"], dependencies=[Depends(ApiLimiter)])
     app.include_router(search_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(yubao_router, prefix="/api", tags=["yubao"], dependencies=[Depends(ApiLimiter)])
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
@@ -54,7 +59,20 @@ def setup_routes(app: FastAPI):
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
 
-    setup_tools_routes(app)
+
+def setup_gis_routes(app: FastAPI):
+    """Register only the new GIS API surface under /api/gis/**."""
+    app.include_router(areacity_query_router, prefix="/api", tags=["gis"], dependencies=[Depends(ApiLimiter)])
+
+
+def setup_routes(app: FastAPI):
+    setup_main_routes(app)
+    setup_non_cluster_tool_routes(app)
+    setup_cluster_routes(app)
     setup_sql_routes(app)
     setup_logs_routes(app)
     setup_villages_routes(app)
+
+
+def setup_cluster_routes(app: FastAPI):
+    setup_cluster_tool_routes(app)

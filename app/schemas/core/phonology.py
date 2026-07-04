@@ -180,6 +180,10 @@ class YinWeiAnalysis(BaseModel):
         default="characters",
         description="字符數據庫表名"
     )
+    include_custom: bool = Field(
+        default=False,
+        description="是否附帶查詢當前用戶的自定義數據（需登錄，匿名用戶返回空數組）"
+    )
 
     @model_validator(mode="after")
     def check_locations_or_regions(self):
