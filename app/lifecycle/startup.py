@@ -13,6 +13,8 @@ from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PAT
 from app.geo_query.loader import load_geo_query_engine
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
+from app.geo_query.loader import load_geo_query_engine
 
 
 def initialize_db_pools() -> None:

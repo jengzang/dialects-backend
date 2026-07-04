@@ -42,6 +42,7 @@ def setup_main_routes(app: FastAPI):
     app.include_router(partitions_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(locations_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(region_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(areacity_query_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(batch_match_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(coordinates_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(form_router, prefix="/api", tags=["custom"], dependencies=[Depends(ApiLimiter)])
