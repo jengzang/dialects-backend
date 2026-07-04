@@ -174,6 +174,7 @@ async def compare_zhonggu(
     from app.service.core.new_pho import process_chars_status, generate_cache_key, get_cache, set_cache
     from app.service.core.status_arrange_pho import query_by_status_stats_only
     from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
+    from app.routes.core.new_pho import _expand_chars_input
 
     try:
         def _extract_chars(cached_items):
@@ -265,50 +266,40 @@ async def compare_zhonggu(
             return fresh_locations or []
 
         # === Step 1 & 2: 并行查询两组汉字（含缓存） ===
+        async def _resolve_group(path_strings, column, combine_query, exclude_columns, chars_input):
+            result = []
+            if path_strings:
+                result = await _resolve_chars(path_strings, column, combine_query, exclude_columns)
+            expanded = _expand_chars_input(chars_input)
+            if expanded:
+                merged_chars = _extract_chars(result)
+                for c in expanded:
+                    if c not in merged_chars:
+                        merged_chars.append(c)
+                merged_entry = {
+                    "query": chars_input[0] if chars_input else "自定義",
+                    "chars": merged_chars,
+                    "汉字": merged_chars,
+                    "漢字": merged_chars,
+                }
+                result = [merged_entry]
+            return result
+
         cached_char_result1, cached_char_result2 = await asyncio.gather(
-            _resolve_chars(
-                payload.path_strings1,
-                payload.column1,
-                payload.combine_query1,
-                payload.exclude_columns1
+            _resolve_group(
+                payload.path_strings1, payload.column1,
+                payload.combine_query1, payload.exclude_columns1,
+                payload.chars1,
             ),
-            _resolve_chars(
-                payload.path_strings2,
-                payload.column2,
-                payload.combine_query2,
-                payload.exclude_columns2
-            )
+            _resolve_group(
+                payload.path_strings2, payload.column2,
+                payload.combine_query2, payload.exclude_columns2,
+                payload.chars2,
+            ),
         )
 
-        if not cached_char_result1:
-            return {
-                "status": "empty",
-                "message": "第一组无符合条件的汉字",
-                "data": []
-            }
-
-        if not cached_char_result2:
-            return {
-                "status": "empty",
-                "message": "第二组无符合条件的汉字",
-                "data": []
-            }
-
-        # === Step 3: 处理地点 ===
-        locations_processed = await _resolve_locations()
-        locations_processed = list(dict.fromkeys(locations_processed))
-        features_processed = list(dict.fromkeys(payload.features))
-
-        if not locations_processed:
-            return {
-                "status": "error",
-                "message": "无效的地点或分区",
-                "data": []
-            }
-
-        # === Step 4: 收集所有汉字 ===
+        # === Step 3: 收集所有汉字 & 校验 ===
         chars1 = _extract_chars(cached_char_result1)
-
         chars2 = _extract_chars(cached_char_result2)
 
         if not chars1:
@@ -321,6 +312,18 @@ async def compare_zhonggu(
             return {
                 "status": "empty",
                 "message": "第二组无符合条件的汉字",
+                "data": []
+            }
+
+        # === Step 4: 处理地点 ===
+        locations_processed = await _resolve_locations()
+        locations_processed = list(dict.fromkeys(locations_processed))
+        features_processed = list(dict.fromkeys(payload.features))
+
+        if not locations_processed:
+            return {
+                "status": "error",
+                "message": "无效的地点或分区",
                 "data": []
             }
 

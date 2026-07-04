@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Optional
 
 from opencc import OpenCC
-from pypinyin import lazy_pinyin
+# from pypinyin import lazy_pinyin  # TEMP_DISABLED: startup memory optimization; restore to re-enable pinyin matching
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
@@ -75,13 +75,13 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
             rows = cursor.fetchall()
             geo_data_list.extend(rows)
 
-    # 预计算拼音
+    # 预计算拼音（临时禁用以降低启动导入与内存开销）
+    # geo_names_seen = set()
+    # for name, abbr in geo_data_list:
+    #     if name and name not in geo_names_seen:
+    #         geo_names_seen.add(name)
+    #         geo_pinyin_map[name] = ''.join(lazy_pinyin(name)).lower()
     geo_pinyin_map = {}
-    geo_names_seen = set()
-    for name, abbr in geo_data_list:
-        if name and name not in geo_names_seen:
-            geo_names_seen.add(name)
-            geo_pinyin_map[name] = ''.join(lazy_pinyin(name)).lower()
 
     # 存入缓存
     with _cache_lock:
@@ -241,8 +241,8 @@ def match_custom_feature(locations, regions, keyword, user: Optional[User], db: 
     except:
         pass
 
-    # 拼音比對預備
-    word_pinyin = ''.join(lazy_pinyin(keyword))
+    # 拼音比對預備（临时禁用以降低启动导入与内存开销）
+    # word_pinyin = ''.join(lazy_pinyin(keyword))
 
     # 查詢資料庫位置
     all_locations = query_dialect_abbreviations_orm(
@@ -276,15 +276,15 @@ def match_custom_feature(locations, regions, keyword, user: Optional[User], db: 
                 })
                 continue
 
-            # 拼音模糊比對
-            特徵_pinyin = ''.join(lazy_pinyin(特徵))
-            ratio = fuzz.ratio(word_pinyin, 特徵_pinyin) / 100.0
-            if ratio > 0.7:
-                result.append({
-                    "簡稱": record.簡稱,
-                    "聲韻調": record.聲韻調,
-                    "特徵": 特徵
-                })
+            # 拼音模糊比對（临时禁用以降低启动导入与内存开销）
+            # 特徵_pinyin = ''.join(lazy_pinyin(特徵))
+            # ratio = fuzz.ratio(word_pinyin, 特徵_pinyin) / 100.0
+            # if ratio > 0.7:
+            #     result.append({
+            #         "簡稱": record.簡稱,
+            #         "聲韻調": record.聲韻調,
+            #         "特徵": 特徵
+            #     })
 
     return result
 
@@ -384,21 +384,21 @@ def match_locations_batch_exact(input_string: str, filter_valid_abbrs_only=True,
 
 
 def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, query_db=QUERY_DB_ADMIN):
-    def is_pinyin_similar_cached(a, b, threshold, geo_pinyin_map):
-        """使用预计算的拼音缓存进行拼音相似度匹配"""
-        if not a or not b:
-            return False
-
-        # a 是用户输入，需要计算拼音
-        a_pinyin = ''.join(lazy_pinyin(a)).lower()
-
-        # b 是地名，使用预计算的拼音
-        b_pinyin = geo_pinyin_map.get(b)
-        if not b_pinyin:
-            b_pinyin = ''.join(lazy_pinyin(b)).lower()
-
-        ratio = fuzz.ratio(a_pinyin, b_pinyin) / 100.0
-        return ratio >= threshold
+    # def is_pinyin_similar_cached(a, b, threshold, geo_pinyin_map):
+    #     """使用预计算的拼音缓存进行拼音相似度匹配"""
+    #     if not a or not b:
+    #         return False
+    #
+    #     # a 是用户输入，需要计算拼音
+    #     a_pinyin = ''.join(lazy_pinyin(a)).lower()
+    #
+    #     # b 是地名，使用预计算的拼音
+    #     b_pinyin = geo_pinyin_map.get(b)
+    #     if not b_pinyin:
+    #         b_pinyin = ''.join(lazy_pinyin(b)).lower()
+    #
+    #     ratio = fuzz.ratio(a_pinyin, b_pinyin) / 100.0
+    #     return ratio >= threshold
 
     def is_similar(a, b, threshold=0.7):
         """使用 rapidfuzz 进行字符串相似度匹配"""
@@ -550,10 +550,10 @@ def match_locations(user_input, filter_valid_abbrs_only=True, exact_only=True, q
             fuzzy_geo_matches.add(name)
             fuzzy_geo_abbrs.add(abbr)
 
-        if is_pinyin_similar_cached(user_input, name, 0.9, geo_pinyin_map):
-            # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
-            sound_like_matches.add(name)
-            sound_like_abbrs.add(abbr)
+        # if is_pinyin_similar_cached(user_input, name, 0.9, geo_pinyin_map):
+        #     # print(f"[DEBUG] 拼音匹配: '{user_input}' ≈ '{name}' (abbr: {abbr})")
+        #     sound_like_matches.add(name)
+        #     sound_like_abbrs.add(abbr)
 
     # 构建按优先级排序的结果列表
     result_list = []

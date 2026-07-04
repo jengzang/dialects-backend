@@ -44,10 +44,15 @@ class CompareZhongGuAnalysis(BaseModel):
     比较两组中古音条件在方言中的读音差异
     """
     # --- 第一组中古音条件 ---
-    path_strings1: List[str] = Field(
-        ...,
+    path_strings1: Optional[List[str]] = Field(
+        default=None,
         description="第一组语音条件列表",
         example=["[知]{組}"]
+    )
+    chars1: Optional[List[str]] = Field(
+        default=None,
+        description="第一组可直接输入的汉字集合；每个元素若为多字串会自动拆字",
+        example=["笨", "蛋"]
     )
     column1: Optional[List[str]] = Field(
         default=None,
@@ -65,10 +70,15 @@ class CompareZhongGuAnalysis(BaseModel):
     )
 
     # --- 第二组中古音条件 ---
-    path_strings2: List[str] = Field(
-        ...,
+    path_strings2: Optional[List[str]] = Field(
+        default=None,
         description="第二组语音条件列表",
         example=["[莊]{組}"]
+    )
+    chars2: Optional[List[str]] = Field(
+        default=None,
+        description="第二组可直接输入的汉字集合；每个元素若为多字串会自动拆字",
+        example=["知", "庄"]
     )
     column2: Optional[List[str]] = Field(
         default=None,
@@ -114,6 +124,10 @@ class CompareZhongGuAnalysis(BaseModel):
     def check_locations_or_regions(self):
         if not self.locations and not self.regions:
             raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        if not self.path_strings1 and not self.chars1:
+            raise ValueError("第一組：path_strings1 和 chars1 不能同時為空，至少提供其一")
+        if not self.path_strings2 and not self.chars2:
+            raise ValueError("第二組：path_strings2 和 chars2 不能同時為空，至少提供其一")
         return self
 
     @field_validator('table_name')

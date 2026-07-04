@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from app.service.geo.match_input_tip import match_locations_batch_all
 from app.sql.db_selector import get_dialects_db, get_query_db
+from app.tools.cluster.executor_runtime import enqueue_job
 from app.tools.task_manager import task_manager
 
 from .schemas import (
@@ -145,7 +146,6 @@ async def _resolve_snapshot_from_payload(
 @router.post("/jobs", response_model=ClusterJobCreateResponse)
 async def create_cluster_job(
     payload: ClusterJobCreateRequest,
-    background_tasks: BackgroundTasks,
     query_db: str = Depends(get_query_db),
     dialects_db: str = Depends(get_dialects_db),
 ):
@@ -246,7 +246,11 @@ async def create_cluster_job(
         message="聚类任务已创建，等待执行",
     )
 
-    background_tasks.add_task(cluster_service["run_cluster_job"], task_id, dialects_db, query_db)
+    enqueue_job(
+        job_type="cluster_job",
+        task_id=task_id,
+        payload={"dialects_db": dialects_db, "query_db": query_db},
+    )
 
     return ClusterJobCreateResponse(
         task_id=task_id,
@@ -285,14 +289,17 @@ async def create_cluster_staged_preview(
 @router.post("/staged/prepare", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_prepare(
     payload: ClusterStagePrepareRequest,
-    background_tasks: BackgroundTasks,
 ):
     """启动或复用 prepare 阶段。"""
     staged_service = _cluster_staged_service()
     try:
         should_enqueue, response_payload = staged_service["start_prepare_task"](payload.prepare_hash)
         if should_enqueue:
-            background_tasks.add_task(staged_service["run_prepare_task"], response_payload["task_id"])
+            enqueue_job(
+                job_type="staged_prepare",
+                task_id=response_payload["task_id"],
+                payload={},
+            )
         return response_payload
     except Exception as exc:
         _raise_stage_http_error(exc)
@@ -301,7 +308,6 @@ async def start_cluster_staged_prepare(
 @router.post("/staged/distances", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_distance(
     payload: ClusterStageDistanceRequest,
-    background_tasks: BackgroundTasks,
 ):
     """启动或复用某个 phoneme_mode 的 distance 阶段。"""
     staged_service = _cluster_staged_service()
@@ -311,9 +317,12 @@ async def start_cluster_staged_distance(
             phoneme_mode=payload.phoneme_mode,
         )
         if should_enqueue:
-            background_tasks.add_task(
-                staged_service["run_distance_task"],
-                response_payload["task_id"],
+            enqueue_job(
+                job_type="staged_distance",
+                task_id=response_payload["task_id"],
+                payload={
+                    "phoneme_mode": payload.phoneme_mode,
+                },
             )
         return response_payload
     except Exception as exc:
@@ -323,18 +332,23 @@ async def start_cluster_staged_distance(
 @router.post("/staged/clusters", response_model=ClusterStageTaskResponse)
 async def start_cluster_staged_cluster(
     payload: ClusterStageClusterRequest,
-    background_tasks: BackgroundTasks,
 ):
     """启动或复用 cluster 阶段。"""
     staged_service = _cluster_staged_service()
     try:
         should_enqueue, response_payload = staged_service["start_cluster_task"](
-            payload.prepare_hash,
-            payload.phoneme_modes,
-            payload.cluster_params,
+            payload.distance_hash,
+            payload.clustering.model_dump(mode="json"),
         )
         if should_enqueue:
-            background_tasks.add_task(staged_service["run_cluster_task"], response_payload["task_id"])
+            enqueue_job(
+                job_type="staged_cluster",
+                task_id=response_payload["task_id"],
+                payload={
+                    "distance_hash": payload.distance_hash,
+                    "clustering_config": payload.clustering.model_dump(mode="json"),
+                },
+            )
         return response_payload
     except Exception as exc:
         _raise_stage_http_error(exc)

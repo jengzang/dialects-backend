@@ -37,22 +37,23 @@
 - 🔍 **中古音韵查询系统** - 按中古地位整理汉字读音，支持音位反查中古来源
 - 📊 **音韵分类矩阵** - 声母-韵母-汉字交叉表，支持多维度音韵特征分类
 - 🔎 **查字查调功能** - 根据汉字查询各方言点读音，支持声调查询和对比
-- 🗺️ **地理信息服务** - 方言点坐标查询、区域划分、批量匹配
+- 🗺️ **地理信息服务** - 既保留原有方言点坐标 / 区域 / 批量匹配接口，也新增了基于 `lowmem-sqlite` 引擎的 `/api/gis/**` 行政区边界与空间查询
 - 🎙️ **Praat 声学分析** - 音频声学参数提取、音高分析、共鸣峰检测、声调轮廓
 - 👤 **完整用户系统** - JWT 认证、权限管理、活动追踪、多数据库权限隔离
-- 🛠️ **专业工具集** - 粤拼转 IPA、数据校验、文件合并等实用工具
-- 💾 **自定义数据管理** - 用户可添加和管理自己的方言数据
+- 🛠️ **专业工具集** - 粤拼转 IPA、数据校验、文件合并、Praat 声学分析，以及带 staged 工作流与单实例执行队列的 cluster 工具能力
+- 💾 **自定义数据管理** - 用户可添加、读取、删除和管理自己的方言数据，并支持 SQL tree full/lazy 浏览与 fallback 行为
 - 📈 **三层缓存架构** - Redis 缓存（用户、权限）+ 内存缓存（方言数据）
 - 🔐 **安全可靠** - bcrypt 密码加密、Token 刷新、API 限流、权限控制
 - 🏘️ **VillagesML 机器学习系统** ⭐ - 广东省 285,860 条自然村地名分析，7 大模块（字符、语义、空间、模式、区域、ML 计算），50+ API 端点，100% 数据库覆盖
 - 📊 **管理员分析系统** ⭐ - 用户行为分析、RFM 分析、异常检测、排行榜系统、会话监控、设备追踪
+- 🧭 **Yubao 语保读取接口** ⭐ - 提供 `/api/yubao/**` 词汇与语法候选/明细查询
 
 ---
 
 ## 📊 项目统计
 
 > [!NOTE]
-> 本节已按 **2026-03-27** 当前仓库与 `data/*.db` 实际内容重新整理。  
+> 本节已按 **2026-07-03** 当前仓库与 `data/*.db` 实际内容重新整理。  
 > 其中“路由数量”按源码中的 FastAPI / APIRouter 装饰器扫描统计，“数据库数量/表数”按当前本地 `data/` 目录快照统计；后续若继续扩展模块或数据库，请同步更新本节。
 
 | 指标 | 当前数值 | 统计口径 |
@@ -64,22 +65,23 @@
 | **SQLite 数据库文件数** | 13 个 | 按 `data/*.db` 统计，包含 0 字节占位库 |
 | **SQLite 表总数** | 103 个 | 按所有 `.db` 中非 `sqlite_%` 表累加 |
 | **当前版本** | 2.0.1 | README 当前维护版本号 |
-| **最后更新** | 2026-03-27 | 本节最后核对日期 |
+| **最后更新** | 2026-07-03 | 本节最后核对日期 |
 
 ### 路由规模拆分（按源码目录统计）
 
 | 模块 | 路由数 |
 |------|------|
 | `app/routes/core` | 16 |
-| `app/routes/geo` | 7 |
-| `app/routes/user` | 11 |
+| `app/routes/geo` | 14 |
+| `app/routes/user` | 16 |
 | `app/routes/auth.py` | 9 |
-| `app/routes/index.py` | 9 |
+| `app/routes/index.py` | 4 |
 | `app/routes/admin` | 68 |
 | `app/routes/logging` | 14 |
 | `app/sql` | 14 |
-| `app/tools` | 27 |
+| `app/tools` | 40 |
 | `app/villagesML` | 107 |
+| `app/routes/yubao.py` | 4 |
 
 ### 当前数据库文件概览
 
@@ -161,9 +163,22 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 # 开发模式（单进程，自动重载）
 python run.py
 
-# 生产模式（多进程，推荐）
-gunicorn -c gunicorn_config.py app.main:app
+# 直接启动主应用
+python -m uvicorn app.entrypoints.main_app:app --host 127.0.0.1 --port 5000
+
+# 独立 GIS app（/api/gis/**）
+python -m uvicorn app.entrypoints.gis_app:app --host 127.0.0.1 --port 8095
+
+# 独立 Cluster app（/api/tools/cluster/**）
+python -m uvicorn app.entrypoints.cluster_app:app --host 127.0.0.1 --port 8096
 ```
+
+说明：
+- `run.py` 仍是本地统一启动入口，支持 `WEB / EXE / MINE` 三种运行模式。
+- `app/main.py` 当前提供三种装配函数：`create_main_app()`、`create_gis_app()`、`create_cluster_app()`。
+- `app/entrypoints/gis_app.py` 已验证可独立启动并承接 `/api/gis/**`。
+- `app/entrypoints/cluster_app.py` 也可独立启动承接 `/api/tools/cluster/**`，但当前 `main app` 仍重新包含了 cluster routes，因此当前代码事实不是“cluster 已完全从 main 移除”。
+- README 此处只描述当前仓库已存在且已验证的入口，不再假设你线上一定采用三套 gunicorn 分流部署。
 
 | 短參數 | 長參數 | 類型 | 可選值 | 默認值 | 功能描述                                      |
 | :--- | :--- | :--- | :--- | :--- |:------------------------------------------|
@@ -308,7 +323,12 @@ gunicorn -c gunicorn_config.py app.main:app
 
 现在都统一通过 [`app/tools/__init__.py`](app/tools/__init__.py) 注册。
 
-也就是说，`praat` 虽然内部目录结构更复杂，但在主应用挂载方式上已经不再是特例。
+此外，当前 `cluster` 工具路由也已经纳入统一 tools 挂载体系：
+
+- `setup_non_cluster_tool_routes(app)`：挂载 `check / jyut2ipa / merge / praat`
+- `setup_cluster_tool_routes(app)`：挂载 `/api/tools/cluster/**`
+
+也就是说，`praat` 虽然内部目录结构更复杂，但在主应用挂载方式上已经不再是特例；`cluster` 虽然支持独立 app 入口，当前主应用也仍会重新包含 cluster routes。
 
 ---
 
@@ -325,6 +345,10 @@ gunicorn -c gunicorn_config.py app.main:app
 该功能分为两个步骤：
 1. **获取汉字**：根据中古音韵地位条件筛选符合的汉字
 2. **方言分析**：查询这些汉字在指定方言点的读音
+
+当前版本相较旧文档有两点重要补充：
+- 支持直接传入 `chars` 字集，不必只依赖 `path_strings` 组合条件查字
+- 支持 `include_custom`，把用户自定义数据一起并入分析结果
 
 #### 请求参数
 
@@ -388,6 +412,10 @@ gunicorn -c gunicorn_config.py app.main:app
 
 #### 功能描述
 该功能采用 **p2s 模式**（Phonology to Status），即从现代音位推导中古地位。
+
+当前版本补充说明：
+- 非管理员若不提供具体 `pho_values`，会被拒绝全量查询
+- 支持 `include_custom`，把用户自定义数据一起返回
 
 #### 请求参数
 
@@ -3215,8 +3243,6 @@ python run.py -r MINE
 ---
 
 ## 7. 当前日志、统计与诊断体系
-
-这一段是最近变化最大的部分，也是最需要在 README 里补充的。
 
 ### 7.1 `auth.db` 与 `logs.db` 已经分工
 

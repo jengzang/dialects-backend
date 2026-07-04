@@ -198,7 +198,8 @@ def revoke_session(
 
     return RevokeSessionResponse(
         message="Session revoked successfully",
-        session=result["session"]
+        session=result["session"],
+        revoked_tokens=result["revoked_tokens"]
     )
 
 

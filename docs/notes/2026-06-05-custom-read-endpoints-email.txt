@@ -1,0 +1,164 @@
+各位好，
+
+后端已完成“自定义数据录入弹窗”一期新增的 4 个读取接口，现可用于前端联调。现有写接口保持不变，旧的 /user/custom/all 也未改动。
+
+一、鉴权说明
+- 这 4 个接口均需要登录态
+- 请求头：Authorization: Bearer <JWT>
+- 未登录时返回：401
+
+二、新增接口
+
+1) 获取用户方言点聚合列表
+GET /user/custom/points
+
+用途：
+- “补充单点资料”模式的卡片列表
+
+Query 参数：
+- keyword: 可选，模糊匹配 簡稱 / 音典分區
+
+返回示例：
+{
+  "success": true,
+  "data": [
+    {
+      "point_key": "陽春圭崗||嶺南",
+      "簡稱": "陽春圭崗",
+      "音典分區": "嶺南",
+      "經緯度": "111.742615,22.356760",
+      "feature_count": 12,
+      "updated_at": "2026-06-05T18:00:00+08:00"
+    }
+  ],
+  "total": 1
+}
+
+说明：
+- point_key 规则：簡稱 + "||" + 音典分區
+- feature_count：该点下记录总数
+- updated_at：当前实现中取该点下最新 created_at
+- 排序：updated_at DESC，其次按 簡稱 / 音典分區 稳定排序
+
+示例：
+- /user/custom/points
+- /user/custom/points?keyword=陽春
+
+2) 获取用户特征聚合列表
+GET /user/custom/features
+
+用途：
+- “制作特征分布”模式的卡片列表
+
+Query 参数：
+- keyword: 可选，模糊匹配 特徵 / 聲韻調
+
+返回示例：
+{
+  "success": true,
+  "data": [
+    {
+      "feature_key": "流攝||韻母",
+      "特徵": "流攝",
+      "聲韻調": "韻母",
+      "location_count": 5,
+      "updated_at": "2026-06-05T18:00:00+08:00"
+    }
+  ],
+  "total": 1
+}
+
+说明：
+- feature_key 规则：特徵 + "||" + 聲韻調
+- location_count：去重后的地点数，按 (簡稱, 音典分區) 去重
+- updated_at：当前实现中取该特征组下最新 created_at
+- 排序：updated_at DESC，其次按 特徵 / 聲韻調 稳定排序
+
+示例：
+- /user/custom/features
+- /user/custom/features?keyword=流
+
+3) 按地点获取该点全部记录
+GET /user/custom/data-by-point
+
+用途：
+- “补充单点资料”模式下，点击方言点卡片后加载该点全部特征记录
+
+必传 Query 参数：
+- location: 簡稱
+- region: 音典分區
+
+返回示例：
+{
+  "success": true,
+  "data": [
+    {
+      "簡稱": "陽春圭崗",
+      "音典分區": "嶺南",
+      "經緯度": "111.742615,22.356760",
+      "聲韻調": "韻母",
+      "特徵": "流攝",
+      "值": "eu",
+      "說明": "老派讀音",
+      "created_at": "2026-06-01T18:00:00+08:00"
+    }
+  ]
+}
+
+说明：
+- 必须同时传 location + region，避免同名地点混淆
+- 明细字段直接复用繁体字段
+- 排序：created_at ASC；若时间相同再按 id 稳定排序
+
+示例：
+- /user/custom/data-by-point?location=陽春圭崗&region=嶺南
+
+4) 按特征获取全部地点记录
+GET /user/custom/data-by-feature
+
+用途：
+- “制作特征分布”模式下，点击特征卡片后加载该特征下的全部地点记录
+
+必传 Query 参数：
+- feature: 特徵
+- phonology: 聲韻調
+
+返回示例：
+{
+  "success": true,
+  "data": [
+    {
+      "簡稱": "陽春圭崗",
+      "音典分區": "嶺南",
+      "經緯度": "111.742615,22.356760",
+      "聲韻調": "韻母",
+      "特徵": "流攝",
+      "值": "eu",
+      "說明": "",
+      "created_at": "2026-06-01T18:00:00+08:00"
+    }
+  ]
+}
+
+说明：
+- 必须同时传 feature + phonology，避免同名特征跨类别混淆
+- 明细字段直接复用繁体字段
+- 排序：created_at ASC，并补充了稳定排序字段
+
+示例：
+- /user/custom/data-by-feature?feature=流攝&phonology=韻母
+
+三、现有接口状态
+保留不变：
+- POST /user/custom/batch-create
+- PUT /user/custom/edit
+- DELETE /user/custom/batch-delete
+- GET /user/custom/all 继续服务旧的个人数据管理页
+
+四、补充说明
+- 目前聚合返回里的 updated_at 来自该聚合组内最新 created_at；数据库表本身没有单独的 updated_at 字段。
+- 我这边已本地启动当前代码并验证 OpenAPI 路由中已包含这 4 个新端点，未登录访问也能正确返回 401。
+
+如果前端联调时需要，我也可以再补一版对应的字段 TS 类型定义。
+
+谢谢。
