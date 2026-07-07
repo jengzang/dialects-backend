@@ -101,3 +101,26 @@ def query_feature_part_ids(conn: sqlite3.Connection, feature_id: int) -> list[in
         (int(feature_id),),
     ).fetchall()
     return [int(row["sub_id"]) for row in rows]
+
+
+def load_index(path: Path) -> dict:
+    payload = load_json(path)
+    records = [SubGeometryIndexRecord(**item) for item in payload["subgeometries"]]
+    grid_index: dict[str, list[int]] = {
+        key: [int(v) for v in value]
+        for key, value in payload.get("grid_index", {}).items()
+    }
+    subgrid_index: dict[str, list[int]] = {
+        key: [int(v) for v in value]
+        for key, value in payload.get("subgrid_index", {}).items()
+    }
+    feature_parts: dict[int, list[int]] = {
+        int(key): [int(v) for v in value]
+        for key, value in payload.get("feature_parts", {}).items()
+    }
+    return {
+        "records": records,
+        "grid_index": grid_index,
+        "subgrid_index": subgrid_index,
+        "feature_parts": feature_parts,
+    }
