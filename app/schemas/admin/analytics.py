@@ -312,3 +312,46 @@ class DeviceDistributionResponse(BaseModel):
     browsers: List[DeviceTypeItem]
     os: List[DeviceTypeItem]
     total_users: int
+
+
+# ===== User-API Matrix Schemas =====
+
+class UserApiMatrixUser(BaseModel):
+    user_id: int
+    username: str
+    total_calls: int
+    unique_apis: int
+
+
+class UserApiMatrixPath(BaseModel):
+    path: str
+    total_calls: int
+    unique_users: int
+
+
+class UserApiMatrixCell(BaseModel):
+    user_index: int
+    path_index: int
+    count: int
+    total_upload: float = 0.0
+    total_download: float = 0.0
+    total_duration: float = 0.0
+
+
+class UserApiMatrixMeta(BaseModel):
+    min_calls: int
+    max_users: int
+    max_paths: int
+    returned_users: int
+    returned_paths: int
+    returned_cells: int
+    users_truncated: bool
+    paths_truncated: bool
+    exclude_paths: Optional[str] = None
+
+
+class UserApiMatrixResponse(BaseModel):
+    meta: UserApiMatrixMeta
+    users: List[UserApiMatrixUser]
+    paths: List[UserApiMatrixPath]
+    matrix: List[UserApiMatrixCell]

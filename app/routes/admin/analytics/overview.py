@@ -23,6 +23,7 @@ from app.schemas.admin.analytics import (
     APIPerformanceResponse,
     GeoDistributionResponse,
     DeviceDistributionResponse,
+    UserApiMatrixResponse,
 )
 from app.service.admin.analytics import (
     get_user_segments,
@@ -36,6 +37,7 @@ from app.service.admin.analytics import (
     get_api_performance,
     get_geo_distribution,
     get_device_distribution,
+    get_user_api_matrix,
     export_data,
 )
 
@@ -207,6 +209,31 @@ async def api_device_distribution(
     Returns device types (desktop/mobile/tablet), browsers, and operating systems.
     """
     return get_device_distribution(db)
+
+
+@router.get("/user-api-matrix", response_model=UserApiMatrixResponse)
+async def api_user_api_matrix(
+    min_calls: int = Query(1, ge=1, description="Filter out (user, path) pairs below this call count"),
+    exclude_paths: Optional[str] = Query(None, description="Comma-separated paths to exclude, trailing * for prefix match"),
+    max_users: int = Query(500, ge=1, le=2000, description="Max top users to return"),
+    max_paths: int = Query(100, ge=1, le=500, description="Max top paths to return"),
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user x API path matrix for clustering analysis.
+
+    Reads from the pre-aggregated api_usage_summary table (cumulative totals).
+    Returns users[], paths[], and matrix[] with index-based references.
+    Use for heatmap and scatter-plot visualizations of user/API usage patterns.
+    """
+    return get_user_api_matrix(
+        db=db,
+        min_calls=min_calls,
+        exclude_paths=exclude_paths,
+        max_users=max_users,
+        max_paths=max_paths,
+    )
 
 
 @router.get("/export")
