@@ -17,7 +17,7 @@ from app.service.logging.stats import (
 )
 from app.service.logging.stats import keyword_stats
 
-router = APIRouter(tags=["日志统计"])
+router = APIRouter()
 
 
 # === 关键词统计 ===
