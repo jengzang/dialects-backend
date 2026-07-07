@@ -23,6 +23,7 @@ from .trends import get_recent_trends
 from .performance import get_api_performance
 from .geo import get_geo_distribution
 from .devices import get_device_distribution
+from .matrix import get_user_api_matrix
 from .export import export_data
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "get_api_performance",
     "get_geo_distribution",
     "get_device_distribution",
+    "get_user_api_matrix",
     "export_data",
 ]
