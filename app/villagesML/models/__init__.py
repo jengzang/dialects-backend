@@ -318,7 +318,9 @@ class TableInfo(BaseModel):
     """表信息模型"""
     table_name: str = Field(..., description="表名")
     row_count: int = Field(..., description="行数")
-    size_mb: float = Field(..., description="大小(MB)")
+    size_mb: float = Field(..., description="总大小(MB) = 数据大小 + 索引大小")
+    data_size_mb: Optional[float] = Field(None, description="表数据大小(MB)")
+    index_size_mb: Optional[float] = Field(None, description="表索引大小(MB)")
     index_count: int = Field(0, description="索引数量")
     last_modified: Optional[str] = Field(None, description="最后修改时间")
     columns: Optional[List[TableColumn]] = Field(None, description="列信息")
