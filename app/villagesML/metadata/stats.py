@@ -91,10 +91,6 @@ def _get_table_info_sync():
         """
         tables = execute_query(db, tables_query)
 
-        # 获取数据库页大小
-        page_size_query = "PRAGMA page_size"
-        page_size = execute_query(db, page_size_query)[0]["page_size"]
-
         # 尝试从 sqlite_stat1 获取行数估算（避免 COUNT(*) 全表扫描）
         stat1_available = False
         stat1_data = {}
@@ -134,23 +130,34 @@ def _get_table_info_sync():
                 except:
                     row_count = 0
 
-            # 获取表大小（估算方法：行数 * 平均行大小）
-            # SQLite 没有直接的表大小查询，这里使用估算
+            # 获取表数据大小：通过 dbstat 统计表自身 B-tree 页面的 pgsize 总和
             try:
-                # 尝试使用 dbstat（如果可用）
-                page_count_query = f"SELECT SUM(pageno) as pages FROM dbstat WHERE name = ?"
-                page_result = execute_query(db, page_count_query, (table_name,))
-                if page_result and page_result[0]["pages"]:
-                    page_count = page_result[0]["pages"]
-                    size_mb = (page_count * page_size) / (1024 * 1024)
-                else:
-                    # dbstat 不可用，使用粗略估算
-                    # 假设每行平均 100 字节
-                    size_mb = (row_count * 100) / (1024 * 1024)
+                data_query = "SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat WHERE name = ?"
+                data_result = execute_query(db, data_query, (table_name,))
+                data_bytes = data_result[0]["bytes"] if data_result else 0
+                data_size_mb = data_bytes / (1024 * 1024)
             except:
-                # 如果 dbstat 不可用，使用粗略估算
-                # 假设每行平均 100 字节
-                size_mb = (row_count * 100) / (1024 * 1024) if row_count > 0 else 0.0
+                # dbstat 不可用时使用粗略估算（每行约 100 字节）
+                data_size_mb = (row_count * 100) / (1024 * 1024) if row_count > 0 else 0.0
+
+            # 获取表关联的所有索引大小（包括 PRIMARY KEY / UNIQUE 产生的自动索引）
+            try:
+                index_query = """
+                    SELECT COALESCE(SUM(d.pgsize), 0) AS bytes
+                    FROM dbstat AS d
+                    WHERE d.name IN (
+                        SELECT name FROM sqlite_master
+                        WHERE type = 'index' AND tbl_name = ?
+                    )
+                """
+                index_result = execute_query(db, index_query, (table_name,))
+                index_bytes = index_result[0]["bytes"] if index_result else 0
+                index_size_mb = index_bytes / (1024 * 1024)
+            except:
+                index_size_mb = 0.0
+
+            total_size_mb = data_size_mb + index_size_mb
+            size_mb = total_size_mb
 
             # 获取索引信息
             index_query = f"""
@@ -213,6 +220,8 @@ def _get_table_info_sync():
                 "table_name": table_name,
                 "row_count": row_count,
                 "size_mb": round(size_mb, 2),
+                "data_size_mb": round(data_size_mb, 2),
+                "index_size_mb": round(index_size_mb, 2),
                 "index_count": index_count,
                 "last_modified": last_modified,
                 "columns": columns
