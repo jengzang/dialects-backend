@@ -28,6 +28,7 @@ SUPPLE_DB_URL = f"sqlite:///{SUPPLE_DB_PATH}"
 
 YC_SPOKEN_DB_PATH = os.path.join(BASE_DIR, "data", "yc_spoken.db")
 GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
+VILLAGE_ADMIN_DB_PATH = os.path.join(BASE_DIR, "data", "villages_admin.db")
 YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
 
 # 字表寫入SQL路徑依賴
@@ -74,6 +75,7 @@ LOGS_DATABASE_URL = f"sqlite:///{LOGS_DATABASE_PATH}"
 DB_MAPPING = {
     "spoken": YC_SPOKEN_DB_PATH,
     "village": GD_VILLAGE_DB_PATH,
+    "village_admin": VILLAGE_ADMIN_DB_PATH,
     "chars": CHARACTERS_DB_PATH,
     "query": QUERY_DB_USER,
     "query_admin": QUERY_DB_ADMIN,
@@ -86,8 +88,9 @@ DB_MAPPING = {
 }
 # 管理员专属数据库
 ADMIN_ONLY_DBS = {
-    "query_admin", 
-    "dialects_admin", 
+    "query_admin",
+    "dialects_admin",
+    "village_admin",
     "logs",
     # "supple", 
     # "auth"

@@ -41,6 +41,12 @@ def _quote_identifier(name: str) -> str:
     return f'"{name}"'
 
 
+def _safe_value(val):
+    """将 bytes 转为安全字符串，避免 JSON 序列化时 utf-8 解码失败"""
+    if isinstance(val, bytes):
+        return val.hex()
+    return val
+
 def _load_schema(db_key: str, refresh: bool = False) -> dict[str, set[str]]:
     with _SCHEMA_LOCK:
         if not refresh and db_key in _SCHEMA_CACHE:
@@ -433,7 +439,7 @@ async def get_full_tree(
             # 执行查询（加上限保护，避免全表超大结果拖垮接口）
             sql += f" LIMIT {MAX_FULL_TREE_ROWS + 1}"
             cursor.execute(sql, values)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [{k: _safe_value(v) for k, v in zip(row.keys(), row)} for row in cursor.fetchall()]
 
             if len(rows) > MAX_FULL_TREE_ROWS:
                 # 对全量表查 DISTINCT col_0 + col_1，按 col_0 分组
@@ -458,7 +464,7 @@ async def get_full_tree(
                         l0_val = (row[0] or '').strip()
                         l1_val = (row[1] or '').strip()
                         if not l0_val:
-                            continue
+                            l0_val = _EMPTY_PLACEHOLDER
                         if l0_val not in bootstrap:
                             bootstrap[l0_val] = []
                             seen_l1[l0_val] = set()
