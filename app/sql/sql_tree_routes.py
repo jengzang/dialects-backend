@@ -15,6 +15,7 @@ CREATE INDEX idx_level_2 ON 广东省自然村(乡镇级);
 CREATE INDEX idx_level_3 ON 广东省自然村(行政村);
 """
 
+import asyncio
 import sqlite3
 import threading
 from fastapi import APIRouter, HTTPException, Depends
@@ -27,7 +28,7 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
-from app.common.config import (
+from app.common.constants import (
     SQL_TREE_FULL_MAX_ROWS,
     SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
     SQL_TREE_LAZY_ROOT_MAX_CHILDREN,
@@ -478,6 +479,14 @@ async def get_full_tree(
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
+    return await asyncio.to_thread(_get_full_tree_sync, params, user, None)
+
+
+def _get_full_tree_sync(
+    params: FullTreeParams,
+    user: Optional[User],
+    auth_db: Session,
+):
     """
     获取完整树形结构
 
@@ -597,6 +606,14 @@ async def get_tree_children(
     params: LazyTreeParams,
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
+):
+    return await asyncio.to_thread(_get_tree_children_sync, params, user, None)
+
+
+def _get_tree_children_sync(
+    params: LazyTreeParams,
+    user: Optional[User],
+    auth_db: Session,
 ):
     """
     懒加载模式：获取指定路径下的子节点
