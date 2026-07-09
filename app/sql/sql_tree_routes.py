@@ -27,7 +27,7 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
-from app.common.constants import (
+from app.common.config import (
     SQL_TREE_FULL_MAX_ROWS,
     SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
     SQL_TREE_LAZY_ROOT_MAX_CHILDREN,

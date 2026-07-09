@@ -25,7 +25,7 @@ from app.service.auth.session.online_time_guard import check_online_time_report_
 from app.schemas import auth as schemas
 from app.service.auth.core import service
 from app.service.auth.database.connection import get_db
-from app.common.config import REQUIRE_EMAIL_VERIFICATION
+from app.common.auth_config import REQUIRE_EMAIL_VERIFICATION
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
