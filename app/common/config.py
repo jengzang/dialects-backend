@@ -6,6 +6,7 @@ import socket
 _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
 
 SQL_QUERY_MAX_PAGE = 50
+YUBAO_MAX_PAGE_SIZE = 2000
 SQL_TREE_FULL_MAX_ROWS = 5000
 SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD = 5000
 SQL_TREE_LAZY_ROOT_MAX_CHILDREN = 500
@@ -18,8 +19,10 @@ CACHE_EXPIRATION_TIME = 3600  # 秒
 # banner配置
 APP_NAME = "Dialect Compare Tool — FastAPI Backend"
 AUTHOR = "不羈 (JengZang)"
-VERSION = "2.0.1"
-DATE_STR = "2026-01-29"
+VERSION = "4.6.5"
+
+from datetime import date
+DATE_STR = date.today().strftime("%Y-%m-%d")
 
 
 # --------------------------

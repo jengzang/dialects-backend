@@ -1,9 +1,9 @@
-from app.service.yubao.repository import YubaoRepository
-from app.service.yubao.schemas import (
+from app.schemas.yubao import (
     YubaoGrammarItemsResponse,
     YubaoSuggestionResponse,
     YubaoVocabularyItemsResponse,
 )
+from app.service.yubao.repository import YubaoRepository
 
 
 class YubaoService:

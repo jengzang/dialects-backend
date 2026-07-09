@@ -1,6 +1,8 @@
 from typing import List, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
+
+from app.common.config import YUBAO_MAX_PAGE_SIZE
 
 
 class YubaoSuggestionResponse(BaseModel):
@@ -62,23 +64,8 @@ class YubaoGrammarItemsResponse(BaseModel):
 
 
 class YubaoItemsQuery(BaseModel):
-    page: int = 1
-    page_size: int = Field(default=100, le=2000)
+    """分页和排序查询参数，用于 vocabulary/grammar items 接口"""
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=100, ge=1, le=YUBAO_MAX_PAGE_SIZE)
     sort_by: Optional[str] = None
     sort_desc: bool = False
-
-    @field_validator('page')
-    @classmethod
-    def validate_page(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError('page must be at least 1')
-        return v
-
-    @field_validator('page_size')
-    @classmethod
-    def validate_page_size(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError('page_size must be at least 1')
-        if v > 2000:
-            raise ValueError('page_size cannot exceed 2000')
-        return v
