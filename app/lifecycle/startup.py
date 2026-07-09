@@ -1,6 +1,7 @@
 import sqlite3
 from typing import Callable
 
+from app.common.config import AUTO_INDEX, AUTO_MIGRATE
 from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
@@ -136,13 +137,20 @@ def run_process_startup() -> None:
 
 
 def run_main_startup() -> None:
-    _run_startup_steps(
+    steps: list[Callable[[], None]] = [
         initialize_db_pools,
-        migrate_user_region_tables,
-        migrate_logs_database,
+    ]
+    if AUTO_MIGRATE:
+        steps.append(migrate_user_region_tables)
+        steps.append(migrate_logs_database)
+    if AUTO_INDEX:
+        from app.sql.index_manager import initialize_all_indexes
+        steps.append(initialize_all_indexes)
+    steps.extend([
         cleanup_old_temp_files,
         warm_dialect_cache,
-    )
+    ])
+    _run_startup_steps(*steps)
 
 
 def run_gis_startup() -> None:

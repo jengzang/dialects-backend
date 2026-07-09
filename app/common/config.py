@@ -5,6 +5,8 @@ import socket
 # _RUN_TYPE = 'WEB'  # MINE/EXE/WEB
 _RUN_TYPE = os.getenv('_RUN_TYPE', 'WEB')  # 默认为 'WEB'
 
+
+# =======查询数据库配置限制===========
 SQL_QUERY_MAX_PAGE = 50
 YUBAO_MAX_PAGE_SIZE = 2000
 SQL_TREE_FULL_MAX_ROWS = 5000
@@ -45,11 +47,16 @@ APP_URL = f"http://{LOCAL_IP}:{PORT}"
 
 
 # === 自动迁移配置 ===
-AUTO_MIGRATE = os.getenv("AUTO_MIGRATE", "true").lower() == "true"
-MIGRATION_TIMEOUT = int(os.getenv("MIGRATION_TIMEOUT", "300"))  # 5分钟
+AUTO_MIGRATE = os.getenv("AUTO_MIGRATE", "false").lower() == "true"
+AUTO_INDEX = os.getenv("AUTO_INDEX", "false").lower() == "true"
 
 # 打印配置（仅在启动时）
 if AUTO_MIGRATE:
     print("[CONFIG] 自动迁移: 启用")
 else:
     print("[CONFIG] 自动迁移: 禁用（需手动运行迁移）")
+
+if AUTO_INDEX:
+    print("[CONFIG] 自动索引: 启用")
+else:
+    print("[CONFIG] 自动索引: 禁用（需手动运行 python -m app.sql.index_manager）")
