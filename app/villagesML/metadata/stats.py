@@ -115,6 +115,27 @@ def _get_table_info_sync():
             # sqlite_stat1 不存在或未运行 ANALYZE
             pass
 
+        # 一次性获取所有表和索引的 dbstat 数据，避免逐表扫描 dbstat
+        dbstat_sizes = {}
+        dbstat_available = False
+        try:
+            dbstat_query = "SELECT name, COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat GROUP BY name"
+            for row in execute_query(db, dbstat_query):
+                dbstat_sizes[row["name"]] = row["bytes"]
+            dbstat_available = True
+        except Exception:
+            dbstat_available = False
+
+        # 一次性获取所有索引名及其所属表
+        index_tbl_map = {}
+        try:
+            idx_rows = execute_query(db,
+                "SELECT name, tbl_name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+            for row in idx_rows:
+                index_tbl_map[row["name"]] = row["tbl_name"]
+        except Exception:
+            pass
+
         table_info_list = []
         for table in tables:
             table_name = table["table_name"]
@@ -130,30 +151,21 @@ def _get_table_info_sync():
                 except:
                     row_count = 0
 
-            # 获取表数据大小：通过 dbstat 统计表自身 B-tree 页面的 pgsize 总和
-            try:
-                data_query = "SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat WHERE name = ?"
-                data_result = execute_query(db, data_query, (table_name,))
-                data_bytes = data_result[0]["bytes"] if data_result else 0
+            # 获取表数据大小：从批量 dbstat 结果中取
+            if dbstat_available:
+                data_bytes = dbstat_sizes.get(table_name, 0)
                 data_size_mb = data_bytes / (1024 * 1024)
-            except:
-                # dbstat 不可用时使用粗略估算（每行约 100 字节）
+            else:
                 data_size_mb = (row_count * 100) / (1024 * 1024) if row_count > 0 else 0.0
 
-            # 获取表关联的所有索引大小（包括 PRIMARY KEY / UNIQUE 产生的自动索引）
-            try:
-                index_query = """
-                    SELECT COALESCE(SUM(d.pgsize), 0) AS bytes
-                    FROM dbstat AS d
-                    WHERE d.name IN (
-                        SELECT name FROM sqlite_master
-                        WHERE type = 'index' AND tbl_name = ?
-                    )
-                """
-                index_result = execute_query(db, index_query, (table_name,))
-                index_bytes = index_result[0]["bytes"] if index_result else 0
+            # 获取表关联的所有索引大小
+            if dbstat_available:
+                index_bytes = sum(
+                    dbstat_sizes.get(iname, 0)
+                    for iname, tname in index_tbl_map.items() if tname == table_name
+                )
                 index_size_mb = index_bytes / (1024 * 1024)
-            except:
+            else:
                 index_size_mb = 0.0
 
             total_size_mb = data_size_mb + index_size_mb
