@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/search_chars/")
 async def search_chars(
-    chars: List[str] = Query(..., description="要查询的汉字列表"),
+    chars: List[str] = Query(..., description="要查询的汉字列表，最多20个字"),
     locations: Optional[List[str]] = Query(None, description="地点列表"),
     regions: Optional[List[str]] = Query(None, description="分区列表"),
     region_mode: str = Query("yindian", description="分区模式: yindian/map"),
@@ -43,6 +43,15 @@ async def search_chars(
     query_db: str = Depends(get_query_db),
     user: Optional[User] = Depends(get_current_user),
 ):
+    # 按实际字符总数限制，防止通过 chars=天地 这种形式绕过数量限制
+    total_char_count = sum(len(char) for char in chars)
+
+    if total_char_count > 20:
+        raise HTTPException(
+            status_code=400,
+            detail=f"最多只能查询20个字，当前提交了{total_char_count}个字",
+        )
+
     if table_name not in VALID_CHARACTER_TABLES:
         raise HTTPException(
             status_code=400,
@@ -80,6 +89,7 @@ async def search_chars(
             db_path=query_db,
             region_mode=region_mode,
         )
+
         custom_data = []
         if include_custom and user is not None:
             custom_data = await run_in_threadpool(
@@ -100,10 +110,13 @@ async def search_chars(
                 "custom_data": custom_data,
             }
 
-        return {"result": result, "tones_result": tones_result, "custom_data": custom_data}
+        return {
+            "result": result,
+            "tones_result": tones_result,
+            "custom_data": custom_data,
+        }
     finally:
         logger.debug("search_chars completed")
-
 
 @router.get("/search_tones/")
 async def search_tones_o(
