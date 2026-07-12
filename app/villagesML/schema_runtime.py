@@ -122,9 +122,9 @@ def install_schema_views(conn: sqlite3.Connection, dbpath: str | None = None) ->
         columns = physical.get("columns", {})
         if not logical_name or not physical_name:
             continue
-        conn.execute(f"DROP VIEW IF EXISTS temp.{quote_identifier(logical_name)}")
         if logical_name == physical_name:
             continue
+        conn.execute(f"DROP VIEW IF EXISTS temp.{quote_identifier(logical_name)}")
 
         select_parts = []
         if logical_columns:

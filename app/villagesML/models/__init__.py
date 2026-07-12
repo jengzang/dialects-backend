@@ -146,6 +146,35 @@ class NetworkEdge(BaseModel):
     edge_type: str = Field(..., description="边类型")
 
 
+class CharacterNetworkRequest(BaseModel):
+    """字符网络请求模型"""
+    root_char: str = Field(..., min_length=1, max_length=1, description="根字符")
+    depth: int = Field(2, ge=1, le=4, description="BFS 扩展深度")
+    top_k: int = Field(5, ge=1, le=10, description="每节点保留前 K 个相似字")
+    min_similarity: float = Field(0.3, ge=0.0, le=1.0, description="相似度阈值")
+    max_nodes: int = Field(50, ge=10, le=1000, description="最大节点数上限")
+
+
+class NetworkNode(BaseModel):
+    """字符网络节点模型"""
+    character: str = Field(..., description="字符")
+    depth: int = Field(..., description="BFS深度")
+    similarity: float = Field(..., description="与父节点的相似度")
+
+
+class CharacterNetworkEdge(BaseModel):
+    """字符网络边模型"""
+    source: str = Field(..., description="源字符")
+    target: str = Field(..., description="目标字符")
+    similarity: float = Field(..., description="相似度")
+
+
+class CharacterNetworkResponse(BaseModel):
+    """字符网络响应模型"""
+    nodes: list[NetworkNode] = Field(..., description="节点列表")
+    edges: list[CharacterNetworkEdge] = Field(..., description="边列表")
+
+
 class NodeCentrality(BaseModel):
     """节点中心性模型"""
     category: str = Field(..., description="语义类别")
