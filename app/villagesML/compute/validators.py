@@ -152,15 +152,10 @@ class VillageInput(BaseModel):
 
 class FeatureExtractionParams(BaseModel):
     """特征提取参数"""
-    villages: List[VillageInput] = Field(..., min_items=1, max_items=1000)
+    villages: List[VillageInput] = Field(..., min_items=1, max_items=100000)
     features: Dict[str, Any] = Field(default_factory=dict)
 
-    @validator('villages')
-    def validate_villages(cls, v):
-        """验证村庄列表"""
-        if len(v) > 1000:
-            raise ValueError("Cannot extract features for more than 1000 villages at once")
-        return v
+
 
 
 class FeatureAggregationParams(BaseModel):
@@ -231,8 +226,8 @@ class ComparisonGroup(BaseModel):
         if v is not None:
             if len(v) == 0:
                 raise ValueError("village_ids cannot be empty")
-            if len(v) > 50000:
-                raise ValueError("Cannot compare more than 50000 villages at once")
+            if len(v) > 100000:
+                raise ValueError("Cannot compare more than 100000 villages at once")
         return v
 
     @model_validator(mode='after')

@@ -112,7 +112,7 @@ async def feature_counts(
     dialects_db: str = Depends(get_dialects_db)
 ):
     try:
-        result = get_feature_counts(locations, dialects_db)
+        result = await asyncio.to_thread(get_feature_counts, locations, dialects_db)
 
         if not result:
             raise HTTPException(status_code=404, detail="No data found for the given locations.")

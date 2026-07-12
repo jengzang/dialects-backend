@@ -10,7 +10,7 @@ from typing import Optional
 from app.service.logging.stats import hourly_daily_stats
 
 
-router = APIRouter(prefix="/logs/stats", tags=["日志统计"])
+router = APIRouter()
 
 
 @router.get("/hourly")

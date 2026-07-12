@@ -3,12 +3,14 @@
 Village Search API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List, Optional
+from typing import Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
-from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DEFAULT_RUN_ID
-from ..models import VillageBasic, VillageDetail, PaginatedResponse
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from ..models import VillageDetail, PaginatedResponse
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/village/search")
 
@@ -21,7 +23,8 @@ def search_villages(
     township: Optional[str] = Query(None, description="乡镇过滤"),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="返回数量"),
     offset: int = Query(0, ge=0, description="偏移量"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     搜索村庄
@@ -39,28 +42,36 @@ def search_villages(
         PaginatedResponse: 分页响应，包含总数和数据列表
     """
     # 构建 WHERE 条件
+    villages_table = qtable(dbpath, "villages")
+    village_name_col = qcolumn(dbpath, "villages", "name")
+    city_col = qcolumn(dbpath, "villages", "city")
+    county_col = qcolumn(dbpath, "villages", "county")
+    township_col = qcolumn(dbpath, "villages", "township")
+    longitude_col = qcolumn(dbpath, "villages", "longitude")
+    latitude_col = qcolumn(dbpath, "villages", "latitude")
+
     where_conditions = ["1=1"]
     params = []
 
     # 过滤掉名字为空的记录
-    where_conditions.append("自然村_规范名 IS NOT NULL AND 自然村_规范名 != ''")
+    where_conditions.append(f"{village_name_col} IS NOT NULL AND {village_name_col} != ''")
 
     # 如果 query 不是空字符串或纯空格，添加关键词过滤
     if query.strip():
-        where_conditions.append("自然村_规范名 LIKE ?")
+        where_conditions.append(f"{village_name_col} LIKE ?")
         params.append(f"%{query}%")
 
     # 区域过滤条件
     if city is not None:
-        where_conditions.append("市级 = ?")
+        where_conditions.append(f"{city_col} = ?")
         params.append(city)
 
     if county is not None:
-        where_conditions.append("区县级 = ?")
+        where_conditions.append(f"{county_col} = ?")
         params.append(county)
 
     if township is not None:
-        where_conditions.append("乡镇级 = ?")
+        where_conditions.append(f"{township_col} = ?")
         params.append(township)
 
     where_clause = " AND ".join(where_conditions)
@@ -68,7 +79,7 @@ def search_villages(
     # 1. 先查询总数
     count_sql = f"""
         SELECT COUNT(*) as total
-        FROM 广东省自然村_预处理
+        FROM {villages_table}
         WHERE {where_clause}
     """
     total_result = execute_query(db, count_sql, tuple(params))
@@ -78,13 +89,13 @@ def search_villages(
     data_sql = f"""
         SELECT
             ROWID as village_id,
-            自然村_规范名 as village_name,
-            市级 as city,
-            区县级 as county,
-            乡镇级 as township,
-            CAST(longitude AS REAL) as longitude,
-            CAST(latitude AS REAL) as latitude
-        FROM 广东省自然村_预处理
+            {village_name_col} as village_name,
+            {city_col} as city,
+            {county_col} as county,
+            {township_col} as township,
+            CAST({longitude_col} AS REAL) as longitude,
+            CAST({latitude_col} AS REAL) as latitude
+        FROM {villages_table}
         WHERE {where_clause}
         LIMIT ? OFFSET ?
     """
@@ -105,8 +116,9 @@ def get_village_detail(
     village_name: str = Query(..., description="村名"),
     city: str = Query(..., description="城市"),
     county: str = Query(..., description="区县"),
-    run_id: str = Query(DEFAULT_RUN_ID, description="分析运行ID"),
-    db: sqlite3.Connection = Depends(get_db)
+    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取村庄详情
@@ -116,22 +128,53 @@ def get_village_detail(
         village_name: 村名
         city: 城市
         county: 区县
-        run_id: 分析运行ID
+        run_id: 分析运行ID（留空使用活跃版本）
 
     Returns:
         VillageDetail: 村庄详情
     """
+    if run_id is None:
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "village_features")
+        )
+    villages_table = qtable(dbpath, "villages")
+    village_name_col = qcolumn(dbpath, "villages", "name")
+    city_col = qcolumn(dbpath, "villages", "city")
+    county_col = qcolumn(dbpath, "villages", "county")
+    township_col = qcolumn(dbpath, "villages", "township")
+    longitude_col = qcolumn(dbpath, "villages", "longitude")
+    latitude_col = qcolumn(dbpath, "villages", "latitude")
+    village_features_table = qtable(dbpath, "village_features")
+    village_features_run_id = qcolumn(dbpath, "village_features", "run_id")
+    village_features_name = qcolumn(dbpath, "village_features", "village_name")
+    village_features_city = qcolumn(dbpath, "village_features", "city")
+    village_features_county = qcolumn(dbpath, "village_features", "county")
+    village_features_semantic_tags = qcolumn(dbpath, "village_features", "semantic_tags")
+    village_features_suffix = qcolumn(dbpath, "village_features", "suffix")
+    village_features_cluster_id = qcolumn(dbpath, "village_features", "cluster_id")
+    village_spatial_features_table = qtable(dbpath, "village_spatial_features")
+    village_spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
+    village_spatial_features_name = qcolumn(dbpath, "village_spatial_features", "village_name")
+    village_spatial_features_city = qcolumn(dbpath, "village_spatial_features", "city")
+    village_spatial_features_county = qcolumn(dbpath, "village_spatial_features", "county")
+    village_spatial_features_knn_mean = qcolumn(dbpath, "village_spatial_features", "knn_mean_distance")
+    village_spatial_features_local_density = qcolumn(dbpath, "village_spatial_features", "local_density")
+    village_spatial_features_isolation = qcolumn(dbpath, "village_spatial_features", "isolation_score")
+    village_cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
+    village_cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
+    village_cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
+    village_cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
     # 获取基础信息
-    basic_query = """
+    basic_query = f"""
         SELECT
-            自然村_规范名 as village_name,
-            市级 as city,
-            区县级 as county,
-            乡镇级 as township,
-            CAST(longitude AS REAL) as longitude,
-            CAST(latitude AS REAL) as latitude
-        FROM 广东省自然村_预处理
-        WHERE 自然村_规范名 = ? AND 市级 = ? AND 区县级 = ?
+            {village_name_col} as village_name,
+            {city_col} as city,
+            {county_col} as county,
+            {township_col} as township,
+            CAST({longitude_col} AS REAL) as longitude,
+            CAST({latitude_col} AS REAL) as latitude
+        FROM {villages_table}
+        WHERE {village_name_col} = ? AND {city_col} = ? AND {county_col} = ?
     """
     basic_info = execute_single(db, basic_query, (village_name, city, county))
 
@@ -139,29 +182,32 @@ def get_village_detail(
         raise HTTPException(status_code=404, detail="Village not found")
 
     # 获取物化特征（如果存在）
-    features_query = """
+    features_query = f"""
         SELECT
-            semantic_tags,
-            suffix,
-            cluster_id
-        FROM village_features
-        WHERE run_id = ? AND village_name = ? AND city = ? AND county = ?
+            {village_features_semantic_tags} as semantic_tags,
+            {village_features_suffix} as suffix,
+            {village_features_cluster_id} as cluster_id
+        FROM {village_features_table}
+        WHERE {village_features_run_id} = ? AND {village_features_name} = ? AND {village_features_city} = ? AND {village_features_county} = ?
     """
     features = execute_single(db, features_query, (run_id, village_name, city, county))
 
     # 获取空间特征（如果存在）
-    spatial_query = """
+    spatial_cluster_run_id = get_run_id_manager(dbpath).get_active_run_id(
+        run_id_analysis_type(dbpath, "spatial_clusters")
+    )
+    spatial_query = f"""
         SELECT
-            vsf.knn_mean_distance,
-            vsf.local_density,
-            vsf.isolation_score,
-            vca.cluster_id as spatial_cluster_id
-        FROM village_spatial_features vsf
-        LEFT JOIN village_cluster_assignments vca
-            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
-        WHERE vsf.village_name = ? AND vsf.city = ? AND vsf.county = ?
+            vsf.{village_spatial_features_knn_mean} as knn_mean_distance,
+            vsf.{village_spatial_features_local_density} as local_density,
+            vsf.{village_spatial_features_isolation} as isolation_score,
+            vca.{village_cluster_assignments_cluster_id} as spatial_cluster_id
+        FROM {village_spatial_features_table} vsf
+        LEFT JOIN {village_cluster_assignments_table} vca
+            ON vsf.{village_spatial_features_village_id} = vca.{village_cluster_assignments_village_id} AND vca.{village_cluster_assignments_run_id} = ?
+        WHERE vsf.{village_spatial_features_name} = ? AND vsf.{village_spatial_features_city} = ? AND vsf.{village_spatial_features_county} = ?
     """
-    spatial = execute_single(db, spatial_query, (village_name, city, county))
+    spatial = execute_single(db, spatial_query, (spatial_cluster_run_id, village_name, city, county))
 
     # 组装详情
     detail = {

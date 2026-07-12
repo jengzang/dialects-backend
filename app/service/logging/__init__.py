@@ -21,6 +21,7 @@ def setup_logs_routes(app: FastAPI):
     )
     app.include_router(
         hourly_daily_router,
+        prefix="/logs/stats",
         tags=["日誌統計"],
         dependencies=[Depends(ApiLimiter)]
     )

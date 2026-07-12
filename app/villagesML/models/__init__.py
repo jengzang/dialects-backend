@@ -146,6 +146,35 @@ class NetworkEdge(BaseModel):
     edge_type: str = Field(..., description="边类型")
 
 
+class CharacterNetworkRequest(BaseModel):
+    """字符网络请求模型"""
+    root_char: str = Field(..., min_length=1, max_length=1, description="根字符")
+    depth: int = Field(2, ge=1, le=4, description="BFS 扩展深度")
+    top_k: int = Field(5, ge=1, le=10, description="每节点保留前 K 个相似字")
+    min_similarity: float = Field(0.3, ge=0.0, le=1.0, description="相似度阈值")
+    max_nodes: int = Field(50, ge=10, le=1000, description="最大节点数上限")
+
+
+class NetworkNode(BaseModel):
+    """字符网络节点模型"""
+    character: str = Field(..., description="字符")
+    depth: int = Field(..., description="BFS深度")
+    similarity: float = Field(..., description="与父节点的相似度")
+
+
+class CharacterNetworkEdge(BaseModel):
+    """字符网络边模型"""
+    source: str = Field(..., description="源字符")
+    target: str = Field(..., description="目标字符")
+    similarity: float = Field(..., description="相似度")
+
+
+class CharacterNetworkResponse(BaseModel):
+    """字符网络响应模型"""
+    nodes: list[NetworkNode] = Field(..., description="节点列表")
+    edges: list[CharacterNetworkEdge] = Field(..., description="边列表")
+
+
 class NodeCentrality(BaseModel):
     """节点中心性模型"""
     category: str = Field(..., description="语义类别")
@@ -245,6 +274,56 @@ class VillageDetail(BaseModel):
     spatial_features: Optional[Dict] = Field(None, description="空间特征")
 
 
+class SubsetFilterRequest(BaseModel):
+    """子集筛选请求模型"""
+    # --- 区域 ---
+    city: Optional[str] = Field(None, description="城市精确筛选")
+    county: Optional[str] = Field(None, description="区县精确筛选")
+    township: Optional[str] = Field(None, description="乡镇精确筛选")
+
+    # --- 名称 ---
+    keyword: Optional[str] = Field(None, description="村名模糊匹配")
+    name_match_mode: str = Field("contains", description="名称匹配模式: contains | startsWith | endsWith | equals")
+    length: Optional[int] = Field(None, ge=1, description="精确名称长度，与 min_length/max_length 互斥")
+    min_length: Optional[int] = Field(None, ge=1, description="最小名称长度")
+    max_length: Optional[int] = Field(None, ge=1, description="最大名称长度")
+
+    # --- 语义 ---
+    semantic_categories: Optional[list[str]] = Field(None, description="语义大类，OR关系")
+    semantic_match: str = Field("any", description="多类别逻辑: any | all")
+
+    # --- 结构 ---
+    structure_patterns: Optional[list[str]] = Field(None, description="结构模式: modifier_head, modifier_only, head_only, settlement")
+    suffix: Optional[str] = Field(None, min_length=1, max_length=1, description="后缀字符")
+    prefix: Optional[str] = Field(None, min_length=1, max_length=1, description="前缀字符")
+    char_at_position: Optional[int] = Field(None, ge=1, description="指定位置")
+    char_at_value: Optional[str] = Field(None, min_length=1, max_length=1, description="指定位置字符")
+
+    # --- 空间 ---
+    lat_min: Optional[float] = Field(None, ge=-90, le=90, description="最小纬度")
+    lat_max: Optional[float] = Field(None, ge=-90, le=90, description="最大纬度")
+    lon_min: Optional[float] = Field(None, ge=-180, le=180, description="最小经度")
+    lon_max: Optional[float] = Field(None, ge=-180, le=180, description="最大经度")
+
+    # --- 分页 ---
+    max_results: int = Field(5000, ge=1, le=50000, description="返回上限")
+
+
+class SubsetVillageItem(BaseModel):
+    """子集村庄条目模型"""
+    id: int = Field(..., description="村庄ID")
+    name: str = Field(..., description="村庄名称")
+    city: str = Field(..., description="城市")
+    county: str = Field(..., description="区县")
+    name_length: int = Field(..., description="名称长度")
+
+
+class SubsetFilterResponse(BaseModel):
+    """子集筛选响应模型"""
+    villages: list[SubsetVillageItem] = Field(..., description="村庄列表")
+    total: int = Field(..., description="匹配总数")
+
+
 # ============================================================================
 # 区域聚合模型 (Regional Aggregation Models)
 # ============================================================================
@@ -318,7 +397,9 @@ class TableInfo(BaseModel):
     """表信息模型"""
     table_name: str = Field(..., description="表名")
     row_count: int = Field(..., description="行数")
-    size_mb: float = Field(..., description="大小(MB)")
+    size_mb: float = Field(..., description="总大小(MB) = 数据大小 + 索引大小")
+    data_size_mb: Optional[float] = Field(None, description="表数据大小(MB)")
+    index_size_mb: Optional[float] = Field(None, description="表索引大小(MB)")
     index_count: int = Field(0, description="索引数量")
     last_modified: Optional[str] = Field(None, description="最后修改时间")
     columns: Optional[List[TableColumn]] = Field(None, description="列信息")

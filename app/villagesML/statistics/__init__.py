@@ -7,13 +7,14 @@ from fastapi.concurrency import run_in_threadpool
 import sqlite3
 from typing import Dict, Any
 
-from ..dependencies import get_db
+from ..dependencies import get_db, get_dbpath
 from ..cache_utils import api_cache
+from ..schema_runtime import column_name, qcolumn, qtable, table_name
 
 router = APIRouter(prefix="/statistics")
 
 
-def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
+def _get_ngram_statistics_sync(db: sqlite3.Connection, dbpath: str) -> Dict[str, Any]:
     """
     同步获取 N-gram 统计信息（在线程池中执行）
     Synchronous function to get N-gram statistics (runs in thread pool)
@@ -25,11 +26,17 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
         dict: N-gram 统计数据
     """
     cursor = db.cursor()
+    significance_table = qtable(dbpath, "ngram_significance")
+    significance_level = qcolumn(dbpath, "ngram_significance", "level")
+    significance_region = qcolumn(dbpath, "ngram_significance", "region")
+    significance_p_value = qcolumn(dbpath, "ngram_significance", "p_value")
+    significance_total_before = qcolumn(dbpath, "ngram_significance", "total_before_filter")
+    regional_frequency_table = qtable(dbpath, "regional_ngram_frequency")
 
     # 检查是否有 total_before_filter 字段
-    cursor.execute("PRAGMA table_info(ngram_significance)")
+    cursor.execute(f"PRAGMA table_info({significance_table})")
     columns = [col[1] for col in cursor.fetchall()]
-    has_total_before_filter = 'total_before_filter' in columns
+    has_total_before_filter = column_name(dbpath, "ngram_significance", "total_before_filter") in columns
 
     # 按级别统计，同时推导全局计数（避免额外的全表 COUNT 查询）
     by_level = {}
@@ -39,20 +46,20 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
 
     if has_total_before_filter:
         # 用 CTE 预聚合去重，消灭关联子查询
-        cursor.execute("""
+        cursor.execute(f"""
             WITH level_before AS (
-                SELECT level, SUM(total_before_filter) AS total_before
-                FROM (SELECT DISTINCT level, region, total_before_filter
-                      FROM ngram_significance)
-                GROUP BY level
+                SELECT {significance_level} as level, SUM({significance_total_before}) AS total_before
+                FROM (SELECT DISTINCT {significance_level}, {significance_region}, {significance_total_before}
+                      FROM {significance_table})
+                GROUP BY {significance_level}
             )
-            SELECT ns.level,
+            SELECT ns.{significance_level} as level,
                    COUNT(*) AS total,
-                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) AS significant,
+                   SUM(CASE WHEN ns.{significance_p_value} < 0.05 THEN 1 ELSE 0 END) AS significant,
                    lb.total_before
-            FROM ngram_significance ns
-            JOIN level_before lb ON ns.level = lb.level
-            GROUP BY ns.level
+            FROM {significance_table} ns
+            JOIN level_before lb ON ns.{significance_level} = lb.level
+            GROUP BY ns.{significance_level}
         """)
         for level, total, sig, total_before in cursor.fetchall():
             total_before = total_before or total
@@ -66,12 +73,12 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
             significant_count += sig
             total_before_filter_global += total_before
     else:
-        cursor.execute("""
-            SELECT level,
+        cursor.execute(f"""
+            SELECT {significance_level} as level,
                    COUNT(*) AS total,
-                   SUM(CASE WHEN p_value < 0.05 THEN 1 ELSE 0 END) AS significant
-            FROM ngram_significance
-            GROUP BY level
+                   SUM(CASE WHEN {significance_p_value} < 0.05 THEN 1 ELSE 0 END) AS significant
+            FROM {significance_table}
+            GROUP BY {significance_level}
         """)
         for level, total, sig in cursor.fetchall():
             by_level[level] = {
@@ -84,7 +91,7 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
         total_before_filter_global = None
 
     # 统计 regional_ngram_frequency 表
-    cursor.execute("SELECT COUNT(*) FROM regional_ngram_frequency")
+    cursor.execute(f"SELECT COUNT(*) FROM {regional_frequency_table}")
     regional_total = cursor.fetchone()[0]
 
     result = {
@@ -111,7 +118,10 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection) -> Dict[str, Any]:
 
 @router.get("/ngrams")
 @api_cache(ttl=300, prefix="ngrams_stats")
-async def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, Any]:
+async def get_ngram_statistics(
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
+) -> Dict[str, Any]:
     """
     获取 N-gram 统计信息
     Get N-gram statistics
@@ -119,11 +129,14 @@ async def get_ngram_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict
     Returns:
         dict: N-gram 统计数据
     """
-    return await run_in_threadpool(_get_ngram_statistics_sync, db)
+    return await run_in_threadpool(_get_ngram_statistics_sync, db, dbpath)
 
 
 @router.get("/database")
-def get_database_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[str, Any]:
+def get_database_statistics(
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
+) -> Dict[str, Any]:
     """
     获取数据库统计信息
     Get database statistics
@@ -133,7 +146,7 @@ def get_database_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[st
     """
     cursor = db.cursor()
 
-    tables = [
+    logical_tables = [
         'regional_ngram_frequency',
         'ngram_tendency',
         'ngram_significance',
@@ -145,14 +158,16 @@ def get_database_statistics(db: sqlite3.Connection = Depends(get_db)) -> Dict[st
     table_stats = {}
     total_records = 0
 
-    for table in tables:
+    for logical_table in logical_tables:
+        response_key = table_name(dbpath, logical_table)
+        table = qtable(dbpath, logical_table)
         try:
             cursor.execute(f"SELECT COUNT(*) FROM {table}")
             count = cursor.fetchone()[0]
-            table_stats[table] = count
+            table_stats[response_key] = count
             total_records += count
         except:
-            table_stats[table] = 0
+            table_stats[response_key] = 0
 
     return {
         "tables": table_stats,

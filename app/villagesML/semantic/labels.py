@@ -5,7 +5,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..dependencies import execute_query, execute_single, get_db
+from ..dependencies import execute_query, execute_single, get_db, get_dbpath
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/semantic/labels")
 
@@ -14,17 +15,23 @@ router = APIRouter(prefix="/semantic/labels")
 def get_semantic_label_by_character(
     char: str = Query(..., description="Character", min_length=1, max_length=1),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Get semantic label for one character."""
     try:
-        query = """
+        table = qtable(dbpath, "semantic_labels")
+        char_col = qcolumn(dbpath, "semantic_labels", "char")
+        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
+        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
+        explanation_col = qcolumn(dbpath, "semantic_labels", "llm_explanation")
+        query = f"""
             SELECT
-                char as character,
-                semantic_category,
-                confidence,
-                llm_explanation
-            FROM semantic_labels
-            WHERE char = ?
+                {char_col} as character,
+                {category_col} as semantic_category,
+                {confidence_col} as confidence,
+                {explanation_col} as llm_explanation
+            FROM {table}
+            WHERE {char_col} = ?
         """
         result = execute_single(db, query, (char,))
         if not result:
@@ -42,25 +49,31 @@ def get_characters_by_semantic_category(
     min_confidence: Optional[float] = Query(None, ge=0.0, le=1.0, description="Minimum confidence"),
     limit: int = Query(100, ge=1, le=500, description="Max records"),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Get characters in a semantic category."""
     try:
-        query = """
+        table = qtable(dbpath, "semantic_labels")
+        char_col = qcolumn(dbpath, "semantic_labels", "char")
+        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
+        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
+        explanation_col = qcolumn(dbpath, "semantic_labels", "llm_explanation")
+        query = f"""
             SELECT
-                char as character,
-                semantic_category,
-                confidence,
-                llm_explanation
-            FROM semantic_labels
-            WHERE semantic_category = ?
+                {char_col} as character,
+                {category_col} as semantic_category,
+                {confidence_col} as confidence,
+                {explanation_col} as llm_explanation
+            FROM {table}
+            WHERE {category_col} = ?
         """
         params = [category]
 
         if min_confidence is not None:
-            query += " AND confidence >= ?"
+            query += f" AND {confidence_col} >= ?"
             params.append(min_confidence)
 
-        query += " ORDER BY confidence DESC LIMIT ?"
+        query += f" ORDER BY {confidence_col} DESC LIMIT ?"
         params.append(limit)
 
         results = execute_query(db, query, tuple(params))
@@ -77,16 +90,20 @@ def get_characters_by_semantic_category(
 @router.get("/categories")
 def list_semantic_categories(
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """List semantic categories and their counts."""
     try:
-        query = """
+        table = qtable(dbpath, "semantic_labels")
+        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
+        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
+        query = f"""
             SELECT
-                semantic_category,
+                {category_col} as semantic_category,
                 COUNT(*) as character_count,
-                AVG(confidence) as avg_confidence
-            FROM semantic_labels
-            GROUP BY semantic_category
+                AVG({confidence_col}) as avg_confidence
+            FROM {table}
+            GROUP BY {category_col}
             ORDER BY character_count DESC
         """
         results = execute_query(db, query)

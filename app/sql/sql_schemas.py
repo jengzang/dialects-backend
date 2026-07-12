@@ -2,12 +2,14 @@ from typing import Optional, Dict, List, Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.common.config import SQL_QUERY_MAX_PAGE
+
 
 class QueryParams(BaseModel):
     db_key: str
     table_name: str
     page: int = 1
-    page_size: int = Field(default=20, le=50, description="每页数量，最大50")
+    page_size: int = Field(default=20, le=SQL_QUERY_MAX_PAGE, description="每页数量，最大50")
     sort_by: Optional[str] = None
     sort_desc: bool = False
     filters: Dict[str, List[Any]] = {} # 格式: {"city": ["Beijing", "Shanghai"], "status": [1]}

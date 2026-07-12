@@ -1,4 +1,4 @@
-# app/routes/__init__.py
+﻿# app/routes/__init__.py
 """
 [PKG] Route registration for the FastAPI app.
 """
@@ -45,12 +45,12 @@ def setup_main_routes(app: FastAPI):
     app.include_router(areacity_query_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(batch_match_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(coordinates_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(form_router, prefix="/api", tags=["custom"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(custom_query_router, prefix="/api", tags=["custom"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(custom_regions_router, tags=["custom"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(form_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(custom_query_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(custom_regions_router, tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(search_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
-    app.include_router(yubao_router, prefix="/api", tags=["yubao"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(yubao_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
