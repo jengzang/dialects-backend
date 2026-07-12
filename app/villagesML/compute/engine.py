@@ -1631,7 +1631,10 @@ class FeatureEngine:
 
     def aggregate_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        聚合区域特征（实时从 village_features GROUP BY 计算）
+        区域特征聚合（统计增强版）。
+
+        不只返回原始百分比，还计算 lift（相对全局的提升度）、z-score（跨区域标准差）、
+        多样性熵、结构画像，让每个区域的特征可解释、可比较。
 
         Args:
             params: 聚合参数
@@ -1639,6 +1642,7 @@ class FeatureEngine:
         Returns:
             特征聚合结果
         """
+        import math
         start_time = time.time()
 
         region_level = params['region_level']
@@ -1652,66 +1656,146 @@ class FeatureEngine:
             'township': ['city', 'county', 'town'],
         }
         group_cols = group_cols_map.get(region_level, ['city', 'county'])
-        region_col = group_cols[-1]  # last group column is the region identifier
+        region_col = group_cols[-1]
+
+        sem_names = ['mountain', 'water', 'settlement', 'direction', 'clan',
+                     'symbolic', 'agriculture', 'vegetation', 'infrastructure']
 
         with self._connection() as conn:
             vf_table = self._table('village_features')
+            vss_table = self._table('village_semantic_structure')
+            gcp = [self._column('village_features', g) for g in group_cols]
 
-            sem_names = ['mountain', 'water', 'settlement', 'direction', 'clan',
-                         'symbolic', 'agriculture', 'vegetation', 'infrastructure']
+            # ---- filter helpers ----
+            def _region_filter():
+                if not region_names:
+                    return "", []
+                fc = self._column('village_features', region_col)
+                ph = ','.join(['?' for _ in region_names])
+                return f" WHERE {fc} IN ({ph})", list(region_names)
+
+            where, where_params = _region_filter()
+
+            # ==== 1. global baseline — aggregate over ALL villages ====
+            global_total = conn.execute(f"SELECT COUNT(*) FROM {vf_table}").fetchone()[0]
+            global_sem_sums = {}
+            for n in sem_names:
+                col = self._column('village_features', f'sem_{n}')
+                s = conn.execute(f"SELECT SUM({col}) FROM {vf_table}").fetchone()[0] or 0
+                global_sem_sums[n] = s
+
+            global_suffix_total = conn.execute(
+                f"SELECT COUNT(*) FROM {vf_table} WHERE {self._column('village_features', 'suffix_1')} IS NOT NULL AND {self._column('village_features', 'suffix_1')} != ''"
+            ).fetchone()[0]
+            global_suffix_counts: dict = {}
+            sfx_col = self._column('village_features', 'suffix_1')
+            for row in conn.execute(
+                f"SELECT {sfx_col}, COUNT(*) as cnt FROM {vf_table} WHERE {sfx_col} IS NOT NULL AND {sfx_col} != '' GROUP BY {sfx_col}"
+            ).fetchall():
+                global_suffix_counts[row[0]] = row[1]
+
+            # ==== 2. per-region basic stats ====
             sem_cols = [self._column('village_features', f'sem_{n}') for n in sem_names]
-            sem_pct_exprs = [
-                f"SUM({c}) * 100.0 / NULLIF(COUNT(*), 0) AS sem_{n}_pct"
-                for c, n in zip(sem_cols, sem_names)
-            ]
-
-            group_cols_physical = [self._column('village_features', g) for g in group_cols]
-            select_parts = group_cols_physical + [
+            sem_sum_exprs = [f"SUM({c}) AS sem_{n}_cnt" for c, n in zip(sem_cols, sem_names)]
+            select_parts = gcp + [
                 "COUNT(*) AS total_villages",
                 f"AVG({self._column('village_features', 'name_length')}) AS avg_name_length",
-            ] + sem_pct_exprs
+            ] + sem_sum_exprs
 
-            query = f"SELECT {', '.join(select_parts)} FROM {vf_table}"
-            params_list = None
-            if region_names:
-                filter_col_physical = self._column('village_features', region_col)
-                placeholders = ','.join(['?' for _ in region_names])
-                query += f" WHERE {filter_col_physical} IN ({placeholders})"
-                params_list = region_names
-            query += f" GROUP BY {', '.join(group_cols_physical)}"
-            df = pd.read_sql_query(query, conn, params=params_list)
+            query = f"SELECT {', '.join(select_parts)} FROM {vf_table}{where} GROUP BY {', '.join(gcp)}"
+            df = pd.read_sql_query(query, conn, params=where_params)
 
-            # Map physical column names back to logical names
             for g in group_cols:
                 physical = self._column('village_features', g).strip('"')
                 if physical in df.columns and physical != g:
                     df[g] = df[physical]
 
-            # Pre-compute suffix/prefix top-N
-            suffix_prefix_data: dict = {}
-            if feature_config.get('morphology_freq', True):
-                for suffix_col, key in [('suffix_1', 'top_suffixes'), ('prefix_1', 'top_prefixes')]:
-                    col = self._column('village_features', suffix_col)
-                    gcp = group_cols_physical
-                    sp_query = f"""
-                        SELECT {', '.join(gcp)}, {col}, COUNT(*) as cnt
-                        FROM {vf_table}
-                        WHERE {col} IS NOT NULL AND {col} != ''
-                        GROUP BY {', '.join(gcp)}, {col}
-                        ORDER BY {', '.join(gcp)}, cnt DESC
-                    """
-                    for row in conn.execute(sp_query).fetchall():
-                        region_key = tuple(row[:len(group_cols)])
-                        entry = suffix_prefix_data.setdefault(region_key, {})
-                        entry.setdefault(key, [])
-                        if len(entry[key]) < top_n:
-                            entry[key].append({row[len(group_cols)]: row[-1]})
+            df['region_key'] = df.apply(lambda r: tuple(r[g] for g in group_cols), axis=1)
 
-            # Cluster distribution from cluster_assignments (filtered by active run_id)
+            # ==== 3. per-region suffix distribution ====
+            region_suffix_counts: dict = {}
+            sfx_query = f"""
+                SELECT {', '.join(gcp)}, {sfx_col}, COUNT(*) as cnt
+                FROM {vf_table}
+                WHERE {sfx_col} IS NOT NULL AND {sfx_col} != ''{f' AND {self._column("village_features", region_col)} IN ({",".join(["?"]*len(region_names))})' if region_names else ''}
+                GROUP BY {', '.join(gcp)}, {sfx_col}
+            """
+            for row in conn.execute(sfx_query, region_names if region_names else []).fetchall():
+                rk = tuple(row[:len(group_cols)])
+                entry = region_suffix_counts.setdefault(rk, {})
+                entry[row[len(group_cols)]] = row[-1]
+
+            # ==== 4. structure profile from village_semantic_structure ====
+            structure_data: dict = {}
+            if feature_config.get('structure_profile', True):
+                try:
+                    vss_vid = self._column('village_semantic_structure', 'village_id')
+                    vf_vid = self._column('village_features', 'village_id')
+                    struct_metrics = ['has_modifier', 'has_head', 'has_settlement']
+                    struct_select = [f'SUM({self._column("village_semantic_structure", m)}) AS {m}' for m in struct_metrics]
+                    st_query = f"""
+                        SELECT {', '.join([f'vf.{c}' for c in gcp])}, COUNT(*) as cnt, {', '.join(struct_select)}
+                        FROM {vss_table} vss
+                        JOIN {vf_table} vf ON vss.{vss_vid} = vf.{vf_vid}
+                        {f"WHERE {self._column('village_features', region_col)} IN ({','.join(['?']*len(region_names))})" if region_names else ''}
+                        GROUP BY {', '.join([f'vf.{c}' for c in gcp])}
+                    """
+                    for row in conn.execute(st_query, region_names if region_names else []).fetchall():
+                        rk = tuple(row[:len(group_cols)])
+                        total = row[len(group_cols)]
+                        entry = {}
+                        for i, m in enumerate(struct_metrics):
+                            entry[m] = {"count": row[len(group_cols) + 1 + i] or 0,
+                                         "pct": round((row[len(group_cols) + 1 + i] or 0) * 100.0 / total, 2) if total else 0}
+                        entry["total"] = total
+                        structure_data[rk] = entry
+                except Exception:
+                    pass
+
+            # ==== 5. distinctive characters from char_regional_analysis ====
+            char_data: dict = {}
+            if feature_config.get('distinctive_chars', True):
+                try:
+                    cr_table = self._table('char_regional_analysis')
+                    cr_level = self._column('char_regional_analysis', 'region_level')
+                    cr_region = self._column('char_regional_analysis', 'region_name')
+                    cr_char = self._column('char_regional_analysis', 'char')
+                    cr_lift = self._column('char_regional_analysis', 'lift')
+                    cr_zscore = self._column('char_regional_analysis', 'z_score')
+                    cr_freq = self._column('char_regional_analysis', 'frequency')
+                    cr_rank = self._column('char_regional_analysis', 'rank_within_region')
+
+                    if region_level == 'city':
+                        cr_name_col = self._column('char_regional_analysis', 'city')
+                    elif region_level == 'township':
+                        cr_name_col = self._column('char_regional_analysis', 'township')
+                    else:
+                        cr_name_col = cr_region
+
+                    ch_query = f"""
+                        SELECT {cr_name_col}, {cr_char}, {cr_lift}, {cr_zscore}, {cr_freq}, {cr_rank}
+                        FROM {cr_table}
+                        WHERE {cr_level} = ?
+                          AND {cr_rank} <= ?
+                        ORDER BY {cr_name_col}, {cr_rank}
+                    """
+                    for row in conn.execute(ch_query, (region_level, top_n * 2)).fetchall():
+                        rn = row[0]
+                        entry = char_data.setdefault(rn, [])
+                        if len(entry) < top_n:
+                            entry.append({
+                                'char': row[1],
+                                'lift': round(row[2], 3) if row[2] is not None else None,
+                                'z_score': round(row[3], 3) if row[3] is not None else None,
+                                'frequency': round(row[4], 3) if row[4] is not None else None,
+                            })
+                except Exception:
+                    pass
+
+            # ==== 6. cluster distribution (filtered by active run_id) ====
             cluster_data: dict = {}
             if feature_config.get('cluster_distribution', True):
                 try:
-                    # Resolve active spatial_clusters run_id
                     ar_table = self._table('active_run_ids')
                     ar_type_col = self._column('active_run_ids', 'analysis_type')
                     ar_runid_col = self._column('active_run_ids', 'run_id')
@@ -1726,24 +1810,27 @@ class FeatureEngine:
                         ca_runid_col = self._column('village_cluster_assignments', 'run_id')
                         ca_col = self._column('village_cluster_assignments', 'cluster_id')
                         ca_vid = self._column('village_cluster_assignments', 'village_id')
-                        vf_vid = self._column('village_features', 'village_id')
                         cl_query = f"""
-                            SELECT {', '.join([f'vf.{c}' for c in group_cols_physical])}, ca.{ca_col}, COUNT(*) as cnt
+                            SELECT {', '.join([f'vf.{c}' for c in gcp])}, ca.{ca_col}, COUNT(*) as cnt
                             FROM {ca_table} ca
                             JOIN {vf_table} vf ON ca.{ca_vid} = vf.{vf_vid}
                             WHERE ca.{ca_runid_col} = ?
-                            GROUP BY {', '.join([f'vf.{c}' for c in group_cols_physical])}, ca.{ca_col}
+                            GROUP BY {', '.join([f'vf.{c}' for c in gcp])}, ca.{ca_col}
                         """
                         for row in conn.execute(cl_query, (spatial_run_id,)).fetchall():
-                            region_key = tuple(row[:len(group_cols)])
-                            cd = cluster_data.setdefault(region_key, {})
+                            rk = tuple(row[:len(group_cols)])
+                            cd = cluster_data.setdefault(rk, {})
                             cd[str(row[len(group_cols)])] = row[-1]
                 except Exception:
                     pass
 
+        # ======== Build result ========
         aggregates = []
+        region_list: list[dict] = []  # collect for z-score computation
+
         for _, row in df.iterrows():
-            region_key = tuple(row[g] for g in group_cols)
+            rk = row['region_key']
+            total = int(row['total_villages'])
 
             if region_level == 'township':
                 region_name = f"{row['city']} > {row['county']} > {row['town']}"
@@ -1752,26 +1839,99 @@ class FeatureEngine:
             else:
                 region_name = row[region_col]
 
-            aggregate_dict = {
+            agg = {
                 'region_name': region_name,
-                'total_villages': int(row['total_villages']),
+                'total_villages': total,
+                'avg_name_length': round(float(row['avg_name_length']), 2) if pd.notna(row['avg_name_length']) else None,
             }
+            region_list.append({'key': rk, 'name': region_name, 'agg': agg, 'row': row})
 
+            # --- semantic profile with lift ---
             if feature_config.get('semantic_distribution', True):
-                aggregate_dict['semantic_distribution'] = {
-                    col: float(row[col]) if pd.notna(row[col]) else 0.0
-                    for col in df.columns if col.endswith('_pct')
+                sem_profile = {}
+                for n in sem_names:
+                    cnt = int(row[f'sem_{n}_cnt']) if pd.notna(row[f'sem_{n}_cnt']) else 0
+                    region_pct = round(cnt * 100.0 / total, 2) if total else 0.0
+                    global_pct = round(global_sem_sums[n] * 100.0 / global_total, 2) if global_total else 0.0
+                    lift = round(region_pct / global_pct, 3) if global_pct > 0 else None
+                    sem_profile[n] = {
+                        'count': cnt,
+                        'pct': region_pct,
+                        'global_pct': global_pct,
+                        'lift': lift,
+                    }
+                agg['semantic_profile'] = sem_profile
+
+            # --- suffix distribution with lift ---
+            if feature_config.get('morphology_freq', True):
+                sfx = region_suffix_counts.get(rk, {})
+                region_total = sum(sfx.values())
+                sfx_list = []
+                for suffix, cnt in sorted(sfx.items(), key=lambda x: -x[1]):
+                    pct = round(cnt * 100.0 / region_total, 2) if region_total else 0.0
+                    global_pct = round(global_suffix_counts.get(suffix, 0) * 100.0 / global_suffix_total, 2) if global_suffix_total else 0.0
+                    lift = round(pct / global_pct, 3) if global_pct > 0 else None
+                    sfx_list.append({'suffix': suffix, 'count': cnt, 'pct': pct, 'global_pct': global_pct, 'lift': lift})
+                agg['suffixes'] = sfx_list[:top_n]
+                # distinctive = sorted by lift descending
+                agg['distinctive_suffixes'] = sorted(sfx_list, key=lambda x: -(x['lift'] or 0))[:top_n]
+
+            # --- diversity ---
+            if feature_config.get('diversity_metrics', True):
+                # semantic entropy
+                sem_probs = [max(agg['semantic_profile'][n]['pct'] / 100.0, 0.001) for n in sem_names] if 'semantic_profile' in agg else []
+                sem_entropy = -sum(p * math.log(p) for p in sem_probs) if sem_probs else None
+
+                # suffix entropy
+                sfx = region_suffix_counts.get(rk, {})
+                sfx_total = sum(sfx.values()) or 1
+                sfx_probs = [max(c / sfx_total, 0.001) for c in sfx.values()]
+                sfx_entropy = -sum(p * math.log(p) for p in sfx_probs) if sfx_probs else None
+
+                agg['diversity'] = {
+                    'semantic_entropy': round(sem_entropy, 4) if sem_entropy else None,
+                    'suffix_entropy': round(sfx_entropy, 4) if sfx_entropy else None,
+                    'unique_suffixes': len(sfx),
                 }
 
-            if feature_config.get('morphology_freq', True):
-                sp = suffix_prefix_data.get(region_key, {})
-                aggregate_dict['top_suffixes'] = sp.get('top_suffixes', [])
-                aggregate_dict['top_prefixes'] = sp.get('top_prefixes', [])
+            # --- structure_profile ---
+            if feature_config.get('structure_profile', True) and rk in structure_data:
+                agg['structure_profile'] = structure_data[rk]
 
+            # --- distinctive_chars ---
+            if feature_config.get('distinctive_chars', True):
+                agg['distinctive_chars'] = char_data.get(region_name, [])
+
+            # --- cluster_distribution ---
             if feature_config.get('cluster_distribution', True):
-                aggregate_dict['cluster_distribution'] = cluster_data.get(region_key, {})
+                agg['cluster_distribution'] = cluster_data.get(rk, {})
 
-            aggregates.append(aggregate_dict)
+            aggregates.append(agg)
+
+        # ==== z-scores across requested regions ====
+        z_metrics = ['avg_name_length']
+        for n in sem_names:
+            z_metrics.append(f'sem_{n}_cnt')
+        z_metric_names = ['avg_name_length'] + [f'sem_{n}_pct' for n in sem_names]
+
+        from statistics import mean, stdev
+        for mi, metric in enumerate(z_metrics):
+            vals = []
+            for r in region_list:
+                if metric == 'avg_name_length':
+                    v = r['agg'].get('avg_name_length')
+                else:
+                    total = r['agg']['total_villages']
+                    cnt = int(r['row'].get(metric, 0)) if pd.notna(r['row'].get(metric)) else 0
+                    v = round(cnt * 100.0 / total, 2) if total else 0.0
+                if v is not None:
+                    vals.append((r, v))
+            if len(vals) >= 2:
+                vs = [v for _, v in vals]
+                m, s = mean(vs), stdev(vs)
+                if s > 0:
+                    for r, v in vals:
+                        r['agg'].setdefault('z_scores', {})[z_metric_names[mi]] = round((v - m) / s, 3)
 
         execution_time = int((time.time() - start_time) * 1000)
 
