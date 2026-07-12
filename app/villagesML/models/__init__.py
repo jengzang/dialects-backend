@@ -283,6 +283,7 @@ class SubsetFilterRequest(BaseModel):
 
     # --- 名称 ---
     keyword: Optional[str] = Field(None, description="村名模糊匹配")
+    name_match_mode: str = Field("contains", description="名称匹配模式: contains | startsWith | endsWith | equals")
     min_length: Optional[int] = Field(None, ge=1, description="最小名称长度")
     max_length: Optional[int] = Field(None, ge=1, description="最大名称长度")
 

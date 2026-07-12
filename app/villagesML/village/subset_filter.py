@@ -64,8 +64,22 @@ def filter_villages(
 
     # ---- 名称 ----
     if req.keyword and req.keyword.strip():
-        conditions.append(f"{V('name')} LIKE ?")
-        params.append(f"%{req.keyword.strip()}%")
+        kw = req.keyword.strip()
+        mode = req.name_match_mode
+        if mode not in ("contains", "startsWith", "endsWith", "equals"):
+            raise HTTPException(status_code=400, detail=f"Invalid name_match_mode: {mode}")
+        if mode == "equals":
+            conditions.append(f"{V('name')} = ?")
+            params.append(kw)
+        elif mode == "startsWith":
+            conditions.append(f"{V('name')} LIKE ?")
+            params.append(f"{kw}%")
+        elif mode == "endsWith":
+            conditions.append(f"{V('name')} LIKE ?")
+            params.append(f"%{kw}")
+        else:  # contains
+            conditions.append(f"{V('name')} LIKE ?")
+            params.append(f"%{kw}%")
 
     length_expr = f"LENGTH({V('name')})"
     if req.min_length is not None:
