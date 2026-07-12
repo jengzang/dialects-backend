@@ -207,6 +207,7 @@ VILLAGES_DATABASES = {
             "village_semantic_structure": {
                 "name": "village_semantic_structure",
                 "columns": {
+                    "village_id": "village_id",
                     "committee": "村委会",
                     "name": "自然村",
                     "semantic_sequence": "semantic_sequence",

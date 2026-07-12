@@ -276,12 +276,34 @@ class VillageDetail(BaseModel):
 
 class SubsetFilterRequest(BaseModel):
     """子集筛选请求模型"""
+    # --- 区域 ---
     city: Optional[str] = Field(None, description="城市精确筛选")
     county: Optional[str] = Field(None, description="区县精确筛选")
     township: Optional[str] = Field(None, description="乡镇精确筛选")
+
+    # --- 名称 ---
     keyword: Optional[str] = Field(None, description="村名模糊匹配")
     min_length: Optional[int] = Field(None, ge=1, description="最小名称长度")
     max_length: Optional[int] = Field(None, ge=1, description="最大名称长度")
+
+    # --- 语义 ---
+    semantic_categories: Optional[list[str]] = Field(None, description="语义大类，OR关系")
+    semantic_match: str = Field("any", description="多类别逻辑: any | all")
+
+    # --- 结构 ---
+    structure_patterns: Optional[list[str]] = Field(None, description="结构模式: modifier_head, modifier_only, head_only, settlement")
+    suffix: Optional[str] = Field(None, min_length=1, max_length=1, description="后缀字符")
+    prefix: Optional[str] = Field(None, min_length=1, max_length=1, description="前缀字符")
+    char_at_position: Optional[int] = Field(None, ge=1, description="指定位置")
+    char_at_value: Optional[str] = Field(None, min_length=1, max_length=1, description="指定位置字符")
+
+    # --- 空间 ---
+    lat_min: Optional[float] = Field(None, ge=-90, le=90, description="最小纬度")
+    lat_max: Optional[float] = Field(None, ge=-90, le=90, description="最大纬度")
+    lon_min: Optional[float] = Field(None, ge=-180, le=180, description="最小经度")
+    lon_max: Optional[float] = Field(None, ge=-180, le=180, description="最大经度")
+
+    # --- 分页 ---
     max_results: int = Field(5000, ge=1, le=100000, description="返回上限")
 
 
