@@ -62,15 +62,9 @@ class ClusteringEngine:
         region_filter: Optional[List[str]] = None
     ) -> Tuple[np.ndarray, List[str]]:
         """
-        获取区域特征矩阵（使用实际表结构）
+        获取区域特征矩阵。
 
-        Args:
-            region_level: 区域级别 (city/county/township)
-            feature_config: 特征配置
-            region_filter: 区域过滤器
-
-        Returns:
-            (特征矩阵, 区域名称列表)
+        优先从预计算的聚合表读取；聚合表为空时回退到 village_features 实时聚合。
         """
         cache_key = f"{region_level}:{hash(str(feature_config))}:{hash(str(region_filter))}"
 
@@ -78,52 +72,62 @@ class ClusteringEngine:
             logger.info(f"Using cached features for {region_level}")
             return self.feature_cache[cache_key]
 
+        level_config = {
+            'city':    {'region_col': 'city',    'group_cols': ['city'],                   'filter_col': 'city',   'agg_table': 'city_aggregates'},
+            'county':  {'region_col': 'county',  'group_cols': ['city', 'county'],         'filter_col': 'city',   'agg_table': 'county_aggregates'},
+            'township':{'region_col': 'town',    'group_cols': ['city', 'county', 'town'], 'filter_col': 'county', 'agg_table': 'town_aggregates'},
+        }
+        cfg = level_config.get(region_level, level_config['county'])
+        region_col = cfg['region_col']
+        filter_col = cfg['filter_col']
+        applied_filter = False  # track whether region_filter was already applied in SQL
+
         with self._connection() as conn:
-            # 根据region_level选择正确的表
-            table_map = {
-                'city': self._table('city_aggregates'),
-                'county': self._table('county_aggregates'),
-                'township': self._table('town_aggregates')
-            }
-            table_name = table_map.get(region_level, self._table('county_aggregates'))
+            agg_table = self._table(cfg['agg_table'])
+            df_regional = pd.read_sql_query(f"SELECT * FROM {agg_table}", conn)
 
-            # 1. 读取区域聚合表
-            query = f"SELECT * FROM {table_name}"
-            df_regional = pd.read_sql_query(query, conn)
+        if len(df_regional) == 0:
+            logger.info(f"Aggregate table {agg_table} is empty, computing from village_features")
+            with self._connection() as conn:
+                vf_table = self._table('village_features')
+                sem_names = ['mountain','water','settlement','direction','clan','symbolic','agriculture','vegetation','infrastructure']
+                sem_cols = [self._column('village_features', f'sem_{n}') for n in sem_names]
+                sem_pct_exprs = [
+                    f"SUM({c}) * 100.0 / NULLIF(COUNT(*), 0) AS sem_{n}_pct"
+                    for c, n in zip(sem_cols, sem_names)
+                ]
+                group_cols = [self._column('village_features', g) for g in cfg['group_cols']]
+                select_parts = group_cols + [
+                    "COUNT(*) AS total_villages",
+                    f"AVG({self._column('village_features', 'name_length')}) AS avg_name_length",
+                ] + sem_pct_exprs
+                query = f"SELECT {', '.join(select_parts)} FROM {vf_table}"
+                params = None
+                if region_filter:
+                    filter_col_physical = self._column('village_features', filter_col)
+                    placeholders = ','.join(['?' for _ in region_filter])
+                    query += f" WHERE {filter_col_physical} IN ({placeholders})"
+                    params = region_filter
+                query += f" GROUP BY {', '.join(group_cols)}"
+                df_regional = pd.read_sql_query(query, conn, params=params)
+                # the GROUP BY outputs physical column names; rename to logical for downstream
+                for g in cfg['group_cols']:
+                    physical = self._column('village_features', g).strip('"')
+                    if physical in df_regional.columns and physical != g:
+                        df_regional[g] = df_regional[physical]
+                applied_filter = True
 
-        # 区域名称列（用于输出 region_names）
-        # - city_aggregates: 'city'
-        # - county_aggregates: 'county'
-        # - town_aggregates: 'town'
-        region_col_map = {
-            'city': 'city',
-            'county': 'county',
-            'township': 'town'
-        }
-        region_col = region_col_map.get(region_level, 'county')
-
-        # 过滤列（region_filter 传入的是父级区域名）
-        # - city 级：按 city 列自身过滤（region_filter 包含城市名）
-        # - county 级：region_filter 是城市名 → 过滤 city 列
-        # - township 级：region_filter 是县名 → 过滤 county 列
-        filter_col_map = {
-            'city': 'city',
-            'county': 'city',
-            'township': 'county'
-        }
-        filter_col = filter_col_map.get(region_level, region_col)
-
-        # 过滤区域
-        if region_filter:
-            df_regional = df_regional[df_regional[filter_col].isin(region_filter)]
+        # region_filter for aggregate-table path (not yet filtered)
+        if region_filter and not applied_filter and len(df_regional) > 0:
+            if filter_col in df_regional.columns:
+                df_regional = df_regional[df_regional[filter_col].isin(region_filter)]
 
         region_names = df_regional[region_col].tolist()
 
-        # 2. 构建特征向量
+        # 构建特征向量
         feature_columns = []
 
         if feature_config.get('use_semantic', True):
-            # 语义百分比特征（9个）
             semantic_cols = [
                 'sem_mountain_pct', 'sem_water_pct', 'sem_settlement_pct',
                 'sem_direction_pct', 'sem_clan_pct', 'sem_symbolic_pct',
@@ -132,20 +136,21 @@ class ClusteringEngine:
             feature_columns.extend([col for col in semantic_cols if col in df_regional.columns])
 
         if feature_config.get('use_morphology', True):
-            # 形态学特征
             feature_columns.append('avg_name_length')
 
         if feature_config.get('use_diversity', True):
-            # 多样性特征（使用村庄总数作为代理）
             feature_columns.append('total_villages')
 
         # 提取特征矩阵
         X = df_regional[feature_columns].values
-
-        # 处理缺失值
         X = np.nan_to_num(X, nan=0.0)
 
-        # 缓存结果
+        if X.shape[0] == 0:
+            raise ValueError(
+                f"No regional data available for region_level='{region_level}'."
+                f" Both aggregate table and village_features returned empty."
+            )
+
         self.feature_cache[cache_key] = (X, region_names)
         logger.info(f"Built feature matrix: {X.shape} for {len(region_names)} regions")
 
