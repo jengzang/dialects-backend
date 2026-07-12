@@ -306,7 +306,7 @@ class SubsetFilterRequest(BaseModel):
     lon_max: Optional[float] = Field(None, ge=-180, le=180, description="最大经度")
 
     # --- 分页 ---
-    max_results: int = Field(5000, ge=1, le=100000, description="返回上限")
+    max_results: int = Field(5000, ge=1, le=50000, description="返回上限")
 
 
 class SubsetVillageItem(BaseModel):
