@@ -21,6 +21,7 @@ def setup_villages_routes(app: FastAPI):
     from .character import significance as char_significance
     from .village import search as village_search
     from .village import data as village_data
+    from .village import subset_filter as village_subset_filter
     from .metadata import stats as metadata_stats
     from .semantic import category as semantic_category
     from .semantic import labels as semantic_labels
@@ -47,6 +48,7 @@ def setup_villages_routes(app: FastAPI):
     app.include_router(char_significance.router, prefix="/api/villages", tags=["villagesML-Character"], dependencies=[Depends(ApiLimiter)])
     app.include_router(village_search.router, prefix="/api/villages", tags=["villagesML-Village"], dependencies=[Depends(ApiLimiter)])
     app.include_router(village_data.router, prefix="/api/villages", tags=["villagesML-Village"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(village_subset_filter.router, prefix="/api/villages", tags=["villagesML-Subset"], dependencies=[Depends(ApiLimiter)])
     app.include_router(metadata_stats.router, prefix="/api/villages", tags=["villagesML-Metadata"], dependencies=[Depends(ApiLimiter)])
     app.include_router(semantic_category.router, prefix="/api/villages", tags=["villagesML-Semantic"], dependencies=[Depends(ApiLimiter)])
     app.include_router(semantic_labels.router, prefix="/api/villages", tags=["villagesML-Semantic"], dependencies=[Depends(ApiLimiter)])

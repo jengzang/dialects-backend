@@ -274,6 +274,32 @@ class VillageDetail(BaseModel):
     spatial_features: Optional[Dict] = Field(None, description="空间特征")
 
 
+class SubsetFilterRequest(BaseModel):
+    """子集筛选请求模型"""
+    city: Optional[str] = Field(None, description="城市精确筛选")
+    county: Optional[str] = Field(None, description="区县精确筛选")
+    township: Optional[str] = Field(None, description="乡镇精确筛选")
+    keyword: Optional[str] = Field(None, description="村名模糊匹配")
+    min_length: Optional[int] = Field(None, ge=1, description="最小名称长度")
+    max_length: Optional[int] = Field(None, ge=1, description="最大名称长度")
+    max_results: int = Field(5000, ge=1, le=100000, description="返回上限")
+
+
+class SubsetVillageItem(BaseModel):
+    """子集村庄条目模型"""
+    id: int = Field(..., description="村庄ID")
+    name: str = Field(..., description="村庄名称")
+    city: str = Field(..., description="城市")
+    county: str = Field(..., description="区县")
+    name_length: int = Field(..., description="名称长度")
+
+
+class SubsetFilterResponse(BaseModel):
+    """子集筛选响应模型"""
+    villages: list[SubsetVillageItem] = Field(..., description="村庄列表")
+    total: int = Field(..., description="匹配总数")
+
+
 # ============================================================================
 # 区域聚合模型 (Regional Aggregation Models)
 # ============================================================================
