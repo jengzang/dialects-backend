@@ -3,19 +3,17 @@
 Character Embeddings API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List, Optional
+from typing import Optional
 import sqlite3
 import json
 
 from ..dependencies import get_db, execute_query, execute_single
+from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/character/embeddings")
 
 # 向量维度常量
 VECTOR_DIM = 225
-
-# 使用最终版本的嵌入
-ACTIVE_RUN_ID = "embed_final_001"
 
 
 @router.get("/vector")
@@ -41,7 +39,8 @@ def get_character_embedding(
         WHERE run_id = ? AND char = ?
     """
 
-    result = execute_single(db, query, (ACTIVE_RUN_ID, char))
+    run_id = run_id_manager.get_active_run_id("char_embeddings")
+    result = execute_single(db, query, (run_id, char))
 
     if not result:
         raise HTTPException(
@@ -82,7 +81,8 @@ def get_similar_characters(
         FROM char_similarity
         WHERE run_id = ? AND char1 = ?
     """
-    params = [ACTIVE_RUN_ID, char]
+    run_id = run_id_manager.get_active_run_id("char_embeddings")
+    params = [run_id, char]
 
     # 现场过滤：最小相似度
     if min_similarity is not None:
@@ -125,8 +125,9 @@ def list_character_embeddings(
         dict: 包含分页信息和字符嵌入元数据列表
     """
     # 获取总数
+    run_id = run_id_manager.get_active_run_id("char_embeddings")
     count_query = "SELECT COUNT(*) as total FROM char_embeddings WHERE run_id = ?"
-    count_result = execute_single(db, count_query, (ACTIVE_RUN_ID,))
+    count_result = execute_single(db, count_query, (run_id,))
     total = count_result["total"] if count_result else 0
 
     # 获取数据
@@ -140,7 +141,7 @@ def list_character_embeddings(
         LIMIT ? OFFSET ?
     """
 
-    results = execute_query(db, query, (ACTIVE_RUN_ID, limit, offset))
+    results = execute_query(db, query, (run_id, limit, offset))
 
     # 添加 vector_dim 信息
     embeddings = [

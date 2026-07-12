@@ -7,6 +7,7 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
+from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/village")
 
@@ -228,8 +229,8 @@ def get_village_features(
 def get_village_spatial_features(
     village_id: int,
     clustering_version: Optional[str] = Query(
-        "spatial_eps_20",
-        description="聚类版本ID (spatial_eps_05/10/20, spatial_hdbscan_v1)"
+        None,
+        description="聚类版本ID（留空使用活跃版本）"
     ),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -239,11 +240,14 @@ def get_village_spatial_features(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
-        clustering_version: 聚类版本ID，默认 spatial_eps_20
+        clustering_version: 聚类版本ID，默认使用活跃版本
 
     Returns:
         dict: 村庄空间特征
     """
+    if clustering_version is None:
+        clustering_version = run_id_manager.get_active_run_id("spatial_clusters")
+
     # First get village_id from preprocessed table
     village_query = """
         SELECT village_id
@@ -345,6 +349,7 @@ def get_village_complete_profile(
     features = execute_single(db, features_query, (basic_info['village_id_str'],))
 
     # Get spatial features (with clustering info from new table)
+    spatial_cluster_run_id = run_id_manager.get_active_run_id("spatial_clusters")
     spatial_query = """
         SELECT
             vsf.*,
@@ -352,12 +357,12 @@ def get_village_complete_profile(
             sc.cluster_size
         FROM village_spatial_features vsf
         LEFT JOIN village_cluster_assignments vca
-            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
+            ON vsf.village_id = vca.village_id AND vca.run_id = ?
         LEFT JOIN spatial_clusters sc
             ON vca.run_id = sc.run_id AND vca.cluster_id = sc.cluster_id
         WHERE vsf.village_id = ?
     """
-    spatial_features = execute_single(db, spatial_query, (basic_info['village_id_str'],))
+    spatial_features = execute_single(db, spatial_query, (spatial_cluster_run_id, basic_info['village_id_str']))
 
     # Get semantic structure (uses village_name + committee)
     semantic_query = """

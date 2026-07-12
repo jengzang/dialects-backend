@@ -13,9 +13,6 @@ DB_PATH = os.getenv("VILLAGES_DB_PATH", GD_VILLAGE_DB_PATH)
 # Query policy configuration
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 1000
-DEFAULT_RUN_ID = "freq_final_001"  # 默认分析运行ID（字符频率）
-DEFAULT_SEMANTIC_RUN_ID = "semantic_001"  # 语义分析默认run_id
-DEFAULT_CLUSTERING_RUN_ID = "cluster_001"  # 聚类分析默认run_id
 
 # API配置
 # API configuration

@@ -3,12 +3,13 @@
 Village Search API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List, Optional
+from typing import Optional
 import sqlite3
 
 from ..dependencies import get_db, execute_query, execute_single
-from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, DEFAULT_RUN_ID
-from ..models import VillageBasic, VillageDetail, PaginatedResponse
+from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from ..models import VillageDetail, PaginatedResponse
+from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/village/search")
 
@@ -105,7 +106,7 @@ def get_village_detail(
     village_name: str = Query(..., description="村名"),
     city: str = Query(..., description="城市"),
     county: str = Query(..., description="区县"),
-    run_id: str = Query(DEFAULT_RUN_ID, description="分析运行ID"),
+    run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -116,11 +117,13 @@ def get_village_detail(
         village_name: 村名
         city: 城市
         county: 区县
-        run_id: 分析运行ID
+        run_id: 分析运行ID（留空使用活跃版本）
 
     Returns:
         VillageDetail: 村庄详情
     """
+    if run_id is None:
+        run_id = run_id_manager.get_active_run_id("village_features")
     # 获取基础信息
     basic_query = """
         SELECT
@@ -150,6 +153,7 @@ def get_village_detail(
     features = execute_single(db, features_query, (run_id, village_name, city, county))
 
     # 获取空间特征（如果存在）
+    spatial_cluster_run_id = run_id_manager.get_active_run_id("spatial_clusters")
     spatial_query = """
         SELECT
             vsf.knn_mean_distance,
@@ -158,10 +162,10 @@ def get_village_detail(
             vca.cluster_id as spatial_cluster_id
         FROM village_spatial_features vsf
         LEFT JOIN village_cluster_assignments vca
-            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
+            ON vsf.village_id = vca.village_id AND vca.run_id = ?
         WHERE vsf.village_name = ? AND vsf.city = ? AND vsf.county = ?
     """
-    spatial = execute_single(db, spatial_query, (village_name, city, county))
+    spatial = execute_single(db, spatial_query, (spatial_cluster_run_id, village_name, city, county))
 
     # 组装详情
     detail = {

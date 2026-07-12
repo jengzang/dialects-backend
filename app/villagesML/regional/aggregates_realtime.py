@@ -13,7 +13,6 @@ import sqlite3
 import json
 
 from ..dependencies import get_db, execute_query, execute_single
-from ..config import DEFAULT_RUN_ID
 from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/regional")

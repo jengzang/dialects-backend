@@ -3,13 +3,10 @@ N-gram分析API
 N-gram Analysis API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 import sqlite3
-from datetime import datetime
 
 from ..dependencies import get_db, execute_query
-from ..config import DEFAULT_RUN_ID
-from ..run_id_manager import run_id_manager
 
 router = APIRouter(prefix="/ngrams")
 
