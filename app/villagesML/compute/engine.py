@@ -82,12 +82,16 @@ class ClusteringEngine:
         filter_col = cfg['filter_col']
         applied_filter = False  # track whether region_filter was already applied in SQL
 
+        agg_df = None
         with self._connection() as conn:
             agg_table = self._table(cfg['agg_table'])
-            df_regional = pd.read_sql_query(f"SELECT * FROM {agg_table}", conn)
+            try:
+                agg_df = pd.read_sql_query(f"SELECT * FROM {agg_table}", conn)
+            except Exception as e:
+                logger.info(f"Aggregate table {agg_table} unavailable: {e}")
 
-        if len(df_regional) == 0:
-            logger.info(f"Aggregate table {agg_table} is empty, computing from village_features")
+        if agg_df is None or len(agg_df) == 0:
+            logger.info(f"Aggregate table {agg_table} missing/empty, computing from village_features")
             with self._connection() as conn:
                 vf_table = self._table('village_features')
                 sem_names = ['mountain','water','settlement','direction','clan','symbolic','agriculture','vegetation','infrastructure']
@@ -110,12 +114,13 @@ class ClusteringEngine:
                     params = region_filter
                 query += f" GROUP BY {', '.join(group_cols)}"
                 df_regional = pd.read_sql_query(query, conn, params=params)
-                # the GROUP BY outputs physical column names; rename to logical for downstream
                 for g in cfg['group_cols']:
                     physical = self._column('village_features', g).strip('"')
                     if physical in df_regional.columns and physical != g:
                         df_regional[g] = df_regional[physical]
                 applied_filter = True
+        else:
+            df_regional = agg_df
 
         # region_filter for aggregate-table path (not yet filtered)
         if region_filter and not applied_filter and len(df_regional) > 0:
