@@ -23,6 +23,8 @@ from sklearn.metrics import (
 )
 import logging
 from app.sql.db_pool import get_db_pool
+from ..schema_config import DEFAULT_DATABASE_KEY
+from ..schema_runtime import qcolumn, qtable
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 class ClusteringEngine:
     """聚类计算引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化聚类引擎
 
@@ -38,6 +40,7 @@ class ClusteringEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
         self.feature_cache = {}  # 特征矩阵缓存
 
@@ -45,6 +48,12 @@ class ClusteringEngine:
     def _connection(self):
         with self._db_pool.get_connection() as conn:
             yield conn
+
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
 
     def get_regional_features(
         self,
@@ -72,11 +81,11 @@ class ClusteringEngine:
         with self._connection() as conn:
             # 根据region_level选择正确的表
             table_map = {
-                'city': 'city_aggregates',
-                'county': 'county_aggregates',
-                'township': 'town_aggregates'
+                'city': self._table('city_aggregates'),
+                'county': self._table('county_aggregates'),
+                'township': self._table('town_aggregates')
             }
-            table_name = table_map.get(region_level, 'county_aggregates')
+            table_name = table_map.get(region_level, self._table('county_aggregates'))
 
             # 1. 读取区域聚合表
             query = f"SELECT * FROM {table_name}"
@@ -415,11 +424,11 @@ class ClusteringEngine:
         # - county 级：用户传城市名 → 过滤 city 列（取该市下所有县）
         # - township 级：用户传县名 → 过滤 county 列（取该县下所有镇）
         filter_col_map = {
-            'city': 'region_name',
-            'county': 'city',
-            'township': 'county',
+            'city': self._column('char_regional_analysis', 'region_name'),
+            'county': self._column('char_regional_analysis', 'city'),
+            'township': self._column('char_regional_analysis', 'county'),
         }
-        filter_col = filter_col_map.get(db_level, 'region_name')
+        filter_col = filter_col_map.get(db_level, self._column('char_regional_analysis', 'region_name'))
 
         region_filter_clause = ""
         params = []
@@ -434,10 +443,10 @@ class ClusteringEngine:
             SELECT region, char, {tendency_metric},
                    ROW_NUMBER() OVER (PARTITION BY region ORDER BY {tendency_metric} DESC) as rn
             FROM (
-                SELECT region_name as region, char, MAX({tendency_metric}) as {tendency_metric}
-                FROM char_regional_analysis
-                WHERE region_level = ?{region_filter_clause}
-                GROUP BY region_name, char
+                SELECT {self._column('char_regional_analysis', 'region_name')} as region, {self._column('char_regional_analysis', 'char')} as char, MAX({tendency_metric}) as {tendency_metric}
+                FROM {self._table('char_regional_analysis')}
+                WHERE {self._column('char_regional_analysis', 'region_level')} = ?{region_filter_clause}
+                GROUP BY {self._column('char_regional_analysis', 'region_name')}, {self._column('char_regional_analysis', 'char')}
             )
         )
         WHERE rn <= ?
@@ -582,7 +591,7 @@ class ClusteringEngine:
         for i in range(0, len(ordered_ids), chunk_size):
             batch = ordered_ids[i:i + chunk_size]
             placeholders = ",".join(["?"] * len(batch))
-            query = f"SELECT * FROM village_features WHERE rowid IN ({placeholders})"
+            query = f"SELECT * FROM {self._table('village_features')} WHERE rowid IN ({placeholders})"
             frames.append(pd.read_sql_query(query, conn, params=batch))
 
         if not frames:
@@ -611,9 +620,13 @@ class ClusteringEngine:
             naming_patterns_json,
             centroid_lon,
             centroid_lat
-        FROM spatial_clusters
-        WHERE run_id = ?
+        FROM {table}
+        WHERE {run_id_col} = ?
         """
+        query = query.format(
+            table=self._table('spatial_clusters'),
+            run_id_col=self._column('spatial_clusters', 'run_id'),
+        )
 
         with self._connection() as conn:
             df = pd.read_sql_query(query, conn, params=[run_id])
@@ -811,16 +824,16 @@ class ClusteringEngine:
         if isinstance(filter_config, dict):
             if filter_config.get('cities'):
                 placeholders = ','.join(['?' for _ in filter_config['cities']])
-                where_clauses.append(f"city IN ({placeholders})")
+                where_clauses.append(f"{self._column('village_features', 'city')} IN ({placeholders})")
                 filter_params.extend(filter_config['cities'])
             if filter_config.get('counties'):
                 placeholders = ','.join(['?' for _ in filter_config['counties']])
-                where_clauses.append(f"county IN ({placeholders})")
+                where_clauses.append(f"{self._column('village_features', 'county')} IN ({placeholders})")
                 filter_params.extend(filter_config['counties'])
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
         with self._connection() as conn:
             # 1) 先拿到候选 rowid（轻量列扫描，避免 ORDER BY RANDOM() 全表排序）
-            id_query = f"SELECT rowid as _rid, county FROM village_features{where_sql}"
+            id_query = f"SELECT rowid as _rid, {self._column('village_features', 'county')} as county FROM {self._table('village_features')}{where_sql}"
             id_df = pd.read_sql_query(id_query, conn, params=filter_params if filter_params else None)
             original_village_count = len(id_df)
 
@@ -1104,10 +1117,10 @@ class ClusteringEngine:
         city_to_counties: Dict[str, List[str]] = {}
         county_to_townships: Dict[str, List[str]] = {}
         with self._connection() as conn:
-            for city, county in conn.execute("SELECT DISTINCT city, county FROM county_aggregates").fetchall():
+            for city, county in conn.execute(f"SELECT DISTINCT city, county FROM {self._table('county_aggregates')}").fetchall():
                 city_to_counties.setdefault(city, []).append(county)
 
-            for county, town in conn.execute("SELECT DISTINCT county, town FROM town_aggregates").fetchall():
+            for county, town in conn.execute(f"SELECT DISTINCT county, town FROM {self._table('town_aggregates')}").fetchall():
                 county_to_townships.setdefault(county, []).append(town)
 
         # 3. 构建层次树：每个城市只挂自己的县，每个县只挂自己的镇
@@ -1232,7 +1245,7 @@ class ClusteringEngine:
 class SemanticEngine:
     """语义分析引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化语义引擎
 
@@ -1240,12 +1253,19 @@ class SemanticEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
 
     @contextmanager
     def _connection(self):
         with self._db_pool.get_connection() as conn:
             yield conn
+
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
 
     def analyze_cooccurrence(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1391,7 +1411,7 @@ class SemanticEngine:
 class FeatureEngine:
     """特征提取引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化特征引擎
 
@@ -1399,12 +1419,19 @@ class FeatureEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
 
     @contextmanager
     def _connection(self):
         with self._db_pool.get_connection() as conn:
             yield conn
+
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
 
     def extract_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1436,12 +1463,12 @@ class FeatureEngine:
             cursor = conn.cursor()
 
             # 获取列名
-            cursor.execute("PRAGMA table_info(village_features)")
+            cursor.execute(f"PRAGMA table_info({self._table('village_features')})")
             columns = [col[1] for col in cursor.fetchall()]
 
             batch_query = f"""
-            SELECT * FROM village_features
-            WHERE village_id IN ({placeholders})
+            SELECT * FROM {self._table('village_features')}
+            WHERE {self._column('village_features', 'village_id')} IN ({placeholders})
             """
             cursor.execute(batch_query, village_ids)
             village_rows = cursor.fetchall()
@@ -1456,9 +1483,9 @@ class FeatureEngine:
             spatial_data = {}
             if feature_config.get('spatial', False):
                 spatial_query = f"""
-                SELECT village_id, longitude, latitude
-                FROM 广东省自然村_预处理
-                WHERE village_id IN ({placeholders})
+                SELECT {self._column('villages', 'village_id')} as village_id, {self._column('villages', 'longitude')} as longitude, {self._column('villages', 'latitude')} as latitude
+                FROM {self._table('villages')}
+                WHERE {self._column('villages', 'village_id')} IN ({placeholders})
                 """
                 cursor.execute(spatial_query, village_ids)
                 for row in cursor.fetchall():
@@ -1472,10 +1499,10 @@ class FeatureEngine:
                 if towns:
                     town_placeholders = ','.join(['?'] * len(towns))
                     char_query = f"""
-                    SELECT region_name, char, frequency
-                    FROM char_regional_analysis
-                    WHERE region_level = 'township' AND region_name IN ({town_placeholders})
-                    ORDER BY region_name, frequency DESC
+                    SELECT {self._column('char_regional_analysis', 'region_name')} as region_name, {self._column('char_regional_analysis', 'char')} as char, {self._column('char_regional_analysis', 'frequency')} as frequency
+                    FROM {self._table('char_regional_analysis')}
+                    WHERE {self._column('char_regional_analysis', 'region_level')} = 'township' AND {self._column('char_regional_analysis', 'region_name')} IN ({town_placeholders})
+                    ORDER BY {self._column('char_regional_analysis', 'region_name')}, {self._column('char_regional_analysis', 'frequency')} DESC
                     """
                     cursor.execute(char_query, towns)
 
@@ -1611,11 +1638,11 @@ class FeatureEngine:
 
         # 选择正确的聚合表
         table_map = {
-            'city': 'city_aggregates',
-            'county': 'county_aggregates',
-            'township': 'town_aggregates'
+            'city': self._table('city_aggregates'),
+            'county': self._table('county_aggregates'),
+            'township': self._table('town_aggregates')
         }
-        table_name = table_map.get(region_level, 'county_aggregates')
+        table_name = table_map.get(region_level, self._table('county_aggregates'))
 
         region_col_map = {
             'city': 'city',

@@ -12,10 +12,15 @@ from pydantic import BaseModel
 import sqlite3
 import json
 
-from ..dependencies import get_db, execute_query, execute_single
-from ..run_id_manager import run_id_manager
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/regional")
+
+
+def _regional_table(dbpath: str, logical_table: str):
+    return qtable(dbpath, logical_table), lambda name: qcolumn(dbpath, logical_table, name)
 
 def _np():
     import numpy as np
@@ -51,7 +56,8 @@ def _standard_scaler():
 def compute_city_aggregates(
     db: sqlite3.Connection,
     city: Optional[str] = None,
-    run_id: Optional[str] = None
+    run_id: Optional[str] = None,
+    dbpath: str = "village",
 ) -> List[Dict[str, Any]]:
     """
     实时计算城市级别聚合数据
@@ -60,42 +66,46 @@ def compute_city_aggregates(
     Uses semantic_indices table for semantic category statistics (already aggregated).
     """
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
+    villages_table, vcol = _regional_table(dbpath, "villages_raw")
+    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
 
     # Step 1: Get basic aggregations from main table
-    query_basic = """
+    query_basic = f"""
         SELECT
-            v.市级 as city,
-            COUNT(DISTINCT v.自然村) as total_villages,
-            AVG(LENGTH(v.自然村)) as avg_name_length
-        FROM 广东省自然村 v
+            v.{vcol("city")} as city,
+            COUNT(DISTINCT v.{vcol("name")}) as total_villages,
+            AVG(LENGTH(v.{vcol("name")})) as avg_name_length
+        FROM {villages_table} v
         WHERE 1=1
     """
 
     params_basic = []
 
     if city is not None:
-        query_basic += " AND v.市级 = ?"
+        query_basic += f" AND v.{vcol('city')} = ?"
         params_basic.append(city)
 
-    query_basic += " GROUP BY v.市级"
+    query_basic += f" GROUP BY v.{vcol('city')}"
 
     basic_results = execute_query(db, query_basic, tuple(params_basic))
 
     # Step 2: Get semantic category statistics from semantic_indices
-    query_semantic = """
+    query_semantic = f"""
         SELECT
-            city,
-            category,
-            raw_intensity
-        FROM semantic_indices
-        WHERE region_level = 'city' AND run_id = ?
+            {scol("city")} as city,
+            {scol("category")} as category,
+            {scol("raw_intensity")} as raw_intensity
+        FROM {semantic_table}
+        WHERE {scol("region_level")} = 'city' AND {scol("run_id")} = ?
     """
 
     params_semantic = [run_id]
 
     if city is not None:
-        query_semantic += " AND city = ?"
+        query_semantic += f" AND {scol('city')} = ?"
         params_semantic.append(city)
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
@@ -157,7 +167,8 @@ def compute_city_aggregates(
 def get_city_aggregates(
     city: Optional[str] = Query(None, description="城市名称"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取城市级别聚合数据（实时计算）
@@ -170,7 +181,7 @@ def get_city_aggregates(
     Returns:
         List[dict]: 城市聚合数据
     """
-    results = compute_city_aggregates(db, city, run_id)
+    results = compute_city_aggregates(db, city, run_id, dbpath)
 
     if not results:
         raise HTTPException(
@@ -187,7 +198,8 @@ def compute_county_aggregates(
     city_name: Optional[str] = None,
     city: Optional[str] = None,
     county: Optional[str] = None,
-    run_id: Optional[str] = None
+    run_id: Optional[str] = None,
+    dbpath: str = "village",
 ) -> List[Dict[str, Any]]:
     """
     实时计算县区级别聚合数据
@@ -196,16 +208,20 @@ def compute_county_aggregates(
     Uses semantic_indices table for semantic category statistics (already aggregated).
     """
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
+    villages_table, vcol = _regional_table(dbpath, "villages_raw")
+    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
 
     # Step 1: Get basic aggregations from main table
-    query_basic = """
+    query_basic = f"""
         SELECT
-            v.市级 as city,
-            v.区县级 as county,
-            COUNT(DISTINCT v.自然村) as total_villages,
-            AVG(LENGTH(v.自然村)) as avg_name_length
-        FROM 广东省自然村 v
+            v.{vcol("city")} as city,
+            v.{vcol("county")} as county,
+            COUNT(DISTINCT v.{vcol("name")}) as total_villages,
+            AVG(LENGTH(v.{vcol("name")})) as avg_name_length
+        FROM {villages_table} v
         WHERE 1=1
     """
 
@@ -213,48 +229,48 @@ def compute_county_aggregates(
 
     # Priority 1: Use hierarchy parameters
     if city is not None:
-        query_basic += " AND v.市级 = ?"
+        query_basic += f" AND v.{vcol('city')} = ?"
         params_basic.append(city)
     if county is not None:
-        query_basic += " AND v.区县级 = ?"
+        query_basic += f" AND v.{vcol('county')} = ?"
         params_basic.append(county)
 
     # Priority 2: Backward compatibility
     if county_name is not None:
-        query_basic += " AND v.区县级 = ?"
+        query_basic += f" AND v.{vcol('county')} = ?"
         params_basic.append(county_name)
     if city_name is not None:
-        query_basic += " AND v.市级 = ?"
+        query_basic += f" AND v.{vcol('city')} = ?"
         params_basic.append(city_name)
 
-    query_basic += " GROUP BY v.市级, v.区县级"
+    query_basic += f" GROUP BY v.{vcol('city')}, v.{vcol('county')}"
 
     basic_results = execute_query(db, query_basic, tuple(params_basic))
 
     # Step 2: Get semantic category statistics from semantic_indices
-    query_semantic = """
+    query_semantic = f"""
         SELECT
-            city,
-            county,
-            category,
-            raw_intensity
-        FROM semantic_indices
-        WHERE region_level = 'county' AND run_id = ?
+            {scol("city")} as city,
+            {scol("county")} as county,
+            {scol("category")} as category,
+            {scol("raw_intensity")} as raw_intensity
+        FROM {semantic_table}
+        WHERE {scol("region_level")} = 'county' AND {scol("run_id")} = ?
     """
 
     params_semantic = [run_id]
 
     # Priority 1: Use hierarchy parameters
     if city is not None:
-        query_semantic += " AND city = ?"
+        query_semantic += f" AND {scol('city')} = ?"
         params_semantic.append(city)
     if county is not None:
-        query_semantic += " AND county = ?"
+        query_semantic += f" AND {scol('county')} = ?"
         params_semantic.append(county)
 
     # Priority 2: Backward compatibility
     if county_name is not None:
-        query_semantic += " AND (county = ? OR region_name = ?)"
+        query_semantic += f" AND ({scol('county')} = ? OR {scol('region_name')} = ?)"
         params_semantic.extend([county_name, county_name])
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
@@ -318,7 +334,8 @@ def get_county_aggregates(
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取县区级别聚合数据（实时计算）
@@ -334,7 +351,7 @@ def get_county_aggregates(
     Returns:
         List[dict]: 县区聚合数据
     """
-    results = compute_county_aggregates(db, county_name, city_name, city, county, run_id)
+    results = compute_county_aggregates(db, county_name, city_name, city, county, run_id, dbpath)
 
     if not results:
         raise HTTPException(
@@ -354,7 +371,8 @@ def get_town_aggregates(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取乡镇级别聚合数据（实时计算）
@@ -373,17 +391,21 @@ def get_town_aggregates(
         List[dict]: 乡镇聚合数据
     """
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
+    villages_table, vcol = _regional_table(dbpath, "villages_raw")
+    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
 
     # Step 1: Get basic aggregations from main table
-    query_basic = """
+    query_basic = f"""
         SELECT
-            v.市级 as city,
-            v.区县级 as county,
-            v.乡镇级 as town,
-            COUNT(DISTINCT v.自然村) as total_villages,
-            AVG(LENGTH(v.自然村)) as avg_name_length
-        FROM 广东省自然村 v
+            v.{vcol("city")} as city,
+            v.{vcol("county")} as county,
+            v.{vcol("township")} as town,
+            COUNT(DISTINCT v.{vcol("name")}) as total_villages,
+            AVG(LENGTH(v.{vcol("name")})) as avg_name_length
+        FROM {villages_table} v
         WHERE 1=1
     """
 
@@ -391,70 +413,70 @@ def get_town_aggregates(
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
-        query_basic += " AND v.市级 = ?"
+        query_basic += f" AND v.{vcol('city')} = ?"
         params_basic.append(city)
 
     if county is not None:
-        query_basic += " AND v.区县级 = ?"
+        query_basic += f" AND v.{vcol('county')} = ?"
         params_basic.append(county)
     elif city is not None:
         # Handle 东莞市/中山市 (no county level)
-        query_basic += " AND (v.区县级 IS NULL OR v.区县级 = '')"
+        query_basic += f" AND (v.{vcol('county')} IS NULL OR v.{vcol('county')} = '')"
 
     if township is not None:
-        query_basic += " AND v.乡镇级 = ?"
+        query_basic += f" AND v.{vcol('township')} = ?"
         params_basic.append(township)
 
     # Priority 2: Backward compatibility (fuzzy match)
     if town_name is not None:
-        query_basic += " AND v.乡镇级 = ?"
+        query_basic += f" AND v.{vcol('township')} = ?"
         params_basic.append(town_name)
 
     if county_name is not None:
-        query_basic += " AND v.区县级 = ?"
+        query_basic += f" AND v.{vcol('county')} = ?"
         params_basic.append(county_name)
 
     if limit is not None:
-        query_basic += " GROUP BY v.市级, v.区县级, v.乡镇级 ORDER BY COUNT(DISTINCT v.自然村) DESC LIMIT ?"
+        query_basic += f" GROUP BY v.{vcol('city')}, v.{vcol('county')}, v.{vcol('township')} ORDER BY COUNT(DISTINCT v.{vcol('name')}) DESC LIMIT ?"
         params_basic.append(limit)
     else:
-        query_basic += " GROUP BY v.市级, v.区县级, v.乡镇级 ORDER BY COUNT(DISTINCT v.自然村) DESC"
+        query_basic += f" GROUP BY v.{vcol('city')}, v.{vcol('county')}, v.{vcol('township')} ORDER BY COUNT(DISTINCT v.{vcol('name')}) DESC"
 
     basic_results = execute_query(db, query_basic, tuple(params_basic))
 
     # Step 2: Get semantic category statistics from semantic_indices
-    query_semantic = """
+    query_semantic = f"""
         SELECT
-            city,
-            county,
-            township,
-            category,
-            raw_intensity
-        FROM semantic_indices
-        WHERE region_level = 'township' AND run_id = ?
+            {scol("city")} as city,
+            {scol("county")} as county,
+            {scol("township")} as township,
+            {scol("category")} as category,
+            {scol("raw_intensity")} as raw_intensity
+        FROM {semantic_table}
+        WHERE {scol("region_level")} = 'township' AND {scol("run_id")} = ?
     """
 
     params_semantic = [run_id]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
-        query_semantic += " AND city = ?"
+        query_semantic += f" AND {scol('city')} = ?"
         params_semantic.append(city)
 
     if county is not None:
-        query_semantic += " AND county = ?"
+        query_semantic += f" AND {scol('county')} = ?"
         params_semantic.append(county)
     elif city is not None:
         # Handle 东莞市/中山市 (no county level)
-        query_semantic += " AND (county IS NULL OR county = '')"
+        query_semantic += f" AND ({scol('county')} IS NULL OR {scol('county')} = '')"
 
     if township is not None:
-        query_semantic += " AND township = ?"
+        query_semantic += f" AND {scol('township')} = ?"
         params_semantic.append(township)
 
     # Priority 2: Backward compatibility (fuzzy match)
     if town_name is not None:
-        query_semantic += " AND (township = ? OR region_name = ?)"
+        query_semantic += f" AND ({scol('township')} = ? OR {scol('region_name')} = ?)"
         params_semantic.extend([town_name, town_name])
 
     semantic_results = execute_query(db, query_semantic, tuple(params_semantic))
@@ -522,7 +544,8 @@ def get_region_spatial_aggregates(
     county: Optional[str] = Query(None, description="区县级过滤"),
     town: Optional[str] = Query(None, description="乡镇级过滤"),
     limit: Optional[int] = Query(None, ge=1, description="返回记录数（不传则返回全部）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域空间聚合数据（查询预计算表，毫秒级响应）
@@ -545,44 +568,45 @@ def get_region_spatial_aggregates(
             detail=f"Invalid region_level: {region_level}. Must be one of: city, county, town"
         )
 
-    query = """
+    table, col = _regional_table(dbpath, "region_spatial_aggregates")
+    query = f"""
         SELECT
-            region_level,
-            region_name,
-            city,
-            county,
-            town,
-            total_villages as village_count,
-            avg_local_density as avg_density,
-            avg_nn_distance,
-            avg_isolation_score,
-            spatial_dispersion,
-            n_isolated_villages,
-            n_spatial_clusters
-        FROM region_spatial_aggregates
-        WHERE region_level = ?
+            {col("region_level")} as region_level,
+            {col("region_name")} as region_name,
+            {col("city")} as city,
+            {col("county")} as county,
+            {col("town")} as town,
+            {col("total_villages")} as village_count,
+            {col("avg_local_density")} as avg_density,
+            {col("avg_nn_distance")} as avg_nn_distance,
+            {col("avg_isolation_score")} as avg_isolation_score,
+            {col("spatial_dispersion")} as spatial_dispersion,
+            {col("n_isolated_villages")} as n_isolated_villages,
+            {col("n_spatial_clusters")} as n_spatial_clusters
+        FROM {table}
+        WHERE {col("region_level")} = ?
     """
     params = [region_level]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {col('city')} = ?"
         params.append(city)
 
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {col('county')} = ?"
         params.append(county)
     elif city is not None and region_level == 'town':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
 
     if town is not None:
-        query += " AND town = ?"
+        query += f" AND {col('town')} = ?"
         params.append(town)
 
     # Priority 2: Backward compatibility (fuzzy match)
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR town = ? OR region_name = ?)"
+        query += f" AND ({col('city')} = ? OR {col('county')} = ? OR {col('town')} = ? OR {col('region_name')} = ?)"
         params.extend([region_name, region_name, region_name, region_name])
 
     query += " ORDER BY village_count DESC"
@@ -610,7 +634,8 @@ def get_region_vectors(
     township: Optional[str] = Query(None, description="乡镇级名称（精确匹配）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域语义特征向量（支持层级路径参数以避免重名）
@@ -652,14 +677,18 @@ def get_region_vectors(
     """
     # 获取 run_id
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
+    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+    villages_table, vcol = _regional_table(dbpath, "villages_raw")
 
     # 步骤1: 从 semantic_indices 获取所有符合 level 的区域
-    semantic_query = """
-        SELECT DISTINCT region_name
-        FROM semantic_indices
-        WHERE region_level = ? AND run_id = ?
-        ORDER BY region_name
+    semantic_query = f"""
+        SELECT DISTINCT {scol("region_name")} as region_name
+        FROM {semantic_table}
+        WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
+        ORDER BY {scol("region_name")}
         LIMIT ?
     """
     semantic_rows = execute_query(db, semantic_query, (level, run_id, limit * 10))  # 多取一些，后面过滤
@@ -676,24 +705,24 @@ def get_region_vectors(
         filter_query = "SELECT DISTINCT "
 
         if level == 'city':
-            filter_query += "市级 as region_name FROM 广东省自然村 WHERE 1=1"
+            filter_query += f"{vcol('city')} as region_name FROM {villages_table} WHERE 1=1"
         elif level == 'county':
-            filter_query += "区县级 as region_name FROM 广东省自然村 WHERE 区县级 IS NOT NULL"
+            filter_query += f"{vcol('county')} as region_name FROM {villages_table} WHERE {vcol('county')} IS NOT NULL"
         elif level == 'township':
-            filter_query += "乡镇级 as region_name FROM 广东省自然村 WHERE 1=1"
+            filter_query += f"{vcol('township')} as region_name FROM {villages_table} WHERE 1=1"
 
         filter_params = []
 
         if city:
-            filter_query += " AND 市级 = ?"
+            filter_query += f" AND {vcol('city')} = ?"
             filter_params.append(city)
 
         if county:
-            filter_query += " AND 区县级 = ?"
+            filter_query += f" AND {vcol('county')} = ?"
             filter_params.append(county)
 
         if township:
-            filter_query += " AND 乡镇级 = ?"
+            filter_query += f" AND {vcol('township')} = ?"
             filter_params.append(township)
 
         filter_rows = execute_query(db, filter_query, tuple(filter_params))
@@ -718,11 +747,11 @@ def get_region_vectors(
     hierarchy_query = f"SELECT DISTINCT "
 
     if level == 'city':
-        hierarchy_query += f"市级 as region_name, 市级 as city, NULL as county, NULL as township FROM 广东省自然村 WHERE 市级 IN ({placeholders})"
+        hierarchy_query += f"{vcol('city')} as region_name, {vcol('city')} as city, NULL as county, NULL as township FROM {villages_table} WHERE {vcol('city')} IN ({placeholders})"
     elif level == 'county':
-        hierarchy_query += f"区县级 as region_name, 市级 as city, 区县级 as county, NULL as township FROM 广东省自然村 WHERE 区县级 IN ({placeholders})"
+        hierarchy_query += f"{vcol('county')} as region_name, {vcol('city')} as city, {vcol('county')} as county, NULL as township FROM {villages_table} WHERE {vcol('county')} IN ({placeholders})"
     elif level == 'township':
-        hierarchy_query += f"乡镇级 as region_name, 市级 as city, 区县级 as county, 乡镇级 as township FROM 广东省自然村 WHERE 乡镇级 IN ({placeholders})"
+        hierarchy_query += f"{vcol('township')} as region_name, {vcol('city')} as city, {vcol('county')} as county, {vcol('township')} as township FROM {villages_table} WHERE {vcol('township')} IN ({placeholders})"
 
     hierarchy_rows = execute_query(db, hierarchy_query, tuple(region_names))
 
@@ -740,35 +769,35 @@ def get_region_vectors(
     results = []
     for hierarchy in hierarchy_list:
         # 使用层级参数精确查询，避免重名问题
-        semantic_query = """
+        semantic_query = f"""
             SELECT
-                region_name,
-                city,
-                county,
-                township,
-                category,
-                raw_intensity,
-                village_count
-            FROM semantic_indices
-            WHERE run_id = ? AND region_level = ?
+                {scol("region_name")} as region_name,
+                {scol("city")} as city,
+                {scol("county")} as county,
+                {scol("township")} as township,
+                {scol("category")} as category,
+                {scol("raw_intensity")} as raw_intensity,
+                {scol("village_count")} as village_count
+            FROM {semantic_table}
+            WHERE {scol("run_id")} = ? AND {scol("region_level")} = ?
         """
         semantic_params = [run_id, level]
 
         # 添加层级过滤条件
         if hierarchy['city'] is not None:
-            semantic_query += " AND city = ?"
+            semantic_query += f" AND {scol('city')} = ?"
             semantic_params.append(hierarchy['city'])
         if hierarchy['county'] is not None:
-            semantic_query += " AND county = ?"
+            semantic_query += f" AND {scol('county')} = ?"
             semantic_params.append(hierarchy['county'])
         elif hierarchy['city'] is not None and level == 'township':
             # Handle 东莞市/中山市 (no county level)
-            semantic_query += " AND (county IS NULL OR county = '')"
+            semantic_query += f" AND ({scol('county')} IS NULL OR {scol('county')} = '')"
         if hierarchy['township'] is not None:
-            semantic_query += " AND township = ?"
+            semantic_query += f" AND {scol('township')} = ?"
             semantic_params.append(hierarchy['township'])
 
-        semantic_query += " ORDER BY category"
+        semantic_query += f" ORDER BY {scol('category')}"
 
         semantic_rows = execute_query(db, semantic_query, tuple(semantic_params))
 
@@ -860,6 +889,7 @@ class VectorCompareResponse(BaseModel):
 
 def get_semantic_vector_by_hierarchy(
     db: sqlite3.Connection,
+    dbpath: str,
     level: str,
     city: Optional[str],
     county: Optional[str],
@@ -902,30 +932,32 @@ def get_semantic_vector_by_hierarchy(
             detail=f"Missing region name for level {level}"
         )
 
+    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+
     # 使用层级参数精确查询，避免重名问题
     # 使用 DISTINCT 去除重复数据
-    query = """
-        SELECT DISTINCT category, raw_intensity
-        FROM semantic_indices
-        WHERE region_level = ? AND run_id = ?
+    query = f"""
+        SELECT DISTINCT {scol("category")} as category, {scol("raw_intensity")} as raw_intensity
+        FROM {semantic_table}
+        WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
     """
     params = [level, run_id]
 
     # 添加层级过滤条件
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {scol('city')} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {scol('county')} = ?"
         params.append(county)
     elif city is not None and level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({scol('county')} IS NULL OR {scol('county')} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {scol('township')} = ?"
         params.append(township)
 
-    query += " ORDER BY category"
+    query += f" ORDER BY {scol('category')}"
 
     rows = execute_query(db, query, tuple(params))
 
@@ -958,7 +990,8 @@ def get_semantic_vector_by_hierarchy(
 @router.post("/vectors/compare", response_model=VectorCompareResponse)
 def compare_regional_vectors(
     request: VectorCompareRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     比较两个区域的语义特征向量（支持层级路径参数）
@@ -1021,16 +1054,18 @@ def compare_regional_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
     # 获取两个区域的向量（使用层级路径参数）
     vector1, categories1, region1_name, hierarchy1 = get_semantic_vector_by_hierarchy(
-        db, request.level1, request.city1, request.county1, request.township1, run_id
+        db, dbpath, request.level1, request.city1, request.county1, request.township1, run_id
     )
     vector2, categories2, region2_name, hierarchy2 = get_semantic_vector_by_hierarchy(
-        db, request.level2, request.city2, request.county2, request.township2, run_id
+        db, dbpath, request.level2, request.city2, request.county2, request.township2, run_id
     )
 
     # 验证类别一致性（应该都是相同的9个类别）
@@ -1083,6 +1118,7 @@ from .batch_vector_models import (
 
 def get_multiple_vectors(
     db: sqlite3.Connection,
+    dbpath: str,
     regions: List[RegionSpec],
     run_id: str
 ) -> tuple[object, List[Dict[str, Any]], List[str]]:
@@ -1104,6 +1140,7 @@ def get_multiple_vectors(
     for region_spec in regions:
         vector, cats, region_name, hierarchy = get_semantic_vector_by_hierarchy(
             db,
+            dbpath,
             region_spec.level,
             region_spec.city,
             region_spec.county,
@@ -1129,7 +1166,8 @@ def get_multiple_vectors(
 @router.post("/vectors/compare/batch", response_model=BatchCompareResponse)
 def batch_compare_vectors(
     request: BatchCompareRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     批量比较多个区域的向量，返回相似度矩阵
@@ -1168,12 +1206,14 @@ def batch_compare_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
     # 获取所有区域的向量
-    vectors, region_infos, categories = get_multiple_vectors(db, request.regions, run_id)
+    vectors, region_infos, categories = get_multiple_vectors(db, dbpath, request.regions, run_id)
 
     n = len(vectors)
 
@@ -1210,7 +1250,8 @@ def batch_compare_vectors(
 @router.post("/vectors/reduce", response_model=ReduceResponse)
 def reduce_vectors(
     request: ReduceRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     向量降维（PCA 或 t-SNE）
@@ -1257,12 +1298,14 @@ def reduce_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
     # 获取所有区域的向量
-    vectors, region_infos, categories = get_multiple_vectors(db, request.regions, run_id)
+    vectors, region_infos, categories = get_multiple_vectors(db, dbpath, request.regions, run_id)
 
     # 标准化
     scaler = _standard_scaler()()
@@ -1298,7 +1341,8 @@ def reduce_vectors(
 @router.post("/vectors/cluster", response_model=ClusterResponse)
 def cluster_vectors(
     request: ClusterRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     向量聚类（KMeans、DBSCAN 或 GMM）
@@ -1371,12 +1415,14 @@ def cluster_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
     # 获取所有区域的向量
-    vectors, region_infos, categories = get_multiple_vectors(db, request.regions, run_id)
+    vectors, region_infos, categories = get_multiple_vectors(db, dbpath, request.regions, run_id)
 
     # 标准化
     scaler = _standard_scaler()()

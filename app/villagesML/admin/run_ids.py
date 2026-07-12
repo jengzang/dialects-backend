@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
-from ..run_id_manager import run_id_manager
+from ..dependencies import get_dbpath
+from ..run_id_manager import get_run_id_manager
 from app.service.auth.core.dependencies import get_current_admin_user
 
 """
@@ -24,7 +25,7 @@ class SetActiveRunIDRequest(BaseModel):
 
 
 @router.get("/run-ids/active")
-def get_all_active_run_ids():
+def get_all_active_run_ids(dbpath: str = Depends(get_dbpath)):
     """
     获取所有分析类型当前激活的 run_id。
 
@@ -32,6 +33,7 @@ def get_all_active_run_ids():
         所有分析类型对应的当前激活 run_id。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         result = run_id_manager.get_all_active_run_ids()
         return {
             "success": True,
@@ -47,6 +49,7 @@ def get_all_active_run_ids():
 @router.get("/run-ids/active/{analysis_type}")
 def get_active_run_id(
     analysis_type: str,  # 分析类型名称
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取指定分析类型当前激活的 run_id。
@@ -58,6 +61,7 @@ def get_active_run_id(
         当前激活的 run_id 信息。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         run_id = run_id_manager.get_active_run_id(analysis_type)
         return {
             "success": True,
@@ -73,7 +77,10 @@ def get_active_run_id(
 
 
 @router.get("/run-ids/available/{analysis_type}")
-def list_available_run_ids(analysis_type: str):
+def list_available_run_ids(
+    analysis_type: str,
+    dbpath: str = Depends(get_dbpath),
+):
     """
     列出指定分析类型下可用的 run_id。
 
@@ -84,6 +91,7 @@ def list_available_run_ids(analysis_type: str):
         可用 run_id 列表。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         run_ids = run_id_manager.list_available_run_ids(analysis_type)
         return {
             "success": True,
@@ -101,6 +109,7 @@ def list_available_run_ids(analysis_type: str):
 def set_active_run_id(
     analysis_type: str,
     request: SetActiveRunIDRequest,
+    dbpath: str = Depends(get_dbpath),
     _admin=Depends(get_current_admin_user),
 ):
     """
@@ -115,6 +124,7 @@ def set_active_run_id(
         更新结果。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         run_id_manager.set_active_run_id(
             analysis_type=analysis_type,
             run_id=request.run_id,
@@ -137,7 +147,10 @@ def set_active_run_id(
 
 
 @router.get("/run-ids/metadata/{run_id}")
-def get_run_id_metadata(run_id: str):
+def get_run_id_metadata(
+    run_id: str,
+    dbpath: str = Depends(get_dbpath),
+):
     """
     获取 run_id 的元数据。
 
@@ -148,6 +161,7 @@ def get_run_id_metadata(run_id: str):
         run_id 元数据。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         metadata = run_id_manager.get_run_id_metadata(run_id)
         return {
             "success": True,
@@ -161,6 +175,7 @@ def get_run_id_metadata(run_id: str):
 
 @router.post("/run-ids/refresh")
 def refresh_cache(
+    dbpath: str = Depends(get_dbpath),
     _admin=Depends(get_current_admin_user),
 ):
     """
@@ -170,6 +185,7 @@ def refresh_cache(
         刷新结果。
     """
     try:
+        run_id_manager = get_run_id_manager(dbpath)
         run_id_manager.refresh_cache()
         return {
             "success": True,

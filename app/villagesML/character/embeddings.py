@@ -7,8 +7,9 @@ from typing import Optional
 import sqlite3
 import json
 
-from ..dependencies import get_db, execute_query, execute_single
-from ..run_id_manager import run_id_manager
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/character/embeddings")
 
@@ -19,7 +20,8 @@ VECTOR_DIM = 225
 @router.get("/vector")
 def get_character_embedding(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取字符的Word2Vec嵌入向量
@@ -31,15 +33,22 @@ def get_character_embedding(
     Returns:
         dict: 字符嵌入信息（包含向量）
     """
-    query = """
+    table = qtable(dbpath, "char_embeddings")
+    run_id_col = qcolumn(dbpath, "char_embeddings", "run_id")
+    char_col = qcolumn(dbpath, "char_embeddings", "char")
+    embedding_vector_col = qcolumn(dbpath, "char_embeddings", "embedding_vector")
+
+    query = f"""
         SELECT
-            char as character,
-            embedding_vector
-        FROM char_embeddings
-        WHERE run_id = ? AND char = ?
+            {char_col} as character,
+            {embedding_vector_col} as embedding_vector
+        FROM {table}
+        WHERE {run_id_col} = ? AND {char_col} = ?
     """
 
-    run_id = run_id_manager.get_active_run_id("char_embeddings")
+    run_id = get_run_id_manager(dbpath).get_active_run_id(
+        run_id_analysis_type(dbpath, "char_embeddings")
+    )
     result = execute_single(db, query, (run_id, char))
 
     if not result:
@@ -60,7 +69,8 @@ def get_similar_characters(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
     top_k: int = Query(10, ge=1, le=50, description="返回前K个相似字符"),
     min_similarity: Optional[float] = Query(None, ge=0.0, le=1.0, description="最小相似度阈值"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取与指定字符最相似的字符
@@ -74,22 +84,30 @@ def get_similar_characters(
     Returns:
         dict: 包含查询信息和相似字符列表
     """
-    query = """
+    table = qtable(dbpath, "char_similarity")
+    run_id_col = qcolumn(dbpath, "char_similarity", "run_id")
+    char1_col = qcolumn(dbpath, "char_similarity", "char1")
+    char2_col = qcolumn(dbpath, "char_similarity", "char2")
+    similarity_col = qcolumn(dbpath, "char_similarity", "cosine_similarity")
+
+    query = f"""
         SELECT
-            char2 as character,
-            cosine_similarity as similarity
-        FROM char_similarity
-        WHERE run_id = ? AND char1 = ?
+            {char2_col} as character,
+            {similarity_col} as similarity
+        FROM {table}
+        WHERE {run_id_col} = ? AND {char1_col} = ?
     """
-    run_id = run_id_manager.get_active_run_id("char_embeddings")
+    run_id = get_run_id_manager(dbpath).get_active_run_id(
+        run_id_analysis_type(dbpath, "char_similarity")
+    )
     params = [run_id, char]
 
     # 现场过滤：最小相似度
     if min_similarity is not None:
-        query += " AND cosine_similarity >= ?"
+        query += f" AND {similarity_col} >= ?"
         params.append(min_similarity)
 
-    query += " ORDER BY cosine_similarity DESC LIMIT ?"
+    query += f" ORDER BY {similarity_col} DESC LIMIT ?"
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -111,7 +129,8 @@ def get_similar_characters(
 def list_character_embeddings(
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     offset: int = Query(0, ge=0, description="偏移量"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     列出所有字符嵌入（不包含向量，仅元数据）
@@ -125,19 +144,26 @@ def list_character_embeddings(
         dict: 包含分页信息和字符嵌入元数据列表
     """
     # 获取总数
-    run_id = run_id_manager.get_active_run_id("char_embeddings")
-    count_query = "SELECT COUNT(*) as total FROM char_embeddings WHERE run_id = ?"
+    run_id = get_run_id_manager(dbpath).get_active_run_id(
+        run_id_analysis_type(dbpath, "char_embeddings")
+    )
+    table = qtable(dbpath, "char_embeddings")
+    run_id_col = qcolumn(dbpath, "char_embeddings", "run_id")
+    char_col = qcolumn(dbpath, "char_embeddings", "char")
+    frequency_col = qcolumn(dbpath, "char_embeddings", "char_frequency")
+
+    count_query = f"SELECT COUNT(*) as total FROM {table} WHERE {run_id_col} = ?"
     count_result = execute_single(db, count_query, (run_id,))
     total = count_result["total"] if count_result else 0
 
     # 获取数据
-    query = """
+    query = f"""
         SELECT
-            char as character,
-            char_frequency as frequency
-        FROM char_embeddings
-        WHERE run_id = ?
-        ORDER BY char
+            {char_col} as character,
+            {frequency_col} as frequency
+        FROM {table}
+        WHERE {run_id_col} = ?
+        ORDER BY {char_col}
         LIMIT ? OFFSET ?
     """
 

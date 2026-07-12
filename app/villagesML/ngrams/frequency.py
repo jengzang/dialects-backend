@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional, Dict, Any
 import sqlite3
 
-from ..dependencies import get_db, execute_query
+from ..dependencies import get_db, get_dbpath, execute_query
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/ngrams")
 
@@ -14,6 +15,10 @@ router = APIRouter(prefix="/ngrams")
 DATA_OPTIMIZATION_DATE = None  # 将在数据优化后设置，格式: "2026-02-25"
 DATA_RETENTION_RATE = 1.0  # 数据保留率，优化后会更新为 0.587
 INCLUDES_INSIGNIFICANT = True  # 是否包含不显著数据，优化后会设置为 False
+
+
+def _ngram_schema(dbpath: str, logical_table: str):
+    return qtable(dbpath, logical_table), lambda name: qcolumn(dbpath, logical_table, name)
 
 
 def _build_metadata(
@@ -50,7 +55,8 @@ def get_ngram_frequency(
     position: str = Query("all", pattern="^(all|prefix|middle|suffix)$", description="N-gram位置 (all=所有位置, prefix=前缀, middle=中间, suffix=后缀)"),
     top_k: int = Query(100, ge=1, le=1000, description="返回前K个n-grams"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频次过滤"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取全局N-gram频率
@@ -65,23 +71,24 @@ def get_ngram_frequency(
     Returns:
         List[dict]: N-gram频率列表
     """
-    query = """
+    table, col = _ngram_schema(dbpath, "ngram_frequency")
+    query = f"""
         SELECT
-            ngram,
-            position,
-            frequency,
-            percentage
-        FROM ngram_frequency
-        WHERE n = ? AND position = ?
+            {col("ngram")} as ngram,
+            {col("position")} as position,
+            {col("frequency")} as frequency,
+            {col("percentage")} as percentage
+        FROM {table}
+        WHERE {col("n")} = ? AND {col("position")} = ?
     """
     params = [n, position]
 
     # 现场过滤：最小频次
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {col('frequency')} >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {col('frequency')} DESC LIMIT ?"
     params.append(top_k)
 
     # Debug: print the query
@@ -109,7 +116,8 @@ def get_regional_ngram_frequency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     top_k: int = Query(50, ge=1, le=500, description="每个区域返回前K个n-grams"),
     return_metadata: bool = Query(False, description="是否返回元数据（包含数据说明）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域N-gram频率
@@ -133,101 +141,111 @@ def get_regional_ngram_frequency(
     Returns:
         List[dict] 或 dict: N-gram频率列表，或包含data和metadata的字典
     """
+    table, col = _ngram_schema(dbpath, "regional_ngram_frequency")
+    level_col = col("level")
+    region_col = col("region")
+    city_col = col("city")
+    county_col = col("county")
+    township_col = col("township")
+    ngram_col = col("ngram")
+    frequency_col = col("frequency")
+    percentage_col = col("percentage")
+    n_col = col("n")
 
     # 根据 region_level 构建不同的查询
     if region_level == "township":
         # Township 级别：直接查询原始数据
-        query = """
+        query = f"""
             SELECT
                 'township' as region_level,
-                region as region_name,
-                city,
-                county,
-                township,
-                ngram,
-                frequency,
-                percentage,
-                ROW_NUMBER() OVER (PARTITION BY region ORDER BY frequency DESC) as rank
-            FROM regional_ngram_frequency
-            WHERE n = ? AND level = 'township'
+                {region_col} as region_name,
+                {city_col} as city,
+                {county_col} as county,
+                {township_col} as township,
+                {ngram_col} as ngram,
+                {frequency_col} as frequency,
+                {percentage_col} as percentage,
+                ROW_NUMBER() OVER (PARTITION BY {region_col} ORDER BY {frequency_col} DESC) as rank
+            FROM {table}
+            WHERE {n_col} = ? AND {level_col} = 'township'
         """
         params = [n]
 
         # 过滤条件
         if city is not None:
-            query += " AND city = ?"
+            query += f" AND {city_col} = ?"
             params.append(city)
         if county is not None:
-            query += " AND county = ?"
+            query += f" AND {county_col} = ?"
             params.append(county)
         elif city is not None and region_level == 'township':
             # Handle 东莞市/中山市 (no county level)
-            query += " AND (county IS NULL OR county = '')"
+            query += f" AND ({county_col} IS NULL OR {county_col} = '')"
         if township is not None:
-            query += " AND township = ?"
+            query += f" AND {township_col} = ?"
             params.append(township)
         if region_name is not None:
-            query += " AND region = ?"
+            query += f" AND {region_col} = ?"
             params.append(region_name)
 
     elif region_level == "county":
         # County 级别：从 township 聚合
-        query = """
+        query = f"""
             SELECT
                 'county' as region_level,
-                county as region_name,
-                city,
-                county,
+                {county_col} as region_name,
+                {city_col} as city,
+                {county_col} as county,
                 NULL as township,
-                ngram,
-                SUM(frequency) as frequency,
-                SUM(frequency) * 100.0 / SUM(SUM(frequency)) OVER (PARTITION BY county) as percentage,
-                ROW_NUMBER() OVER (PARTITION BY county ORDER BY SUM(frequency) DESC) as rank
-            FROM regional_ngram_frequency
-            WHERE n = ? AND level = 'township'
+                {ngram_col} as ngram,
+                SUM({frequency_col}) as frequency,
+                SUM({frequency_col}) * 100.0 / SUM(SUM({frequency_col})) OVER (PARTITION BY {county_col}) as percentage,
+                ROW_NUMBER() OVER (PARTITION BY {county_col} ORDER BY SUM({frequency_col}) DESC) as rank
+            FROM {table}
+            WHERE {n_col} = ? AND {level_col} = 'township'
         """
         params = [n]
 
         # 过滤条件
         if city is not None:
-            query += " AND city = ?"
+            query += f" AND {city_col} = ?"
             params.append(city)
         if county is not None:
-            query += " AND county = ?"
+            query += f" AND {county_col} = ?"
             params.append(county)
         if region_name is not None:
-            query += " AND county = ?"
+            query += f" AND {county_col} = ?"
             params.append(region_name)
 
-        query += " GROUP BY county, city, ngram"
+        query += f" GROUP BY {county_col}, {city_col}, {ngram_col}"
 
     else:  # region_level == "city"
         # City 级别：从 township 聚合
-        query = """
+        query = f"""
             SELECT
                 'city' as region_level,
-                city as region_name,
-                city,
+                {city_col} as region_name,
+                {city_col} as city,
                 NULL as county,
                 NULL as township,
-                ngram,
-                SUM(frequency) as frequency,
-                SUM(frequency) * 100.0 / SUM(SUM(frequency)) OVER (PARTITION BY city) as percentage,
-                ROW_NUMBER() OVER (PARTITION BY city ORDER BY SUM(frequency) DESC) as rank
-            FROM regional_ngram_frequency
-            WHERE n = ? AND level = 'township'
+                {ngram_col} as ngram,
+                SUM({frequency_col}) as frequency,
+                SUM({frequency_col}) * 100.0 / SUM(SUM({frequency_col})) OVER (PARTITION BY {city_col}) as percentage,
+                ROW_NUMBER() OVER (PARTITION BY {city_col} ORDER BY SUM({frequency_col}) DESC) as rank
+            FROM {table}
+            WHERE {n_col} = ? AND {level_col} = 'township'
         """
         params = [n]
 
         # 过滤条件
         if city is not None:
-            query += " AND city = ?"
+            query += f" AND {city_col} = ?"
             params.append(city)
         if region_name is not None:
-            query += " AND city = ?"
+            query += f" AND {city_col} = ?"
             params.append(region_name)
 
-        query += " GROUP BY city, ngram"
+        query += f" GROUP BY {city_col}, {ngram_col}"
 
     # 包装为子查询以应用 rank 过滤
     query = f"""
@@ -267,7 +285,8 @@ def get_structural_patterns(
     position: Optional[str] = Query(None, pattern="^(all|prefix|middle|suffix)$", description="位置过滤"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频次过滤"),
     limit: int = Query(100, ge=1, le=500, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取结构化命名模式
@@ -284,15 +303,16 @@ def get_structural_patterns(
     Returns:
         List[dict]: 结构化模式列表
     """
-    query = """
+    table, col = _ngram_schema(dbpath, "structural_patterns")
+    query = f"""
         SELECT
-            pattern,
-            pattern_type,
-            n,
-            position,
-            frequency,
-            example
-        FROM structural_patterns
+            {col("pattern")} as pattern,
+            {col("pattern_type")} as pattern_type,
+            {col("n")} as n,
+            {col("position")} as position,
+            {col("frequency")} as frequency,
+            {col("example")} as example
+        FROM {table}
     """
     params = []
 
@@ -308,33 +328,33 @@ def get_structural_patterns(
         if '%' not in normalized_pattern and '_' not in normalized_pattern and 'X' not in normalized_pattern:
             normalized_pattern = f'%{normalized_pattern}%'
 
-        conditions.append("pattern LIKE ?")
+        conditions.append(f"{col('pattern')} LIKE ?")
         params.append(normalized_pattern)
 
     # 模式类型过滤
     if pattern_type is not None:
-        conditions.append("pattern_type = ?")
+        conditions.append(f"{col('pattern_type')} = ?")
         params.append(pattern_type)
 
     # N-gram 大小过滤
     if n is not None:
-        conditions.append("n = ?")
+        conditions.append(f"{col('n')} = ?")
         params.append(n)
 
     # 位置过滤
     if position is not None:
-        conditions.append("position = ?")
+        conditions.append(f"{col('position')} = ?")
         params.append(position)
 
     # 最小频次过滤
     if min_frequency is not None:
-        conditions.append("frequency >= ?")
+        conditions.append(f"{col('frequency')} >= ?")
         params.append(min_frequency)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {col('frequency')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -366,7 +386,8 @@ def get_ngram_tendency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值（lift值）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取N-gram倾向性分析
@@ -398,137 +419,139 @@ def get_ngram_tendency(
     """
 
     # 检查 regional_total_raw 字段是否存在
+    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
+    centroids_table, ccol = _ngram_schema(dbpath, "regional_centroids")
     cursor = db.cursor()
-    cursor.execute("PRAGMA table_info(ngram_tendency)")
+    cursor.execute(f"PRAGMA table_info({tendency_table})")
     columns = [col[1] for col in cursor.fetchall()]
-    has_regional_total_raw = 'regional_total_raw' in columns
+    has_regional_total_raw = qcolumn(dbpath, "ngram_tendency", "regional_total_raw").strip('"') in columns
 
     # 根据 region_level 构建不同的查询
     if region_level == "township":
         # Township 级别：直接查询原始数据
-        regional_total_raw_field = "nt.regional_total_raw" if has_regional_total_raw else "NULL"
+        regional_total_raw_field = f"nt.{tcol('regional_total_raw')}" if has_regional_total_raw else "NULL"
 
         query = f"""
             SELECT
-                nt.level as region_level,
-                nt.region as region_name,
-                nt.city,
-                nt.county,
-                nt.township,
-                nt.ngram,
-                nt.n,
-                nt.position,
-                nt.lift as tendency_score,
-                nt.log_odds,
-                nt.z_score,
-                nt.regional_count as frequency,
-                nt.regional_total,
+                nt.{tcol('level')} as region_level,
+                nt.{tcol('region')} as region_name,
+                nt.{tcol('city')} as city,
+                nt.{tcol('county')} as county,
+                nt.{tcol('township')} as township,
+                nt.{tcol('ngram')} as ngram,
+                nt.{tcol('n')} as n,
+                nt.{tcol('position')} as position,
+                nt.{tcol('lift')} as tendency_score,
+                nt.{tcol('log_odds')} as log_odds,
+                nt.{tcol('z_score')} as z_score,
+                nt.{tcol('regional_count')} as frequency,
+                nt.{tcol('regional_total')} as regional_total,
                 {regional_total_raw_field} as regional_total_raw,
-                nt.global_count as expected_frequency,
-                nt.global_total,
-                rc.centroid_lon,
-                rc.centroid_lat
-            FROM ngram_tendency nt
-            LEFT JOIN regional_centroids rc ON rc.region_level = 'township' AND rc.region_name = nt.region
-            WHERE nt.level = 'township'
+                nt.{tcol('global_count')} as expected_frequency,
+                nt.{tcol('global_total')} as global_total,
+                rc.{ccol('centroid_lon')} as centroid_lon,
+                rc.{ccol('centroid_lat')} as centroid_lat
+            FROM {tendency_table} nt
+            LEFT JOIN {centroids_table} rc ON rc.{ccol('region_level')} = 'township' AND rc.{ccol('region_name')} = nt.{tcol('region')}
+            WHERE nt.{tcol('level')} = 'township'
         """
         params = []
 
         # 过滤条件
         if city is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(city)
         if county is not None:
-            query += " AND nt.county = ?"
+            query += f" AND nt.{tcol('county')} = ?"
             params.append(county)
         elif city is not None:
             # Handle 东莞市/中山市 (no county level)
-            query += " AND (nt.county IS NULL OR nt.county = '')"
+            query += f" AND (nt.{tcol('county')} IS NULL OR nt.{tcol('county')} = '')"
         if township is not None:
-            query += " AND nt.township = ?"
+            query += f" AND nt.{tcol('township')} = ?"
             params.append(township)
         if region_name is not None:
-            query += " AND nt.region = ?"
+            query += f" AND nt.{tcol('region')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND nt.ngram = ?"
+            query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
         if min_tendency is not None:
-            query += " AND nt.lift >= ?"
+            query += f" AND nt.{tcol('lift')} >= ?"
             params.append(min_tendency)
 
-        query += """
-            ORDER BY nt.lift DESC
+        query += f"""
+            ORDER BY nt.{tcol('lift')} DESC
             LIMIT ?
         """
         params.append(limit)
 
     elif region_level == "county":
         # County 级别：从 township 聚合
-        regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
+        regional_total_raw_sum = f"SUM(nt.{tcol('regional_total_raw')})" if has_regional_total_raw else "NULL"
 
         # 使用 regional_total_raw 计算 Lift（如果存在），否则使用 regional_total
         if has_regional_total_raw:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total_raw)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
+            lift_formula = f"""(SUM(nt.{tcol('regional_count')}) * 1.0 / SUM(nt.{tcol('regional_total_raw')})) /
+                (SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))"""
         else:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
+            lift_formula = f"""(SUM(nt.{tcol('regional_count')}) * 1.0 / SUM(nt.{tcol('regional_total')})) /
+                (SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))"""
 
         query = f"""
             SELECT
                 'county' as region_level,
-                nt.county as region_name,
-                nt.city,
-                nt.county,
+                nt.{tcol('county')} as region_name,
+                nt.{tcol('city')} as city,
+                nt.{tcol('county')} as county,
                 NULL as township,
-                nt.ngram,
-                nt.n,
-                nt.position,
+                nt.{tcol('ngram')} as ngram,
+                nt.{tcol('n')} as n,
+                nt.{tcol('position')} as position,
                 {lift_formula} as tendency_score,
                 CASE
-                    WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
-                         SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
-                    THEN LOG((SUM(nt.regional_count) * 1.0 / (SUM(nt.regional_total) - SUM(nt.regional_count) + 1)) /
-                             (SUM(nt.global_count) * 1.0 / (SUM(nt.global_total) - SUM(nt.global_count) + 1)))
+                    WHEN SUM(nt.{tcol('regional_total')}) - SUM(nt.{tcol('regional_count')}) + 1 > 0 AND
+                         SUM(nt.{tcol('global_total')}) - SUM(nt.{tcol('global_count')}) + 1 > 0
+                    THEN LOG((SUM(nt.{tcol('regional_count')}) * 1.0 / (SUM(nt.{tcol('regional_total')}) - SUM(nt.{tcol('regional_count')}) + 1)) /
+                             (SUM(nt.{tcol('global_count')}) * 1.0 / (SUM(nt.{tcol('global_total')}) - SUM(nt.{tcol('global_count')}) + 1)))
                     ELSE 0.0
                 END as log_odds,
                 CASE
-                    WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
-                    THEN (SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) /
-                         SQRT(SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) *
-                              (1 - SUM(nt.global_count) * 1.0 / SUM(nt.global_total)))
+                    WHEN SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) > 0
+                    THEN (SUM(nt.{tcol('regional_count')}) - SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')})) /
+                         SQRT(SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) *
+                              (1 - SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')})))
                     ELSE 0.0
                 END as z_score,
-                SUM(nt.regional_count) as frequency,
-                SUM(nt.regional_total) as regional_total,
+                SUM(nt.{tcol('regional_count')}) as frequency,
+                SUM(nt.{tcol('regional_total')}) as regional_total,
                 {regional_total_raw_sum} as regional_total_raw,
-                SUM(nt.global_count) as expected_frequency,
-                SUM(nt.global_total) as global_total,
-                rc.centroid_lon,
-                rc.centroid_lat
-            FROM ngram_tendency nt
-            LEFT JOIN regional_centroids rc ON rc.region_level = 'county' AND rc.region_name = nt.county
-            WHERE nt.level = 'township'
+                SUM(nt.{tcol('global_count')}) as expected_frequency,
+                SUM(nt.{tcol('global_total')}) as global_total,
+                rc.{ccol('centroid_lon')} as centroid_lon,
+                rc.{ccol('centroid_lat')} as centroid_lat
+            FROM {tendency_table} nt
+            LEFT JOIN {centroids_table} rc ON rc.{ccol('region_level')} = 'county' AND rc.{ccol('region_name')} = nt.{tcol('county')}
+            WHERE nt.{tcol('level')} = 'township'
         """
         params = []
 
         # 过滤条件
         if city is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(city)
         if county is not None:
-            query += " AND nt.county = ?"
+            query += f" AND nt.{tcol('county')} = ?"
             params.append(county)
         if region_name is not None:
-            query += " AND nt.county = ?"
+            query += f" AND nt.{tcol('county')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND nt.ngram = ?"
+            query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
 
-        query += """
-            GROUP BY nt.county, nt.city, nt.ngram, nt.n, nt.position
+        query += f"""
+            GROUP BY nt.{tcol('county')}, nt.{tcol('city')}, nt.{tcol('ngram')}, nt.{tcol('n')}, nt.{tcol('position')}
         """
 
         # min_tendency 过滤需要在 HAVING 子句中
@@ -541,67 +564,67 @@ def get_ngram_tendency(
 
     else:  # region_level == "city"
         # City 级别：从 township 聚合
-        regional_total_raw_sum = "SUM(nt.regional_total_raw)" if has_regional_total_raw else "NULL"
+        regional_total_raw_sum = f"SUM(nt.{tcol('regional_total_raw')})" if has_regional_total_raw else "NULL"
 
         # 使用 regional_total_raw 计算 Lift（如果存在），否则使用 regional_total
         if has_regional_total_raw:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total_raw)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
+            lift_formula = f"""(SUM(nt.{tcol('regional_count')}) * 1.0 / SUM(nt.{tcol('regional_total_raw')})) /
+                (SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))"""
         else:
-            lift_formula = """(SUM(nt.regional_count) * 1.0 / SUM(nt.regional_total)) /
-                (SUM(nt.global_count) * 1.0 / SUM(nt.global_total))"""
+            lift_formula = f"""(SUM(nt.{tcol('regional_count')}) * 1.0 / SUM(nt.{tcol('regional_total')})) /
+                (SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))"""
 
         query = f"""
             SELECT
                 'city' as region_level,
-                nt.city as region_name,
-                nt.city,
+                nt.{tcol('city')} as region_name,
+                nt.{tcol('city')} as city,
                 NULL as county,
                 NULL as township,
-                nt.ngram,
-                nt.n,
-                nt.position,
+                nt.{tcol('ngram')} as ngram,
+                nt.{tcol('n')} as n,
+                nt.{tcol('position')} as position,
                 {lift_formula} as tendency_score,
                 CASE
-                    WHEN SUM(nt.regional_total) - SUM(nt.regional_count) + 1 > 0 AND
-                         SUM(nt.global_total) - SUM(nt.global_count) + 1 > 0
-                    THEN LOG((SUM(nt.regional_count) * 1.0 / (SUM(nt.regional_total) - SUM(nt.regional_count) + 1)) /
-                             (SUM(nt.global_count) * 1.0 / (SUM(nt.global_total) - SUM(nt.global_count) + 1)))
+                    WHEN SUM(nt.{tcol('regional_total')}) - SUM(nt.{tcol('regional_count')}) + 1 > 0 AND
+                         SUM(nt.{tcol('global_total')}) - SUM(nt.{tcol('global_count')}) + 1 > 0
+                    THEN LOG((SUM(nt.{tcol('regional_count')}) * 1.0 / (SUM(nt.{tcol('regional_total')}) - SUM(nt.{tcol('regional_count')}) + 1)) /
+                             (SUM(nt.{tcol('global_count')}) * 1.0 / (SUM(nt.{tcol('global_total')}) - SUM(nt.{tcol('global_count')}) + 1)))
                     ELSE 0.0
                 END as log_odds,
                 CASE
-                    WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
-                    THEN (SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total)) /
-                         SQRT(SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) *
-                              (1 - SUM(nt.global_count) * 1.0 / SUM(nt.global_total)))
+                    WHEN SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) > 0
+                    THEN (SUM(nt.{tcol('regional_count')}) - SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')})) /
+                         SQRT(SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) *
+                              (1 - SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')})))
                     ELSE 0.0
                 END as z_score,
-                SUM(nt.regional_count) as frequency,
-                SUM(nt.regional_total) as regional_total,
+                SUM(nt.{tcol('regional_count')}) as frequency,
+                SUM(nt.{tcol('regional_total')}) as regional_total,
                 {regional_total_raw_sum} as regional_total_raw,
-                SUM(nt.global_count) as expected_frequency,
-                SUM(nt.global_total) as global_total,
-                rc.centroid_lon,
-                rc.centroid_lat
-            FROM ngram_tendency nt
-            LEFT JOIN regional_centroids rc ON rc.region_level = 'city' AND rc.region_name = nt.city
-            WHERE nt.level = 'township'
+                SUM(nt.{tcol('global_count')}) as expected_frequency,
+                SUM(nt.{tcol('global_total')}) as global_total,
+                rc.{ccol('centroid_lon')} as centroid_lon,
+                rc.{ccol('centroid_lat')} as centroid_lat
+            FROM {tendency_table} nt
+            LEFT JOIN {centroids_table} rc ON rc.{ccol('region_level')} = 'city' AND rc.{ccol('region_name')} = nt.{tcol('city')}
+            WHERE nt.{tcol('level')} = 'township'
         """
         params = []
 
         # 过滤条件
         if city is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(city)
         if region_name is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND nt.ngram = ?"
+            query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
 
-        query += """
-            GROUP BY nt.city, nt.ngram, nt.n, nt.position
+        query += f"""
+            GROUP BY nt.{tcol('city')}, nt.{tcol('ngram')}, nt.{tcol('n')}, nt.{tcol('position')}
         """
 
         # min_tendency 过滤需要在 HAVING 子句中
@@ -635,7 +658,8 @@ def get_ngram_significance(
     county: Optional[str] = Query(None, description="区县"),
     is_significant: Optional[bool] = Query(None, description="仅显示显著结果"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取N-gram显著性（支持动态聚合）
@@ -645,85 +669,87 @@ def get_ngram_significance(
     - county: 从 Township 聚合到 County 级别
     - city: 从 Township 聚合到 City 级别
     """
+    significance_table, scol = _ngram_schema(dbpath, "ngram_significance")
+    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
 
     if region_level == "township":
         # Township 级别：直接查询
-        query = """
+        query = f"""
             SELECT
-                level as region_level,
-                region as region_name,
-                city,
-                county,
-                township,
-                ngram,
-                n,
-                position,
-                chi2 as z_score,
-                p_value,
-                is_significant,
-                cramers_v as lift
-            FROM ngram_significance
-            WHERE level = 'township'
+                {scol("level")} as region_level,
+                {scol("region")} as region_name,
+                {scol("city")} as city,
+                {scol("county")} as county,
+                {scol("township")} as township,
+                {scol("ngram")} as ngram,
+                {scol("n")} as n,
+                {scol("position")} as position,
+                {scol("chi2")} as z_score,
+                {scol("p_value")} as p_value,
+                {scol("is_significant")} as is_significant,
+                {scol("cramers_v")} as lift
+            FROM {significance_table}
+            WHERE {scol("level")} = 'township'
         """
         params = []
 
         if city is not None:
-            query += " AND city = ?"
+            query += f" AND {scol('city')} = ?"
             params.append(city)
         if county is not None:
-            query += " AND county = ?"
+            query += f" AND {scol('county')} = ?"
             params.append(county)
         if region_name is not None:
-            query += " AND region = ?"
+            query += f" AND {scol('region')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND ngram = ?"
+            query += f" AND {scol('ngram')} = ?"
             params.append(ngram)
         if is_significant is not None:
-            query += " AND is_significant = ?"
+            query += f" AND {scol('is_significant')} = ?"
             params.append(1 if is_significant else 0)
 
-        query += " ORDER BY ABS(chi2) DESC LIMIT ?"
+        query += f" ORDER BY ABS({scol('chi2')}) DESC LIMIT ?"
         params.append(limit)
 
     elif region_level == "county":
         # County 级别：从 Township 聚合
         # 使用 ngram_tendency 表的底层计数数据来重新计算 chi2
-        query = """
+        query = f"""
             WITH chi2_calc AS (
                 SELECT
-                    nt.county,
-                    nt.city,
-                    nt.ngram,
-                    nt.n,
-                    nt.position,
+                    nt.{tcol('county')} as county,
+                    nt.{tcol('city')} as city,
+                    nt.{tcol('ngram')} as ngram,
+                    nt.{tcol('n')} as n,
+                    nt.{tcol('position')} as position,
                     CASE
-                        WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
-                        THEN POWER(SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total), 2) /
-                             (SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total))
+                        WHEN SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) > 0
+                        THEN POWER(SUM(nt.{tcol('regional_count')}) - SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}), 2) /
+                             (SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))
                         ELSE 0.0
                     END as chi2_value,
-                    SUM(nt.regional_total) as total
-                FROM ngram_tendency nt
-                WHERE nt.level = 'township'
+                    SUM(nt.{tcol('regional_total')}) as total
+                FROM {tendency_table} nt
+                WHERE nt.{tcol('level')} = 'township'
         """
         params = []
 
         if city is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(city)
         if county is not None:
-            query += " AND nt.county = ?"
+            query += f" AND nt.{tcol('county')} = ?"
             params.append(county)
         if region_name is not None:
-            query += " AND nt.county = ?"
+            query += f" AND nt.{tcol('county')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND nt.ngram = ?"
+            query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
 
-        query += """
-                GROUP BY nt.county, nt.city, nt.ngram, nt.n, nt.position
+        query += f"""
+                GROUP BY nt.{tcol('county')}, nt.{tcol('city')}, nt.{tcol('ngram')}, nt.{tcol('n')}, nt.{tcol('position')}
             )
             SELECT
                 'county' as region_level,
@@ -764,37 +790,37 @@ def get_ngram_significance(
 
     else:  # region_level == "city"
         # City 级别：从 Township 聚合
-        query = """
+        query = f"""
             WITH chi2_calc AS (
                 SELECT
-                    nt.city,
-                    nt.ngram,
-                    nt.n,
-                    nt.position,
+                    nt.{tcol('city')} as city,
+                    nt.{tcol('ngram')} as ngram,
+                    nt.{tcol('n')} as n,
+                    nt.{tcol('position')} as position,
                     CASE
-                        WHEN SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total) > 0
-                        THEN POWER(SUM(nt.regional_count) - SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total), 2) /
-                             (SUM(nt.regional_total) * SUM(nt.global_count) * 1.0 / SUM(nt.global_total))
+                        WHEN SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}) > 0
+                        THEN POWER(SUM(nt.{tcol('regional_count')}) - SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}), 2) /
+                             (SUM(nt.{tcol('regional_total')}) * SUM(nt.{tcol('global_count')}) * 1.0 / SUM(nt.{tcol('global_total')}))
                         ELSE 0.0
                     END as chi2_value,
-                    SUM(nt.regional_total) as total
-                FROM ngram_tendency nt
-                WHERE nt.level = 'township'
+                    SUM(nt.{tcol('regional_total')}) as total
+                FROM {tendency_table} nt
+                WHERE nt.{tcol('level')} = 'township'
         """
         params = []
 
         if city is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(city)
         if region_name is not None:
-            query += " AND nt.city = ?"
+            query += f" AND nt.{tcol('city')} = ?"
             params.append(region_name)
         if ngram is not None:
-            query += " AND nt.ngram = ?"
+            query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
 
-        query += """
-                GROUP BY nt.city, nt.ngram, nt.n, nt.position
+        query += f"""
+                GROUP BY nt.{tcol('city')}, nt.{tcol('ngram')}, nt.{tcol('n')}, nt.{tcol('position')}
             )
             SELECT
                 'city' as region_level,

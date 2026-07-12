@@ -6,7 +6,7 @@
 - POST /api/compute/features/aggregate - 区域特征聚合
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any
 import logging
 import threading
@@ -15,25 +15,27 @@ from .validators import FeatureExtractionParams, FeatureAggregationParams
 from .cache import compute_cache
 from .engine import FeatureEngine
 from .timeout import run_with_timeout, TimeoutException
-from ..config import get_db_path
+from ..schema_config import DEFAULT_DATABASE_KEY
+from ..schema_runtime import resolve_db_path
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/features")
 
-_engine_instance = None
+_engine_instances = {}
 _engine_lock = threading.Lock()
 
 
-def get_feature_engine():
+def get_feature_engine(
+    dbpath: str = Query(DEFAULT_DATABASE_KEY, description="VillagesML database mapping key, not a filesystem path"),
+):
     """获取特征引擎实例"""
-    global _engine_instance
-    if _engine_instance is None:
+    if dbpath not in _engine_instances:
         with _engine_lock:
-            if _engine_instance is None:
-                db_path = get_db_path()
-                _engine_instance = FeatureEngine(db_path)
-    return _engine_instance
+            if dbpath not in _engine_instances:
+                db_path = resolve_db_path(dbpath)
+                _engine_instances[dbpath] = FeatureEngine(db_path, dbpath=dbpath)
+    return _engine_instances[dbpath]
 
 
 @router.post("/extract")
@@ -136,5 +138,4 @@ async def aggregate_features(
     except Exception as e:
         logger.error(f"Feature aggregation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Aggregation failed: {str(e)}")
-
 

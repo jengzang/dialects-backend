@@ -6,10 +6,18 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
-from ..run_id_manager import run_id_manager
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/spatial", tags=["spatial-integration"])
+
+
+def _integration_schema(dbpath: str):
+    table = qtable(dbpath, "spatial_tendency_integration")
+    col = lambda name: qcolumn(dbpath, "spatial_tendency_integration", name)
+    analysis_type = run_id_analysis_type(dbpath, "spatial_tendency_integration")
+    return table, col, analysis_type
 
 
 @router.get("/integration")
@@ -21,7 +29,8 @@ def get_spatial_tendency_integration(
     min_spatial_coherence: Optional[float] = Query(None, ge=0, le=1, description="最小空间一致性"),
     is_significant: Optional[bool] = Query(None, description="仅显示显著结果"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取空间-倾向性整合分析结果
@@ -43,65 +52,66 @@ def get_spatial_tendency_integration(
         List[dict]: 整合分析结果列表
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
-    query = """
+    query = f"""
         SELECT
-            id,
-            run_id,
-            tendency_run_id,
-            spatial_run_id,
-            character,
-            character_category,
-            cluster_id,
-            cluster_tendency_mean,
-            cluster_tendency_std,
-            global_tendency_mean,
-            tendency_deviation,
-            cluster_size,
-            n_villages_with_char,
-            centroid_lon,
-            centroid_lat,
-            avg_distance_km,
-            spatial_coherence,
-            spatial_specificity,
-            dominant_city,
-            dominant_county,
-            is_significant,
-            p_value,
-            u_statistic
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
+            {col("id")} as id,
+            {col("run_id")} as run_id,
+            {col("tendency_run_id")} as tendency_run_id,
+            {col("spatial_run_id")} as spatial_run_id,
+            {col("character")} as character,
+            {col("character_category")} as character_category,
+            {col("cluster_id")} as cluster_id,
+            {col("cluster_tendency_mean")} as cluster_tendency_mean,
+            {col("cluster_tendency_std")} as cluster_tendency_std,
+            {col("global_tendency_mean")} as global_tendency_mean,
+            {col("tendency_deviation")} as tendency_deviation,
+            {col("cluster_size")} as cluster_size,
+            {col("n_villages_with_char")} as n_villages_with_char,
+            {col("centroid_lon")} as centroid_lon,
+            {col("centroid_lat")} as centroid_lat,
+            {col("avg_distance_km")} as avg_distance_km,
+            {col("spatial_coherence")} as spatial_coherence,
+            {col("spatial_specificity")} as spatial_specificity,
+            {col("dominant_city")} as dominant_city,
+            {col("dominant_county")} as dominant_county,
+            {col("is_significant")} as is_significant,
+            {col("p_value")} as p_value,
+            {col("u_statistic")} as u_statistic
+        FROM {table}
+        WHERE {col("run_id")} = ?
     """
     params = [run_id]
 
     # 现场过滤：字符
     if character is not None:
-        query += " AND character = ?"
+        query += f" AND {col('character')} = ?"
         params.append(character)
 
     # 现场过滤：聚类ID
     if cluster_id is not None:
-        query += " AND cluster_id = ?"
+        query += f" AND {col('cluster_id')} = ?"
         params.append(cluster_id)
 
     # 现场过滤：最小聚类大小
     if min_cluster_size is not None:
-        query += " AND cluster_size >= ?"
+        query += f" AND {col('cluster_size')} >= ?"
         params.append(min_cluster_size)
 
     # 现场过滤：最小空间一致性
     if min_spatial_coherence is not None:
-        query += " AND spatial_coherence >= ?"
+        query += f" AND {col('spatial_coherence')} >= ?"
         params.append(min_spatial_coherence)
 
     # 现场过滤：显著性
     if is_significant is not None:
-        query += " AND is_significant = ?"
+        query += f" AND {col('is_significant')} = ?"
         params.append(1 if is_significant else 0)
 
-    query += " ORDER BY cluster_size DESC, spatial_coherence DESC LIMIT ?"
+    query += f" ORDER BY {col('cluster_size')} DESC, {col('spatial_coherence')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -120,7 +130,8 @@ def get_integration_by_character(
     character: str,
     run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
     min_spatial_coherence: Optional[float] = Query(None, ge=0, le=1, description="最小空间一致性"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定字符的空间-倾向性整合结果
@@ -135,38 +146,39 @@ def get_integration_by_character(
         List[dict]: 该字符在各聚类中的表现
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
-    query = """
+    query = f"""
         SELECT
-            cluster_id,
-            cluster_tendency_mean,
-            cluster_tendency_std,
-            global_tendency_mean,
-            tendency_deviation,
-            cluster_size,
-            n_villages_with_char,
-            centroid_lon,
-            centroid_lat,
-            avg_distance_km,
-            spatial_coherence,
-            spatial_specificity,
-            dominant_city,
-            dominant_county,
-            is_significant,
-            p_value,
-            u_statistic
-        FROM spatial_tendency_integration
-        WHERE run_id = ? AND character = ?
+            {col("cluster_id")} as cluster_id,
+            {col("cluster_tendency_mean")} as cluster_tendency_mean,
+            {col("cluster_tendency_std")} as cluster_tendency_std,
+            {col("global_tendency_mean")} as global_tendency_mean,
+            {col("tendency_deviation")} as tendency_deviation,
+            {col("cluster_size")} as cluster_size,
+            {col("n_villages_with_char")} as n_villages_with_char,
+            {col("centroid_lon")} as centroid_lon,
+            {col("centroid_lat")} as centroid_lat,
+            {col("avg_distance_km")} as avg_distance_km,
+            {col("spatial_coherence")} as spatial_coherence,
+            {col("spatial_specificity")} as spatial_specificity,
+            {col("dominant_city")} as dominant_city,
+            {col("dominant_county")} as dominant_county,
+            {col("is_significant")} as is_significant,
+            {col("p_value")} as p_value,
+            {col("u_statistic")} as u_statistic
+        FROM {table}
+        WHERE {col("run_id")} = ? AND {col("character")} = ?
     """
     params = [run_id, character]
 
     if min_spatial_coherence is not None:
-        query += " AND spatial_coherence >= ?"
+        query += f" AND {col('spatial_coherence')} >= ?"
         params.append(min_spatial_coherence)
 
-    query += " ORDER BY cluster_tendency_mean DESC"
+    query += f" ORDER BY {col('cluster_tendency_mean')} DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -189,7 +201,8 @@ def get_integration_by_cluster(
     cluster_id: int,
     run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定聚类的空间-倾向性整合结果
@@ -204,39 +217,40 @@ def get_integration_by_cluster(
         dict: 该聚类中各字符的表现
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
-    query = """
+    query = f"""
         SELECT
-            character,
-            character_category,
-            cluster_tendency_mean,
-            cluster_tendency_std,
-            global_tendency_mean,
-            tendency_deviation,
-            cluster_size,
-            n_villages_with_char,
-            centroid_lon,
-            centroid_lat,
-            avg_distance_km,
-            spatial_coherence,
-            spatial_specificity,
-            dominant_city,
-            dominant_county,
-            is_significant,
-            p_value,
-            u_statistic
-        FROM spatial_tendency_integration
-        WHERE run_id = ? AND cluster_id = ?
+            {col("character")} as character,
+            {col("character_category")} as character_category,
+            {col("cluster_tendency_mean")} as cluster_tendency_mean,
+            {col("cluster_tendency_std")} as cluster_tendency_std,
+            {col("global_tendency_mean")} as global_tendency_mean,
+            {col("tendency_deviation")} as tendency_deviation,
+            {col("cluster_size")} as cluster_size,
+            {col("n_villages_with_char")} as n_villages_with_char,
+            {col("centroid_lon")} as centroid_lon,
+            {col("centroid_lat")} as centroid_lat,
+            {col("avg_distance_km")} as avg_distance_km,
+            {col("spatial_coherence")} as spatial_coherence,
+            {col("spatial_specificity")} as spatial_specificity,
+            {col("dominant_city")} as dominant_city,
+            {col("dominant_county")} as dominant_county,
+            {col("is_significant")} as is_significant,
+            {col("p_value")} as p_value,
+            {col("u_statistic")} as u_statistic
+        FROM {table}
+        WHERE {col("run_id")} = ? AND {col("cluster_id")} = ?
     """
     params = [run_id, cluster_id]
 
     if min_tendency is not None:
-        query += " AND cluster_tendency_mean >= ?"
+        query += f" AND {col('cluster_tendency_mean')} >= ?"
         params.append(min_tendency)
 
-    query += " ORDER BY cluster_tendency_mean DESC"
+    query += f" ORDER BY {col('cluster_tendency_mean')} DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -257,7 +271,8 @@ def get_integration_by_cluster(
 @router.get("/integration/summary")
 def get_integration_summary(
     run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取空间-倾向性整合分析汇总统计
@@ -270,20 +285,21 @@ def get_integration_summary(
         dict: 汇总统计信息
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
     # 总体统计
-    overall_query = """
+    overall_query = f"""
         SELECT
             COUNT(*) as total_records,
-            COUNT(DISTINCT character) as unique_characters,
-            COUNT(DISTINCT cluster_id) as unique_clusters,
-            AVG(cluster_tendency_mean) as avg_tendency,
-            AVG(spatial_coherence) as avg_coherence,
-            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_count
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
+            COUNT(DISTINCT {col("character")}) as unique_characters,
+            COUNT(DISTINCT {col("cluster_id")}) as unique_clusters,
+            AVG({col("cluster_tendency_mean")}) as avg_tendency,
+            AVG({col("spatial_coherence")}) as avg_coherence,
+            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_count
+        FROM {table}
+        WHERE {col("run_id")} = ?
     """
     overall = execute_single(db, overall_query, (run_id,))
 
@@ -294,33 +310,33 @@ def get_integration_summary(
         )
 
     # 按字符统计
-    char_query = """
+    char_query = f"""
         SELECT
-            character,
+            {col("character")} as character,
             COUNT(*) as cluster_count,
-            AVG(cluster_tendency_mean) as avg_tendency,
-            AVG(spatial_coherence) as avg_coherence,
-            SUM(n_villages_with_char) as total_villages
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
-        GROUP BY character
+            AVG({col("cluster_tendency_mean")}) as avg_tendency,
+            AVG({col("spatial_coherence")}) as avg_coherence,
+            SUM({col("n_villages_with_char")}) as total_villages
+        FROM {table}
+        WHERE {col("run_id")} = ?
+        GROUP BY {col("character")}
         ORDER BY avg_tendency DESC
     """
     top_characters = execute_query(db, char_query, (run_id,))
 
     # 按聚类统计
-    cluster_query = """
+    cluster_query = f"""
         SELECT
-            cluster_id,
+            {col("cluster_id")} as cluster_id,
             COUNT(*) as character_count,
-            AVG(cluster_tendency_mean) as avg_tendency,
-            AVG(spatial_coherence) as avg_coherence,
-            MAX(cluster_size) as cluster_size,
-            MAX(dominant_city) as dominant_city,
-            MAX(dominant_county) as dominant_county
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
-        GROUP BY cluster_id
+            AVG({col("cluster_tendency_mean")}) as avg_tendency,
+            AVG({col("spatial_coherence")}) as avg_coherence,
+            MAX({col("cluster_size")}) as cluster_size,
+            MAX({col("dominant_city")}) as dominant_city,
+            MAX({col("dominant_county")}) as dominant_county
+        FROM {table}
+        WHERE {col("run_id")} = ?
+        GROUP BY {col("cluster_id")}
         ORDER BY cluster_size DESC
         LIMIT 10
     """
@@ -337,7 +353,8 @@ def get_integration_summary(
 @router.get("/integration/available-characters")
 def get_available_characters(
     run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取可用字符列表
@@ -353,22 +370,23 @@ def get_available_characters(
         dict: 包含可用字符列表及其统计信息
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
-    query = """
+    query = f"""
         SELECT
-            character,
-            character_category as category,
-            COUNT(DISTINCT cluster_id) as total_clusters,
-            SUM(n_villages_with_char) as total_villages,
-            AVG(cluster_tendency_mean) as avg_tendency,
-            AVG(spatial_coherence) as avg_spatial_coherence,
-            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_clusters
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
-        GROUP BY character, character_category
-        ORDER BY character
+            {col("character")} as character,
+            {col("character_category")} as category,
+            COUNT(DISTINCT {col("cluster_id")}) as total_clusters,
+            SUM({col("n_villages_with_char")}) as total_villages,
+            AVG({col("cluster_tendency_mean")}) as avg_tendency,
+            AVG({col("spatial_coherence")}) as avg_spatial_coherence,
+            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_clusters
+        FROM {table}
+        WHERE {col("run_id")} = ?
+        GROUP BY {col("character")}, {col("character_category")}
+        ORDER BY {col("character")}
     """
 
     results = execute_query(db, query, (run_id,))
@@ -390,7 +408,8 @@ def get_available_characters(
 def get_cluster_list(
     run_id: Optional[str] = Query(None, description="整合分析运行ID（留空使用活跃版本）"),
     min_cluster_size: Optional[int] = Query(None, ge=1, description="最小聚类大小"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取聚类列表（含地区信息）
@@ -407,24 +426,25 @@ def get_cluster_list(
         dict: 包含聚类列表
     """
     # 如果未指定run_id，使用活跃版本
+    table, col, analysis_type = _integration_schema(dbpath)
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("spatial_integration")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(analysis_type)
 
-    query = """
+    query = f"""
         SELECT
-            cluster_id,
-            MAX(cluster_size) as cluster_size,
-            MAX(dominant_city) as dominant_city,
-            MAX(dominant_county) as dominant_county,
-            MAX(centroid_lon) as centroid_lon,
-            MAX(centroid_lat) as centroid_lat,
-            COUNT(DISTINCT character) as total_characters,
-            AVG(cluster_tendency_mean) as avg_tendency,
-            AVG(spatial_coherence) as avg_spatial_coherence,
-            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_characters
-        FROM spatial_tendency_integration
-        WHERE run_id = ?
-        GROUP BY cluster_id
+            {col("cluster_id")} as cluster_id,
+            MAX({col("cluster_size")}) as cluster_size,
+            MAX({col("dominant_city")}) as dominant_city,
+            MAX({col("dominant_county")}) as dominant_county,
+            MAX({col("centroid_lon")}) as centroid_lon,
+            MAX({col("centroid_lat")}) as centroid_lat,
+            COUNT(DISTINCT {col("character")}) as total_characters,
+            AVG({col("cluster_tendency_mean")}) as avg_tendency,
+            AVG({col("spatial_coherence")}) as avg_spatial_coherence,
+            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_characters
+        FROM {table}
+        WHERE {col("run_id")} = ?
+        GROUP BY {col("cluster_id")}
     """
     params = [run_id]
 

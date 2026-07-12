@@ -6,7 +6,7 @@
 - POST /api/compute/subset/compare - 对比分析
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, Any, List, Optional
 import logging
 import time
@@ -25,7 +25,8 @@ from .validators import (
 )
 from .cache import compute_cache
 from .timeout import run_with_timeout, TimeoutException
-from ..config import get_db_path
+from ..schema_config import DEFAULT_DATABASE_KEY
+from ..schema_runtime import qcolumn, qtable, resolve_db_path
 from app.sql.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,11 @@ SUBSET_BASE_COLUMNS = ["village_id", "village_name", "city", "county", "name_len
 SUBSET_SELECTABLE_COLUMNS = set(SUBSET_BASE_COLUMNS + SUBSET_SEMANTIC_COLUMNS)
 
 
-def _build_select_clause(select_columns: Optional[List[str]]) -> str:
+def _build_select_clause(dbpath: str, select_columns: Optional[List[str]]) -> str:
+    feature_column_map = {
+        column: qcolumn(dbpath, "village_features", column)
+        for column in SUBSET_SELECTABLE_COLUMNS
+    }
     if not select_columns:
         return "*"
 
@@ -49,7 +54,7 @@ def _build_select_clause(select_columns: Optional[List[str]]) -> str:
             continue
         seen.add(col)
         if col in SUBSET_SELECTABLE_COLUMNS:
-            selected.append(col)
+            selected.append(f"{feature_column_map[col]} as {col}")
         else:
             invalid.append(col)
 
@@ -57,7 +62,7 @@ def _build_select_clause(select_columns: Optional[List[str]]) -> str:
         raise HTTPException(status_code=422, detail=f"Invalid select columns: {invalid}")
 
     if not selected:
-        selected = ["village_id"]
+        selected = [f"{feature_column_map['village_id']} as village_id"]
 
     return ", ".join(selected)
 
@@ -82,6 +87,7 @@ def _build_compare_required_columns(analysis: Dict[str, Any]) -> List[str]:
 
 def filter_villages(
     conn: sqlite3.Connection,
+    dbpath: str,
     filter_params: Dict[str, Any],
     select_columns: Optional[List[str]] = None,
 ) -> pd.DataFrame:
@@ -95,20 +101,24 @@ def filter_villages(
     Returns:
         过滤后的DataFrame
     """
-    select_clause = _build_select_clause(select_columns)
-    query = f"SELECT {select_clause} FROM village_features WHERE 1=1"
+    select_clause = _build_select_clause(dbpath, select_columns)
+    features_table = qtable(dbpath, "village_features")
+    city_col = qcolumn(dbpath, "village_features", "city")
+    county_col = qcolumn(dbpath, "village_features", "county")
+    name_col = qcolumn(dbpath, "village_features", "village_name")
+    query = f"SELECT {select_clause} FROM {features_table} WHERE 1=1"
     params = []
 
     # 城市过滤
     if filter_params.get('cities'):
         placeholders = ','.join(['?' for _ in filter_params['cities']])
-        query += f" AND city IN ({placeholders})"
+        query += f" AND {city_col} IN ({placeholders})"
         params.extend(filter_params['cities'])
 
     # 县区过滤
     if filter_params.get('counties'):
         placeholders = ','.join(['?' for _ in filter_params['counties']])
-        query += f" AND county IN ({placeholders})"
+        query += f" AND {county_col} IN ({placeholders})"
         params.extend(filter_params['counties'])
 
     # 语义标签过滤（白名单，防止列名注入）
@@ -119,11 +129,11 @@ def filter_villages(
                     status_code=422,
                     detail=f"Invalid semantic tag: {tag}"
                 )
-            query += f" AND sem_{tag} = 1"
+            query += f" AND {qcolumn(dbpath, 'village_features', f'sem_{tag}')} = 1"
 
     # 名称模糊匹配
     if filter_params.get('name_pattern'):
-        query += " AND village_name LIKE ?"
+        query += f" AND {name_col} LIKE ?"
         params.append(f"%{filter_params['name_pattern']}%")
 
     df = pd.read_sql_query(query, conn, params=params)
@@ -138,6 +148,7 @@ def filter_villages(
 
 def get_villages_by_ids(
     conn: sqlite3.Connection,
+    dbpath: str,
     village_ids: List[int],
     select_columns: Optional[List[str]] = None,
 ) -> pd.DataFrame:
@@ -165,14 +176,16 @@ def get_villages_by_ids(
         return pd.DataFrame()
 
     # 批量查询（分批处理以避免 SQL 表达式树过大）
-    select_clause = _build_select_clause(select_columns)
+    select_clause = _build_select_clause(dbpath, select_columns)
+    features_table = qtable(dbpath, "village_features")
+    village_id_col = qcolumn(dbpath, "village_features", "village_id")
     batch_size = 500
     all_dfs = []
 
     for i in range(0, len(normalized_ids), batch_size):
         batch_ids = normalized_ids[i:i + batch_size]
         placeholders = ','.join(['?' for _ in batch_ids])
-        query = f"SELECT {select_clause} FROM village_features WHERE village_id IN ({placeholders})"
+        query = f"SELECT {select_clause} FROM {features_table} WHERE {village_id_col} IN ({placeholders})"
         df_batch = pd.read_sql_query(query, conn, params=batch_ids)
         all_dfs.append(df_batch)
 
@@ -182,10 +195,10 @@ def get_villages_by_ids(
     return pd.DataFrame()
 
 
-def _cluster_subset_impl(params: SubsetClusteringParams) -> Dict[str, Any]:
+def _cluster_subset_impl(params: SubsetClusteringParams, dbpath: str) -> Dict[str, Any]:
     start_time = time.time()
 
-    db_path = get_db_path()
+    db_path = resolve_db_path(dbpath)
     clustering_features = params.clustering.get('features', [])
     select_columns = ["village_id", "village_name"]
     if 'semantic' in clustering_features:
@@ -200,7 +213,7 @@ def _cluster_subset_impl(params: SubsetClusteringParams) -> Dict[str, Any]:
 
     # 1. 过滤村庄
     with get_db_pool(db_path).get_connection() as conn:
-        df = filter_villages(conn, params.filter.dict(), select_columns=select_columns)
+        df = filter_villages(conn, dbpath, params.filter.dict(), select_columns=select_columns)
     matched_count = len(df)
 
     if matched_count == 0:
@@ -278,7 +291,8 @@ def _cluster_subset_impl(params: SubsetClusteringParams) -> Dict[str, Any]:
 
 @router.post("/cluster")
 async def cluster_subset(
-    params: SubsetClusteringParams
+    params: SubsetClusteringParams,
+    dbpath: str = Query(DEFAULT_DATABASE_KEY, description="VillagesML database mapping key, not a filesystem path"),
 ) -> Dict[str, Any]:
     """
     对自定义子集进行聚类（需要登录）
@@ -301,7 +315,7 @@ async def cluster_subset(
 
         logger.info(f"Clustering subset with filter: {params.filter.dict()}")
 
-        result = await run_with_timeout(_cluster_subset_impl, 5, params)
+        result = await run_with_timeout(_cluster_subset_impl, 5, params, dbpath)
 
         # 缓存结果
         compute_cache.set("subset_cluster", params.dict(), result)
@@ -325,25 +339,25 @@ async def cluster_subset(
         raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
 
 
-def _compare_subsets_impl(params: SubsetComparisonParams) -> Dict[str, Any]:
+def _compare_subsets_impl(params: SubsetComparisonParams, dbpath: str) -> Dict[str, Any]:
     start_time = time.time()
     timings = {}  # 性能监控
 
-    db_path = get_db_path()
+    db_path = resolve_db_path(dbpath)
 
     # 1. 获取两组村庄数据（支持 village_ids 或 filter 两种模式）
     t0 = time.time()
     required_columns = _build_compare_required_columns(params.analysis)
     with get_db_pool(db_path).get_connection() as conn:
         if params.group_a.village_ids is not None:
-            df_a = get_villages_by_ids(conn, params.group_a.village_ids, select_columns=required_columns)
+            df_a = get_villages_by_ids(conn, dbpath, params.group_a.village_ids, select_columns=required_columns)
         else:
-            df_a = filter_villages(conn, params.group_a.filter.dict(), select_columns=required_columns)
+            df_a = filter_villages(conn, dbpath, params.group_a.filter.dict(), select_columns=required_columns)
 
         if params.group_b.village_ids is not None:
-            df_b = get_villages_by_ids(conn, params.group_b.village_ids, select_columns=required_columns)
+            df_b = get_villages_by_ids(conn, dbpath, params.group_b.village_ids, select_columns=required_columns)
         else:
-            df_b = filter_villages(conn, params.group_b.filter.dict(), select_columns=required_columns)
+            df_b = filter_villages(conn, dbpath, params.group_b.filter.dict(), select_columns=required_columns)
     timings['data_loading'] = int((time.time() - t0) * 1000)
 
     group_a_size = len(df_a)
@@ -521,11 +535,15 @@ def _compare_subsets_impl(params: SubsetComparisonParams) -> Dict[str, Any]:
                     for i in range(0, len(all_village_ids), batch_size):
                         batch = all_village_ids[i:i + batch_size]
                         placeholders = ','.join(['?' for _ in batch])
+                        villages_table = qtable(dbpath, "villages")
+                        village_id_col = qcolumn(dbpath, "villages", "village_id")
+                        longitude_col = qcolumn(dbpath, "villages", "longitude")
+                        latitude_col = qcolumn(dbpath, "villages", "latitude")
                         query = f"""
-                        SELECT village_id, longitude, latitude
-                        FROM 广东省自然村_预处理
-                        WHERE village_id IN ({placeholders})
-                        AND longitude IS NOT NULL AND latitude IS NOT NULL
+                        SELECT {village_id_col} as village_id, {longitude_col} as longitude, {latitude_col} as latitude
+                        FROM {villages_table}
+                        WHERE {village_id_col} IN ({placeholders})
+                        AND {longitude_col} IS NOT NULL AND {latitude_col} IS NOT NULL
                         """
                         spatial_cursor.execute(query, batch)
                         for row in spatial_cursor.fetchall():
@@ -586,7 +604,8 @@ def _compare_subsets_impl(params: SubsetComparisonParams) -> Dict[str, Any]:
 
 @router.post("/compare")
 async def compare_subsets(
-    params: SubsetComparisonParams
+    params: SubsetComparisonParams,
+    dbpath: str = Query(DEFAULT_DATABASE_KEY, description="VillagesML database mapping key, not a filesystem path"),
 ) -> Dict[str, Any]:
     """
     对比两个子集（需要登录）
@@ -608,7 +627,7 @@ async def compare_subsets(
             return cached_result
 
         logger.info(f"Comparing subsets: {params.group_a.label} vs {params.group_b.label}")
-        result = await run_with_timeout(_compare_subsets_impl, 5, params)
+        result = await run_with_timeout(_compare_subsets_impl, 5, params, dbpath)
 
         # 缓存结果
         compute_cache.set("subset_compare", params.dict(), result)
@@ -630,4 +649,3 @@ async def compare_subsets(
     except Exception as e:
         logger.error(f"Subset comparison error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Comparison failed: {str(e)}")
-

@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query
-from ..run_id_manager import run_id_manager
+from ..dependencies import get_db, get_dbpath, execute_query
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/character/significance")
 
@@ -21,7 +22,8 @@ def get_character_significance(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
     min_zscore: Optional[float] = Query(None, description="最小Z分数阈值"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取字符在各区域的统计显著性
@@ -38,26 +40,38 @@ def get_character_significance(
     """
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_significance")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "tendency_significance")
+        )
 
-    query = """
+    table = qtable(dbpath, "tendency_significance")
+    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
+    char_col = qcolumn(dbpath, "tendency_significance", "char")
+    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
+    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
+    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
+    p_value_col = qcolumn(dbpath, "tendency_significance", "p_value")
+    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
+    effect_size_col = qcolumn(dbpath, "tendency_significance", "effect_size")
+
+    query = f"""
         SELECT
-            region_name,
-            chi_square_statistic,
-            p_value,
-            is_significant,
-            effect_size
-        FROM tendency_significance
-        WHERE run_id = ? AND char = ? AND region_level = ?
+            {region_name_col} as region_name,
+            {chi_square_col} as chi_square_statistic,
+            {p_value_col} as p_value,
+            {is_significant_col} as is_significant,
+            {effect_size_col} as effect_size
+        FROM {table}
+        WHERE {run_id_col} = ? AND {char_col} = ? AND {region_level_col} = ?
     """
     params = [run_id, char, region_level]
 
     # 现场过滤：最小Z分数
     if min_zscore is not None:
-        query += " AND ABS(chi_square_statistic) >= ?"
+        query += f" AND ABS({chi_square_col}) >= ?"
         params.append(abs(min_zscore))
 
-    query += " ORDER BY ABS(chi_square_statistic) DESC"
+    query += f" ORDER BY ABS({chi_square_col}) DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -80,7 +94,8 @@ def get_significant_characters_by_region(
     region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
     significance_only: bool = Query(True, description="仅返回显著字符"),
     top_k: int = Query(20, ge=1, le=100, description="返回前K个字符"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取指定区域的显著字符
@@ -101,44 +116,59 @@ def get_significant_characters_by_region(
     """
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_significance")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "tendency_significance")
+        )
 
-    query = """
+    table = qtable(dbpath, "tendency_significance")
+    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
+    char_col = qcolumn(dbpath, "tendency_significance", "char")
+    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
+    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
+    city_col = qcolumn(dbpath, "tendency_significance", "city")
+    county_col = qcolumn(dbpath, "tendency_significance", "county")
+    township_col = qcolumn(dbpath, "tendency_significance", "township")
+    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
+    p_value_col = qcolumn(dbpath, "tendency_significance", "p_value")
+    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
+    effect_size_col = qcolumn(dbpath, "tendency_significance", "effect_size")
+
+    query = f"""
         SELECT
-            char as character,
-            chi_square_statistic,
-            p_value,
-            is_significant,
-            effect_size
-        FROM tendency_significance
-        WHERE run_id = ? AND region_level = ?
+            {char_col} as character,
+            {chi_square_col} as chi_square_statistic,
+            {p_value_col} as p_value,
+            {is_significant_col} as is_significant,
+            {effect_size_col} as effect_size
+        FROM {table}
+        WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
     params = [run_id, region_level]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {city_col} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {county_col} = ?"
         params.append(county)
     elif city is not None and region_level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {township_col} = ?"
         params.append(township)
 
     # Priority 2: Backward compatibility (fuzzy match)
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ? OR region_name = ?)"
+        query += f" AND ({city_col} = ? OR {county_col} = ? OR {township_col} = ? OR {region_name_col} = ?)"
         params.extend([region_name, region_name, region_name, region_name])
 
     # 现场过滤：仅显著字符
     if significance_only:
-        query += " AND is_significant = 1"
+        query += f" AND {is_significant_col} = 1"
 
-    query += " ORDER BY ABS(chi_square_statistic) DESC LIMIT ?"
+    query += f" ORDER BY ABS({chi_square_col}) DESC LIMIT ?"
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -156,7 +186,8 @@ def get_significant_characters_by_region(
 def get_significance_summary(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取显著性分析汇总统计
@@ -171,17 +202,27 @@ def get_significance_summary(
     """
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
-        run_id = run_id_manager.get_active_run_id("char_significance")
+        run_id = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "tendency_significance")
+        )
 
-    query = """
+    table = qtable(dbpath, "tendency_significance")
+    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
+    char_col = qcolumn(dbpath, "tendency_significance", "char")
+    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
+    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
+    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
+    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
+
+    query = f"""
         SELECT
-            COUNT(DISTINCT char) as total_characters,
-            COUNT(DISTINCT region_name) as total_regions,
-            SUM(CASE WHEN is_significant = 1 THEN 1 ELSE 0 END) as significant_count,
-            AVG(ABS(chi_square_statistic)) as avg_abs_chi_square,
-            MAX(ABS(chi_square_statistic)) as max_abs_chi_square
-        FROM tendency_significance
-        WHERE run_id = ? AND region_level = ?
+            COUNT(DISTINCT {char_col}) as total_characters,
+            COUNT(DISTINCT {region_name_col}) as total_regions,
+            SUM(CASE WHEN {is_significant_col} = 1 THEN 1 ELSE 0 END) as significant_count,
+            AVG(ABS({chi_square_col})) as avg_abs_chi_square,
+            MAX(ABS({chi_square_col})) as max_abs_chi_square
+        FROM {table}
+        WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
 
     result = execute_query(db, query, (run_id, region_level))
