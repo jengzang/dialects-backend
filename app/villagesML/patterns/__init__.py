@@ -6,9 +6,14 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/patterns")
+
+
+def _pattern_schema(dbpath: str, logical_table: str):
+    return qtable(dbpath, logical_table), lambda name: qcolumn(dbpath, logical_table, name)
 
 
 @router.get("/frequency/global")
@@ -16,7 +21,8 @@ def get_global_pattern_frequency(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     min_frequency: Optional[float] = Query(None, ge=0, le=1, description="最小频率（0-1之间的小数，如0.05表示5%）"),
     top_k: int = Query(100, ge=1, le=1000, description="返回Top K"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取全局模式频率
@@ -30,27 +36,28 @@ def get_global_pattern_frequency(
     Returns:
         List[dict]: 模式频率列表
     """
-    query = """
+    table, col = _pattern_schema(dbpath, "pattern_frequency_global")
+    query = f"""
         SELECT DISTINCT
-            pattern,
-            pattern_type,
-            frequency,
-            village_count,
-            rank
-        FROM pattern_frequency_global
+            {col("pattern")} as pattern,
+            {col("pattern_type")} as pattern_type,
+            {col("frequency")} as frequency,
+            {col("village_count")} as village_count,
+            {col("rank")} as rank
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if pattern_type is not None:
-        query += " AND pattern_type = ?"
+        query += f" AND {col('pattern_type')} = ?"
         params.append(pattern_type)
 
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {col('frequency')} >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {col('frequency')} DESC LIMIT ?"
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -73,7 +80,8 @@ def get_regional_pattern_frequency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     top_k: int = Query(50, ge=1, le=500, description="返回Top K"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域模式频率
@@ -91,46 +99,47 @@ def get_regional_pattern_frequency(
     Returns:
         List[dict]: 区域模式频率列表
     """
-    query = """
+    table, col = _pattern_schema(dbpath, "pattern_regional_analysis")
+    query = f"""
         SELECT DISTINCT
-            region_level,
-            region_name,
-            city,
-            county,
-            township,
-            pattern,
-            pattern_type,
-            frequency,
-            rank_within_region as rank_in_region
-        FROM pattern_regional_analysis
-        WHERE region_level = ?
+            {col("region_level")} as region_level,
+            {col("region_name")} as region_name,
+            {col("city")} as city,
+            {col("county")} as county,
+            {col("township")} as township,
+            {col("pattern")} as pattern,
+            {col("pattern_type")} as pattern_type,
+            {col("frequency")} as frequency,
+            {col("rank_within_region")} as rank_in_region
+        FROM {table}
+        WHERE {col("region_level")} = ?
     """
     params = [region_level]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {col('city')} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {col('county')} = ?"
         params.append(county)
     elif city is not None and region_level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {col('township')} = ?"
         params.append(township)
 
     # 向后兼容：region_name（模糊匹配）
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ?)"
+        query += f" AND ({col('city')} = ? OR {col('county')} = ? OR {col('township')} = ?)"
         params.extend([region_name, region_name, region_name])
 
     if pattern_type is not None:
-        query += " AND pattern_type = ?"
+        query += f" AND {col('pattern_type')} = ?"
         params.append(pattern_type)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {col('frequency')} DESC LIMIT ?"
     params.append(top_k)
 
     results = execute_query(db, query, tuple(params))
@@ -154,7 +163,8 @@ def get_pattern_tendency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取模式倾向性
@@ -173,51 +183,52 @@ def get_pattern_tendency(
     Returns:
         List[dict]: 模式倾向性列表
     """
-    query = """
+    table, col = _pattern_schema(dbpath, "pattern_regional_analysis")
+    query = f"""
         SELECT DISTINCT
-            region_level,
-            region_name,
-            city,
-            county,
-            township,
-            pattern,
-            pattern_type,
-            lift as tendency_score,
-            frequency,
-            global_frequency
-        FROM pattern_regional_analysis
-        WHERE region_level = ?
+            {col("region_level")} as region_level,
+            {col("region_name")} as region_name,
+            {col("city")} as city,
+            {col("county")} as county,
+            {col("township")} as township,
+            {col("pattern")} as pattern,
+            {col("pattern_type")} as pattern_type,
+            {col("lift")} as tendency_score,
+            {col("frequency")} as frequency,
+            {col("global_frequency")} as global_frequency
+        FROM {table}
+        WHERE {col("region_level")} = ?
     """
     params = [region_level]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {col('city')} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {col('county')} = ?"
         params.append(county)
     elif city is not None and region_level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {col('township')} = ?"
         params.append(township)
 
     # 向后兼容：region_name（模糊匹配）
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ?)"
+        query += f" AND ({col('city')} = ? OR {col('county')} = ? OR {col('township')} = ?)"
         params.extend([region_name, region_name, region_name])
 
     if pattern is not None:
-        query += " AND pattern = ?"
+        query += f" AND {col('pattern')} = ?"
         params.append(pattern)
 
     if min_tendency is not None:
-        query += " AND lift >= ?"
+        query += f" AND {col('lift')} >= ?"
         params.append(min_tendency)
 
-    query += " ORDER BY lift DESC LIMIT ?"
+    query += f" ORDER BY {col('lift')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -235,7 +246,8 @@ def get_pattern_tendency(
 def get_structural_patterns(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取结构化模式
@@ -248,29 +260,30 @@ def get_structural_patterns(
     Returns:
         List[dict]: 结构化模式列表
     """
-    query = """
+    table, col = _pattern_schema(dbpath, "structural_patterns")
+    query = f"""
         SELECT DISTINCT
-            pattern,
-            pattern_type,
-            n,
-            position,
-            frequency,
-            example,
-            description
-        FROM structural_patterns
+            {col("pattern")} as pattern,
+            {col("pattern_type")} as pattern_type,
+            {col("n")} as n,
+            {col("position")} as position,
+            {col("frequency")} as frequency,
+            {col("example")} as example,
+            {col("description")} as description
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if pattern_type is not None:
-        query += " AND pattern_type = ?"
+        query += f" AND {col('pattern_type')} = ?"
         params.append(pattern_type)
 
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {col('frequency')} >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC"
+    query += f" ORDER BY {col('frequency')} DESC"
 
     results = execute_query(db, query, tuple(params))
 

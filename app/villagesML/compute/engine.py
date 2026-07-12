@@ -23,6 +23,8 @@ from sklearn.metrics import (
 )
 import logging
 from app.sql.db_pool import get_db_pool
+from ..schema_config import DEFAULT_DATABASE_KEY
+from ..schema_runtime import qcolumn, qtable
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 class ClusteringEngine:
     """聚类计算引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化聚类引擎
 
@@ -38,6 +40,7 @@ class ClusteringEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
         self.feature_cache = {}  # 特征矩阵缓存
 
@@ -46,6 +49,12 @@ class ClusteringEngine:
         with self._db_pool.get_connection() as conn:
             yield conn
 
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
+
     def get_regional_features(
         self,
         region_level: str,
@@ -53,15 +62,9 @@ class ClusteringEngine:
         region_filter: Optional[List[str]] = None
     ) -> Tuple[np.ndarray, List[str]]:
         """
-        获取区域特征矩阵（使用实际表结构）
+        获取区域特征矩阵。
 
-        Args:
-            region_level: 区域级别 (city/county/township)
-            feature_config: 特征配置
-            region_filter: 区域过滤器
-
-        Returns:
-            (特征矩阵, 区域名称列表)
+        优先从预计算的聚合表读取；聚合表为空时回退到 village_features 实时聚合。
         """
         cache_key = f"{region_level}:{hash(str(feature_config))}:{hash(str(region_filter))}"
 
@@ -69,52 +72,67 @@ class ClusteringEngine:
             logger.info(f"Using cached features for {region_level}")
             return self.feature_cache[cache_key]
 
+        level_config = {
+            'city':    {'region_col': 'city',    'group_cols': ['city'],                   'filter_col': 'city',   'agg_table': 'city_aggregates'},
+            'county':  {'region_col': 'county',  'group_cols': ['city', 'county'],         'filter_col': 'city',   'agg_table': 'county_aggregates'},
+            'township':{'region_col': 'town',    'group_cols': ['city', 'county', 'town'], 'filter_col': 'county', 'agg_table': 'town_aggregates'},
+        }
+        cfg = level_config.get(region_level, level_config['county'])
+        region_col = cfg['region_col']
+        filter_col = cfg['filter_col']
+        applied_filter = False  # track whether region_filter was already applied in SQL
+
+        agg_df = None
         with self._connection() as conn:
-            # 根据region_level选择正确的表
-            table_map = {
-                'city': 'city_aggregates',
-                'county': 'county_aggregates',
-                'township': 'town_aggregates'
-            }
-            table_name = table_map.get(region_level, 'county_aggregates')
+            agg_table = self._table(cfg['agg_table'])
+            try:
+                agg_df = pd.read_sql_query(f"SELECT * FROM {agg_table}", conn)
+            except Exception as e:
+                logger.info(f"Aggregate table {agg_table} unavailable: {e}")
 
-            # 1. 读取区域聚合表
-            query = f"SELECT * FROM {table_name}"
-            df_regional = pd.read_sql_query(query, conn)
+        if agg_df is None or len(agg_df) == 0:
+            logger.info(f"Aggregate table {agg_table} missing/empty, computing from village_features")
+            with self._connection() as conn:
+                vf_table = self._table('village_features')
+                sem_names = ['mountain','water','settlement','direction','clan','symbolic','agriculture','vegetation','infrastructure']
+                sem_cols = [self._column('village_features', f'sem_{n}') for n in sem_names]
+                sem_pct_exprs = [
+                    f"SUM({c}) * 100.0 / NULLIF(COUNT(*), 0) AS sem_{n}_pct"
+                    for c, n in zip(sem_cols, sem_names)
+                ]
+                group_cols = [self._column('village_features', g) for g in cfg['group_cols']]
+                select_parts = group_cols + [
+                    "COUNT(*) AS total_villages",
+                    f"AVG({self._column('village_features', 'name_length')}) AS avg_name_length",
+                ] + sem_pct_exprs
+                query = f"SELECT {', '.join(select_parts)} FROM {vf_table}"
+                params = None
+                if region_filter:
+                    filter_col_physical = self._column('village_features', filter_col)
+                    placeholders = ','.join(['?' for _ in region_filter])
+                    query += f" WHERE {filter_col_physical} IN ({placeholders})"
+                    params = region_filter
+                query += f" GROUP BY {', '.join(group_cols)}"
+                df_regional = pd.read_sql_query(query, conn, params=params)
+                for g in cfg['group_cols']:
+                    physical = self._column('village_features', g).strip('"')
+                    if physical in df_regional.columns and physical != g:
+                        df_regional[g] = df_regional[physical]
+                applied_filter = True
+        else:
+            df_regional = agg_df
 
-        # 区域名称列（用于输出 region_names）
-        # - city_aggregates: 'city'
-        # - county_aggregates: 'county'
-        # - town_aggregates: 'town'
-        region_col_map = {
-            'city': 'city',
-            'county': 'county',
-            'township': 'town'
-        }
-        region_col = region_col_map.get(region_level, 'county')
-
-        # 过滤列（region_filter 传入的是父级区域名）
-        # - city 级：按 city 列自身过滤（region_filter 包含城市名）
-        # - county 级：region_filter 是城市名 → 过滤 city 列
-        # - township 级：region_filter 是县名 → 过滤 county 列
-        filter_col_map = {
-            'city': 'city',
-            'county': 'city',
-            'township': 'county'
-        }
-        filter_col = filter_col_map.get(region_level, region_col)
-
-        # 过滤区域
-        if region_filter:
-            df_regional = df_regional[df_regional[filter_col].isin(region_filter)]
+        # region_filter for aggregate-table path (not yet filtered)
+        if region_filter and not applied_filter and len(df_regional) > 0:
+            if filter_col in df_regional.columns:
+                df_regional = df_regional[df_regional[filter_col].isin(region_filter)]
 
         region_names = df_regional[region_col].tolist()
 
-        # 2. 构建特征向量
+        # 构建特征向量
         feature_columns = []
 
         if feature_config.get('use_semantic', True):
-            # 语义百分比特征（9个）
             semantic_cols = [
                 'sem_mountain_pct', 'sem_water_pct', 'sem_settlement_pct',
                 'sem_direction_pct', 'sem_clan_pct', 'sem_symbolic_pct',
@@ -123,20 +141,21 @@ class ClusteringEngine:
             feature_columns.extend([col for col in semantic_cols if col in df_regional.columns])
 
         if feature_config.get('use_morphology', True):
-            # 形态学特征
             feature_columns.append('avg_name_length')
 
         if feature_config.get('use_diversity', True):
-            # 多样性特征（使用村庄总数作为代理）
             feature_columns.append('total_villages')
 
         # 提取特征矩阵
         X = df_regional[feature_columns].values
-
-        # 处理缺失值
         X = np.nan_to_num(X, nan=0.0)
 
-        # 缓存结果
+        if X.shape[0] == 0:
+            raise ValueError(
+                f"No regional data available for region_level='{region_level}'."
+                f" Both aggregate table and village_features returned empty."
+            )
+
         self.feature_cache[cache_key] = (X, region_names)
         logger.info(f"Built feature matrix: {X.shape} for {len(region_names)} regions")
 
@@ -415,11 +434,11 @@ class ClusteringEngine:
         # - county 级：用户传城市名 → 过滤 city 列（取该市下所有县）
         # - township 级：用户传县名 → 过滤 county 列（取该县下所有镇）
         filter_col_map = {
-            'city': 'region_name',
-            'county': 'city',
-            'township': 'county',
+            'city': self._column('char_regional_analysis', 'region_name'),
+            'county': self._column('char_regional_analysis', 'city'),
+            'township': self._column('char_regional_analysis', 'county'),
         }
-        filter_col = filter_col_map.get(db_level, 'region_name')
+        filter_col = filter_col_map.get(db_level, self._column('char_regional_analysis', 'region_name'))
 
         region_filter_clause = ""
         params = []
@@ -434,10 +453,10 @@ class ClusteringEngine:
             SELECT region, char, {tendency_metric},
                    ROW_NUMBER() OVER (PARTITION BY region ORDER BY {tendency_metric} DESC) as rn
             FROM (
-                SELECT region_name as region, char, MAX({tendency_metric}) as {tendency_metric}
-                FROM char_regional_analysis
-                WHERE region_level = ?{region_filter_clause}
-                GROUP BY region_name, char
+                SELECT {self._column('char_regional_analysis', 'region_name')} as region, {self._column('char_regional_analysis', 'char')} as char, MAX({tendency_metric}) as {tendency_metric}
+                FROM {self._table('char_regional_analysis')}
+                WHERE {self._column('char_regional_analysis', 'region_level')} = ?{region_filter_clause}
+                GROUP BY {self._column('char_regional_analysis', 'region_name')}, {self._column('char_regional_analysis', 'char')}
             )
         )
         WHERE rn <= ?
@@ -582,7 +601,7 @@ class ClusteringEngine:
         for i in range(0, len(ordered_ids), chunk_size):
             batch = ordered_ids[i:i + chunk_size]
             placeholders = ",".join(["?"] * len(batch))
-            query = f"SELECT * FROM village_features WHERE rowid IN ({placeholders})"
+            query = f"SELECT * FROM {self._table('village_features')} WHERE rowid IN ({placeholders})"
             frames.append(pd.read_sql_query(query, conn, params=batch))
 
         if not frames:
@@ -611,9 +630,13 @@ class ClusteringEngine:
             naming_patterns_json,
             centroid_lon,
             centroid_lat
-        FROM spatial_clusters
-        WHERE run_id = ?
+        FROM {table}
+        WHERE {run_id_col} = ?
         """
+        query = query.format(
+            table=self._table('spatial_clusters'),
+            run_id_col=self._column('spatial_clusters', 'run_id'),
+        )
 
         with self._connection() as conn:
             df = pd.read_sql_query(query, conn, params=[run_id])
@@ -811,16 +834,16 @@ class ClusteringEngine:
         if isinstance(filter_config, dict):
             if filter_config.get('cities'):
                 placeholders = ','.join(['?' for _ in filter_config['cities']])
-                where_clauses.append(f"city IN ({placeholders})")
+                where_clauses.append(f"{self._column('village_features', 'city')} IN ({placeholders})")
                 filter_params.extend(filter_config['cities'])
             if filter_config.get('counties'):
                 placeholders = ','.join(['?' for _ in filter_config['counties']])
-                where_clauses.append(f"county IN ({placeholders})")
+                where_clauses.append(f"{self._column('village_features', 'county')} IN ({placeholders})")
                 filter_params.extend(filter_config['counties'])
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
         with self._connection() as conn:
             # 1) 先拿到候选 rowid（轻量列扫描，避免 ORDER BY RANDOM() 全表排序）
-            id_query = f"SELECT rowid as _rid, county FROM village_features{where_sql}"
+            id_query = f"SELECT rowid as _rid, {self._column('village_features', 'county')} as county FROM {self._table('village_features')}{where_sql}"
             id_df = pd.read_sql_query(id_query, conn, params=filter_params if filter_params else None)
             original_village_count = len(id_df)
 
@@ -1104,10 +1127,10 @@ class ClusteringEngine:
         city_to_counties: Dict[str, List[str]] = {}
         county_to_townships: Dict[str, List[str]] = {}
         with self._connection() as conn:
-            for city, county in conn.execute("SELECT DISTINCT city, county FROM county_aggregates").fetchall():
+            for city, county in conn.execute(f"SELECT DISTINCT {self._column('villages', 'city')}, {self._column('villages', 'county')} FROM {self._table('villages')} WHERE {self._column('villages', 'city')} IS NOT NULL AND {self._column('villages', 'county')} IS NOT NULL").fetchall():
                 city_to_counties.setdefault(city, []).append(county)
 
-            for county, town in conn.execute("SELECT DISTINCT county, town FROM town_aggregates").fetchall():
+            for county, town in conn.execute(f"SELECT DISTINCT {self._column('villages', 'county')}, {self._column('villages', 'township')} FROM {self._table('villages')} WHERE {self._column('villages', 'county')} IS NOT NULL AND {self._column('villages', 'township')} IS NOT NULL").fetchall():
                 county_to_townships.setdefault(county, []).append(town)
 
         # 3. 构建层次树：每个城市只挂自己的县，每个县只挂自己的镇
@@ -1232,7 +1255,7 @@ class ClusteringEngine:
 class SemanticEngine:
     """语义分析引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化语义引擎
 
@@ -1240,12 +1263,19 @@ class SemanticEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
 
     @contextmanager
     def _connection(self):
         with self._db_pool.get_connection() as conn:
             yield conn
+
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
 
     def analyze_cooccurrence(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1391,7 +1421,7 @@ class SemanticEngine:
 class FeatureEngine:
     """特征提取引擎"""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, dbpath: str = DEFAULT_DATABASE_KEY):
         """
         初始化特征引擎
 
@@ -1399,12 +1429,19 @@ class FeatureEngine:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
 
     @contextmanager
     def _connection(self):
         with self._db_pool.get_connection() as conn:
             yield conn
+
+    def _table(self, logical_table: str) -> str:
+        return qtable(self.dbpath, logical_table)
+
+    def _column(self, logical_table: str, logical_column: str) -> str:
+        return qcolumn(self.dbpath, logical_table, logical_column)
 
     def extract_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1436,12 +1473,12 @@ class FeatureEngine:
             cursor = conn.cursor()
 
             # 获取列名
-            cursor.execute("PRAGMA table_info(village_features)")
+            cursor.execute(f"PRAGMA table_info({self._table('village_features')})")
             columns = [col[1] for col in cursor.fetchall()]
 
             batch_query = f"""
-            SELECT * FROM village_features
-            WHERE village_id IN ({placeholders})
+            SELECT * FROM {self._table('village_features')}
+            WHERE {self._column('village_features', 'village_id')} IN ({placeholders})
             """
             cursor.execute(batch_query, village_ids)
             village_rows = cursor.fetchall()
@@ -1456,9 +1493,9 @@ class FeatureEngine:
             spatial_data = {}
             if feature_config.get('spatial', False):
                 spatial_query = f"""
-                SELECT village_id, longitude, latitude
-                FROM 广东省自然村_预处理
-                WHERE village_id IN ({placeholders})
+                SELECT {self._column('villages', 'village_id')} as village_id, {self._column('villages', 'longitude')} as longitude, {self._column('villages', 'latitude')} as latitude
+                FROM {self._table('villages')}
+                WHERE {self._column('villages', 'village_id')} IN ({placeholders})
                 """
                 cursor.execute(spatial_query, village_ids)
                 for row in cursor.fetchall():
@@ -1472,10 +1509,10 @@ class FeatureEngine:
                 if towns:
                     town_placeholders = ','.join(['?'] * len(towns))
                     char_query = f"""
-                    SELECT region_name, char, frequency
-                    FROM char_regional_analysis
-                    WHERE region_level = 'township' AND region_name IN ({town_placeholders})
-                    ORDER BY region_name, frequency DESC
+                    SELECT {self._column('char_regional_analysis', 'region_name')} as region_name, {self._column('char_regional_analysis', 'char')} as char, {self._column('char_regional_analysis', 'frequency')} as frequency
+                    FROM {self._table('char_regional_analysis')}
+                    WHERE {self._column('char_regional_analysis', 'region_level')} = 'township' AND {self._column('char_regional_analysis', 'region_name')} IN ({town_placeholders})
+                    ORDER BY {self._column('char_regional_analysis', 'region_name')}, {self._column('char_regional_analysis', 'frequency')} DESC
                     """
                     cursor.execute(char_query, towns)
 
@@ -1594,7 +1631,10 @@ class FeatureEngine:
 
     def aggregate_features(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        聚合区域特征
+        区域特征聚合（统计增强版）。
+
+        不只返回原始百分比，还计算 lift（相对全局的提升度）、z-score（跨区域标准差）、
+        多样性熵、结构画像，让每个区域的特征可解释、可比较。
 
         Args:
             params: 聚合参数
@@ -1602,6 +1642,7 @@ class FeatureEngine:
         Returns:
             特征聚合结果
         """
+        import math
         start_time = time.time()
 
         region_level = params['region_level']
@@ -1609,35 +1650,188 @@ class FeatureEngine:
         feature_config = params.get('features', {})
         top_n = params.get('top_n', 10)
 
-        # 选择正确的聚合表
-        table_map = {
-            'city': 'city_aggregates',
-            'county': 'county_aggregates',
-            'township': 'town_aggregates'
+        group_cols_map = {
+            'city':     ['city'],
+            'county':   ['city', 'county'],
+            'township': ['city', 'county', 'town'],
         }
-        table_name = table_map.get(region_level, 'county_aggregates')
+        group_cols = group_cols_map.get(region_level, ['city', 'county'])
+        region_col = group_cols[-1]
 
-        region_col_map = {
-            'city': 'city',
-            'county': 'county',
-            'township': 'town'
-        }
-        region_col = region_col_map.get(region_level, 'county')
+        sem_names = ['mountain', 'water', 'settlement', 'direction', 'clan',
+                     'symbolic', 'agriculture', 'vegetation', 'infrastructure']
 
-        # 构建查询
-        query = f"SELECT * FROM {table_name}"
         with self._connection() as conn:
-            if region_names:
-                placeholders = ','.join(['?' for _ in region_names])
-                query += f" WHERE {region_col} IN ({placeholders})"
-                df = pd.read_sql_query(query, conn, params=region_names)
-            else:
-                df = pd.read_sql_query(query, conn)
+            vf_table = self._table('village_features')
+            vss_table = self._table('village_semantic_structure')
+            gcp = [self._column('village_features', g) for g in group_cols]
 
+            # ---- filter helpers ----
+            def _region_filter():
+                if not region_names:
+                    return "", []
+                fc = self._column('village_features', region_col)
+                ph = ','.join(['?' for _ in region_names])
+                return f" WHERE {fc} IN ({ph})", list(region_names)
+
+            where, where_params = _region_filter()
+
+            # ==== 1. global baseline — aggregate over ALL villages ====
+            global_total = conn.execute(f"SELECT COUNT(*) FROM {vf_table}").fetchone()[0]
+            global_sem_sums = {}
+            for n in sem_names:
+                col = self._column('village_features', f'sem_{n}')
+                s = conn.execute(f"SELECT SUM({col}) FROM {vf_table}").fetchone()[0] or 0
+                global_sem_sums[n] = s
+
+            global_suffix_total = conn.execute(
+                f"SELECT COUNT(*) FROM {vf_table} WHERE {self._column('village_features', 'suffix_1')} IS NOT NULL AND {self._column('village_features', 'suffix_1')} != ''"
+            ).fetchone()[0]
+            global_suffix_counts: dict = {}
+            sfx_col = self._column('village_features', 'suffix_1')
+            for row in conn.execute(
+                f"SELECT {sfx_col}, COUNT(*) as cnt FROM {vf_table} WHERE {sfx_col} IS NOT NULL AND {sfx_col} != '' GROUP BY {sfx_col}"
+            ).fetchall():
+                global_suffix_counts[row[0]] = row[1]
+
+            # ==== 2. per-region basic stats ====
+            sem_cols = [self._column('village_features', f'sem_{n}') for n in sem_names]
+            sem_sum_exprs = [f"SUM({c}) AS sem_{n}_cnt" for c, n in zip(sem_cols, sem_names)]
+            select_parts = gcp + [
+                "COUNT(*) AS total_villages",
+                f"AVG({self._column('village_features', 'name_length')}) AS avg_name_length",
+            ] + sem_sum_exprs
+
+            query = f"SELECT {', '.join(select_parts)} FROM {vf_table}{where} GROUP BY {', '.join(gcp)}"
+            df = pd.read_sql_query(query, conn, params=where_params)
+
+            for g in group_cols:
+                physical = self._column('village_features', g).strip('"')
+                if physical in df.columns and physical != g:
+                    df[g] = df[physical]
+
+            df['region_key'] = df.apply(lambda r: tuple(r[g] for g in group_cols), axis=1)
+
+            # ==== 3. per-region suffix distribution ====
+            region_suffix_counts: dict = {}
+            sfx_query = f"""
+                SELECT {', '.join(gcp)}, {sfx_col}, COUNT(*) as cnt
+                FROM {vf_table}
+                WHERE {sfx_col} IS NOT NULL AND {sfx_col} != ''{f' AND {self._column("village_features", region_col)} IN ({",".join(["?"]*len(region_names))})' if region_names else ''}
+                GROUP BY {', '.join(gcp)}, {sfx_col}
+            """
+            for row in conn.execute(sfx_query, region_names if region_names else []).fetchall():
+                rk = tuple(row[:len(group_cols)])
+                entry = region_suffix_counts.setdefault(rk, {})
+                entry[row[len(group_cols)]] = row[-1]
+
+            # ==== 4. structure profile from village_semantic_structure ====
+            structure_data: dict = {}
+            if feature_config.get('structure_profile', True):
+                try:
+                    vss_vid = self._column('village_semantic_structure', 'village_id')
+                    vf_vid = self._column('village_features', 'village_id')
+                    struct_metrics = ['has_modifier', 'has_head', 'has_settlement']
+                    struct_select = [f'SUM({self._column("village_semantic_structure", m)}) AS {m}' for m in struct_metrics]
+                    st_query = f"""
+                        SELECT {', '.join([f'vf.{c}' for c in gcp])}, COUNT(*) as cnt, {', '.join(struct_select)}
+                        FROM {vss_table} vss
+                        JOIN {vf_table} vf ON vss.{vss_vid} = vf.{vf_vid}
+                        {f"WHERE {self._column('village_features', region_col)} IN ({','.join(['?']*len(region_names))})" if region_names else ''}
+                        GROUP BY {', '.join([f'vf.{c}' for c in gcp])}
+                    """
+                    for row in conn.execute(st_query, region_names if region_names else []).fetchall():
+                        rk = tuple(row[:len(group_cols)])
+                        total = row[len(group_cols)]
+                        entry = {}
+                        for i, m in enumerate(struct_metrics):
+                            entry[m] = {"count": row[len(group_cols) + 1 + i] or 0,
+                                         "pct": round((row[len(group_cols) + 1 + i] or 0) * 100.0 / total, 2) if total else 0}
+                        entry["total"] = total
+                        structure_data[rk] = entry
+                except Exception:
+                    pass
+
+            # ==== 5. distinctive characters from char_regional_analysis ====
+            char_data: dict = {}
+            if feature_config.get('distinctive_chars', True):
+                try:
+                    cr_table = self._table('char_regional_analysis')
+                    cr_level = self._column('char_regional_analysis', 'region_level')
+                    cr_region = self._column('char_regional_analysis', 'region_name')
+                    cr_char = self._column('char_regional_analysis', 'char')
+                    cr_lift = self._column('char_regional_analysis', 'lift')
+                    cr_zscore = self._column('char_regional_analysis', 'z_score')
+                    cr_freq = self._column('char_regional_analysis', 'frequency')
+                    cr_rank = self._column('char_regional_analysis', 'rank_within_region')
+
+                    if region_level == 'city':
+                        cr_name_col = self._column('char_regional_analysis', 'city')
+                    elif region_level == 'township':
+                        cr_name_col = self._column('char_regional_analysis', 'township')
+                    else:
+                        cr_name_col = cr_region
+
+                    ch_query = f"""
+                        SELECT {cr_name_col}, {cr_char}, {cr_lift}, {cr_zscore}, {cr_freq}, {cr_rank}
+                        FROM {cr_table}
+                        WHERE {cr_level} = ?
+                          AND {cr_rank} <= ?
+                        ORDER BY {cr_name_col}, {cr_rank}
+                    """
+                    for row in conn.execute(ch_query, (region_level, top_n * 2)).fetchall():
+                        rn = row[0]
+                        entry = char_data.setdefault(rn, [])
+                        if len(entry) < top_n:
+                            entry.append({
+                                'char': row[1],
+                                'lift': round(row[2], 3) if row[2] is not None else None,
+                                'z_score': round(row[3], 3) if row[3] is not None else None,
+                                'frequency': round(row[4], 3) if row[4] is not None else None,
+                            })
+                except Exception:
+                    pass
+
+            # ==== 6. cluster distribution (filtered by active run_id) ====
+            cluster_data: dict = {}
+            if feature_config.get('cluster_distribution', True):
+                try:
+                    ar_table = self._table('active_run_ids')
+                    ar_type_col = self._column('active_run_ids', 'analysis_type')
+                    ar_runid_col = self._column('active_run_ids', 'run_id')
+                    row = conn.execute(
+                        f"SELECT {ar_runid_col} FROM {ar_table} WHERE {ar_type_col} = ?",
+                        ('spatial_clusters',)
+                    ).fetchone()
+                    spatial_run_id = row[0] if row else None
+
+                    if spatial_run_id:
+                        ca_table = self._table('village_cluster_assignments')
+                        ca_runid_col = self._column('village_cluster_assignments', 'run_id')
+                        ca_col = self._column('village_cluster_assignments', 'cluster_id')
+                        ca_vid = self._column('village_cluster_assignments', 'village_id')
+                        cl_query = f"""
+                            SELECT {', '.join([f'vf.{c}' for c in gcp])}, ca.{ca_col}, COUNT(*) as cnt
+                            FROM {ca_table} ca
+                            JOIN {vf_table} vf ON ca.{ca_vid} = vf.{vf_vid}
+                            WHERE ca.{ca_runid_col} = ?
+                            GROUP BY {', '.join([f'vf.{c}' for c in gcp])}, ca.{ca_col}
+                        """
+                        for row in conn.execute(cl_query, (spatial_run_id,)).fetchall():
+                            rk = tuple(row[:len(group_cols)])
+                            cd = cluster_data.setdefault(rk, {})
+                            cd[str(row[len(group_cols)])] = row[-1]
+                except Exception:
+                    pass
+
+        # ======== Build result ========
         aggregates = []
+        region_list: list[dict] = []  # collect for z-score computation
 
         for _, row in df.iterrows():
-            # 构建区域名称（包含完整路径）
+            rk = row['region_key']
+            total = int(row['total_villages'])
+
             if region_level == 'township':
                 region_name = f"{row['city']} > {row['county']} > {row['town']}"
             elif region_level == 'county':
@@ -1645,43 +1839,103 @@ class FeatureEngine:
             else:
                 region_name = row[region_col]
 
-            aggregate_dict = {
+            agg = {
                 'region_name': region_name,
-                'total_villages': row.get('total_villages', 0)
+                'total_villages': total,
+                'avg_name_length': round(float(row['avg_name_length']), 2) if pd.notna(row['avg_name_length']) else None,
             }
+            # Convert row to plain dict — pandas iterrows() reuses the Series object
+            z_vals = {'avg_name_length': agg['avg_name_length']}
+            for n in sem_names:
+                cnt_key = f'sem_{n}_cnt'
+                val = int(row[cnt_key]) if pd.notna(row.get(cnt_key)) else 0
+                z_vals[cnt_key] = val
+            region_list.append({'key': rk, 'name': region_name, 'agg': agg, 'z_vals': z_vals})
 
-            # 语义分布
+            # --- semantic profile with lift ---
             if feature_config.get('semantic_distribution', True):
-                semantic_dist = {}
-                for col in df.columns:
-                    if col.endswith('_pct'):
-                        semantic_dist[col] = float(row[col]) if pd.notna(row[col]) else 0.0
-                aggregate_dict['semantic_distribution'] = semantic_dist
+                sem_profile = {}
+                for n in sem_names:
+                    cnt = int(row[f'sem_{n}_cnt']) if pd.notna(row[f'sem_{n}_cnt']) else 0
+                    region_pct = round(cnt * 100.0 / total, 2) if total else 0.0
+                    global_pct = round(global_sem_sums[n] * 100.0 / global_total, 2) if global_total else 0.0
+                    lift = round(region_pct / global_pct, 3) if global_pct > 0 else None
+                    sem_profile[n] = {
+                        'count': cnt,
+                        'pct': region_pct,
+                        'global_pct': global_pct,
+                        'lift': lift,
+                    }
+                agg['semantic_profile'] = sem_profile
 
-            # 形态学频率（从JSON字段解析）
+            # --- suffix distribution with lift ---
             if feature_config.get('morphology_freq', True):
-                try:
-                    import json
-                    top_suffixes = json.loads(row.get('top_suffixes_json', '[]'))
-                    top_prefixes = json.loads(row.get('top_prefixes_json', '[]'))
-                    aggregate_dict['top_suffixes'] = top_suffixes[:top_n]
-                    aggregate_dict['top_prefixes'] = top_prefixes[:top_n]
-                except Exception as e:
-                    logger.warning(f"Failed to parse JSON: {e}")
-                    aggregate_dict['top_suffixes'] = []
-                    aggregate_dict['top_prefixes'] = []
+                sfx = region_suffix_counts.get(rk, {})
+                region_total = sum(sfx.values())
+                sfx_list = []
+                for suffix, cnt in sorted(sfx.items(), key=lambda x: -x[1]):
+                    pct = round(cnt * 100.0 / region_total, 2) if region_total else 0.0
+                    global_pct = round(global_suffix_counts.get(suffix, 0) * 100.0 / global_suffix_total, 2) if global_suffix_total else 0.0
+                    lift = round(pct / global_pct, 3) if global_pct > 0 else None
+                    sfx_list.append({'suffix': suffix, 'count': cnt, 'pct': pct, 'global_pct': global_pct, 'lift': lift})
+                agg['suffixes'] = sfx_list[:top_n]
+                # distinctive = sorted by lift descending
+                agg['distinctive_suffixes'] = sorted(sfx_list, key=lambda x: -(x['lift'] or 0))[:top_n]
 
-            # 聚类分布（从JSON字段解析）
+            # --- diversity ---
+            if feature_config.get('diversity_metrics', True):
+                # semantic entropy
+                sem_probs = [max(agg['semantic_profile'][n]['pct'] / 100.0, 0.001) for n in sem_names] if 'semantic_profile' in agg else []
+                sem_entropy = -sum(p * math.log(p) for p in sem_probs) if sem_probs else None
+
+                # suffix entropy
+                sfx = region_suffix_counts.get(rk, {})
+                sfx_total = sum(sfx.values()) or 1
+                sfx_probs = [max(c / sfx_total, 0.001) for c in sfx.values()]
+                sfx_entropy = -sum(p * math.log(p) for p in sfx_probs) if sfx_probs else None
+
+                agg['diversity'] = {
+                    'semantic_entropy': round(sem_entropy, 4) if sem_entropy else None,
+                    'suffix_entropy': round(sfx_entropy, 4) if sfx_entropy else None,
+                    'unique_suffixes': len(sfx),
+                }
+
+            # --- structure_profile ---
+            if feature_config.get('structure_profile', True) and rk in structure_data:
+                agg['structure_profile'] = structure_data[rk]
+
+            # --- distinctive_chars ---
+            if feature_config.get('distinctive_chars', True):
+                agg['distinctive_chars'] = char_data.get(region_name, [])
+
+            # --- cluster_distribution ---
             if feature_config.get('cluster_distribution', True):
-                try:
-                    import json
-                    cluster_dist = json.loads(row.get('cluster_distribution_json', '{}'))
-                    aggregate_dict['cluster_distribution'] = cluster_dist
-                except Exception as e:
-                    logger.warning(f"Failed to parse cluster distribution: {e}")
-                    aggregate_dict['cluster_distribution'] = {}
+                agg['cluster_distribution'] = cluster_data.get(rk, {})
 
-            aggregates.append(aggregate_dict)
+            aggregates.append(agg)
+
+        # ==== z-scores across requested regions ====
+        z_metric_names = ['avg_name_length'] + [f'sem_{n}_pct' for n in sem_names]
+        from statistics import mean, stdev
+        for mi, metric_name in enumerate(z_metric_names):
+            vals = []
+            for r in region_list:
+                if metric_name == 'avg_name_length':
+                    v = r['z_vals']['avg_name_length']
+                else:
+                    # metric_name like 'sem_mountain_pct' → cnt_key like 'sem_mountain_cnt'
+                    cnt_key = metric_name.replace('_pct', '_cnt')
+                    total = r['agg']['total_villages']
+                    cnt = r['z_vals'].get(cnt_key, 0)
+                    v = round(cnt * 100.0 / total, 2) if total else 0.0
+                if v is not None:
+                    vals.append((r, v))
+            if len(vals) >= 3:
+                vs = [v for _, v in vals]
+                m, s = mean(vs), stdev(vs)
+                if s > 0:
+                    for r, v in vals:
+                        r['agg'].setdefault('z_scores', {})[metric_name] = round((v - m) / s, 3)
 
         execution_time = int((time.time() - start_time) * 1000)
 

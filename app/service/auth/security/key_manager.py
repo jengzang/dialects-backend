@@ -77,7 +77,7 @@ def rotate_secret_key(reason: str = "manual") -> str:
     轮换SECRET_KEY（手动命令）
     返回: 新密钥的值
     """
-    from app.common.config import ACCESS_TOKEN_EXPIRE_MINUTES
+    from app.common.auth_config import ACCESS_TOKEN_EXPIRE_MINUTES
 
     db = SessionLocal()
 

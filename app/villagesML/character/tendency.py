@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query
+from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharTendency, CharTendencyByRegion
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/character/tendency")
 
@@ -21,7 +22,8 @@ def get_character_tendency_by_region(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     top_n: int = Query(50, ge=1, le=500, description="返回前N个字符"),
     sort_by: str = Query("z_score", description="排序字段", pattern="^(z_score|lift|log_odds)$"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取指定区域的字符倾向性
@@ -39,43 +41,60 @@ def get_character_tendency_by_region(
     Returns:
         List[CharTendency]: 字符倾向性列表
     """
+    table = qtable(dbpath, "char_regional_analysis")
+    region_level_col = qcolumn(dbpath, "char_regional_analysis", "region_level")
+    region_name_col = qcolumn(dbpath, "char_regional_analysis", "region_name")
+    city_col = qcolumn(dbpath, "char_regional_analysis", "city")
+    county_col = qcolumn(dbpath, "char_regional_analysis", "county")
+    township_col = qcolumn(dbpath, "char_regional_analysis", "township")
+    char_col = qcolumn(dbpath, "char_regional_analysis", "char")
+    lift_col = qcolumn(dbpath, "char_regional_analysis", "lift")
+    log_odds_col = qcolumn(dbpath, "char_regional_analysis", "log_odds")
+    z_score_col = qcolumn(dbpath, "char_regional_analysis", "z_score")
+    sort_col_map = {
+        "z_score": z_score_col,
+        "lift": lift_col,
+        "log_odds": log_odds_col,
+    }
+    sort_col = sort_col_map[sort_by]
+
     query = f"""
         SELECT DISTINCT
-            region_level,
-            region_name,
-            city,
-            county,
-            township,
-            char as character,
-            lift,
-            log_odds,
-            z_score,
-            ROW_NUMBER() OVER (ORDER BY {sort_by} DESC) as rank
-        FROM char_regional_analysis
-        WHERE region_level = ?
+            {region_level_col} as region_level,
+            {region_name_col} as region_name,
+            {city_col} as city,
+            {county_col} as county,
+            {township_col} as township,
+            {char_col} as character,
+            {lift_col} as lift,
+            {log_odds_col} as log_odds,
+            {z_score_col} as z_score,
+            ROW_NUMBER() OVER (ORDER BY {sort_col} DESC) as rank
+        FROM {table}
+        WHERE {region_level_col} = ?
     """
     params = [region_level]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {city_col} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {county_col} = ?"
         params.append(county)
     elif city is not None and region_level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {township_col} = ?"
         params.append(township)
 
     # 向后兼容：region_name（模糊匹配）
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ?)"
+        query += f" AND ({city_col} = ? OR {county_col} = ? OR {township_col} = ?)"
         params.extend([region_name, region_name, region_name])
 
-    query += f" ORDER BY {sort_by} DESC LIMIT ?"
+    query += f" ORDER BY {sort_col} DESC LIMIT ?"
     params.append(top_n)
 
     results = execute_query(db, query, tuple(params))
@@ -96,7 +115,8 @@ def get_character_tendency_by_char(
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取指定字符在各区域的倾向性
@@ -112,45 +132,56 @@ def get_character_tendency_by_char(
     Returns:
         List[CharTendencyByRegion]: 各区域倾向性列表（包含区域中心点坐标）
     """
-    # 根据 region_level 确定坐标计算的字段
-    if region_level == 'city':
-        coord_field = '市级'
-    elif region_level == 'county':
-        coord_field = '区县级'
-    else:  # township
-        coord_field = '乡镇级'
+    regional_table = qtable(dbpath, "char_regional_analysis")
+    regional_region_level = qcolumn(dbpath, "char_regional_analysis", "region_level")
+    regional_region_name = qcolumn(dbpath, "char_regional_analysis", "region_name")
+    regional_city = qcolumn(dbpath, "char_regional_analysis", "city")
+    regional_county = qcolumn(dbpath, "char_regional_analysis", "county")
+    regional_township = qcolumn(dbpath, "char_regional_analysis", "township")
+    regional_char = qcolumn(dbpath, "char_regional_analysis", "char")
+    regional_lift = qcolumn(dbpath, "char_regional_analysis", "lift")
+    regional_z_score = qcolumn(dbpath, "char_regional_analysis", "z_score")
+    villages_table = qtable(dbpath, "villages")
+    villages_longitude = qcolumn(dbpath, "villages", "longitude")
+    villages_latitude = qcolumn(dbpath, "villages", "latitude")
+    coord_field_map = {
+        "city": qcolumn(dbpath, "villages", "city"),
+        "county": qcolumn(dbpath, "villages", "county"),
+        "township": qcolumn(dbpath, "villages", "township"),
+    }
+    coord_field = coord_field_map[region_level]
 
     query = f"""
         SELECT
-            c.region_level,
-            c.region_name,
-            c.city,
-            c.county,
-            c.township,
-            c.lift,
-            c.z_score,
-            AVG(v.longitude) as centroid_lon,
-            AVG(v.latitude) as centroid_lat
-        FROM char_regional_analysis c
-        LEFT JOIN 广东省自然村_预处理 v ON c.region_name = v.{coord_field}
-        WHERE c.char = ? AND c.region_level = ?
+            c.{regional_region_level} as region_level,
+            c.{regional_region_name} as region_name,
+            c.{regional_city} as city,
+            c.{regional_county} as county,
+            c.{regional_township} as township,
+            c.{regional_lift} as lift,
+            c.{regional_z_score} as z_score,
+            AVG(v.{villages_longitude}) as centroid_lon,
+            AVG(v.{villages_latitude}) as centroid_lat
+        FROM {regional_table} c
+        LEFT JOIN {villages_table} v ON c.{regional_region_name} = v.{coord_field}
+        WHERE c.{regional_char} = ? AND c.{regional_region_level} = ?
     """
     params = [character, region_level]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
-        query += " AND c.city = ?"
+        query += f" AND c.{regional_city} = ?"
         params.append(city)
     if county is not None:
-        query += " AND c.county = ?"
+        query += f" AND c.{regional_county} = ?"
         params.append(county)
     if township is not None:
-        query += " AND c.township = ?"
+        query += f" AND c.{regional_township} = ?"
         params.append(township)
 
-    query += """
-        GROUP BY c.region_level, c.region_name, c.city, c.county, c.township, c.lift, c.z_score
-        ORDER BY c.z_score DESC
+    query += f"""
+        GROUP BY c.{regional_region_level}, c.{regional_region_name}, c.{regional_city}, c.{regional_county}, c.{regional_township}, c.{regional_lift}, c.{regional_z_score}
+        ORDER BY c.{regional_z_score} DESC
     """
 
     results = execute_query(db, query, tuple(params))

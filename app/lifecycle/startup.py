@@ -1,6 +1,7 @@
 import sqlite3
 from typing import Callable
 
+from app.common.config import AUTO_INDEX, AUTO_MIGRATE
 from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
@@ -9,12 +10,10 @@ from app.common.path import (
     QUERY_DB_ADMIN,
     QUERY_DB_USER,
 )
-from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PATH
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
 from app.geo_query.loader import load_geo_query_engine
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
-from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
-from app.geo_query.loader import load_geo_query_engine
 
 
 def initialize_db_pools() -> None:
@@ -107,7 +106,7 @@ def initialize_geo_query_engine() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine...")
     try:
-        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
+        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
             from scripts.geo.build_lowmem_index import main as build_geo_index
             build_geo_index()
         load_geo_query_engine()
@@ -120,7 +119,7 @@ def initialize_geo_query_engine() -> None:
 def initialize_geo_query_engine_strict() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine (strict mode)...")
-    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
+    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
         from scripts.geo.build_lowmem_index import main as build_geo_index
         build_geo_index()
     load_geo_query_engine()
@@ -138,13 +137,20 @@ def run_process_startup() -> None:
 
 
 def run_main_startup() -> None:
-    _run_startup_steps(
+    steps: list[Callable[[], None]] = [
         initialize_db_pools,
-        migrate_user_region_tables,
-        migrate_logs_database,
+    ]
+    if AUTO_MIGRATE:
+        steps.append(migrate_user_region_tables)
+        steps.append(migrate_logs_database)
+    if AUTO_INDEX:
+        from app.sql.index_manager import initialize_all_indexes
+        steps.append(initialize_all_indexes)
+    steps.extend([
         cleanup_old_temp_files,
         warm_dialect_cache,
-    )
+    ])
+    _run_startup_steps(*steps)
 
 
 def run_gis_startup() -> None:

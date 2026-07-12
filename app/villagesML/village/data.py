@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..run_id_manager import get_run_id_manager
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 
 router = APIRouter(prefix="/village")
 
@@ -15,7 +17,8 @@ router = APIRouter(prefix="/village")
 def get_village_ngrams(
     village_id: int,
     n: Optional[int] = Query(None, ge=2, le=4, description="N-gram长度"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定村庄的N-gram
@@ -28,11 +31,23 @@ def get_village_ngrams(
     Returns:
         dict: 村庄N-gram信息
     """
+    villages_table = qtable(dbpath, "villages")
+    villages_rowid = qcolumn(dbpath, "villages", "rowid")
+    villages_name = qcolumn(dbpath, "villages", "name")
+    villages_committee = qcolumn(dbpath, "villages", "committee")
+    ngrams_table = qtable(dbpath, "village_ngrams")
+    ngrams_name = qcolumn(dbpath, "village_ngrams", "name")
+    ngrams_committee = qcolumn(dbpath, "village_ngrams", "committee")
+    ngrams_bigrams = qcolumn(dbpath, "village_ngrams", "bigrams")
+    ngrams_trigrams = qcolumn(dbpath, "village_ngrams", "trigrams")
+    ngrams_prefix_bigram = qcolumn(dbpath, "village_ngrams", "prefix_bigram")
+    ngrams_suffix_bigram = qcolumn(dbpath, "village_ngrams", "suffix_bigram")
+
     # First get village name from preprocessed table using ROWID
-    village_query = """
-        SELECT "自然村_规范名" as village_name, "村委会" as village_committee
-        FROM "广东省自然村_预处理"
-        WHERE ROWID = ?
+    village_query = f"""
+        SELECT {villages_name} as village_name, {villages_committee} as village_committee
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
 
@@ -44,32 +59,32 @@ def get_village_ngrams(
 
     # Then query ngrams table using village name and committee
     # Try exact match first
-    query = """
+    query = f"""
         SELECT
-            "村委会" as village_committee,
-            "自然村" as village_name,
-            bigrams,
-            trigrams,
-            prefix_bigram,
-            suffix_bigram
-        FROM village_ngrams
-        WHERE "自然村" = ? AND "村委会" = ?
+            {ngrams_committee} as village_committee,
+            {ngrams_name} as village_name,
+            {ngrams_bigrams} as bigrams,
+            {ngrams_trigrams} as trigrams,
+            {ngrams_prefix_bigram} as prefix_bigram,
+            {ngrams_suffix_bigram} as suffix_bigram
+        FROM {ngrams_table}
+        WHERE {ngrams_name} = ? AND {ngrams_committee} = ?
     """
 
     result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
 
     # If no result, try matching by village_name only (committee might differ)
     if not result:
-        query = """
+        query = f"""
             SELECT
-                "村委会" as village_committee,
-                "自然村" as village_name,
-                bigrams,
-                trigrams,
-                prefix_bigram,
-                suffix_bigram
-            FROM village_ngrams
-            WHERE "自然村" = ?
+                {ngrams_committee} as village_committee,
+                {ngrams_name} as village_name,
+                {ngrams_bigrams} as bigrams,
+                {ngrams_trigrams} as trigrams,
+                {ngrams_prefix_bigram} as prefix_bigram,
+                {ngrams_suffix_bigram} as suffix_bigram
+            FROM {ngrams_table}
+            WHERE {ngrams_name} = ?
         """
         result = execute_single(db, query, (village_info['village_name'],))
 
@@ -100,7 +115,8 @@ def get_village_ngrams(
 @router.get("/semantic-structure/{village_id}")
 def get_village_semantic_structure(
     village_id: int,
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定村庄的语义结构
@@ -112,11 +128,24 @@ def get_village_semantic_structure(
     Returns:
         dict: 村庄语义结构
     """
+    villages_table = qtable(dbpath, "villages")
+    villages_rowid = qcolumn(dbpath, "villages", "rowid")
+    villages_name = qcolumn(dbpath, "villages", "name")
+    villages_committee = qcolumn(dbpath, "villages", "committee")
+    semantic_table = qtable(dbpath, "village_semantic_structure")
+    semantic_name = qcolumn(dbpath, "village_semantic_structure", "name")
+    semantic_committee = qcolumn(dbpath, "village_semantic_structure", "committee")
+    semantic_sequence = qcolumn(dbpath, "village_semantic_structure", "semantic_sequence")
+    sequence_length = qcolumn(dbpath, "village_semantic_structure", "sequence_length")
+    has_modifier = qcolumn(dbpath, "village_semantic_structure", "has_modifier")
+    has_head = qcolumn(dbpath, "village_semantic_structure", "has_head")
+    has_settlement = qcolumn(dbpath, "village_semantic_structure", "has_settlement")
+
     # First get village name from preprocessed table using ROWID
-    village_query = """
-        SELECT "自然村_规范名" as village_name, "村委会" as village_committee
-        FROM "广东省自然村_预处理"
-        WHERE ROWID = ?
+    village_query = f"""
+        SELECT {villages_name} as village_name, {villages_committee} as village_committee
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
 
@@ -128,34 +157,34 @@ def get_village_semantic_structure(
 
     # Then query semantic structure table
     # Try exact match first
-    query = """
+    query = f"""
         SELECT
-            "村委会" as village_committee,
-            "自然村" as village_name,
-            semantic_sequence,
-            sequence_length,
-            has_modifier,
-            has_head,
-            has_settlement
-        FROM village_semantic_structure
-        WHERE "自然村" = ? AND "村委会" = ?
+            {semantic_committee} as village_committee,
+            {semantic_name} as village_name,
+            {semantic_sequence} as semantic_sequence,
+            {sequence_length} as sequence_length,
+            {has_modifier} as has_modifier,
+            {has_head} as has_head,
+            {has_settlement} as has_settlement
+        FROM {semantic_table}
+        WHERE {semantic_name} = ? AND {semantic_committee} = ?
     """
 
     result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
 
     # If no result, try matching by village_name only (committee might differ)
     if not result:
-        query = """
+        query = f"""
             SELECT
-                "村委会" as village_committee,
-                "自然村" as village_name,
-                semantic_sequence,
-                sequence_length,
-                has_modifier,
-                has_head,
-                has_settlement
-            FROM village_semantic_structure
-            WHERE "自然村" = ?
+                {semantic_committee} as village_committee,
+                {semantic_name} as village_name,
+                {semantic_sequence} as semantic_sequence,
+                {sequence_length} as sequence_length,
+                {has_modifier} as has_modifier,
+                {has_head} as has_head,
+                {has_settlement} as has_settlement
+            FROM {semantic_table}
+            WHERE {semantic_name} = ?
         """
         result = execute_single(db, query, (village_info['village_name'],))
 
@@ -177,7 +206,8 @@ def get_village_semantic_structure(
 @router.get("/features/{village_id}")
 def get_village_features(
     village_id: int,
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定村庄的特征向量
@@ -189,11 +219,20 @@ def get_village_features(
     Returns:
         dict: 村庄特征
     """
+    villages_table = qtable(dbpath, "villages")
+    villages_rowid = qcolumn(dbpath, "villages", "rowid")
+    villages_name = qcolumn(dbpath, "villages", "name")
+    villages_city = qcolumn(dbpath, "villages", "city")
+    villages_county = qcolumn(dbpath, "villages", "county")
+    villages_id = qcolumn(dbpath, "villages", "village_id")
+    features_table = qtable(dbpath, "village_features")
+    features_village_id = qcolumn(dbpath, "village_features", "village_id")
+
     # First get village info from preprocessed table using ROWID
-    village_query = """
-        SELECT "自然村_规范名" as village_name, "市级" as city, "区县级" as county, village_id
-        FROM "广东省自然村_预处理"
-        WHERE ROWID = ?
+    village_query = f"""
+        SELECT {villages_name} as village_name, {villages_city} as city, {villages_county} as county, {villages_id} as village_id
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
 
@@ -204,10 +243,10 @@ def get_village_features(
         )
 
     # Then query features table using village_id
-    query = """
+    query = f"""
         SELECT *
-        FROM village_features
-        WHERE village_id = ?
+        FROM {features_table}
+        WHERE {features_village_id} = ?
     """
 
     result = execute_single(db, query, (village_info['village_id'],))
@@ -228,10 +267,11 @@ def get_village_features(
 def get_village_spatial_features(
     village_id: int,
     clustering_version: Optional[str] = Query(
-        "spatial_eps_20",
-        description="聚类版本ID (spatial_eps_05/10/20, spatial_hdbscan_v1)"
+        None,
+        description="聚类版本ID（留空使用活跃版本）"
     ),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取特定村庄的空间特征
@@ -239,16 +279,35 @@ def get_village_spatial_features(
 
     Args:
         village_id: 村庄ID (ROWID from main table)
-        clustering_version: 聚类版本ID，默认 spatial_eps_20
+        clustering_version: 聚类版本ID，默认使用活跃版本
 
     Returns:
         dict: 村庄空间特征
     """
+    if clustering_version is None:
+        clustering_version = get_run_id_manager(dbpath).get_active_run_id(
+            run_id_analysis_type(dbpath, "spatial_clusters")
+        )
+
+    villages_table = qtable(dbpath, "villages")
+    villages_rowid = qcolumn(dbpath, "villages", "rowid")
+    villages_id = qcolumn(dbpath, "villages", "village_id")
+    spatial_features_table = qtable(dbpath, "village_spatial_features")
+    spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
+    cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
+    cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
+    cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
+    cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
+    spatial_clusters_table = qtable(dbpath, "spatial_clusters")
+    spatial_clusters_run_id = qcolumn(dbpath, "spatial_clusters", "run_id")
+    spatial_clusters_cluster_id = qcolumn(dbpath, "spatial_clusters", "cluster_id")
+    spatial_clusters_cluster_size = qcolumn(dbpath, "spatial_clusters", "cluster_size")
+
     # First get village_id from preprocessed table
-    village_query = """
-        SELECT village_id
-        FROM "广东省自然村_预处理"
-        WHERE ROWID = ?
+    village_query = f"""
+        SELECT {villages_id} as village_id
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
     """
     village_info = execute_single(db, village_query, (village_id,))
 
@@ -259,31 +318,31 @@ def get_village_spatial_features(
         )
 
     # spatial_features table has village_id column, so we can query directly
-    query = """
+    query = f"""
         SELECT
-            vsf.village_id,
-            vsf.village_name,
-            vsf.city,
-            vsf.county,
-            vsf.town,
-            vsf.longitude,
-            vsf.latitude,
-            vsf.nn_distance_1,
-            vsf.nn_distance_5,
-            vsf.nn_distance_10,
-            vsf.local_density_1km,
-            vsf.local_density_5km,
-            vsf.local_density_10km,
-            vsf.isolation_score,
-            vsf.is_isolated,
-            vca.cluster_id as spatial_cluster_id,
-            sc.cluster_size
-        FROM village_spatial_features vsf
-        LEFT JOIN village_cluster_assignments vca
-            ON vsf.village_id = vca.village_id AND vca.run_id = ?
-        LEFT JOIN spatial_clusters sc
-            ON vca.run_id = sc.run_id AND vca.cluster_id = sc.cluster_id
-        WHERE vsf.village_id = ?
+            vsf.{spatial_features_village_id} as village_id,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "village_name")} as village_name,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "city")} as city,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "county")} as county,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "town")} as town,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "longitude")} as longitude,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "latitude")} as latitude,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_1")} as nn_distance_1,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_5")} as nn_distance_5,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_10")} as nn_distance_10,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_1km")} as local_density_1km,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_5km")} as local_density_5km,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_10km")} as local_density_10km,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "isolation_score")} as isolation_score,
+            vsf.{qcolumn(dbpath, "village_spatial_features", "is_isolated")} as is_isolated,
+            vca.{cluster_assignments_cluster_id} as spatial_cluster_id,
+            sc.{spatial_clusters_cluster_size} as cluster_size
+        FROM {spatial_features_table} vsf
+        LEFT JOIN {cluster_assignments_table} vca
+            ON vsf.{spatial_features_village_id} = vca.{cluster_assignments_village_id} AND vca.{cluster_assignments_run_id} = ?
+        LEFT JOIN {spatial_clusters_table} sc
+            ON vca.{cluster_assignments_run_id} = sc.{spatial_clusters_run_id} AND vca.{cluster_assignments_cluster_id} = sc.{spatial_clusters_cluster_id}
+        WHERE vsf.{spatial_features_village_id} = ?
     """
 
     result = execute_single(db, query, (clustering_version, village_info['village_id']))
@@ -301,7 +360,8 @@ def get_village_spatial_features(
 @router.get("/complete/{village_id}")
 def get_village_complete_profile(
     village_id: int,
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取村庄的完整档案（所有数据）
@@ -313,20 +373,49 @@ def get_village_complete_profile(
     Returns:
         dict: 村庄完整档案
     """
+    villages_table = qtable(dbpath, "villages")
+    villages_rowid = qcolumn(dbpath, "villages", "rowid")
+    villages_id = qcolumn(dbpath, "villages", "village_id")
+    villages_name = qcolumn(dbpath, "villages", "name")
+    villages_city = qcolumn(dbpath, "villages", "city")
+    villages_county = qcolumn(dbpath, "villages", "county")
+    villages_township = qcolumn(dbpath, "villages", "township")
+    villages_committee = qcolumn(dbpath, "villages", "committee")
+    villages_longitude = qcolumn(dbpath, "villages", "longitude")
+    villages_latitude = qcolumn(dbpath, "villages", "latitude")
+    features_table = qtable(dbpath, "village_features")
+    features_village_id = qcolumn(dbpath, "village_features", "village_id")
+    spatial_features_table = qtable(dbpath, "village_spatial_features")
+    spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
+    cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
+    cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
+    cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
+    cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
+    spatial_clusters_table = qtable(dbpath, "spatial_clusters")
+    spatial_clusters_run_id = qcolumn(dbpath, "spatial_clusters", "run_id")
+    spatial_clusters_cluster_id = qcolumn(dbpath, "spatial_clusters", "cluster_id")
+    spatial_clusters_cluster_size = qcolumn(dbpath, "spatial_clusters", "cluster_size")
+    semantic_table = qtable(dbpath, "village_semantic_structure")
+    semantic_name = qcolumn(dbpath, "village_semantic_structure", "name")
+    semantic_committee = qcolumn(dbpath, "village_semantic_structure", "committee")
+    ngrams_table = qtable(dbpath, "village_ngrams")
+    ngrams_name = qcolumn(dbpath, "village_ngrams", "name")
+    ngrams_committee = qcolumn(dbpath, "village_ngrams", "committee")
+
     # Get basic info from preprocessed table using ROWID
-    basic_query = """
+    basic_query = f"""
         SELECT
-            ROWID as village_id,
-            "自然村_规范名" as village_name,
-            "市级" as city,
-            "区县级" as county,
-            "乡镇级" as township,
-            "村委会" as village_committee,
-            CAST(longitude AS REAL) as longitude,
-            CAST(latitude AS REAL) as latitude,
-            village_id as village_id_str
-        FROM "广东省自然村_预处理"
-        WHERE ROWID = ?
+            {villages_rowid} as village_id,
+            {villages_name} as village_name,
+            {villages_city} as city,
+            {villages_county} as county,
+            {villages_township} as township,
+            {villages_committee} as village_committee,
+            CAST({villages_longitude} AS REAL) as longitude,
+            CAST({villages_latitude} AS REAL) as latitude,
+            {villages_id} as village_id_str
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
     """
     basic_info = execute_single(db, basic_query, (village_id,))
 
@@ -337,33 +426,36 @@ def get_village_complete_profile(
         )
 
     # Get village features (no run_id needed)
-    features_query = """
+    features_query = f"""
         SELECT *
-        FROM village_features
-        WHERE village_id = ?
+        FROM {features_table}
+        WHERE {features_village_id} = ?
     """
     features = execute_single(db, features_query, (basic_info['village_id_str'],))
 
     # Get spatial features (with clustering info from new table)
-    spatial_query = """
+    spatial_cluster_run_id = get_run_id_manager(dbpath).get_active_run_id(
+        run_id_analysis_type(dbpath, "spatial_clusters")
+    )
+    spatial_query = f"""
         SELECT
             vsf.*,
-            vca.cluster_id as spatial_cluster_id,
-            sc.cluster_size
-        FROM village_spatial_features vsf
-        LEFT JOIN village_cluster_assignments vca
-            ON vsf.village_id = vca.village_id AND vca.run_id = 'spatial_eps_20'
-        LEFT JOIN spatial_clusters sc
-            ON vca.run_id = sc.run_id AND vca.cluster_id = sc.cluster_id
-        WHERE vsf.village_id = ?
+            vca.{cluster_assignments_cluster_id} as spatial_cluster_id,
+            sc.{spatial_clusters_cluster_size} as cluster_size
+        FROM {spatial_features_table} vsf
+        LEFT JOIN {cluster_assignments_table} vca
+            ON vsf.{spatial_features_village_id} = vca.{cluster_assignments_village_id} AND vca.{cluster_assignments_run_id} = ?
+        LEFT JOIN {spatial_clusters_table} sc
+            ON vca.{cluster_assignments_run_id} = sc.{spatial_clusters_run_id} AND vca.{cluster_assignments_cluster_id} = sc.{spatial_clusters_cluster_id}
+        WHERE vsf.{spatial_features_village_id} = ?
     """
-    spatial_features = execute_single(db, spatial_query, (basic_info['village_id_str'],))
+    spatial_features = execute_single(db, spatial_query, (spatial_cluster_run_id, basic_info['village_id_str']))
 
     # Get semantic structure (uses village_name + committee)
-    semantic_query = """
+    semantic_query = f"""
         SELECT *
-        FROM village_semantic_structure
-        WHERE "自然村" = ? AND "村委会" = ?
+        FROM {semantic_table}
+        WHERE {semantic_name} = ? AND {semantic_committee} = ?
     """
     semantic_structure = execute_single(db, semantic_query, (
         basic_info['village_name'],
@@ -372,18 +464,18 @@ def get_village_complete_profile(
 
     # Fallback: try matching by village_name only
     if not semantic_structure:
-        semantic_query = """
+        semantic_query = f"""
             SELECT *
-            FROM village_semantic_structure
-            WHERE "自然村" = ?
+            FROM {semantic_table}
+            WHERE {semantic_name} = ?
         """
         semantic_structure = execute_single(db, semantic_query, (basic_info['village_name'],))
 
     # Get n-grams (uses village_name + committee)
-    ngrams_query = """
+    ngrams_query = f"""
         SELECT *
-        FROM village_ngrams
-        WHERE "自然村" = ? AND "村委会" = ?
+        FROM {ngrams_table}
+        WHERE {ngrams_name} = ? AND {ngrams_committee} = ?
     """
     ngrams = execute_single(db, ngrams_query, (
         basic_info['village_name'],
@@ -392,18 +484,18 @@ def get_village_complete_profile(
 
     # Fallback: try matching by village_name only
     if not ngrams:
-        ngrams_query = """
+        ngrams_query = f"""
             SELECT *
-            FROM village_ngrams
-            WHERE "自然村" = ?
+            FROM {ngrams_table}
+            WHERE {ngrams_name} = ?
         """
         ngrams = execute_single(db, ngrams_query, (basic_info['village_name'],))
 
     # Get features (uses village_id)
-    features_query = """
+    features_query = f"""
         SELECT *
-        FROM village_features
-        WHERE village_id = ?
+        FROM {features_table}
+        WHERE {features_village_id} = ?
     """
     features = execute_single(db, features_query, (basic_info['village_id_str'],))
 

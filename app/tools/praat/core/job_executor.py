@@ -1,6 +1,7 @@
 """
 Job execution engine for Praat analysis (task_manager version).
 """
+import asyncio
 import json
 import traceback
 from pathlib import Path
@@ -36,12 +37,17 @@ def _restore_praat_idle_cleanup(task_id: str, reason: str) -> None:
 
 async def execute_job_async(task_id: str, job_id: str):
     """
-    Execute analysis job in background (async).
+    Execute analysis job in a worker thread so Praat/Parselmouth CPU work
+    does not block the FastAPI worker event loop.
 
     Args:
         task_id: Task ID (e.g., "praat_abc123")
         job_id: Job ID (e.g., "praat_abc123_job_1")
     """
+    await asyncio.to_thread(_execute_job_sync, task_id, job_id)
+
+
+def _execute_job_sync(task_id: str, job_id: str):
     try:
         with ProgressHeartbeat(
             PRAAT_HEARTBEAT_SECONDS,

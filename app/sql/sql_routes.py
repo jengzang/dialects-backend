@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 import threading
 from typing import Optional, Iterable
@@ -95,146 +96,81 @@ def _validate_columns(
     return allowed
 
 
-@router.post("/query")
-async def query_table(
-    params: QueryParams,
-    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
-    auth_db: Session = Depends(get_auth_db)
-):
-    # 限流和日志记录已由中间件和依赖注入自动处理
+def _build_query_sql(params: QueryParams) -> tuple[str, list, str, list[str], list, bool]:
+    table_q = _quote_identifier(params.table_name)
+    sql = f"SELECT rowid, * FROM {table_q}"
+    where_clauses = []
+    values = []
 
-    # 从 params 中取出 db_key 传进去
-    _validate_table(params.db_key, params.table_name)
-    _validate_columns(params.db_key, params.table_name, params.filters.keys(), "filters字段")
-    _validate_columns(params.db_key, params.table_name, params.search_columns, "search_columns")
+    for col, val_list in params.filters.items():
+        if not val_list:
+            continue
+        has_empty = None in val_list
+        normal_values = [v for v in val_list if v is not None]
+        conditions = []
+        if normal_values:
+            placeholders = ",".join(["?"] * len(normal_values))
+            conditions.append(f"{_quote_identifier(col)} IN ({placeholders})")
+            values.extend(normal_values)
+        if has_empty:
+            col_q = _quote_identifier(col)
+            conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
+        if conditions:
+            where_clauses.append(f"({' OR '.join(conditions)})")
+
+    if params.search_text and params.search_columns:
+        search_clauses = []
+        like_pattern = f"%{params.search_text}%"
+        for col in params.search_columns:
+            search_clauses.append(f"{_quote_identifier(col)} LIKE ?")
+            values.append(like_pattern)
+        if search_clauses:
+            where_clauses.append(f"({' OR '.join(search_clauses)})")
+
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+
     if params.sort_by:
-        _validate_columns(params.db_key, params.table_name, [params.sort_by], "sort_by")
+        direction = "DESC" if params.sort_desc else "ASC"
+        sql += f" ORDER BY {_quote_identifier(params.sort_by)} {direction}"
 
+    offset = (params.page - 1) * params.page_size
+    sql += " LIMIT ? OFFSET ?"
+    page_values = values + [params.page_size, offset]
+    count_values = values[:]
+    return sql, page_values, table_q, where_clauses, count_values, not where_clauses
+
+
+def _query_table_rows_sync(params: QueryParams, user: Optional[User], auth_db: Session) -> tuple[list[dict], str, list, bool]:
     with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
-
-        # 1. 基础 SQL
-        table_q = _quote_identifier(params.table_name)
-        sql = f"SELECT rowid, * FROM {table_q}"
-        where_clauses = []
-        values = []
-
-        for col, val_list in params.filters.items():
-            if not val_list:
-                continue
-
-            # 1. 分离"普通值"和"空值"
-            # 在 Python 中，前端传来的 null 会变成 None
-            has_empty = None in val_list
-            # 过滤出非空的值用于 IN 查询
-            normal_values = [v for v in val_list if v is not None]
-            conditions = []
-            # 2. 构建普通值的查询: col IN (?, ?)
-            if normal_values:
-                placeholders = ",".join(["?"] * len(normal_values))
-                conditions.append(f"{_quote_identifier(col)} IN ({placeholders})")
-                values.extend(normal_values)  # 把值加入参数列表
-            # 3. 构建空值的查询: (col IS NULL OR col = '')
-            # SQLite 中通常把 NULL 和空字符串都视为"没填"
-            if has_empty:
-                col_q = _quote_identifier(col)
-                conditions.append(f"({col_q} IS NULL OR {col_q} = '')")
-            # 4. 组合: (IN (...) OR IS NULL)
-            if conditions:
-                where_clauses.append(f"({' OR '.join(conditions)})")
-
-        # 3. 处理全局搜索 (Search) - Requirement 4
-        # 逻辑：AND (col1 LIKE %q% OR col2 LIKE %q% ...)
-        if params.search_text and params.search_columns:
-            search_clauses = []
-            like_pattern = f"%{params.search_text}%"
-            for col in params.search_columns:
-                search_clauses.append(f"{_quote_identifier(col)} LIKE ?")
-                values.append(like_pattern)
-            if search_clauses:
-                where_clauses.append(f"({' OR '.join(search_clauses)})")
-
-        # 组合 WHERE
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
-
-        # 4. 处理排序 (Sort) - Requirement 2
-        if params.sort_by:
-            direction = "DESC" if params.sort_desc else "ASC"
-            sql += f" ORDER BY {_quote_identifier(params.sort_by)} {direction}"
-
-        # 5. 处理分页
-        offset = (params.page - 1) * params.page_size
-        sql += f" LIMIT ? OFFSET ?"
-        values.extend([params.page_size, offset])
-
-        try:
-            cursor.execute(sql, values)
-            rows = [dict(row) for row in cursor.fetchall()]
-
-            # 获取总条数（用于前端分页）
-            # 优化：如果没有 WHERE 条件，尝试从 Redis 缓存获取总数
-            if not where_clauses:
-                # 无条件查询，尝试使用缓存
-                cache_key = f"sql_query_count:{params.db_key}:{params.table_name}"
-                total = None
-
-                try:
-                    cached_total = await redis_client.get(cache_key)
-                    if cached_total is not None:
-                        total = int(cached_total)
-                except Exception:
-                    # Redis 失败，继续执行查询
-                    pass
-
-                if total is None:
-                    # 缓存未命中或 Redis 不可用，执行 COUNT 查询
-                    count_sql = f"SELECT COUNT(*) FROM {table_q}"
-                    cursor.execute(count_sql)
-                    total = cursor.fetchone()[0]
-
-                    # 尝试缓存结果（1 小时过期）
-                    try:
-                        await redis_client.setex(cache_key, 3600, str(total))
-                    except Exception:
-                        pass
-            else:
-                # 有 WHERE 条件，直接执行 COUNT 查询
-                count_sql = f"SELECT COUNT(*) FROM {table_q}"
-                count_values = values[:-(2)]
-                count_sql += " WHERE " + " AND ".join(where_clauses)
-                cursor.execute(count_sql, count_values)
-                total = cursor.fetchone()[0]
-
-            return {"data": rows, "total": total, "page": params.page}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        sql, values, table_q, where_clauses, count_values, count_cacheable = _build_query_sql(params)
+        cursor.execute(sql, values)
+        rows = [dict(row) for row in cursor.fetchall()]
+        return rows, table_q, count_values, count_cacheable
 
 
-@router.get("/query/columns")
-async def get_column_info(
-    db_key: str,
-    table_name: str,
-    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
-    auth_db: Session = Depends(get_auth_db)
-):
-    # 限流和日志记录已由中间件和依赖注入自动处理
-
-    _validate_table(db_key, table_name)
-    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
-        # 确保可以通过列名获取数据 (如果是 sqlite3.Row 对象)
+def _query_table_count_sync(params: QueryParams, user: Optional[User], auth_db: Session, table_q: str, count_values: list) -> int:
+    with get_db_connection(params.db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
+        _, _, _, where_clauses, _, _ = _build_query_sql(params)
+        count_sql = f"SELECT COUNT(*) FROM {table_q}"
+        if where_clauses:
+            count_sql += " WHERE " + " AND ".join(where_clauses)
+            cursor.execute(count_sql, count_values)
+        else:
+            cursor.execute(count_sql)
+        return cursor.fetchone()[0]
 
+
+def _get_column_info_sync(db_key: str, table_name: str, user: Optional[User], auth_db: Session) -> dict:
+    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
+        cursor = conn.cursor()
         try:
-            # 获取表结构元数据
             cursor.execute(f'PRAGMA table_info("{table_name}")')
             columns = cursor.fetchall()
-
-            # 如果没查到数据，可能是表名不存在
             if not columns:
                 return {"table": table_name, "columns": [], "error": "Table not found or no columns"}
-
-            # 直接构造列表返回
             result = [
                 {
                     "name": col["name"],
@@ -245,58 +181,22 @@ async def get_column_info(
                 }
                 for col in columns
             ]
-
-            return {
-                "table": table_name,
-                "columns": result
-            }
-
+            return {"table": table_name, "columns": result}
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
 
-@router.get("/query/count")
-async def get_table_count(
+def _get_table_count_sync(
     db_key: str,
     table_name: str,
-    filter_column: Optional[str] = None,
-    filter_value: Optional[str] = None,
-    user: Optional[User] = Depends(ApiLimiter),
-    auth_db: Session = Depends(get_auth_db)
-):
-    """
-    获取指定表的行数 - 轻量级接口
-
-    参数:
-    - db_key: 数据库标识
-    - table_name: 表名
-    - filter_column: （可选）筛选列名
-    - filter_value: （可选）筛选值，统计该列等于此值的行数
-
-    返回:
-    - count: 行数
-    """
-    _validate_table(db_key, table_name)
-    if filter_column is not None:
-        _validate_columns(db_key, table_name, [filter_column], "filter_column")
-
-    # 构造缓存 key
-    cache_key = f"sql_count:{db_key}:{table_name}"
-    if filter_column is not None:
-        cache_key += f":{filter_column}:{filter_value}"
-
-    # 尝试从缓存读取
-    try:
-        cached = await redis_client.get(cache_key)
-        if cached is not None:
-            return {"count": int(cached)}
-    except Exception:
-        pass
-
+    filter_column: Optional[str],
+    filter_value: Optional[str],
+    user: Optional[User],
+    auth_db: Session,
+) -> int:
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
         cursor = conn.cursor()
         table_q = _quote_identifier(table_name)
-
         try:
             if filter_column is not None:
                 col_q = _quote_identifier(filter_column)
@@ -308,18 +208,171 @@ async def get_table_count(
                     cursor.execute(sql, (filter_value,))
             else:
                 cursor.execute(f"SELECT COUNT(*) FROM {table_q}")
-
-            count = cursor.fetchone()[0]
+            return cursor.fetchone()[0]
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
-    # 写入缓存（1 小时过期）
+
+def _get_distinct_path_values_sync(db_key: str, table_name: str, column: str, user: Optional[User], auth_db: Session) -> list:
+    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
+        table_q = _quote_identifier(table_name)
+        col_q = _quote_identifier(column)
+        cursor = conn.execute(f"SELECT DISTINCT {col_q} FROM {table_q} ORDER BY {col_q}")
+        return [row[0] for row in cursor.fetchall() if row[0] is not None]
+
+
+def _get_distinct_query_values_sync(req: DistinctQueryRequest, user: Optional[User], auth_db: Session) -> list:
+    with get_db_connection(req.db_key, user=user, operation="read", auth_db=auth_db) as conn:
+        cursor = conn.cursor()
+        try:
+            where_parts = []
+            params = {}
+            context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
+            for col_idx, (col, values) in enumerate(context_filters.items()):
+                if not values:
+                    continue
+                clean_values = [v for v in values if v is not None]
+                has_null = None in values
+                col_conditions = []
+                if clean_values:
+                    param_keys = []
+                    for idx, val in enumerate(clean_values):
+                        key = f"f_{col_idx}_{idx}"
+                        params[key] = val
+                        param_keys.append(f":{key}")
+                    col_conditions.append(f'{_quote_identifier(col)} IN ({", ".join(param_keys)})')
+                if has_null:
+                    col_conditions.append(f'{_quote_identifier(col)} IS NULL')
+                if col_conditions:
+                    where_parts.append(f"({' OR '.join(col_conditions)})")
+
+            if req.search_text and req.search_columns:
+                search_parts = []
+                params["global_search"] = f"%{req.search_text}%"
+                for col in req.search_columns:
+                    search_parts.append(f'{_quote_identifier(col)} LIKE :global_search')
+                if search_parts:
+                    where_parts.append(f"({' OR '.join(search_parts)})")
+
+            table_q = _quote_identifier(req.table_name)
+            target_col_q = _quote_identifier(req.target_column)
+            sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
+            if where_parts:
+                sql += " WHERE " + " AND ".join(where_parts)
+            sql += f" ORDER BY {target_col_q} LIMIT 1000"
+            cursor.execute(sql, params)
+            return [row[0] for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            raise HTTPException(status_code=400, detail=f"Database Error: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/query")
+async def query_table(
+    params: QueryParams,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    auth_db: Session = Depends(get_auth_db)
+):
+    await asyncio.to_thread(_validate_table, params.db_key, params.table_name)
+    await asyncio.to_thread(_validate_columns, params.db_key, params.table_name, params.filters.keys(), "filters字段")
+    await asyncio.to_thread(_validate_columns, params.db_key, params.table_name, params.search_columns, "search_columns")
+    if params.sort_by:
+        await asyncio.to_thread(_validate_columns, params.db_key, params.table_name, [params.sort_by], "sort_by")
+
+    try:
+        rows, table_q, count_values, count_cacheable = await asyncio.to_thread(
+            _query_table_rows_sync,
+            params,
+            user,
+            None,
+        )
+
+        total = None
+        if count_cacheable:
+            cache_key = f"sql_query_count:{params.db_key}:{params.table_name}"
+            try:
+                cached_total = await redis_client.get(cache_key)
+                if cached_total is not None:
+                    total = int(cached_total)
+            except Exception:
+                pass
+
+        if total is None:
+            total = await asyncio.to_thread(
+                _query_table_count_sync,
+                params,
+                user,
+                None,
+                table_q,
+                count_values,
+            )
+            if count_cacheable:
+                try:
+                    await redis_client.setex(cache_key, 3600, str(total))
+                except Exception:
+                    pass
+
+        return {"data": rows, "total": total, "page": params.page}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/query/columns")
+async def get_column_info(
+    db_key: str,
+    table_name: str,
+    user: Optional[User] = Depends(ApiLimiter),  # 自动限流和日志记录
+    auth_db: Session = Depends(get_auth_db)
+):
+    await asyncio.to_thread(_validate_table, db_key, table_name)
+    return await asyncio.to_thread(_get_column_info_sync, db_key, table_name, user, None)
+
+
+@router.get("/query/count")
+async def get_table_count(
+    db_key: str,
+    table_name: str,
+    filter_column: Optional[str] = None,
+    filter_value: Optional[str] = None,
+    user: Optional[User] = Depends(ApiLimiter),
+    auth_db: Session = Depends(get_auth_db)
+):
+    """获取指定表的行数 - 轻量级接口"""
+    await asyncio.to_thread(_validate_table, db_key, table_name)
+    if filter_column is not None:
+        await asyncio.to_thread(_validate_columns, db_key, table_name, [filter_column], "filter_column")
+
+    cache_key = f"sql_count:{db_key}:{table_name}"
+    if filter_column is not None:
+        cache_key += f":{filter_column}:{filter_value}"
+
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached is not None:
+            return {"count": int(cached)}
+    except Exception:
+        pass
+
+    count = await asyncio.to_thread(
+        _get_table_count_sync,
+        db_key,
+        table_name,
+        filter_column,
+        filter_value,
+        user,
+        None,
+    )
+
     try:
         await redis_client.setex(cache_key, 3600, str(count))
     except Exception:
         pass
 
     return {"count": count}
+
 
 @router.get("/distinct/{db_key}/{table_name}/{column}")
 async def get_distinct_values(
@@ -330,13 +383,9 @@ async def get_distinct_values(
     auth_db: Session = Depends(get_auth_db)
 ):
     """用于前端表头筛选弹窗，获取该列所有不重复的值"""
-    _validate_columns(db_key, table_name, [column], "column")
-    with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
-        table_q = _quote_identifier(table_name)
-        col_q = _quote_identifier(column)
-        cursor = conn.execute(f"SELECT DISTINCT {col_q} FROM {table_q} ORDER BY {col_q}")
-        values = [row[0] for row in cursor.fetchall() if row[0] is not None]
-        return {"values": values}
+    await asyncio.to_thread(_validate_columns, db_key, table_name, [column], "column")
+    values = await asyncio.to_thread(_get_distinct_path_values_sync, db_key, table_name, column, user, None)
+    return {"values": values}
 
 
 @router.post("/distinct-query")
@@ -345,98 +394,8 @@ async def get_distinct_values(
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
-    _validate_columns(req.db_key, req.table_name, [req.target_column], "target_column")
-    _validate_columns(req.db_key, req.table_name, req.current_filters.keys(), "current_filters字段")
-    _validate_columns(req.db_key, req.table_name, req.search_columns, "search_columns")
-
-    with get_db_connection(req.db_key, user=user, operation="read", auth_db=auth_db) as conn:
-        cursor = conn.cursor()
-
-        try:
-            # 1. 准备 SQL 片段容器
-            where_parts = []
-            params = {}  # 存放所有参数值，使用命名参数 :key
-
-            # ==========================================
-            # Part A: 处理列筛选 (Filter Logic)
-            # ==========================================
-            # 排除当前列
-            context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
-
-            for col_idx, (col, values) in enumerate(context_filters.items()):
-                if not values: continue
-
-                clean_values = [v for v in values if v is not None]
-                has_null = None in values
-                col_conditions = []
-
-                # 处理非空值: sqlite3 需要为列表中的每个值生成单独的占位符
-                if clean_values:
-                    # 生成一组参数名，例如: filter_city_0, filter_city_1
-                    param_keys = []
-                    for idx, val in enumerate(clean_values):
-                        # 构造 ASCII 参数键名，避免中文列名导致 sqlite 命名参数解析错误
-                        key = f"f_{col_idx}_{idx}"
-                        params[key] = val
-                        param_keys.append(f":{key}")
-
-                    # 生成 SQL: "city" IN (:f_city_0, :f_city_1)
-                    col_conditions.append(f'"{col}" IN ({", ".join(param_keys)})')
-
-                # 处理空值
-                if has_null:
-                    col_conditions.append(f'"{col}" IS NULL')
-
-                # 组合单列条件 (A OR B)
-                if col_conditions:
-                    where_parts.append(f"({' OR '.join(col_conditions)})")
-
-            # ==========================================
-            # Part B: 处理全局搜索 (Search Logic)
-            # ==========================================
-            if req.search_text and req.search_columns:
-                search_parts = []
-                # 统一使用一个参数值
-                params["global_search"] = f"%{req.search_text}%"
-
-                for col in req.search_columns:
-                    # 生成 SQL: "col" LIKE :global_search
-                    search_parts.append(f'"{col}" LIKE :global_search')
-
-                # 组合搜索条件: (col1 LIKE %x% OR col2 LIKE %x%)
-                if search_parts:
-                    where_parts.append(f"({' OR '.join(search_parts)})")
-
-            # ==========================================
-            # Part C: 拼装最终 SQL
-            # ==========================================
-            # 注意：表名和列名使用双引号 "" 包裹以防止特殊字符报错，也是 SQLite 的标准引用方式
-            table_q = _quote_identifier(req.table_name)
-            target_col_q = _quote_identifier(req.target_column)
-            sql = f"SELECT DISTINCT {target_col_q} FROM {table_q}"
-
-            if where_parts:
-                sql += " WHERE " + " AND ".join(where_parts)
-
-            # 排序与限制
-            sql += f" ORDER BY {target_col_q} LIMIT 1000"
-
-            # ==========================================
-            # Part D: 执行
-            # ==========================================
-            # print(f"SQL: {sql}")    # 调试用
-            # print(f"Params: {params}") # 调试用
-
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-
-            # row[0] 获取第一列数据，因为是 distinct 查询只有一列
-            values = [row[0] for row in rows]
-
-            return {"values": values}
-
-        except sqlite3.Error as e:
-            raise HTTPException(status_code=400, detail=f"Database Error: {str(e)}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
+    await asyncio.to_thread(_validate_columns, req.db_key, req.table_name, [req.target_column], "target_column")
+    await asyncio.to_thread(_validate_columns, req.db_key, req.table_name, req.current_filters.keys(), "current_filters字段")
+    await asyncio.to_thread(_validate_columns, req.db_key, req.table_name, req.search_columns, "search_columns")
+    values = await asyncio.to_thread(_get_distinct_query_values_sync, req, user, None)
+    return {"values": values}

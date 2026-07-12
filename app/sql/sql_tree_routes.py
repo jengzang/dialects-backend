@@ -15,6 +15,7 @@ CREATE INDEX idx_level_2 ON 广东省自然村(乡镇级);
 CREATE INDEX idx_level_3 ON 广东省自然村(行政村);
 """
 
+import asyncio
 import sqlite3
 import threading
 from fastapi import APIRouter, HTTPException, Depends
@@ -27,19 +28,28 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
+from app.common.config import (
+    SQL_TREE_FULL_MAX_ROWS,
+    SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
+    SQL_TREE_LAZY_ROOT_MAX_CHILDREN,
+)
 
 router = APIRouter()
 
 _SCHEMA_CACHE = {}
 _SCHEMA_LOCK = threading.Lock()
-MAX_FULL_TREE_ROWS = 5000
-MAX_LAZY_ROOT_CHILDREN = 500
 _EMPTY_PLACEHOLDER = "(空)"
 
 
 def _quote_identifier(name: str) -> str:
     return f'"{name}"'
 
+
+def _safe_value(val):
+    """将 bytes 转为安全字符串，避免 JSON 序列化时 utf-8 解码失败"""
+    if isinstance(val, bytes):
+        return val.hex()
+    return val
 
 def _load_schema(db_key: str, refresh: bool = False) -> dict[str, set[str]]:
     with _SCHEMA_LOCK:
@@ -199,7 +209,7 @@ def _build_lazy_children_response(
 
     row_limit = None
     if target_level == 0:
-        row_limit = MAX_LAZY_ROOT_CHILDREN + 1
+        row_limit = SQL_TREE_LAZY_ROOT_MAX_CHILDREN + 1
         sql += f" LIMIT {row_limit}"
 
     cursor.execute(sql, values)
@@ -222,9 +232,9 @@ def _build_lazy_children_response(
         children.append(_EMPTY_PLACEHOLDER)
 
     truncated = False
-    if target_level == 0 and len(children) > MAX_LAZY_ROOT_CHILDREN:
+    if target_level == 0 and len(children) > SQL_TREE_LAZY_ROOT_MAX_CHILDREN:
         truncated = True
-        children = children[:MAX_LAZY_ROOT_CHILDREN]
+        children = children[:SQL_TREE_LAZY_ROOT_MAX_CHILDREN]
 
     return {
         "level": target_level,
@@ -233,6 +243,107 @@ def _build_lazy_children_response(
         "total": len(children),
         "truncated": truncated,
     }
+
+
+def _build_full_tree_lazy_bootstrap(
+    cursor,
+    table_q: str,
+    all_column_names: List[str],
+    level_col_names: List[str],
+    filters: Optional[Dict[int, List[str]]],
+) -> dict[str, list[str]]:
+    l0_name = level_col_names[0]
+    has_l1 = len(level_col_names) > 1
+    l1_name = level_col_names[1] if has_l1 else None
+
+    bootstrap: dict[str, list[str]] = {}
+    if has_l1:
+        l0_q = _quote_identifier(l0_name)
+        l1_q = _quote_identifier(l1_name)
+        sql = f"SELECT DISTINCT {l0_q}, {l1_q} FROM {table_q}"
+        where_clauses, values = build_filter_conditions(filters, all_column_names)
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += f" ORDER BY {l0_q} ASC, {l1_q} ASC"
+        cursor.execute(sql, values)
+
+        seen_l1: dict[str, set[str]] = {}
+        for row in cursor.fetchall():
+            l0_val = (row[0] or '').strip()
+            l1_val = (row[1] or '').strip()
+            if not l0_val:
+                l0_val = _EMPTY_PLACEHOLDER
+            if l0_val not in bootstrap:
+                bootstrap[l0_val] = []
+                seen_l1[l0_val] = set()
+            if l1_val:
+                if l1_val not in seen_l1[l0_val]:
+                    bootstrap[l0_val].append(l1_val)
+                    seen_l1[l0_val].add(l1_val)
+            elif _EMPTY_PLACEHOLDER not in seen_l1[l0_val]:
+                bootstrap[l0_val].append(_EMPTY_PLACEHOLDER)
+                seen_l1[l0_val].add(_EMPTY_PLACEHOLDER)
+
+        for children in bootstrap.values():
+            children.sort()
+    else:
+        l0_q = _quote_identifier(l0_name)
+        sql = f"SELECT DISTINCT {l0_q} FROM {table_q}"
+        where_clauses, values = build_filter_conditions(filters, all_column_names)
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += f" ORDER BY {l0_q} ASC"
+        cursor.execute(sql, values)
+        for row in cursor.fetchall():
+            val = (row[0] or '').strip()
+            if val:
+                bootstrap[val] = []
+
+    return bootstrap
+
+
+def _count_filtered_rows(
+    cursor,
+    table_q: str,
+    all_column_names: List[str],
+    filters: Optional[Dict[int, List[str]]],
+) -> int:
+    sql = f"SELECT COUNT(*) FROM {table_q}"
+    where_clauses, values = build_filter_conditions(filters, all_column_names)
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+    cursor.execute(sql, values)
+    row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _build_lazy_fallback_response(
+    cursor,
+    table_q: str,
+    all_column_names: List[str],
+    level_col_names: List[str],
+    level_columns: List[int],
+    filters: Optional[Dict[int, List[str]]],
+    reason: str,
+    filtered_count: Optional[int] = None,
+) -> Dict[str, Any]:
+    response = {
+        "mode": "lazy_fallback",
+        "reason": reason,
+        "limit": SQL_TREE_FULL_MAX_ROWS,
+        "threshold": SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
+        "levels": len(level_columns),
+        "lazy_bootstrap": _build_full_tree_lazy_bootstrap(
+            cursor=cursor,
+            table_q=table_q,
+            all_column_names=all_column_names,
+            level_col_names=level_col_names,
+            filters=filters,
+        ),
+    }
+    if filtered_count is not None:
+        response["filtered_count"] = filtered_count
+    return response
 
 
 def build_tree_structure(rows: List[Dict], level_names: List[str], data_names: List[str] = None) -> Dict[str, Any]:
@@ -368,6 +479,14 @@ async def get_full_tree(
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
+    return await asyncio.to_thread(_get_full_tree_sync, params, user, None)
+
+
+def _get_full_tree_sync(
+    params: FullTreeParams,
+    user: Optional[User],
+    auth_db: Session,
+):
     """
     获取完整树形结构
 
@@ -412,6 +531,24 @@ async def get_full_tree(
             level_col_names = [all_column_names[i] for i in params.level_columns]
             data_col_names = [all_column_names[i] for i in params.data_columns]
 
+            filtered_count = _count_filtered_rows(
+                cursor=cursor,
+                table_q=table_q,
+                all_column_names=all_column_names,
+                filters=params.filters,
+            )
+            if filtered_count > SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD:
+                return _build_lazy_fallback_response(
+                    cursor=cursor,
+                    table_q=table_q,
+                    all_column_names=all_column_names,
+                    level_col_names=level_col_names,
+                    level_columns=params.level_columns,
+                    filters=params.filters,
+                    reason="full_tree_count_threshold_exceeded",
+                    filtered_count=filtered_count,
+                )
+
             # 合并查询列：层级列 + 数据列
             # 注意：这里继续使用 DISTINCT。
             # 如果 row1 和 row2 层级相同但数据不同，DISTINCT 会保留两者，
@@ -431,68 +568,21 @@ async def get_full_tree(
             sql += f" ORDER BY {order_by}"
 
             # 执行查询（加上限保护，避免全表超大结果拖垮接口）
-            sql += f" LIMIT {MAX_FULL_TREE_ROWS + 1}"
+            sql += f" LIMIT {SQL_TREE_FULL_MAX_ROWS + 1}"
             cursor.execute(sql, values)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [{k: _safe_value(v) for k, v in zip(row.keys(), row)} for row in cursor.fetchall()]
 
-            if len(rows) > MAX_FULL_TREE_ROWS:
-                # 对全量表查 DISTINCT col_0 + col_1，按 col_0 分组
-                # 保留父级上下文，避免重名冲突 + 空中间层断链
-                l0_name = level_col_names[0]
-                has_l1 = len(level_col_names) > 1
-                l1_name = level_col_names[1] if has_l1 else None
-
-                bootstrap: dict[str, list[str]] = {}
-                if has_l1:
-                    l0_q = _quote_identifier(l0_name)
-                    l1_q = _quote_identifier(l1_name)
-                    sql2 = f"SELECT DISTINCT {l0_q}, {l1_q} FROM {table_q}"
-                    where2, vals2 = build_filter_conditions(params.filters, all_column_names)
-                    if where2:
-                        sql2 += " WHERE " + " AND ".join(where2)
-                    sql2 += f" ORDER BY {l0_q} ASC, {l1_q} ASC"
-                    cursor.execute(sql2, vals2)
-
-                    seen_l1: dict[str, set[str]] = {}
-                    for row in cursor.fetchall():
-                        l0_val = (row[0] or '').strip()
-                        l1_val = (row[1] or '').strip()
-                        if not l0_val:
-                            continue
-                        if l0_val not in bootstrap:
-                            bootstrap[l0_val] = []
-                            seen_l1[l0_val] = set()
-                        if l1_val:
-                            if l1_val not in seen_l1[l0_val]:
-                                bootstrap[l0_val].append(l1_val)
-                                seen_l1[l0_val].add(l1_val)
-                        elif _EMPTY_PLACEHOLDER not in seen_l1[l0_val]:
-                            bootstrap[l0_val].append(_EMPTY_PLACEHOLDER)
-                            seen_l1[l0_val].add(_EMPTY_PLACEHOLDER)
-
-                    for children in bootstrap.values():
-                        children.sort()
-                else:
-                    # 只有一个层级，返回 level-0 值列表
-                    l0_q = _quote_identifier(l0_name)
-                    sql2 = f"SELECT DISTINCT {l0_q} FROM {table_q}"
-                    where2, vals2 = build_filter_conditions(params.filters, all_column_names)
-                    if where2:
-                        sql2 += " WHERE " + " AND ".join(where2)
-                    sql2 += f" ORDER BY {l0_q} ASC"
-                    cursor.execute(sql2, vals2)
-                    for row in cursor.fetchall():
-                        val = (row[0] or '').strip()
-                        if val:
-                            bootstrap[val] = []
-
-                return {
-                    "mode": "lazy_fallback",
-                    "reason": "full_tree_row_limit_exceeded",
-                    "limit": MAX_FULL_TREE_ROWS,
-                    "levels": len(params.level_columns),
-                    "lazy_bootstrap": bootstrap,
-                }
+            if len(rows) > SQL_TREE_FULL_MAX_ROWS:
+                return _build_lazy_fallback_response(
+                    cursor=cursor,
+                    table_q=table_q,
+                    all_column_names=all_column_names,
+                    level_col_names=level_col_names,
+                    level_columns=params.level_columns,
+                    filters=params.filters,
+                    reason="full_tree_row_limit_exceeded",
+                    filtered_count=filtered_count,
+                )
 
             # 3. 传入数据列名进行构建
             tree = build_tree_structure(rows, level_col_names, data_col_names)
@@ -516,6 +606,14 @@ async def get_tree_children(
     params: LazyTreeParams,
     user: Optional[User] = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
+):
+    return await asyncio.to_thread(_get_tree_children_sync, params, user, None)
+
+
+def _get_tree_children_sync(
+    params: LazyTreeParams,
+    user: Optional[User],
+    auth_db: Session,
 ):
     """
     懒加载模式：获取指定路径下的子节点

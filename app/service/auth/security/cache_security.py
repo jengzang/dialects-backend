@@ -6,7 +6,7 @@ import hmac
 import hashlib
 import json
 from typing import Optional
-from app.common.config import get_secret_key
+from app.common.auth_config import get_secret_key
 
 
 def sign_user_data(user_dict: dict) -> str:

@@ -7,13 +7,18 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..dependencies import execute_query, get_db
+from ..dependencies import execute_query, get_db, get_dbpath
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/semantic/subcategory")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LEXICON_PATH = PROJECT_ROOT / "data" / "semantic_lexicon_v4_hybrid.json"
 LEGACY_LEXICON_PATH = PROJECT_ROOT.parent / "data" / "semantic_lexicon_v4_hybrid.json"
+
+
+def _subcategory_schema(dbpath: str, logical_table: str):
+    return qtable(dbpath, logical_table), lambda name: qcolumn(dbpath, logical_table, name)
 
 
 def load_lexicon() -> Dict:
@@ -90,30 +95,32 @@ def get_global_subcategory_vtf(
     subcategory: Optional[str] = Query(None, description="Subcategory filter"),
     limit: int = Query(100, ge=1, le=1000, description="Max records"),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Get global subcategory VTF metrics."""
-    query = """
+    table, col = _subcategory_schema(dbpath, "semantic_subcategory_vtf_global")
+    query = f"""
         SELECT
-            subcategory,
-            parent_category,
-            char_count,
-            village_count,
-            vtf,
-            percentage
-        FROM semantic_subcategory_vtf_global
+            {col("subcategory")} as subcategory,
+            {col("parent_category")} as parent_category,
+            {col("char_count")} as char_count,
+            {col("village_count")} as village_count,
+            {col("vtf")} as vtf,
+            {col("percentage")} as percentage
+        FROM {table}
         WHERE 1=1
     """
     params: List[object] = []
 
     if parent_category:
-        query += " AND parent_category = ?"
+        query += f" AND {col('parent_category')} = ?"
         params.append(parent_category)
 
     if subcategory:
-        query += " AND subcategory = ?"
+        query += f" AND {col('subcategory')} = ?"
         params.append(subcategory)
 
-    query += " ORDER BY vtf DESC LIMIT ?"
+    query += f" ORDER BY {col('vtf')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -133,42 +140,44 @@ def get_regional_subcategory_vtf(
     min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
     limit: int = Query(100, ge=1, le=1000, description="Max records"),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Get regional subcategory VTF metrics."""
-    query = """
+    table, col = _subcategory_schema(dbpath, "semantic_subcategory_vtf_regional")
+    query = f"""
         SELECT
-            region_level,
-            region_name,
-            subcategory,
-            parent_category,
-            char_count,
-            village_count,
-            vtf,
-            percentage,
-            tendency
-        FROM semantic_subcategory_vtf_regional
-        WHERE region_level = ?
-          AND village_count >= ?
+            {col("region_level")} as region_level,
+            {col("region_name")} as region_name,
+            {col("subcategory")} as subcategory,
+            {col("parent_category")} as parent_category,
+            {col("char_count")} as char_count,
+            {col("village_count")} as village_count,
+            {col("vtf")} as vtf,
+            {col("percentage")} as percentage,
+            {col("tendency")} as tendency
+        FROM {table}
+        WHERE {col("region_level")} = ?
+          AND {col("village_count")} >= ?
     """
     params: List[object] = [region_level, min_villages]
 
     if region_name:
-        query += " AND region_name = ?"
+        query += f" AND {col('region_name')} = ?"
         params.append(region_name)
 
     if parent_category:
-        query += " AND parent_category = ?"
+        query += f" AND {col('parent_category')} = ?"
         params.append(parent_category)
 
     if subcategory:
-        query += " AND subcategory = ?"
+        query += f" AND {col('subcategory')} = ?"
         params.append(subcategory)
 
     if min_tendency is not None:
-        query += " AND tendency >= ?"
+        query += f" AND {col('tendency')} >= ?"
         params.append(min_tendency)
 
-    query += " ORDER BY tendency DESC LIMIT ?"
+    query += f" ORDER BY {col('tendency')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -185,27 +194,29 @@ def get_top_tendency_subcategories(
     min_villages: int = Query(5, ge=0, le=100, description="Minimum village count"),
     top_n: int = Query(10, ge=1, le=100, description="Top N records"),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Get top-N subcategories by tendency."""
-    query = """
+    table, col = _subcategory_schema(dbpath, "semantic_subcategory_vtf_regional")
+    query = f"""
         SELECT
-            region_name,
-            subcategory,
-            parent_category,
-            tendency,
-            percentage,
-            village_count
-        FROM semantic_subcategory_vtf_regional
-        WHERE region_level = ?
-          AND village_count >= ?
+            {col("region_name")} as region_name,
+            {col("subcategory")} as subcategory,
+            {col("parent_category")} as parent_category,
+            {col("tendency")} as tendency,
+            {col("percentage")} as percentage,
+            {col("village_count")} as village_count
+        FROM {table}
+        WHERE {col("region_level")} = ?
+          AND {col("village_count")} >= ?
     """
     params: List[object] = [region_level, min_villages]
 
     if parent_category:
-        query += " AND parent_category = ?"
+        query += f" AND {col('parent_category')} = ?"
         params.append(parent_category)
 
-    query += " ORDER BY tendency DESC LIMIT ?"
+    query += f" ORDER BY {col('tendency')} DESC LIMIT ?"
     params.append(top_n)
 
     results = execute_query(db, query, tuple(params))
@@ -222,21 +233,23 @@ def compare_subcategories(
     parent_category: str = Query(..., description="Parent category"),
     min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
     db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """Compare subcategory distribution for a specific region and parent category."""
-    query = """
+    table, col = _subcategory_schema(dbpath, "semantic_subcategory_vtf_regional")
+    query = f"""
         SELECT
-            subcategory,
-            vtf,
-            percentage,
-            tendency,
-            village_count
-        FROM semantic_subcategory_vtf_regional
-        WHERE region_level = ?
-          AND region_name = ?
-          AND parent_category = ?
-          AND village_count >= ?
-        ORDER BY vtf DESC
+            {col("subcategory")} as subcategory,
+            {col("vtf")} as vtf,
+            {col("percentage")} as percentage,
+            {col("tendency")} as tendency,
+            {col("village_count")} as village_count
+        FROM {table}
+        WHERE {col("region_level")} = ?
+          AND {col("region_name")} = ?
+          AND {col("parent_category")} = ?
+          AND {col("village_count")} >= ?
+        ORDER BY {col("vtf")} DESC
     """
 
     results = execute_query(db, query, (region_level, region_name, parent_category, min_villages))
