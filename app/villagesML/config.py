@@ -11,8 +11,8 @@ DB_PATH = os.getenv("VILLAGES_DB_PATH", GD_VILLAGE_DB_PATH)
 
 # 查询策略配置
 # Query policy configuration
-DEFAULT_PAGE_SIZE = 50
-MAX_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 50
 
 # API配置
 # API configuration

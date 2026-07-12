@@ -1127,10 +1127,10 @@ class ClusteringEngine:
         city_to_counties: Dict[str, List[str]] = {}
         county_to_townships: Dict[str, List[str]] = {}
         with self._connection() as conn:
-            for city, county in conn.execute(f"SELECT DISTINCT {self._column('villages', 'city')}, {self._column('villages', 'county')} FROM {self._table('villages')}").fetchall():
+            for city, county in conn.execute(f"SELECT DISTINCT {self._column('villages', 'city')}, {self._column('villages', 'county')} FROM {self._table('villages')} WHERE {self._column('villages', 'city')} IS NOT NULL AND {self._column('villages', 'county')} IS NOT NULL").fetchall():
                 city_to_counties.setdefault(city, []).append(county)
 
-            for county, town in conn.execute(f"SELECT DISTINCT {self._column('villages', 'county')}, {self._column('villages', 'township')} FROM {self._table('villages')}").fetchall():
+            for county, town in conn.execute(f"SELECT DISTINCT {self._column('villages', 'county')}, {self._column('villages', 'township')} FROM {self._table('villages')} WHERE {self._column('villages', 'county')} IS NOT NULL AND {self._column('villages', 'township')} IS NOT NULL").fetchall():
                 county_to_townships.setdefault(county, []).append(town)
 
         # 3. 构建层次树：每个城市只挂自己的县，每个县只挂自己的镇
@@ -1844,7 +1844,13 @@ class FeatureEngine:
                 'total_villages': total,
                 'avg_name_length': round(float(row['avg_name_length']), 2) if pd.notna(row['avg_name_length']) else None,
             }
-            region_list.append({'key': rk, 'name': region_name, 'agg': agg, 'row': row})
+            # Convert row to plain dict — pandas iterrows() reuses the Series object
+            z_vals = {'avg_name_length': agg['avg_name_length']}
+            for n in sem_names:
+                cnt_key = f'sem_{n}_cnt'
+                val = int(row[cnt_key]) if pd.notna(row.get(cnt_key)) else 0
+                z_vals[cnt_key] = val
+            region_list.append({'key': rk, 'name': region_name, 'agg': agg, 'z_vals': z_vals})
 
             # --- semantic profile with lift ---
             if feature_config.get('semantic_distribution', True):
@@ -1909,29 +1915,27 @@ class FeatureEngine:
             aggregates.append(agg)
 
         # ==== z-scores across requested regions ====
-        z_metrics = ['avg_name_length']
-        for n in sem_names:
-            z_metrics.append(f'sem_{n}_cnt')
         z_metric_names = ['avg_name_length'] + [f'sem_{n}_pct' for n in sem_names]
-
         from statistics import mean, stdev
-        for mi, metric in enumerate(z_metrics):
+        for mi, metric_name in enumerate(z_metric_names):
             vals = []
             for r in region_list:
-                if metric == 'avg_name_length':
-                    v = r['agg'].get('avg_name_length')
+                if metric_name == 'avg_name_length':
+                    v = r['z_vals']['avg_name_length']
                 else:
+                    # metric_name like 'sem_mountain_pct' → cnt_key like 'sem_mountain_cnt'
+                    cnt_key = metric_name.replace('_pct', '_cnt')
                     total = r['agg']['total_villages']
-                    cnt = int(r['row'].get(metric, 0)) if pd.notna(r['row'].get(metric)) else 0
+                    cnt = r['z_vals'].get(cnt_key, 0)
                     v = round(cnt * 100.0 / total, 2) if total else 0.0
                 if v is not None:
                     vals.append((r, v))
-            if len(vals) >= 2:
+            if len(vals) >= 3:
                 vs = [v for _, v in vals]
                 m, s = mean(vs), stdev(vs)
                 if s > 0:
                     for r, v in vals:
-                        r['agg'].setdefault('z_scores', {})[z_metric_names[mi]] = round((v - m) / s, 3)
+                        r['agg'].setdefault('z_scores', {})[metric_name] = round((v - m) / s, 3)
 
         execution_time = int((time.time() - start_time) * 1000)
 
