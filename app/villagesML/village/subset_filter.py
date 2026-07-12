@@ -82,12 +82,16 @@ def filter_villages(
             params.append(f"%{kw}%")
 
     length_expr = f"LENGTH({V('name')})"
-    if req.min_length is not None:
-        conditions.append(f"{length_expr} >= ?")
-        params.append(req.min_length)
-    if req.max_length is not None:
-        conditions.append(f"{length_expr} <= ?")
-        params.append(req.max_length)
+    if req.length is not None:
+        conditions.append(f"{length_expr} = ?")
+        params.append(req.length)
+    else:
+        if req.min_length is not None:
+            conditions.append(f"{length_expr} >= ?")
+            params.append(req.min_length)
+        if req.max_length is not None:
+            conditions.append(f"{length_expr} <= ?")
+            params.append(req.max_length)
 
     # ---- 语义 ----
     if req.semantic_categories:
