@@ -14,7 +14,7 @@ import json
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
-from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
 
 router = APIRouter(prefix="/regional")
 
@@ -586,7 +586,7 @@ def get_region_spatial_aggregates(
         FROM {table}
         WHERE {col("region_level")} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, "region_spatial_aggregates", region_level)]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
@@ -691,7 +691,7 @@ def get_region_vectors(
         ORDER BY {scol("region_name")}
         LIMIT ?
     """
-    semantic_rows = execute_query(db, semantic_query, (level, run_id, limit * 10))  # 多取一些，后面过滤
+    semantic_rows = execute_query(db, semantic_query, (normalize_region_level(dbpath, "semantic_indices", level), run_id, limit * 10))  # 多取一些，后面过滤
 
     if not semantic_rows:
         raise HTTPException(
@@ -781,7 +781,7 @@ def get_region_vectors(
             FROM {semantic_table}
             WHERE {scol("run_id")} = ? AND {scol("region_level")} = ?
         """
-        semantic_params = [run_id, level]
+        semantic_params = [run_id, normalize_region_level(dbpath, "semantic_indices", level)]
 
         # 添加层级过滤条件
         if hierarchy['city'] is not None:
@@ -941,7 +941,7 @@ def get_semantic_vector_by_hierarchy(
         FROM {semantic_table}
         WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
     """
-    params = [level, run_id]
+    params = [normalize_region_level(dbpath, "semantic_indices", level), run_id]
 
     # 添加层级过滤条件
     if city is not None:

@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..schema_runtime import normalize_region_level
 
 router = APIRouter(prefix="/regional")
 
@@ -147,7 +148,8 @@ def get_region_spatial_aggregates(
     region_level: str = Query(..., description="区域级别"),
     region_name: Optional[str] = Query(None, description="区域名称"),
     limit: int = Query(10000, ge=1, le=10000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域空间聚合数据
@@ -173,7 +175,7 @@ def get_region_spatial_aggregates(
         FROM region_spatial_aggregates
         WHERE region_level = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, "region_spatial_aggregates", region_level)]
 
     if region_name is not None:
         query += " AND region_name = ?"

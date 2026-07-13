@@ -24,7 +24,7 @@ from sklearn.metrics import (
 import logging
 from app.sql.db_pool import get_db_pool
 from ..schema_config import DEFAULT_DATABASE_KEY
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable, normalize_region_level
 
 logger = logging.getLogger(__name__)
 
@@ -461,7 +461,7 @@ class ClusteringEngine:
         )
         WHERE rn <= ?
         """
-        params = [db_level] + params + [top_n_chars]
+        params = [normalize_region_level(self.dbpath, "char_regional_analysis", db_level)] + params + [top_n_chars]
 
         with self._connection() as conn:
             df = pd.read_sql_query(query, conn, params=params)
@@ -1779,7 +1779,7 @@ class FeatureEngine:
                           AND {cr_rank} <= ?
                         ORDER BY {cr_name_col}, {cr_rank}
                     """
-                    for row in conn.execute(ch_query, (region_level, top_n * 2)).fetchall():
+                    for row in conn.execute(ch_query, (normalize_region_level(self.dbpath, "char_regional_analysis", region_level), top_n * 2)).fetchall():
                         rn = row[0]
                         entry = char_data.setdefault(rn, [])
                         if len(entry) < top_n:

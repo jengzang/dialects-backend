@@ -9,7 +9,7 @@ import sqlite3
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..models import SemanticCategory, SemanticTendency
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import normalize_region_level, qcolumn, qtable
 
 router = APIRouter(prefix="/semantic/category")
 
@@ -160,7 +160,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [region_level]
+            params = [normalize_region_level(dbpath, "semantic_subcategory_vtf_regional", region_level)]
 
             if city is not None:
                 query += f" AND {city_col} = ?"
@@ -206,7 +206,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [region_level]
+            params = [normalize_region_level(dbpath, "semantic_regional_analysis", region_level)]
 
             if city is not None:
                 query += f" AND {city_col} = ?"
@@ -293,7 +293,7 @@ def _get_semantic_tendency_sync(dbpath: str, run_id: str, region_level: str, reg
             FROM {table}
             WHERE {region_level_col} = ?
         """
-        params = [region_level]
+        params = [normalize_region_level(dbpath, "semantic_regional_analysis", region_level)]
 
         # 优先使用层级参数（精确匹配）
         if city is not None:

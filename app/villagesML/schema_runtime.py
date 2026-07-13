@@ -120,6 +120,21 @@ def column_value_map(dbpath: str | None, logical_table: str, logical_column: str
     return value_maps.get(logical_column, {})
 
 
+_REGION_LEVEL_MAP: dict[str, str] = {"市级": "city", "区县级": "county", "乡镇级": "township"}
+
+
+def normalize_region_level(dbpath: str | None, logical_table: str, region_level: str) -> str:
+    """Normalize region_level input (Chinese or English) to the physical DB value.
+
+    Falls back to per-table column_value_map, then a shared Chinese→English map,
+    then passes through the input unchanged.
+    """
+    table_map = column_value_map(dbpath, logical_table, "region_level")
+    if table_map:
+        return table_map.get(region_level, region_level)
+    return _REGION_LEVEL_MAP.get(region_level, region_level)
+
+
 def install_schema_views(conn: sqlite3.Connection, dbpath: str | None = None) -> None:
     """Install temp views that expose configured physical tables as logical names."""
     config = get_database_config(dbpath)

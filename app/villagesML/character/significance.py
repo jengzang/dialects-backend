@@ -11,7 +11,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..run_id_manager import get_run_id_manager
-from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
 
 router = APIRouter(prefix="/character/significance")
 
@@ -64,7 +64,7 @@ def get_character_significance(
         FROM {table}
         WHERE {run_id_col} = ? AND {char_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, char, region_level]
+    params = [run_id, char, normalize_region_level(dbpath, "tendency_significance", region_level)]
 
     # 现场过滤：最小Z分数
     if min_zscore is not None:
@@ -143,7 +143,7 @@ def get_significant_characters_by_region(
         FROM {table}
         WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, region_level]
+    params = [run_id, normalize_region_level(dbpath, "tendency_significance", region_level)]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
@@ -225,7 +225,7 @@ def get_significance_summary(
         WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
 
-    result = execute_query(db, query, (run_id, region_level))
+    result = execute_query(db, query, (run_id, normalize_region_level(dbpath, "tendency_significance", region_level)))
 
     if not result or len(result) == 0:
         raise HTTPException(

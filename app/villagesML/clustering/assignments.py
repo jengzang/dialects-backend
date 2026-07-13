@@ -9,7 +9,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..models import ClusterAssignment, ClusterProfile, ClusteringMetrics
 from ..run_id_manager import get_run_id_manager
-from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
 
 router = APIRouter(prefix="/clustering")
 
@@ -58,7 +58,7 @@ def get_cluster_assignments(
         FROM {table}
         WHERE {run_id_col} = ? AND {algorithm_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, algorithm, region_level]
+    params = [run_id, algorithm, normalize_region_level(dbpath, "cluster_assignments", region_level)]
 
     # 现场过滤：聚类ID
     if cluster_id is not None:
@@ -123,7 +123,7 @@ def get_cluster_assignment_by_region(
         WHERE {run_id_col} = ? AND {region_name_col} = ? AND {algorithm_col} = ? AND {region_level_col} = ?
     """
 
-    result = execute_single(db, query, (run_id, region_name, algorithm, region_level))
+    result = execute_single(db, query, (run_id, region_name, algorithm, normalize_region_level(dbpath, "cluster_assignments", region_level)))
 
     if not result:
         raise HTTPException(

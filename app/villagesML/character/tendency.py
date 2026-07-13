@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharTendency, CharTendencyByRegion
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable, normalize_region_level
 
 router = APIRouter(prefix="/character/tendency")
 
@@ -73,7 +73,7 @@ def get_character_tendency_by_region(
         FROM {table}
         WHERE {region_level_col} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, "char_regional_analysis", region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -166,7 +166,7 @@ def get_character_tendency_by_char(
         LEFT JOIN {villages_table} v ON c.{regional_region_name} = v.{coord_field}
         WHERE c.{regional_char} = ? AND c.{regional_region_level} = ?
     """
-    params = [character, region_level]
+    params = [character, normalize_region_level(dbpath, "char_regional_analysis", region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:

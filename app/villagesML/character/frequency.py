@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharFrequency, RegionalCharFrequency
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable, normalize_region_level
 
 router = APIRouter(prefix="/character/frequency")
 
@@ -117,7 +117,7 @@ def get_regional_character_frequency(
         FROM {table}
         WHERE {region_level_col} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, "char_regional_analysis", region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:

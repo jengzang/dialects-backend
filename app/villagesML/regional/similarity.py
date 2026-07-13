@@ -11,7 +11,7 @@ import sqlite3
 import json
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable, normalize_region_level
 
 router = APIRouter(prefix="/regions")
 
@@ -59,7 +59,7 @@ async def search_similar_regions(
     FROM {similarity_table}
     WHERE {scol("region_level")} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, "region_similarity", region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -69,7 +69,7 @@ async def search_similar_regions(
         FROM {char_table}
         WHERE {ccol("region_level")} = ? AND {ccol("city")} = ?
         """
-        params = [region_level, city]
+        params = [normalize_region_level(dbpath, "char_regional_analysis", region_level), city]
 
         if county is not None:
             target_query += f" AND {ccol('county')} = ?"
@@ -94,7 +94,7 @@ async def search_similar_regions(
         FROM {similarity_table}
         WHERE {scol("region_level")} = ? AND {scol("region1")} = ?
         """
-        params = [actual_level, region_name]
+        params = [normalize_region_level(dbpath, "region_similarity", actual_level), region_name]
     else:
         raise HTTPException(status_code=400, detail="Must provide either city/county/township or region_name")
 
@@ -142,7 +142,7 @@ async def search_similar_regions(
     LIMIT ?
     """
 
-    rows = execute_query(db, query, (target_region, target_region, query_level, target_region, target_region, min_similarity, top_k))
+    rows = execute_query(db, query, (target_region, target_region, normalize_region_level(dbpath, "region_similarity", query_level), target_region, target_region, min_similarity, top_k))
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No similar regions found for '{target_region}'")
@@ -212,7 +212,7 @@ async def get_pair_similarity(
             SELECT {ccol("char")} as char, {ccol("frequency")} as frequency FROM {char_table}
             WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
             """
-            rows = execute_query(db, q, (level, region))
+            rows = execute_query(db, q, (normalize_region_level(dbpath, "char_regional_analysis", level), region))
             return {r['char']: r['frequency'] for r in rows} if rows else {}
 
         def _fetch_distinctive(region: str, level: str) -> list:
@@ -222,7 +222,7 @@ async def get_pair_similarity(
             WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ? AND {ccol("z_score")} >= 2.0
             ORDER BY {ccol("z_score")} DESC
             """
-            rows = execute_query(db, q, (level, region))
+            rows = execute_query(db, q, (normalize_region_level(dbpath, "char_regional_analysis", level), region))
             return [r['char'] for r in rows] if rows else []
 
         if region_level:
@@ -383,7 +383,7 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
         FROM {char_table}
         WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
         """
-        row = execute_single(db, query, (level_value, region_name))
+        row = execute_single(db, query, (normalize_region_level(dbpath, "char_regional_analysis", level_value), region_name))
         if row and row['cnt'] > 0:
             detected_level = level_value
             break
@@ -398,7 +398,7 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
     WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
     ORDER BY {ccol("char")}
     """
-    rows = execute_query(db, query, (detected_level, region_name))
+    rows = execute_query(db, query, (normalize_region_level(dbpath, "char_regional_analysis", detected_level), region_name))
 
     if not rows:
         return None
@@ -437,7 +437,7 @@ def _get_high_tendency_chars(db: sqlite3.Connection, dbpath: str, region_name: s
     ORDER BY {ccol("z_score")} DESC
     """
 
-    rows = execute_query(db, query, (level, region_name))
+    rows = execute_query(db, query, (normalize_region_level(dbpath, "char_regional_analysis", level), region_name))
     return [row['char'] for row in rows] if rows else []
 
 

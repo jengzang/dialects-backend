@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import List, Optional
 import sqlite3
 
-from ..dependencies import get_db, execute_query, execute_single
+from ..dependencies import get_db, get_dbpath, execute_query, execute_single
+from ..schema_runtime import normalize_region_level
 
 router = APIRouter(prefix="/semantic")
 
@@ -252,7 +253,8 @@ def get_semantic_indices(
     min_villages: Optional[int] = Query(None, ge=1, description="最小村庄数（过滤小样本区域）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath)
 ):
     """
     获取语义强度指数
@@ -303,7 +305,7 @@ def get_semantic_indices(
 
     if region_level is not None:
         query += " AND region_level = ?"
-        params.append(region_level)
+        params.append(normalize_region_level(dbpath, table_name, region_level))
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
