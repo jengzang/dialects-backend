@@ -39,13 +39,26 @@ def load_lexicon() -> Dict:
     return data
 
 
+def _flatten_subcategories(lexicon: Dict) -> Dict[str, list]:
+    """Flatten v4 nested {parent: {sub: [chars]}} into {parent_sub: [chars]}."""
+    categories = lexicon.get("categories", {})
+    if categories:
+        flat = {}
+        for parent, subs in categories.items():
+            for sub, chars in subs.items():
+                flat[f"{parent}_{sub}"] = chars
+        return flat
+    # backward compat: old v4_hybrid flat format
+    return lexicon.get("subcategories", {})
+
+
 @router.get("/list")
 def get_subcategories(
-    parent_category: Optional[str] = Query(None, description="Parent category filter (mountain/water)"),
+    parent_category: Optional[str] = Query(None, description="Parent category filter (terrain/water)"),
 ):
     """Get all subcategories, optionally filtered by parent category."""
     lexicon = load_lexicon()
-    subcategories = lexicon.get("subcategories", {})
+    subcategories = _flatten_subcategories(lexicon)
 
     if parent_category:
         filtered = {
@@ -65,6 +78,7 @@ def get_subcategories(
         }
 
     return {
+        "parent_categories": sorted(lexicon.get("categories", {}).keys()),
         "subcategories": subcategories,
         "count": len(subcategories),
     }
@@ -72,21 +86,35 @@ def get_subcategories(
 
 @router.get("/chars/{subcategory}")
 def get_subcategory_chars(subcategory: str):
-    """Get characters under a specific semantic subcategory."""
+    """Get characters under a specific semantic subcategory (parent_sub format, e.g. terrain_peak_ridge)."""
     lexicon = load_lexicon()
+
+    # try nested v4 format first: {parent: {sub: [chars]}}
+    categories = lexicon.get("categories", {})
+    if "_" in subcategory:
+        parts = subcategory.split("_", 1)
+        parent, sub = parts[0], parts[1]
+        if parent in categories and sub in categories[parent]:
+            chars = categories[parent][sub]
+            return {
+                "subcategory": subcategory,
+                "parent_category": parent,
+                "characters": chars,
+                "char_count": len(chars),
+            }
+
+    # fallback: old flat format
     subcategories = lexicon.get("subcategories", {})
+    if subcategory in subcategories:
+        parent = subcategory.split("_")[0] if "_" in subcategory else "unknown"
+        return {
+            "subcategory": subcategory,
+            "parent_category": parent,
+            "characters": subcategories[subcategory],
+            "char_count": len(subcategories[subcategory]),
+        }
 
-    if subcategory not in subcategories:
-        raise HTTPException(status_code=404, detail=f"Subcategory not found: {subcategory}")
-
-    parent = subcategory.split("_")[0] if "_" in subcategory else "unknown"
-
-    return {
-        "subcategory": subcategory,
-        "parent_category": parent,
-        "characters": subcategories[subcategory],
-        "char_count": len(subcategories[subcategory]),
-    }
+    raise HTTPException(status_code=404, detail=f"Subcategory not found: {subcategory}")
 
 
 @router.get("/vtf/global")
