@@ -293,8 +293,13 @@ def get_semantic_indices(
     params = []
 
     if category is not None:
-        query += " AND category = ?"
-        params.append(category)
+        if detail:
+            query += " AND (category = ? OR category LIKE '%$_' || ? ESCAPE '$')"
+            params.append(category)
+            params.append(category)
+        else:
+            query += " AND category = ?"
+            params.append(category)
 
     if region_level is not None:
         query += " AND region_level = ?"
