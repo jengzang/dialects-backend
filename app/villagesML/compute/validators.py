@@ -9,16 +9,11 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 
+from ..schema_config import VILLAGES_DATABASES
+
+_features_cols = VILLAGES_DATABASES["village"]["tables"]["village_features"]["columns"]
 SUBSET_SEMANTIC_TAG_WHITELIST = {
-    "mountain",
-    "water",
-    "settlement",
-    "direction",
-    "clan",
-    "symbolic",
-    "agriculture",
-    "vegetation",
-    "infrastructure",
+    k.replace("sem_", "") for k in _features_cols if k.startswith("sem_")
 }
 
 

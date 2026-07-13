@@ -25,6 +25,9 @@ import logging
 from app.sql.db_pool import get_db_pool
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from .validators import SUBSET_SEMANTIC_TAG_WHITELIST
+
+_SEM_NAMES = sorted(SUBSET_SEMANTIC_TAG_WHITELIST)
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +97,7 @@ class ClusteringEngine:
             logger.info(f"Aggregate table {agg_table} missing/empty, computing from village_features")
             with self._connection() as conn:
                 vf_table = self._table('village_features')
-                sem_names = ['mountain','water','settlement','direction','clan','symbolic','agriculture','vegetation','infrastructure']
+                sem_names = _SEM_NAMES
                 sem_cols = [self._column('village_features', f'sem_{n}') for n in sem_names]
                 sem_pct_exprs = [
                     f"SUM({c}) * 100.0 / NULLIF(COUNT(*), 0) AS sem_{n}_pct"
@@ -133,11 +136,7 @@ class ClusteringEngine:
         feature_columns = []
 
         if feature_config.get('use_semantic', True):
-            semantic_cols = [
-                'sem_mountain_pct', 'sem_water_pct', 'sem_settlement_pct',
-                'sem_direction_pct', 'sem_clan_pct', 'sem_symbolic_pct',
-                'sem_agriculture_pct', 'sem_vegetation_pct', 'sem_infrastructure_pct'
-            ]
+            semantic_cols = [f'sem_{n}_pct' for n in _SEM_NAMES]
             feature_columns.extend([col for col in semantic_cols if col in df_regional.columns])
 
         if feature_config.get('use_morphology', True):
@@ -665,10 +664,10 @@ class ClusteringEngine:
             try:
                 semantic_profile = json.loads(row['semantic_profile_json']) if pd.notna(row['semantic_profile_json']) else {}
                 # 提取9个主要语义类别的百分比
-                for category in ['mountain', 'water', 'settlement', 'direction', 'clan', 'symbolic', 'agriculture', 'vegetation', 'infrastructure']:
+                for category in _SEM_NAMES:
                     feature_vec.append(semantic_profile.get(f'{category}_pct', 0.0))
             except:
-                feature_vec.extend([0.0] * 9)
+                feature_vec.extend([0.0] * len(_SEM_NAMES))
 
             # 命名模式特征
             try:
@@ -1658,8 +1657,7 @@ class FeatureEngine:
         group_cols = group_cols_map.get(region_level, ['city', 'county'])
         region_col = group_cols[-1]
 
-        sem_names = ['mountain', 'water', 'settlement', 'direction', 'clan',
-                     'symbolic', 'agriculture', 'vegetation', 'infrastructure']
+        sem_names = _SEM_NAMES
 
         with self._connection() as conn:
             vf_table = self._table('village_features')

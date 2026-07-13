@@ -160,11 +160,6 @@ VILLAGES_DATABASES = {
                     "sem_terrain": "sem_terrain",
                     "sem_vegetation": "sem_vegetation",
                     "sem_water": "sem_water",
-                    # === 向后兼容（旧版 lexicon 列名）===
-                    "sem_direction": "sem_direction",
-                    "sem_infrastructure": "sem_infrastructure",
-                    "sem_mountain": "sem_mountain",
-                    "sem_symbolic": "sem_symbolic",
                 },
             },
             "village_spatial_features": {
