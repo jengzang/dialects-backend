@@ -15,6 +15,7 @@ from .validators import SemanticAnalysisParams, SemanticNetworkParams
 from .cache import compute_cache
 from .engine import SemanticEngine
 from .timeout import run_with_timeout, TimeoutException
+from ..config import COMPUTE_SEMANTIC_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import resolve_db_path
 
@@ -65,7 +66,7 @@ async def analyze_cooccurrence(
         logger.info(f"Analyzing cooccurrence: region={params.region_name}, level={params.region_level}")
 
         # 执行分析
-        result = await run_with_timeout(engine.analyze_cooccurrence, 8, params.dict())
+        result = await run_with_timeout(engine.analyze_cooccurrence, COMPUTE_SEMANTIC_TIMEOUT, params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_cooccurrence", params.dict(), result)
@@ -116,7 +117,7 @@ async def build_semantic_network(
         logger.info(f"Building semantic network: region={params.region_name}")
 
         # 构建网络
-        result = await run_with_timeout(engine.build_semantic_network, 8, params.dict())
+        result = await run_with_timeout(engine.build_semantic_network, COMPUTE_SEMANTIC_TIMEOUT, params.dict())
 
         # 缓存结果
         compute_cache.set("semantic_network", params.dict(), result)

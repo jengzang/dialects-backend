@@ -25,7 +25,7 @@ API 配置文件
 # ========== API 限流配置（基于请求次数）==========
 # 使用 Redis 计数器实现，性能极高（<1ms）
 MAX_USER_REQUESTS_PER_HOUR = 600  # 认证用户：1000次/小时（平均每分钟10次）
-MAX_IP_REQUESTS_PER_HOUR = 50     # 游客：50次/小时（平均每分钟0.8次）
+MAX_IP_REQUESTS_PER_HOUR = 60     # 游客：50次/小时（平均每分钟0.8次）
 
 # 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
 MAX_USER_USAGE_PER_HOUR = 2000  # 秒（已废弃）

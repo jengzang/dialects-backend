@@ -25,6 +25,7 @@ from .validators import (
 )
 from .cache import compute_cache
 from .timeout import run_with_timeout, TimeoutException
+from ..config import COMPUTE_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import qcolumn, qtable, resolve_db_path
 from app.sql.db_pool import get_db_pool
@@ -315,7 +316,7 @@ async def cluster_subset(
 
         logger.info(f"Clustering subset with filter: {params.filter.dict()}")
 
-        result = await run_with_timeout(_cluster_subset_impl, 5, params, dbpath)
+        result = await run_with_timeout(_cluster_subset_impl, COMPUTE_TIMEOUT, params, dbpath)
 
         # 缓存结果
         compute_cache.set("subset_cluster", params.dict(), result)
@@ -627,7 +628,7 @@ async def compare_subsets(
             return cached_result
 
         logger.info(f"Comparing subsets: {params.group_a.label} vs {params.group_b.label}")
-        result = await run_with_timeout(_compare_subsets_impl, 5, params, dbpath)
+        result = await run_with_timeout(_compare_subsets_impl, COMPUTE_TIMEOUT, params, dbpath)
 
         # 缓存结果
         compute_cache.set("subset_compare", params.dict(), result)

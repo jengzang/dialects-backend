@@ -15,6 +15,7 @@ from .validators import FeatureExtractionParams, FeatureAggregationParams
 from .cache import compute_cache
 from .engine import FeatureEngine
 from .timeout import run_with_timeout, TimeoutException
+from ..config import COMPUTE_FEATURE_TIMEOUT, COMPUTE_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import resolve_db_path
 
@@ -65,7 +66,7 @@ async def extract_features(
         logger.info(f"Extracting features for {len(params.villages)} villages")
 
         # 执行提取（带超时控制）
-        result = await run_with_timeout(engine.extract_features, 10, params.dict())
+        result = await run_with_timeout(engine.extract_features, COMPUTE_FEATURE_TIMEOUT, params.dict())
 
         # 缓存结果
         compute_cache.set("feature_extract", params.dict(), result)
@@ -116,7 +117,7 @@ async def aggregate_features(
         logger.info(f"Aggregating features for {len(params.region_names)} regions")
 
         # 执行聚合（带超时控制）
-        result = await run_with_timeout(engine.aggregate_features, 5, params.dict())
+        result = await run_with_timeout(engine.aggregate_features, COMPUTE_TIMEOUT, params.dict())
 
         # 缓存结果
         compute_cache.set("feature_aggregate", params.dict(), result)
