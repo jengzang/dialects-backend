@@ -65,7 +65,7 @@ async def extract_features(
         logger.info(f"Extracting features for {len(params.villages)} villages")
 
         # 执行提取（带超时控制）
-        result = await run_with_timeout(engine.extract_features, 3, params.dict())
+        result = await run_with_timeout(engine.extract_features, 10, params.dict())
 
         # 缓存结果
         compute_cache.set("feature_extract", params.dict(), result)
