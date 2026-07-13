@@ -368,15 +368,11 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
     Returns:
         包含特征向量和元数据的字典,如果找不到则返回None
     """
-    # 检测区域层级
-    level_map = {
-        'city': 'city',
-        'county': 'county',
-        'township': 'township'
-    }
+    char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
 
+    # 检测区域层级
     detected_level = None
-    for level_key, level_value in level_map.items():
+    for level_value in ('city', 'county', 'township'):
         # 尝试查询该层级是否有数据
         query = f"""
         SELECT COUNT(*) as cnt
