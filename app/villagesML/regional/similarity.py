@@ -11,7 +11,7 @@ import sqlite3
 import json
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
-from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from ..schema_runtime import column_name, qcolumn, qtable, normalize_region_level
 
 router = APIRouter(prefix="/regions")
 
@@ -491,6 +491,7 @@ async def get_similarity_matrix(
     n = len(region_list)
     matrix = [[0.0] * n for _ in range(n)]
     sim_column = qcolumn(dbpath, "region_similarity", f"{metric}_similarity")
+    sim_col_name = column_name(dbpath, "region_similarity", f"{metric}_similarity")
     similarity_table, scol = _regional_schema(dbpath, "region_similarity")
 
     for i, r1 in enumerate(region_list):
@@ -510,8 +511,8 @@ async def get_similarity_matrix(
                     """
                     row = execute_single(db, query, (r1, r2, r2, r1))
                     if row:
-                        matrix[i][j] = round(row[sim_column], 4)
-                        matrix[j][i] = round(row[sim_column], 4)
+                        matrix[i][j] = round(row[sim_col_name], 4)
+                        matrix[j][i] = round(row[sim_col_name], 4)
                         continue
 
                 # Cross-level or no pre-computed data: compute in real-time
@@ -573,4 +574,3 @@ async def list_regions(
             for row in rows
         ]
     }
-    char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
