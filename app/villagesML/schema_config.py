@@ -253,6 +253,7 @@ VILLAGES_DATABASES = {
                     "category": "category",
                     "raw_intensity": "raw_intensity",
                     "normalized_index": "normalized_index",
+                    "z_score": "z_score",
                     "rank_within_province": "rank_within_province",
                     "village_count": "village_count",
                 },
