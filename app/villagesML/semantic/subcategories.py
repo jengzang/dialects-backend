@@ -13,8 +13,8 @@ from ..schema_runtime import qcolumn, qtable
 router = APIRouter(prefix="/semantic/subcategory")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LEXICON_PATH = PROJECT_ROOT / "data" / "semantic_lexicon_v4_hybrid.json"
-LEGACY_LEXICON_PATH = PROJECT_ROOT.parent / "data" / "semantic_lexicon_v4_hybrid.json"
+LEXICON_PATH = PROJECT_ROOT / "data" / "semantic_lexicon_v4.json"
+LEGACY_LEXICON_PATH = PROJECT_ROOT.parent / "data" / "semantic_lexicon_v4.json"
 
 
 def _subcategory_schema(dbpath: str, logical_table: str):

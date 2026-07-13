@@ -16,7 +16,7 @@ def get_semantic_bigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     min_pmi: Optional[float] = Query(0.3, description="最小PMI值（默认0.3，过滤无意义组合）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
+    detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -72,7 +72,7 @@ def get_semantic_bigrams(
 def get_semantic_trigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
+    detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -125,7 +125,7 @@ def get_semantic_pmi(
     category2: Optional[str] = Query(None, description="第二个语义类别"),
     min_pmi: Optional[float] = Query(None, description="最小PMI值"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
+    detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -187,7 +187,7 @@ def get_composition_patterns(
     pattern_type: Optional[str] = Query(None, description="模式类型"),
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
+    detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -251,7 +251,7 @@ def get_semantic_indices(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_villages: Optional[int] = Query(None, ge=1, description="最小村庄数（过滤小样本区域）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    detail: bool = Query(False, description="是否使用详细表（76子类别）"),
+    detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
