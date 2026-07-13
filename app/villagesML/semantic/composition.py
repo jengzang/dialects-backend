@@ -27,7 +27,7 @@ def get_semantic_bigrams(
         min_frequency: 最小频率（可选）
         min_pmi: 最小点互信息值（可选）
         limit: 返回记录数
-        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
+        detail: 是否使用详细表（53子类别，v4词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义二元组列表
@@ -82,7 +82,7 @@ def get_semantic_trigrams(
     Args:
         min_frequency: 最小频率（可选）
         limit: 返回记录数
-        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
+        detail: 是否使用详细表（53子类别，v4词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义三元组列表
@@ -137,7 +137,7 @@ def get_semantic_pmi(
         category2: 第二个语义类别（可选）
         min_pmi: 最小PMI值（可选）
         limit: 返回记录数
-        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
+        detail: 是否使用详细表（53子类别，v4词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: PMI分数列表
@@ -198,7 +198,7 @@ def get_composition_patterns(
         pattern_type: 模式类型（可选）
         min_frequency: 最小频率（可选）
         limit: 返回记录数
-        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
+        detail: 是否使用详细表（53子类别，v4词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 组合模式列表
@@ -267,7 +267,7 @@ def get_semantic_indices(
         township: 乡镇级过滤（精确匹配）
         min_villages: 最小村庄数，过滤村庄数少的区域（可选）
         limit: 返回记录数
-        detail: 是否使用详细表（76子类别，v4_hybrid词典），默认False（9大类别，v1词典）
+        detail: 是否使用详细表（53子类别，v4词典），默认False（9大类别，v1词典）
 
     Returns:
         List[dict]: 语义指数列表
