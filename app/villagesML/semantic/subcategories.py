@@ -160,7 +160,7 @@ def get_global_subcategory_vtf(
 
 @router.get("/vtf/regional")
 def get_regional_subcategory_vtf(
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     region_name: Optional[str] = Query(None, description="Region name"),
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
     subcategory: Optional[str] = Query(None, description="Subcategory filter"),
@@ -217,7 +217,7 @@ def get_regional_subcategory_vtf(
 
 @router.get("/tendency/top")
 def get_top_tendency_subcategories(
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
     min_villages: int = Query(5, ge=0, le=100, description="Minimum village count"),
     top_n: int = Query(10, ge=1, le=100, description="Top N records"),
@@ -257,7 +257,7 @@ def get_top_tendency_subcategories(
 @router.get("/comparison")
 def compare_subcategories(
     region_name: str = Query(..., description="Region name"),
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: str = Query(..., description="Parent category"),
     min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
     db: sqlite3.Connection = Depends(get_db),

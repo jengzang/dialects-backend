@@ -114,8 +114,7 @@ def run_id_analysis_type(dbpath: str | None, logical_table: str) -> str:
 def column_value_map(dbpath: str | None, logical_table: str, logical_column: str) -> dict[str, str]:
     """Return a value-level mapping for a column, or empty dict if none configured.
 
-    Used when the same logical API value maps to different physical values across tables,
-    e.g. region_level: 'city' -> '市级' in semantic_subcategory_vtf_regional.
+    Used when the same logical API value maps to different physical values across tables.
     """
     value_maps = table_config(dbpath, logical_table).get("column_value_maps", {})
     return value_maps.get(logical_column, {})

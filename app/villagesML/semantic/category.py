@@ -9,7 +9,7 @@ import sqlite3
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..models import SemanticCategory, SemanticTendency
-from ..schema_runtime import column_value_map, qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable
 
 router = APIRouter(prefix="/semantic/category")
 
@@ -75,14 +75,18 @@ def _get_global_semantic_vtf_sync(dbpath: str, category: Optional[str], detail: 
         else:
             table = qtable(dbpath, "semantic_vtf_global")
             category_col = qcolumn(dbpath, "semantic_vtf_global", "category")
-            frequency_col = qcolumn(dbpath, "semantic_vtf_global", "frequency")
-            vtf_count_col = qcolumn(dbpath, "semantic_vtf_global", "vtf_count")
+            vtf_col = qcolumn(dbpath, "semantic_vtf_global", "vtf")
+            village_count_col = qcolumn(dbpath, "semantic_vtf_global", "village_count")
+            char_count_col = qcolumn(dbpath, "semantic_vtf_global", "char_count")
+            total_villages_col = qcolumn(dbpath, "semantic_vtf_global", "total_villages")
 
             query = f"""
                 SELECT
                     {category_col} as category,
-                    {frequency_col} AS vtf,
-                    {vtf_count_col} AS character_count
+                    {vtf_col} AS vtf,
+                    {village_count_col} AS village_count,
+                    {char_count_col} AS char_count,
+                    {total_villages_col} AS total_villages
                 FROM {table}
                 WHERE 1=1
             """
@@ -125,14 +129,12 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
     """同步获取区域语义虚拟词频"""
     with get_db_connection(dbpath) as db:
         if detail:
-            # 子类别表的 region_level 值为中文（市级/区县级/乡镇级），
-            # 通过 schema_config 的 column_value_maps 进行映射
-            region_level_map = column_value_map(dbpath, "semantic_subcategory_vtf_regional", "region_level")
-            region_level_val = region_level_map.get(region_level, region_level)
-
             table = qtable(dbpath, "semantic_subcategory_vtf_regional")
             region_level_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "region_level")
             region_name_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "region_name")
+            city_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "city")
+            county_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "county")
+            township_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "township")
             subcategory_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "subcategory")
             parent_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "parent_category")
             char_count_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "char_count")
@@ -145,6 +147,9 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 SELECT
                     {region_level_col} as region_level,
                     {region_name_col} as region_name,
+                    {city_col} as city,
+                    {county_col} as county,
+                    {township_col} as township,
                     {subcategory_col} as subcategory,
                     {parent_col} as parent_category,
                     {char_count_col} as char_count,
@@ -155,14 +160,23 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [region_level_val]
+            params = [region_level]
 
-            # 在 detail 模式下，子类别表没有 city/county/township 列，
-            # 将 hierarchy 参数转为 region_name 精确匹配
-            resolved_region_name = region_name or city or county or township
-            if resolved_region_name is not None:
-                query += f" AND {region_name_col} = ?"
-                params.append(resolved_region_name)
+            if city is not None:
+                query += f" AND {city_col} = ?"
+                params.append(city)
+            if county is not None:
+                query += f" AND {county_col} = ?"
+                params.append(county)
+            elif city is not None and region_level == 'township':
+                query += f" AND ({county_col} IS NULL OR {county_col} = '')"
+            if township is not None:
+                query += f" AND {township_col} = ?"
+                params.append(township)
+
+            if region_name is not None:
+                query += f" AND ({city_col} = ? OR {county_col} = ? OR {township_col} = ?)"
+                params.extend([region_name, region_name, region_name])
 
             if category is not None:
                 query += f" AND {parent_col} = ?"

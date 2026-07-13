@@ -261,9 +261,15 @@ VILLAGES_DATABASES = {
             "semantic_vtf_global": {
                 "name": "semantic_vtf_global",
                 "columns": {
+                    "run_id": "run_id",
                     "category": "category",
-                    "frequency": "frequency",
                     "vtf_count": "vtf_count",
+                    "village_count": "village_count",
+                    "total_villages": "total_villages",
+                    "frequency": "frequency",
+                    "vtf": "vtf",
+                    "char_count": "char_count",
+                    "rank": "rank",
                 },
             },
             "semantic_regional_analysis": {
@@ -305,6 +311,9 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "region_level": "region_level",
                     "region_name": "region_name",
+                    "city": "city",
+                    "county": "county",
+                    "township": "township",
                     "subcategory": "subcategory",
                     "parent_category": "parent_category",
                     "char_count": "char_count",
@@ -313,9 +322,7 @@ VILLAGES_DATABASES = {
                     "percentage": "percentage",
                     "tendency": "tendency",
                 },
-                # 子类别表的 region_level 值为中文，与 basic 表（city/county/township）不同
                 "column_value_maps": {
-                    "region_level": {"city": "市级", "county": "区县级", "township": "乡镇级"},
                 },
             },
             "semantic_bigrams": {"name": "semantic_bigrams"},
