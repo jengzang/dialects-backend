@@ -211,7 +211,7 @@ def get_cluster_summary(
     """Get cluster summary statistics."""
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "spatial_hotspots")
+            run_id_analysis_type(dbpath, "spatial_clusters")
         )
 
     table = qtable(dbpath, "spatial_clusters")
@@ -298,7 +298,7 @@ def get_available_cluster_runs(
         raise HTTPException(status_code=404, detail="No clustering runs found")
 
     active_run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "spatial_hotspots")
+        run_id_analysis_type(dbpath, "spatial_clusters")
     )
     for result in results:
         result["is_active"] = result["run_id"] == active_run_id
