@@ -38,7 +38,7 @@ def get_global_pattern_frequency(
     """
     table, col = _pattern_schema(dbpath, "pattern_frequency_global")
     query = f"""
-        SELECT DISTINCT
+        SELECT
             {col("pattern")} as pattern,
             {col("pattern_type")} as pattern_type,
             {col("frequency")} as frequency,

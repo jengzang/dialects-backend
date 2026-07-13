@@ -1430,6 +1430,7 @@ class FeatureEngine:
         self.db_path = db_path
         self.dbpath = dbpath
         self._db_pool = get_db_pool(db_path)
+        self._feature_columns = None  # 缓存 PRAGMA table_info 结果
 
     @contextmanager
     def _connection(self):
@@ -1471,9 +1472,11 @@ class FeatureEngine:
         with self._connection() as conn:
             cursor = conn.cursor()
 
-            # 获取列名
-            cursor.execute(f"PRAGMA table_info({self._table('village_features')})")
-            columns = [col[1] for col in cursor.fetchall()]
+            # 获取列名（缓存 PRAGMA 结果）
+            if self._feature_columns is None:
+                cursor.execute(f"PRAGMA table_info({self._table('village_features')})")
+                self._feature_columns = [col[1] for col in cursor.fetchall()]
+            columns = self._feature_columns
 
             batch_query = f"""
             SELECT * FROM {self._table('village_features')}
@@ -1604,8 +1607,8 @@ class FeatureEngine:
         dimension_breakdown = {}
 
         if feature_config.get('semantic_tags', True):
-            dimension += 9
-            dimension_breakdown['semantic_tags'] = 9
+            dimension += len(_SEM_NAMES)
+            dimension_breakdown['semantic_tags'] = len(_SEM_NAMES)
         if feature_config.get('morphology', True):
             dimension += 7
             dimension_breakdown['morphology'] = 7
@@ -1676,11 +1679,13 @@ class FeatureEngine:
 
             # ==== 1. global baseline — aggregate over ALL villages ====
             global_total = conn.execute(f"SELECT COUNT(*) FROM {vf_table}").fetchone()[0]
+
+            # 合并 9 个独立 SUM 查询为 1 次全表扫描
+            sem_sum_exprs = [f"SUM({self._column('village_features', f'sem_{n}')}) AS sem_{n}" for n in sem_names]
+            sem_row = conn.execute(f"SELECT {', '.join(sem_sum_exprs)} FROM {vf_table}").fetchone()
             global_sem_sums = {}
-            for n in sem_names:
-                col = self._column('village_features', f'sem_{n}')
-                s = conn.execute(f"SELECT SUM({col}) FROM {vf_table}").fetchone()[0] or 0
-                global_sem_sums[n] = s
+            for i, n in enumerate(sem_names):
+                global_sem_sums[n] = sem_row[i] or 0
 
             global_suffix_total = conn.execute(
                 f"SELECT COUNT(*) FROM {vf_table} WHERE {self._column('village_features', 'suffix_1')} IS NOT NULL AND {self._column('village_features', 'suffix_1')} != ''"
