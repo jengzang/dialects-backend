@@ -9,7 +9,7 @@ import sqlite3
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..models import SemanticCategory, SemanticTendency
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import column_value_map, qcolumn, qtable
 
 router = APIRouter(prefix="/semantic/category")
 
@@ -125,9 +125,10 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
     """同步获取区域语义虚拟词频"""
     with get_db_connection(dbpath) as db:
         if detail:
-            # 子类别表的 region_level 值为中文（市级/区县级/乡镇级），需要映射
-            _REGION_LEVEL_MAP_CN = {"city": "市级", "county": "区县级", "township": "乡镇级"}
-            region_level_cn = _REGION_LEVEL_MAP_CN.get(region_level, region_level)
+            # 子类别表的 region_level 值为中文（市级/区县级/乡镇级），
+            # 通过 schema_config 的 column_value_maps 进行映射
+            region_level_map = column_value_map(dbpath, "semantic_subcategory_vtf_regional", "region_level")
+            region_level_val = region_level_map.get(region_level, region_level)
 
             table = qtable(dbpath, "semantic_subcategory_vtf_regional")
             region_level_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "region_level")
@@ -154,7 +155,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [region_level_cn]
+            params = [region_level_val]
 
             # 在 detail 模式下，子类别表没有 city/county/township 列，
             # 将 hierarchy 参数转为 region_name 精确匹配

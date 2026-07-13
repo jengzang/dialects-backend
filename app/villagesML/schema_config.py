@@ -313,6 +313,10 @@ VILLAGES_DATABASES = {
                     "percentage": "percentage",
                     "tendency": "tendency",
                 },
+                # 子类别表的 region_level 值为中文，与 basic 表（city/county/township）不同
+                "column_value_maps": {
+                    "region_level": {"city": "市级", "county": "区县级", "township": "乡镇级"},
+                },
             },
             "semantic_bigrams": {"name": "semantic_bigrams"},
             "semantic_bigrams_detailed": {"name": "semantic_bigrams_detailed"},
