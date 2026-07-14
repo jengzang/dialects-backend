@@ -1,5 +1,3 @@
-import math
-
 from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
@@ -10,62 +8,28 @@ from app.schemas.toponyms import (
 )
 from app.service.toponyms.config import (
     DEFAULT_NAME_LIMIT,
-    DEFAULT_POINT_LIMIT,
-    MAX_BBOX_AREA,
     MAX_NAME_LIMIT,
-    MAX_POINT_LIMIT,
 )
 from app.service.toponyms.repository import (
     list_child_divisions,
-    list_points_in_bbox,
+    list_all_points,
     sample_names,
 )
 
 router = APIRouter()
 
 
-def _parse_bbox(raw_bbox: str) -> tuple[float, float, float, float]:
-    parts = raw_bbox.split(",")
-    if len(parts) != 4:
-        raise HTTPException(status_code=400, detail="bbox must contain four comma-separated numbers")
-
-    try:
-        min_lng, min_lat, max_lng, max_lat = [float(part.strip()) for part in parts]
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="bbox values must be numbers") from exc
-
-    values = (min_lng, min_lat, max_lng, max_lat)
-    if not all(math.isfinite(value) for value in values):
-        raise HTTPException(status_code=400, detail="bbox values must be finite")
-    if not (-180 <= min_lng <= 180 and -180 <= max_lng <= 180):
-        raise HTTPException(status_code=400, detail="bbox longitude must be within -180..180")
-    if not (-90 <= min_lat <= 90 and -90 <= max_lat <= 90):
-        raise HTTPException(status_code=400, detail="bbox latitude must be within -90..90")
-    if min_lng >= max_lng or min_lat >= max_lat:
-        raise HTTPException(status_code=400, detail="bbox min values must be smaller than max values")
-    if (max_lng - min_lng) * (max_lat - min_lat) > MAX_BBOX_AREA:
-        raise HTTPException(status_code=400, detail="bbox is too large; zoom in or split the request")
-
-    return min_lng, min_lat, max_lng, max_lat
-
-
 @router.get("/toponyms/points", response_model=ToponymPointsResponse)
 async def get_toponym_points(
-    bbox: str = Query(..., description="minLng,minLat,maxLng,maxLat"),
-    zoom: int | None = Query(None, ge=0, le=24),
-    limit: int = Query(DEFAULT_POINT_LIMIT, ge=1, le=MAX_POINT_LIMIT),
+    bbox: str | None = Query(None, include_in_schema=False),
+    zoom: int | None = Query(None, include_in_schema=False),
+    limit: int | None = Query(None, include_in_schema=False),
 ) -> ToponymPointsResponse:
-    del zoom
-    min_lng, min_lat, max_lng, max_lat = _parse_bbox(bbox)
-    items, truncated = await run_in_threadpool(
-        list_points_in_bbox,
-        min_lng=min_lng,
-        min_lat=min_lat,
-        max_lng=max_lng,
-        max_lat=max_lat,
-        limit=limit,
-    )
-    return ToponymPointsResponse(items=items, count=len(items), truncated=truncated)
+    if bbox is not None or zoom is not None or limit is not None:
+        raise HTTPException(status_code=400, detail="toponyms points is a full export endpoint; query parameters are not supported")
+
+    items = await run_in_threadpool(list_all_points)
+    return ToponymPointsResponse(items=items, count=len(items), truncated=False)
 
 
 @router.get("/toponyms/names/sample", response_model=ToponymNamesResponse)

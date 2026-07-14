@@ -1,4 +1,9 @@
-from app.common.path import TOPONYMS_DB_PATH
+import os
+
+from app.common.path import TOPONYMS_DB_PATH as DEFAULT_TOPONYMS_DB_PATH
+
+
+TOPONYMS_DB_PATH = os.environ.get("TOPONYMS_DB_PATH", DEFAULT_TOPONYMS_DB_PATH)
 
 
 NATURAL_VILLAGE_PLACE_TYPE_CODE = "22200"

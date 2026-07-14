@@ -47,8 +47,7 @@ class ToponymsIndexScriptTest(unittest.TestCase):
             }
             conn.close()
 
-        self.assertIn("idx_single_type_lng_lat_id", indexes)
-        self.assertIn("idx_single_type_area_id", indexes)
+        self.assertIn("idx_single_type_id", indexes)
         self.assertIn("idx_single_type_name", indexes)
 
 

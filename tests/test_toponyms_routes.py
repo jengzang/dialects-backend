@@ -13,6 +13,7 @@ os.environ.setdefault("AUTO_MIGRATE", "false")
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.common.path import DB_MAPPING
 from app.routes.toponyms import router
@@ -108,18 +109,19 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertIn("/api/toponyms/names/sample", paths)
         self.assertIn("/api/toponyms/divisions", paths)
 
-    def test_points_endpoint_returns_coordinates_and_ids_without_names(self) -> None:
-        response = self.client.get(
-            "/api/toponyms/points",
-            params={"bbox": "113,23,114,24"},
-        )
+    def test_points_endpoint_returns_all_coordinates_and_ids_without_names(self) -> None:
+        response = self.client.get("/api/toponyms/points")
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["count"], 2)
+        self.assertEqual(body["count"], 3)
         self.assertFalse(body["truncated"])
         self.assertEqual(
             body["items"][0],
+            {"id": "outside-1", "longitude": 116.3, "latitude": 39.9},
+        )
+        self.assertEqual(
+            body["items"][1],
             {"id": "village-1", "longitude": 113.1, "latitude": 23.1},
         )
 
@@ -156,13 +158,28 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("longitude", response.text)
         self.assertNotIn("latitude", response.text)
 
-    def test_points_endpoint_rejects_oversized_bbox(self) -> None:
+    def test_points_endpoint_rejects_bbox_parameter(self) -> None:
         response = self.client.get(
             "/api/toponyms/points",
-            params={"bbox": "70,0,140,60"},
+            params={"bbox": "113,23,114,24"},
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_points_endpoint_uses_gzip_when_client_accepts_gzip(self) -> None:
+        app = FastAPI()
+        app.add_middleware(GZipMiddleware, minimum_size=1)
+        app.include_router(router, prefix="/api")
+        client = TestClient(app)
+
+        response = client.get(
+            "/api/toponyms/points",
+            headers={"Accept-Encoding": "gzip"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("content-encoding"), "gzip")
+        self.assertEqual(response.json()["count"], 3)
 
 
 if __name__ == "__main__":

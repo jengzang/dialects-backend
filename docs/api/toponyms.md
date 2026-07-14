@@ -14,16 +14,13 @@ This is intentional. Do not merge these fields into one response, even for GeoJS
 ## Coordinates
 
 ```http
-GET /api/toponyms/points?bbox=minLng,minLat,maxLng,maxLat&limit=5000
+GET /api/toponyms/points
 ```
 
-Query parameters:
-
-| Name | Required | Description |
-| --- | --- | --- |
-| `bbox` | yes | Four comma-separated numbers: `minLng,minLat,maxLng,maxLat`. |
-| `zoom` | no | Accepted for frontend compatibility, `0..24`; currently not used for query shape. |
-| `limit` | no | Defaults to `5000`, max `20000`. |
+This MVP endpoint has no query parameters. It returns all natural-village point
+coordinates in one response. Query parameters such as `bbox`, `zoom`, and
+`limit` are rejected so callers do not accidentally keep using a tiled loading
+contract.
 
 Response:
 
@@ -42,12 +39,7 @@ Response:
 }
 ```
 
-Validation:
-
-- `bbox` must contain four finite numbers.
-- Longitude must be within `-180..180`; latitude must be within `-90..90`.
-- Min values must be smaller than max values.
-- Bbox area must be at most `25` square degrees.
+The response still does not include names, area codes, or place type labels.
 
 ## Name Samples
 
@@ -90,9 +82,9 @@ This endpoint omits division centroid coordinates.
 
 ## Index Maintenance
 
-The runtime API can work without the extra indexes, but bbox queries on the full
-`data/toponyms.db` will scan many rows. Create the recommended indexes during a
-maintenance window:
+The runtime API can work without the extra indexes, but filtering the full
+`data/toponyms.db` by natural-village type and ordering by id benefits from an
+index. Create the recommended indexes during a maintenance window:
 
 ```bash
 .venv/bin/python -m scripts.toponyms.ensure_indexes --db data/toponyms.db
@@ -101,11 +93,8 @@ maintenance window:
 The helper creates:
 
 ```sql
-CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
-ON single(place_type_code, longitude, latitude, id);
-
-CREATE INDEX IF NOT EXISTS idx_single_type_area_id
-ON single(place_type_code, area_code, id);
+CREATE INDEX IF NOT EXISTS idx_single_type_id
+ON single(place_type_code, id);
 
 CREATE INDEX IF NOT EXISTS idx_single_type_name
 ON single(place_type_code, standard_name);

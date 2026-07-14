@@ -8,12 +8,8 @@ from app.common.path import TOPONYMS_DB_PATH
 
 INDEX_STATEMENTS = (
     """
-    CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
-    ON single(place_type_code, longitude, latitude, id)
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_single_type_area_id
-    ON single(place_type_code, area_code, id)
+    CREATE INDEX IF NOT EXISTS idx_single_type_id
+    ON single(place_type_code, id)
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_single_type_name

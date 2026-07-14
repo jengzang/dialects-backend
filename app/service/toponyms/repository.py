@@ -6,42 +6,22 @@ from app.service.toponyms.config import NATURAL_VILLAGE_PLACE_TYPE_CODE, TOPONYM
 from app.sql.db_pool import get_db_pool
 
 
-def list_points_in_bbox(
-    *,
-    min_lng: float,
-    min_lat: float,
-    max_lng: float,
-    max_lat: float,
-    limit: int,
-) -> tuple[list[dict[str, Any]], bool]:
+def list_all_points() -> list[dict[str, Any]]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     sql = """
         SELECT id, longitude, latitude
         FROM single
         WHERE place_type_code = ?
-          AND longitude BETWEEN ? AND ?
-          AND latitude BETWEEN ? AND ?
         ORDER BY id
-        LIMIT ?
     """
     with pool.get_connection() as conn:
-        rows = conn.execute(
-            sql,
-            (
-                NATURAL_VILLAGE_PLACE_TYPE_CODE,
-                min_lng,
-                max_lng,
-                min_lat,
-                max_lat,
-                limit + 1,
-            ),
-        ).fetchall()
+        rows = conn.execute(sql, (NATURAL_VILLAGE_PLACE_TYPE_CODE,)).fetchall()
 
     items = [
         {"id": row["id"], "longitude": row["longitude"], "latitude": row["latitude"]}
-        for row in rows[:limit]
+        for row in rows
     ]
-    return items, len(rows) > limit
+    return items
 
 
 def sample_names(*, query: str, limit: int) -> list[str]:
