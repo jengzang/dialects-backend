@@ -30,6 +30,7 @@ YC_SPOKEN_DB_PATH = os.path.join(BASE_DIR, "data", "yc_spoken.db")
 GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
 VILLAGE_ADMIN_DB_PATH = os.path.join(BASE_DIR, "data", "villages_admin.db")
 YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
+TOPONYMS_DB_PATH = os.path.join(BASE_DIR, "data", "toponyms.db")
 
 # 字表寫入SQL路徑依賴
 APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")

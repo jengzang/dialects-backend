@@ -1,0 +1,1 @@
+"""Toponyms map query services."""
