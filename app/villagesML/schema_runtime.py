@@ -111,6 +111,41 @@ def run_id_analysis_type(dbpath: str | None, logical_table: str) -> str:
     return analysis_type
 
 
+def configured_table_list(dbpath: str | None, list_name: str) -> list[str]:
+    """Return a configured list of logical table names for a database key."""
+    table_lists = get_database_config(dbpath).get("table_lists", {})
+    table_list = table_lists.get(list_name)
+    if table_list is None:
+        raise ValueError(f"Unknown VillagesML configured table list: {list_name}")
+    return list(table_list)
+
+
+def table_variant(dbpath: str | None, variant_name: str, selector: Any) -> str:
+    """Return a logical table selected by a configured variant map."""
+    variants = get_database_config(dbpath).get("table_variants", {})
+    variant = variants.get(variant_name)
+    if variant is None:
+        raise ValueError(f"Unknown VillagesML table variant: {variant_name}")
+    if selector not in variant:
+        raise ValueError(f"Unknown selector for VillagesML table variant {variant_name}: {selector!r}")
+    return variant[selector]
+
+
+def region_level_config(dbpath: str | None, config_name: str, region_level: str) -> dict[str, Any]:
+    """Return configured behavior for a region-level dependent operation."""
+    config_group = get_database_config(dbpath).get("region_levels", {}).get(config_name)
+    if config_group is None:
+        raise ValueError(f"Unknown VillagesML region-level config: {config_name}")
+    if region_level in config_group:
+        return dict(config_group[region_level])
+    fallback = config_group.get("county")
+    if fallback is None:
+        raise ValueError(
+            f"Unknown region level for VillagesML config {config_name}: {region_level}"
+        )
+    return dict(fallback)
+
+
 def column_value_map(dbpath: str | None, logical_table: str, logical_column: str) -> dict[str, str]:
     """Return a value-level mapping for a column, or empty dict if none configured.
 

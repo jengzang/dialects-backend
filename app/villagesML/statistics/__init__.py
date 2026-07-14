@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 from ..dependencies import get_db, get_dbpath
 from ..cache_utils import api_cache
-from ..schema_runtime import column_name, qcolumn, qtable, table_name
+from ..schema_runtime import column_name, configured_table_list, qcolumn, qtable, table_name
 
 router = APIRouter(prefix="/statistics")
 
@@ -146,19 +146,10 @@ def get_database_statistics(
     """
     cursor = db.cursor()
 
-    logical_tables = [
-        'regional_ngram_frequency',
-        'ngram_tendency',
-        'ngram_significance',
-        'pattern_regional_analysis',
-        'char_regional_analysis',
-        'semantic_regional_analysis'
-    ]
-
     table_stats = {}
     total_records = 0
 
-    for logical_table in logical_tables:
+    for logical_table in configured_table_list(dbpath, "database_statistics"):
         response_key = table_name(dbpath, logical_table)
         table = qtable(dbpath, logical_table)
         try:

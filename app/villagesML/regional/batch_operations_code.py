@@ -13,6 +13,7 @@ from .batch_vector_models import (
     ReduceRequest, ReduceResponse,
     ClusterRequest, ClusterResponse
 )
+from ..schema_runtime import run_id_analysis_type
 
 
 def get_multiple_vectors(
@@ -63,7 +64,8 @@ def get_multiple_vectors(
 @router.post("/vectors/compare/batch", response_model=BatchCompareResponse)
 def batch_compare_vectors(
     request: BatchCompareRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     批量比较多个区域的向量，返回相似度矩阵
@@ -102,7 +104,9 @@ def batch_compare_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = run_id_manager.get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
@@ -144,7 +148,8 @@ def batch_compare_vectors(
 @router.post("/vectors/reduce", response_model=ReduceResponse)
 def reduce_vectors(
     request: ReduceRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     向量降维（PCA 或 t-SNE）
@@ -191,7 +196,9 @@ def reduce_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = run_id_manager.get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 
@@ -231,7 +238,8 @@ def reduce_vectors(
 @router.post("/vectors/cluster", response_model=ClusterResponse)
 def cluster_vectors(
     request: ClusterRequest = Body(...),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     向量聚类（KMeans、DBSCAN 或 GMM）
@@ -304,7 +312,9 @@ def cluster_vectors(
 
     # 获取 run_id
     if request.run_id is None:
-        run_id = run_id_manager.get_active_run_id("semantic_indices")
+        run_id = run_id_manager.get_active_run_id(
+            run_id_analysis_type(dbpath, "semantic_indices")
+        )
     else:
         run_id = request.run_id
 

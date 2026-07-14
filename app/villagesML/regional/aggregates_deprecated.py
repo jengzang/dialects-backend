@@ -7,7 +7,7 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
-from ..schema_runtime import normalize_region_level
+from ..schema_runtime import normalize_region_level, qcolumn, qtable
 
 router = APIRouter(prefix="/regional")
 
@@ -15,7 +15,8 @@ router = APIRouter(prefix="/regional")
 @router.get("/aggregates/city")
 def get_city_aggregates(
     city_name: Optional[str] = Query(None, description="城市名称"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取城市级别聚合数据
@@ -27,17 +28,21 @@ def get_city_aggregates(
     Returns:
         List[dict]: 城市聚合数据
     """
-    query = """
+    table = qtable(dbpath, "city_aggregates")
+    city_col = qcolumn(dbpath, "city_aggregates", "city")
+    total_villages_col = qcolumn(dbpath, "city_aggregates", "total_villages")
+
+    query = f"""
         SELECT *
-        FROM city_aggregates
+        FROM {table}
     """
     params = []
 
     if city_name is not None:
-        query += " WHERE city = ?"
+        query += f" WHERE {city_col} = ?"
         params.append(city_name)
 
-    query += " ORDER BY total_villages DESC"
+    query += f" ORDER BY {total_villages_col} DESC"
 
     results = execute_query(db, query, tuple(params)) if params else execute_query(db, query, ())
 
@@ -54,7 +59,8 @@ def get_city_aggregates(
 def get_county_aggregates(
     county_name: Optional[str] = Query(None, description="县区名称"),
     city_name: Optional[str] = Query(None, description="所属城市"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取县区级别聚合数据
@@ -67,22 +73,27 @@ def get_county_aggregates(
     Returns:
         List[dict]: 县区聚合数据
     """
-    query = """
+    table = qtable(dbpath, "county_aggregates")
+    city_col = qcolumn(dbpath, "county_aggregates", "city")
+    county_col = qcolumn(dbpath, "county_aggregates", "county")
+    total_villages_col = qcolumn(dbpath, "county_aggregates", "total_villages")
+
+    query = f"""
         SELECT *
-        FROM county_aggregates
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if county_name is not None:
-        query += " AND county = ?"
+        query += f" AND {county_col} = ?"
         params.append(county_name)
 
     if city_name is not None:
-        query += " AND city = ?"
+        query += f" AND {city_col} = ?"
         params.append(city_name)
 
-    query += " ORDER BY total_villages DESC"
+    query += f" ORDER BY {total_villages_col} DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -100,7 +111,8 @@ def get_town_aggregates(
     town_name: Optional[str] = Query(None, description="乡镇名称"),
     county_name: Optional[str] = Query(None, description="所属县区"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取乡镇级别聚合数据
@@ -114,22 +126,27 @@ def get_town_aggregates(
     Returns:
         List[dict]: 乡镇聚合数据
     """
-    query = """
+    table = qtable(dbpath, "town_aggregates")
+    county_col = qcolumn(dbpath, "town_aggregates", "county")
+    town_col = qcolumn(dbpath, "town_aggregates", "town")
+    total_villages_col = qcolumn(dbpath, "town_aggregates", "total_villages")
+
+    query = f"""
         SELECT *
-        FROM town_aggregates
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if town_name is not None:
-        query += " AND town = ?"
+        query += f" AND {town_col} = ?"
         params.append(town_name)
 
     if county_name is not None:
-        query += " AND county = ?"
+        query += f" AND {county_col} = ?"
         params.append(county_name)
 
-    query += " ORDER BY total_villages DESC LIMIT ?"
+    query += f" ORDER BY {total_villages_col} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -163,22 +180,31 @@ def get_region_spatial_aggregates(
     Returns:
         List[dict]: 区域空间聚合数据
     """
-    query = """
+    table = qtable(dbpath, "region_spatial_aggregates")
+    region_level_col = qcolumn(dbpath, "region_spatial_aggregates", "region_level")
+    region_name_col = qcolumn(dbpath, "region_spatial_aggregates", "region_name")
+    total_villages_col = qcolumn(dbpath, "region_spatial_aggregates", "total_villages")
+    avg_local_density_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_local_density")
+    avg_nn_distance_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_nn_distance")
+    avg_isolation_score_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_isolation_score")
+    spatial_dispersion_col = qcolumn(dbpath, "region_spatial_aggregates", "spatial_dispersion")
+
+    query = f"""
         SELECT
-            region_level,
-            region_name,
-            total_villages as village_count,
-            avg_local_density as avg_density,
-            avg_nn_distance,
-            avg_isolation_score,
-            spatial_dispersion
-        FROM region_spatial_aggregates
-        WHERE region_level = ?
+            {region_level_col} as region_level,
+            {region_name_col} as region_name,
+            {total_villages_col} as village_count,
+            {avg_local_density_col} as avg_density,
+            {avg_nn_distance_col} as avg_nn_distance,
+            {avg_isolation_score_col} as avg_isolation_score,
+            {spatial_dispersion_col} as spatial_dispersion
+        FROM {table}
+        WHERE {region_level_col} = ?
     """
     params = [normalize_region_level(dbpath, "region_spatial_aggregates", region_level)]
 
     if region_name is not None:
-        query += " AND region_name = ?"
+        query += f" AND {region_name_col} = ?"
         params.append(region_name)
 
     query += " ORDER BY village_count DESC LIMIT ?"
@@ -199,7 +225,8 @@ def get_region_spatial_aggregates(
 def get_region_vectors(
     region_name: Optional[str] = Query(None, description="区域名称"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取区域特征向量
@@ -212,23 +239,30 @@ def get_region_vectors(
     Returns:
         List[dict]: 区域特征向量（不包含向量数据，仅元数据）
     """
-    query = """
+    table = qtable(dbpath, "region_vectors")
+    region_id_col = qcolumn(dbpath, "region_vectors", "region_id")
+    region_name_col = qcolumn(dbpath, "region_vectors", "region_name")
+    region_level_col = qcolumn(dbpath, "region_vectors", "region_level")
+    n_villages_col = qcolumn(dbpath, "region_vectors", "N_villages")
+    created_at_col = qcolumn(dbpath, "region_vectors", "created_at")
+
+    query = f"""
         SELECT
-            region_id,
-            region_name,
-            region_level,
-            N_villages,
-            created_at
-        FROM region_vectors
+            {region_id_col} as region_id,
+            {region_name_col} as region_name,
+            {region_level_col} as region_level,
+            {n_villages_col} as N_villages,
+            {created_at_col} as created_at
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if region_name is not None:
-        query += " AND region_name = ?"
+        query += f" AND {region_name_col} = ?"
         params.append(region_name)
 
-    query += " ORDER BY region_name LIMIT ?"
+    query += f" ORDER BY {region_name_col} LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))

@@ -24,7 +24,14 @@ from sklearn.metrics import (
 import logging
 from app.sql.db_pool import get_db_pool
 from ..schema_config import DEFAULT_DATABASE_KEY
-from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from ..schema_runtime import (
+    qcolumn,
+    qtable,
+    normalize_region_level,
+    region_level_config,
+    run_id_analysis_type,
+    table_variant,
+)
 from .validators import SUBSET_SEMANTIC_TAG_WHITELIST
 
 _SEM_NAMES = sorted(SUBSET_SEMANTIC_TAG_WHITELIST)
@@ -75,12 +82,7 @@ class ClusteringEngine:
             logger.info(f"Using cached features for {region_level}")
             return self.feature_cache[cache_key]
 
-        level_config = {
-            'city':    {'region_col': 'city',    'group_cols': ['city'],                   'filter_col': 'city',   'agg_table': 'city_aggregates'},
-            'county':  {'region_col': 'county',  'group_cols': ['city', 'county'],         'filter_col': 'city',   'agg_table': 'county_aggregates'},
-            'township':{'region_col': 'town',    'group_cols': ['city', 'county', 'town'], 'filter_col': 'county', 'agg_table': 'town_aggregates'},
-        }
-        cfg = level_config.get(region_level, level_config['county'])
+        cfg = region_level_config(self.dbpath, "compute_aggregate_features", region_level)
         region_col = cfg['region_col']
         filter_col = cfg['filter_col']
         applied_filter = False  # track whether region_filter was already applied in SQL
@@ -1289,15 +1291,22 @@ class SemanticEngine:
         start_time = time.time()
 
         # 根据 detail 参数选择表
-        table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
+        logical_table = table_variant(
+            self.dbpath,
+            "semantic_bigrams_by_detail",
+            params.get('detail', False),
+        )
+        table = self._table(logical_table)
 
         # 从semantic_bigrams读取
         query = f"""
         SELECT
-            category1, category2, frequency as cooccurrence_count,
-            pmi
-        FROM {table_name}
-        WHERE frequency >= ?
+            {self._column(logical_table, 'category1')} as category1,
+            {self._column(logical_table, 'category2')} as category2,
+            {self._column(logical_table, 'frequency')} as cooccurrence_count,
+            {self._column(logical_table, 'pmi')} as pmi
+        FROM {table}
+        WHERE {self._column(logical_table, 'frequency')} >= ?
         """
 
         with self._connection() as conn:
@@ -1347,13 +1356,21 @@ class SemanticEngine:
             }
 
         # 根据 detail 参数选择表
-        table_name = "semantic_bigrams_detailed" if params.get('detail', False) else "semantic_bigrams"
+        logical_table = table_variant(
+            self.dbpath,
+            "semantic_bigrams_by_detail",
+            params.get('detail', False),
+        )
+        table = self._table(logical_table)
 
         # 从semantic_bigrams读取边（使用PMI作为权重）
         query = f"""
-        SELECT category1, category2, pmi as weight
-        FROM {table_name}
-        WHERE pmi >= ?
+        SELECT
+            {self._column(logical_table, 'category1')} as category1,
+            {self._column(logical_table, 'category2')} as category2,
+            {self._column(logical_table, 'pmi')} as weight
+        FROM {table}
+        WHERE {self._column(logical_table, 'pmi')} >= ?
         """
 
         with self._connection() as conn:
@@ -1652,12 +1669,8 @@ class FeatureEngine:
         feature_config = params.get('features', {})
         top_n = params.get('top_n', 10)
 
-        group_cols_map = {
-            'city':     ['city'],
-            'county':   ['city', 'county'],
-            'township': ['city', 'county', 'town'],
-        }
-        group_cols = group_cols_map.get(region_level, ['city', 'county'])
+        cfg = region_level_config(self.dbpath, "compute_feature_aggregation", region_level)
+        group_cols = cfg["group_cols"]
         region_col = group_cols[-1]
 
         sem_names = _SEM_NAMES
@@ -1804,7 +1817,7 @@ class FeatureEngine:
                     ar_runid_col = self._column('active_run_ids', 'run_id')
                     row = conn.execute(
                         f"SELECT {ar_runid_col} FROM {ar_table} WHERE {ar_type_col} = ?",
-                        ('spatial_clusters',)
+                        (run_id_analysis_type(self.dbpath, "village_cluster_assignments"),)
                     ).fetchone()
                     spatial_run_id = row[0] if row else None
 

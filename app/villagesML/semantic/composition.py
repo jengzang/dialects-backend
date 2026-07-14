@@ -7,7 +7,7 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
-from ..schema_runtime import normalize_region_level
+from ..schema_runtime import normalize_region_level, qcolumn, qtable, table_variant
 
 router = APIRouter(prefix="/semantic")
 
@@ -18,7 +18,8 @@ def get_semantic_bigrams(
     min_pmi: Optional[float] = Query(0.3, description="最小PMI值（默认0.3，过滤无意义组合）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取语义二元组（bigram）
@@ -33,29 +34,30 @@ def get_semantic_bigrams(
     Returns:
         List[dict]: 语义二元组列表
     """
-    table_name = "semantic_bigrams_detailed" if detail else "semantic_bigrams"
+    logical_table = table_variant(dbpath, "semantic_bigrams_by_detail", detail)
+    table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            category1,
-            category2,
-            frequency,
-            percentage,
-            pmi as pmi_score
-        FROM {table_name}
+            {qcolumn(dbpath, logical_table, "category1")} as category1,
+            {qcolumn(dbpath, logical_table, "category2")} as category2,
+            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
+            {qcolumn(dbpath, logical_table, "percentage")} as percentage,
+            {qcolumn(dbpath, logical_table, "pmi")} as pmi_score
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
         params.append(min_frequency)
 
     if min_pmi is not None:
-        query += " AND pmi >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'pmi')} >= ?"
         params.append(min_pmi)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -74,7 +76,8 @@ def get_semantic_trigrams(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取语义三元组（trigram）
@@ -88,25 +91,26 @@ def get_semantic_trigrams(
     Returns:
         List[dict]: 语义三元组列表
     """
-    table_name = "semantic_trigrams_detailed" if detail else "semantic_trigrams"
+    logical_table = table_variant(dbpath, "semantic_trigrams_by_detail", detail)
+    table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            category1,
-            category2,
-            category3,
-            frequency,
-            percentage
-        FROM {table_name}
+            {qcolumn(dbpath, logical_table, "category1")} as category1,
+            {qcolumn(dbpath, logical_table, "category2")} as category2,
+            {qcolumn(dbpath, logical_table, "category3")} as category3,
+            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
+            {qcolumn(dbpath, logical_table, "percentage")} as percentage
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -127,7 +131,8 @@ def get_semantic_pmi(
     min_pmi: Optional[float] = Query(None, description="最小PMI值"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取语义点互信息（PMI）
@@ -143,33 +148,34 @@ def get_semantic_pmi(
     Returns:
         List[dict]: PMI分数列表
     """
-    table_name = "semantic_pmi_detailed" if detail else "semantic_pmi"
+    logical_table = table_variant(dbpath, "semantic_pmi_by_detail", detail)
+    table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            category1,
-            category2,
-            pmi as pmi_score,
-            frequency,
-            is_positive
-        FROM {table_name}
+            {qcolumn(dbpath, logical_table, "category1")} as category1,
+            {qcolumn(dbpath, logical_table, "category2")} as category2,
+            {qcolumn(dbpath, logical_table, "pmi")} as pmi_score,
+            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
+            {qcolumn(dbpath, logical_table, "is_positive")} as is_positive
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if category1 is not None:
-        query += " AND category1 = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'category1')} = ?"
         params.append(category1)
 
     if category2 is not None:
-        query += " AND category2 = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'category2')} = ?"
         params.append(category2)
 
     if min_pmi is not None:
-        query += " AND pmi >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'pmi')} >= ?"
         params.append(min_pmi)
 
-    query += " ORDER BY pmi DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'pmi')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -189,7 +195,8 @@ def get_composition_patterns(
     min_frequency: Optional[int] = Query(None, ge=1, description="最小频率"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
     detail: bool = Query(False, description="是否使用详细表（53子类别，v4词典）"),
-    db: sqlite3.Connection = Depends(get_db)
+    db: sqlite3.Connection = Depends(get_db),
+    dbpath: str = Depends(get_dbpath),
 ):
     """
     获取语义组合模式
@@ -204,31 +211,32 @@ def get_composition_patterns(
     Returns:
         List[dict]: 组合模式列表
     """
-    table_name = "semantic_composition_patterns_detailed" if detail else "semantic_composition_patterns"
+    logical_table = table_variant(dbpath, "semantic_composition_patterns_by_detail", detail)
+    table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            pattern,
-            pattern_type,
-            modifier,
-            head,
-            frequency,
-            percentage,
-            description
-        FROM {table_name}
+            {qcolumn(dbpath, logical_table, "pattern")} as pattern,
+            {qcolumn(dbpath, logical_table, "pattern_type")} as pattern_type,
+            {qcolumn(dbpath, logical_table, "modifier")} as modifier,
+            {qcolumn(dbpath, logical_table, "head")} as head,
+            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
+            {qcolumn(dbpath, logical_table, "percentage")} as percentage,
+            {qcolumn(dbpath, logical_table, "description")} as description
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if pattern_type is not None:
-        query += " AND pattern_type = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'pattern_type')} = ?"
         params.append(pattern_type)
 
     if min_frequency is not None:
-        query += " AND frequency >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
         params.append(min_frequency)
 
-    query += " ORDER BY frequency DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -274,60 +282,71 @@ def get_semantic_indices(
     Returns:
         List[dict]: 语义指数列表
     """
-    table_name = "semantic_indices_detailed" if detail else "semantic_indices"
+    logical_table = table_variant(dbpath, "semantic_indices_by_detail", detail)
+    table = qtable(dbpath, logical_table)
+    region_level_col = qcolumn(dbpath, logical_table, "region_level")
+    region_name_col = qcolumn(dbpath, logical_table, "region_name")
+    city_col = qcolumn(dbpath, logical_table, "city")
+    county_col = qcolumn(dbpath, logical_table, "county")
+    township_col = qcolumn(dbpath, logical_table, "township")
+    category_col = qcolumn(dbpath, logical_table, "category")
+    raw_intensity_col = qcolumn(dbpath, logical_table, "raw_intensity")
+    normalized_index_col = qcolumn(dbpath, logical_table, "normalized_index")
+    rank_col = qcolumn(dbpath, logical_table, "rank_within_province")
+    village_count_col = qcolumn(dbpath, logical_table, "village_count")
 
     # Use pre-computed village_count column for optimal performance
     query = f"""
         SELECT
-            region_level,
-            region_name,
-            city,
-            county,
-            township,
-            category as semantic_category,
-            raw_intensity as semantic_index,
-            normalized_index,
-            rank_within_province as rank_in_region,
-            village_count
-        FROM {table_name}
+            {region_level_col} as region_level,
+            {region_name_col} as region_name,
+            {city_col} as city,
+            {county_col} as county,
+            {township_col} as township,
+            {category_col} as semantic_category,
+            {raw_intensity_col} as semantic_index,
+            {normalized_index_col} as normalized_index,
+            {rank_col} as rank_in_region,
+            {village_count_col} as village_count
+        FROM {table}
         WHERE 1=1
     """
     params = []
 
     if category is not None:
         if detail:
-            query += " AND (category = ? OR category LIKE '%$_' || ? ESCAPE '$')"
+            query += f" AND ({category_col} = ? OR {category_col} LIKE '%$_' || ? ESCAPE '$')"
             params.append(category)
             params.append(category)
         else:
-            query += " AND category = ?"
+            query += f" AND {category_col} = ?"
             params.append(category)
 
     if region_level is not None:
-        query += " AND region_level = ?"
-        params.append(normalize_region_level(dbpath, table_name, region_level))
+        query += f" AND {region_level_col} = ?"
+        params.append(normalize_region_level(dbpath, logical_table, region_level))
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
-        query += " AND city = ?"
+        query += f" AND {city_col} = ?"
         params.append(city)
     if county is not None:
-        query += " AND county = ?"
+        query += f" AND {county_col} = ?"
         params.append(county)
     elif city is not None and region_level == 'township':
         # Handle 东莞市/中山市 (no county level)
-        query += " AND (county IS NULL OR county = '')"
+        query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
-        query += " AND township = ?"
+        query += f" AND {township_col} = ?"
         params.append(township)
 
     # Priority 2: Backward compatibility (fuzzy match)
     if region_name is not None:
-        query += " AND (city = ? OR county = ? OR township = ?)"
+        query += f" AND ({city_col} = ? OR {county_col} = ? OR {township_col} = ?)"
         params.extend([region_name, region_name, region_name])
 
     if min_villages is not None:
-        query += " AND village_count >= ?"
+        query += f" AND {village_count_col} >= ?"
         params.append(min_villages)
 
     query += " ORDER BY semantic_index DESC LIMIT ?"

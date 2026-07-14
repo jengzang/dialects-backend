@@ -93,13 +93,19 @@ class VillagesMLSchemaRuntimeTests(unittest.TestCase):
             self.assertEqual(resolve_db_path("village"), "/tmp/mapped-villages.db")
 
     def test_schema_helpers_cover_village_data_identifiers(self) -> None:
-        from app.villagesML.schema_runtime import qcolumn, qtable
+        from app.villagesML.schema_runtime import configured_table_list, qcolumn, qtable
 
         self.assertEqual(qtable("village", "villages"), '"广东省自然村_预处理"')
         self.assertEqual(qcolumn("village", "villages", "name"), '"自然村_规范名"')
         self.assertEqual(qtable("village", "village_ngrams"), '"village_ngrams"')
         self.assertEqual(qcolumn("village", "village_ngrams", "committee"), '"村委会"')
         self.assertEqual(qtable("village", "sqlite_master"), '"sqlite_master"')
+        self.assertEqual(qcolumn("village", "city_aggregates", "total_villages"), '"total_villages"')
+        self.assertEqual(qcolumn("village", "region_vectors", "region_id"), '"region_id"')
+        self.assertIn(
+            "regional_ngram_frequency",
+            configured_table_list("village", "database_statistics"),
+        )
 
     def test_villages_routes_expose_dbpath_query_parameter(self) -> None:
         from fastapi import FastAPI

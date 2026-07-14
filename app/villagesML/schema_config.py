@@ -320,14 +320,90 @@ VILLAGES_DATABASES = {
                 "column_value_maps": {
                 },
             },
-            "semantic_bigrams": {"name": "semantic_bigrams"},
-            "semantic_bigrams_detailed": {"name": "semantic_bigrams_detailed"},
-            "semantic_trigrams": {"name": "semantic_trigrams"},
-            "semantic_trigrams_detailed": {"name": "semantic_trigrams_detailed"},
-            "semantic_pmi": {"name": "semantic_pmi"},
-            "semantic_pmi_detailed": {"name": "semantic_pmi_detailed"},
-            "semantic_composition_patterns": {"name": "semantic_composition_patterns"},
-            "semantic_composition_patterns_detailed": {"name": "semantic_composition_patterns_detailed"},
+            "semantic_bigrams": {
+                "name": "semantic_bigrams",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                    "pmi": "pmi",
+                },
+            },
+            "semantic_bigrams_detailed": {
+                "name": "semantic_bigrams_detailed",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                    "pmi": "pmi",
+                },
+            },
+            "semantic_trigrams": {
+                "name": "semantic_trigrams",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "category3": "category3",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                },
+            },
+            "semantic_trigrams_detailed": {
+                "name": "semantic_trigrams_detailed",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "category3": "category3",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                },
+            },
+            "semantic_pmi": {
+                "name": "semantic_pmi",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "pmi": "pmi",
+                    "frequency": "frequency",
+                    "is_positive": "is_positive",
+                },
+            },
+            "semantic_pmi_detailed": {
+                "name": "semantic_pmi_detailed",
+                "columns": {
+                    "category1": "category1",
+                    "category2": "category2",
+                    "pmi": "pmi",
+                    "frequency": "frequency",
+                    "is_positive": "is_positive",
+                },
+            },
+            "semantic_composition_patterns": {
+                "name": "semantic_composition_patterns",
+                "columns": {
+                    "pattern": "pattern",
+                    "pattern_type": "pattern_type",
+                    "modifier": "modifier",
+                    "head": "head",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                    "description": "description",
+                },
+            },
+            "semantic_composition_patterns_detailed": {
+                "name": "semantic_composition_patterns_detailed",
+                "columns": {
+                    "pattern": "pattern",
+                    "pattern_type": "pattern_type",
+                    "modifier": "modifier",
+                    "head": "head",
+                    "frequency": "frequency",
+                    "percentage": "percentage",
+                    "description": "description",
+                },
+            },
             "spatial_hotspots": {
                 "name": "spatial_hotspots",
                 "run_id": {"analysis_type": "spatial_hotspots", "column": "run_id"},
@@ -554,6 +630,16 @@ VILLAGES_DATABASES = {
                     "n_spatial_clusters": "n_spatial_clusters",
                 },
             },
+            "region_vectors": {
+                "name": "region_vectors",
+                "columns": {
+                    "region_id": "region_id",
+                    "region_name": "region_name",
+                    "region_level": "region_level",
+                    "N_villages": "N_villages",
+                    "created_at": "created_at",
+                },
+            },
             "region_similarity": {
                 "name": "region_similarity",
                 "columns": {
@@ -591,9 +677,89 @@ VILLAGES_DATABASES = {
                     "page_size": "pgsize",
                 },
             },
-            "city_aggregates": {"name": "city_aggregates"},
-            "county_aggregates": {"name": "county_aggregates"},
-            "town_aggregates": {"name": "town_aggregates"},
+            "city_aggregates": {
+                "name": "city_aggregates",
+                "columns": {
+                    "city": "city",
+                    "total_villages": "total_villages",
+                },
+            },
+            "county_aggregates": {
+                "name": "county_aggregates",
+                "columns": {
+                    "city": "city",
+                    "county": "county",
+                    "total_villages": "total_villages",
+                },
+            },
+            "town_aggregates": {
+                "name": "town_aggregates",
+                "columns": {
+                    "city": "city",
+                    "county": "county",
+                    "town": "town",
+                    "total_villages": "total_villages",
+                },
+            },
+        },
+        "table_lists": {
+            "database_statistics": [
+                "regional_ngram_frequency",
+                "ngram_tendency",
+                "ngram_significance",
+                "pattern_regional_analysis",
+                "char_regional_analysis",
+                "semantic_regional_analysis",
+            ],
+        },
+        "table_variants": {
+            "semantic_bigrams_by_detail": {
+                False: "semantic_bigrams",
+                True: "semantic_bigrams_detailed",
+            },
+            "semantic_trigrams_by_detail": {
+                False: "semantic_trigrams",
+                True: "semantic_trigrams_detailed",
+            },
+            "semantic_pmi_by_detail": {
+                False: "semantic_pmi",
+                True: "semantic_pmi_detailed",
+            },
+            "semantic_composition_patterns_by_detail": {
+                False: "semantic_composition_patterns",
+                True: "semantic_composition_patterns_detailed",
+            },
+            "semantic_indices_by_detail": {
+                False: "semantic_indices",
+                True: "semantic_indices_detailed",
+            },
+        },
+        "region_levels": {
+            "compute_aggregate_features": {
+                "city": {
+                    "region_col": "city",
+                    "group_cols": ["city"],
+                    "filter_col": "city",
+                    "agg_table": "city_aggregates",
+                },
+                "county": {
+                    "region_col": "county",
+                    "group_cols": ["city", "county"],
+                    "filter_col": "city",
+                    "agg_table": "county_aggregates",
+                },
+                "township": {
+                    "region_col": "town",
+                    "group_cols": ["city", "county", "town"],
+                    "filter_col": "county",
+                    "agg_table": "town_aggregates",
+                },
+            },
+            "compute_feature_aggregation": {
+                "city": {"group_cols": ["city"]},
+                "county": {"group_cols": ["city", "county"]},
+                "township": {"group_cols": ["city", "county", "town"]},
+            },
         },
     }
 }
