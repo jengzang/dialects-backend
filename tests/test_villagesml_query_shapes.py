@@ -174,6 +174,34 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
         self.assertEqual(len(similarity_queries), 2)
         self.assertTrue(all(" OR " not in query for query in similarity_queries))
 
+    def test_regional_aggregates_use_preprocessed_villages_not_raw_table(self) -> None:
+        from app.villagesML.regional import aggregates_realtime
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "GROUP BY" in query:
+                return [{"city": "广州市", "total_villages": 10, "avg_name_length": 2.5}]
+            return []
+
+        with (
+            patch.object(aggregates_realtime, "execute_query", side_effect=fake_execute_query),
+            patch.object(aggregates_realtime.get_run_id_manager("village").__class__, "get_active_run_id", return_value="run_1"),
+        ):
+            result = aggregates_realtime.compute_city_aggregates(
+                db=sqlite3.connect(":memory:"),
+                city=None,
+                run_id=None,
+                dbpath="village",
+            )
+
+        self.assertEqual(result[0]["city"], "广州市")
+        basic_queries = [query for query, _ in executed if "COUNT(DISTINCT" in query]
+        self.assertTrue(basic_queries)
+        self.assertIn('FROM "广东省自然村_预处理" v', basic_queries[0])
+        self.assertNotIn('FROM "广东省自然村" v', basic_queries[0])
+
     def test_township_ngram_regional_adds_region_lookup_when_township_is_known(self) -> None:
         from app.villagesML.ngrams import frequency
 

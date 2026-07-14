@@ -70,7 +70,7 @@ def compute_city_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
@@ -212,7 +212,7 @@ def compute_county_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
@@ -395,7 +395,7 @@ def get_town_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
@@ -682,7 +682,7 @@ def get_region_vectors(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
-    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
 
     # 步骤1: 从 semantic_indices 获取所有符合 level 的区域
     semantic_query = f"""
