@@ -156,6 +156,7 @@ VILLAGES_DATABASES = {
                     "prefix_3": "prefix_3",
                     "name_length": "name_length",
                     "cluster_id": "cluster_id",
+                    "kmeans_cluster_id": "kmeans_cluster_id",
                     "sem_agriculture": "sem_agriculture",
                     "sem_clan": "sem_clan",
                     "sem_culture": "sem_culture",

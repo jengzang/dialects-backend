@@ -67,6 +67,80 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
             self.assertNotIn('"自然村" = ?', query)
             self.assertNotIn('"村委会" = ?', query)
 
+    def test_village_search_detail_accepts_rowid_without_name_lookup_from_frontend(self) -> None:
+        from app.villagesML.village import search
+
+        queries = []
+        pragma_rows = {
+            "village_features": [
+                {"name": "village_id"},
+                {"name": "run_id"},
+                {"name": "suffix_1"},
+                {"name": "sem_water"},
+                {"name": "sem_settlement"},
+                {"name": "kmeans_cluster_id"},
+            ],
+            "village_spatial_features": [
+                {"name": "village_id"},
+                {"name": "nn_distance_5"},
+                {"name": "local_density_1km"},
+                {"name": "isolation_score"},
+            ],
+        }
+
+        def fake_execute_single(_db, query, params=()):
+            queries.append((query, params))
+            if "FROM \"广东省自然村_预处理\"" in query:
+                return {
+                    "village_id": 7,
+                    "village_id_str": "v_7",
+                    "village_name": "水口",
+                    "city": "广州市",
+                    "county": "从化区",
+                    "township": "太平镇",
+                    "longitude": 113.1,
+                    "latitude": 23.1,
+                }
+            if "FROM \"village_features\"" in query:
+                return {"semantic_tags": "water,settlement", "suffix": "村", "cluster_id": 3}
+            if "FROM \"village_spatial_features\"" in query:
+                return {"spatial_cluster_id": 9}
+            return None
+
+        def fake_execute_query(_db, query, params=()):
+            if "PRAGMA table_info" not in query:
+                return []
+            table_name = query.split('"')[1]
+            return pragma_rows[table_name]
+
+        with (
+            patch.object(search, "execute_single", side_effect=fake_execute_single),
+            patch.object(search, "execute_query", side_effect=fake_execute_query),
+            patch.object(search.get_run_id_manager("village").__class__, "get_active_run_id", return_value="run_1"),
+        ):
+            result = search.get_village_detail(
+                village_id=7,
+                village_name=None,
+                city=None,
+                county=None,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(result["basic_info"]["village_name"], "水口")
+        self.assertEqual(result["semantic_tags"], ["water", "settlement"])
+        feature_queries = [query for query, _ in queries if "FROM \"village_features\"" in query]
+        spatial_queries = [query for query, _ in queries if "FROM \"village_spatial_features\"" in query]
+        self.assertTrue(feature_queries)
+        self.assertTrue(spatial_queries)
+        self.assertIn('"village_id" = ?', feature_queries[0])
+        self.assertIn('"suffix_1" as suffix', feature_queries[0])
+        self.assertIn('"kmeans_cluster_id" as cluster_id', feature_queries[0])
+        self.assertIn("CASE WHEN", feature_queries[0])
+        self.assertIn('vsf."village_id" = ?', spatial_queries[0])
+        self.assertIn('vsf."nn_distance_5" as knn_mean_distance', spatial_queries[0])
+        self.assertIn('vsf."local_density_1km" as local_density', spatial_queries[0])
+
     def test_region_similarity_search_splits_or_lookup(self) -> None:
         from app.villagesML.regional import similarity
 
@@ -99,6 +173,97 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
         self.assertEqual(result["count"], 2)
         self.assertEqual(len(similarity_queries), 2)
         self.assertTrue(all(" OR " not in query for query in similarity_queries))
+
+    def test_township_ngram_regional_adds_region_lookup_when_township_is_known(self) -> None:
+        from app.villagesML.ngrams import frequency
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            return [
+                {
+                    "region_name": "太平镇",
+                    "city": "广州市",
+                    "county": "从化区",
+                    "township": "太平镇",
+                    "ngram": "水口",
+                    "frequency": 8,
+                    "percentage": 1.0,
+                }
+            ]
+
+        with patch.object(frequency, "execute_query", side_effect=fake_execute_query):
+            result = frequency.get_regional_ngram_frequency(
+                n=2,
+                region_level="township",
+                region_name=None,
+                city="广州市",
+                county="从化区",
+                township="太平镇",
+                top_k=50,
+                return_metadata=False,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        query, params = executed[0]
+        self.assertEqual(result[0]["region_name"], "太平镇")
+        self.assertIn('"region" = ?', query)
+        self.assertIn("太平镇", params)
+
+    def test_township_ngram_tendency_adds_region_lookup_when_township_is_known(self) -> None:
+        from app.villagesML.ngrams import frequency
+
+        executed = []
+
+        class FakeCursor:
+            def execute(self, *_args):
+                return None
+
+            def fetchall(self):
+                return [("regional_total_raw", "regional_total_raw")]
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            return [
+                {
+                    "region_level": "township",
+                    "region_name": "太平镇",
+                    "city": "广州市",
+                    "county": "从化区",
+                    "township": "太平镇",
+                    "ngram": "水口",
+                    "n": 2,
+                    "position": "all",
+                    "tendency_score": 1.2,
+                    "frequency": 8,
+                }
+            ]
+
+        frequency._pragma_cache.clear()
+        with patch.object(frequency, "execute_query", side_effect=fake_execute_query):
+            result = frequency.get_ngram_tendency(
+                ngram=None,
+                region_level="township",
+                region_name=None,
+                city="广州市",
+                county="从化区",
+                township="太平镇",
+                min_tendency=None,
+                limit=100,
+                db=FakeConnection(),
+                dbpath="village",
+            )
+
+        query, params = executed[0]
+        self.assertEqual(result[0]["region_name"], "太平镇")
+        self.assertIn('nt."region" = ?', query)
+        self.assertIn("太平镇", params)
 
 
 if __name__ == "__main__":

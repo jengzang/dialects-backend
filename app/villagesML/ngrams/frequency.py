@@ -192,6 +192,9 @@ def get_regional_ngram_frequency(
         if region_name is not None:
             query += f" AND {region_col} = ?"
             params.append(region_name)
+        elif township is not None:
+            query += f" AND {region_col} = ?"
+            params.append(township)
 
         query += f" ORDER BY {region_col}, {frequency_col} DESC"
 
@@ -494,6 +497,9 @@ def get_ngram_tendency(
         if region_name is not None:
             query += f" AND nt.{tcol('region')} = ?"
             params.append(region_name)
+        elif township is not None:
+            query += f" AND nt.{tcol('region')} = ?"
+            params.append(township)
         if ngram is not None:
             query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
