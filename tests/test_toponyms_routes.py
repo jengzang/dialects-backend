@@ -98,6 +98,16 @@ class ToponymsRoutesTest(unittest.TestCase):
     def test_toponyms_db_is_not_exposed_through_generic_sql_mapping(self) -> None:
         self.assertNotIn("toponyms", DB_MAPPING)
 
+    def test_main_app_registers_toponyms_routes(self) -> None:
+        from app.main import create_main_app
+
+        app = create_main_app()
+        paths = {route.path for route in app.routes}
+
+        self.assertIn("/api/toponyms/points", paths)
+        self.assertIn("/api/toponyms/names/sample", paths)
+        self.assertIn("/api/toponyms/divisions", paths)
+
     def test_points_endpoint_returns_coordinates_and_ids_without_names(self) -> None:
         response = self.client.get(
             "/api/toponyms/points",
