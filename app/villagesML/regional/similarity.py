@@ -122,28 +122,48 @@ async def search_similar_regions(
     # Determine which similarity column to use
     sim_column = qcolumn(dbpath, T.REGION_SIMILARITY, getattr(SIMILARITY_METRIC_COLUMNS, metric))
 
-    # Query similar regions (check both region1 and region2)
-    query = f"""
+    # Split the two directions so SQLite can use the existing region1/region2 indexes
+    # instead of scanning a broad OR predicate.
+    normalized_query_level = normalize_region_level(dbpath, T.REGION_SIMILARITY, query_level)
+    common_chars_col = scol(C.REGION_SIMILARITY.COMMON_HIGH_TENDENCY_CHARS)
+    distinctive_r1_col = scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R1)
+    distinctive_r2_col = scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R2)
+
+    region1_query = f"""
     SELECT
-        CASE
-            WHEN {scol(C.REGION_SIMILARITY.REGION1)} = ? THEN {scol(C.REGION_SIMILARITY.REGION2)}
-            ELSE {scol(C.REGION_SIMILARITY.REGION1)}
-        END as similar_region,
+        {scol(C.REGION_SIMILARITY.REGION2)} as similar_region,
         {sim_column} as similarity,
-        {scol(C.REGION_SIMILARITY.COMMON_HIGH_TENDENCY_CHARS)} as common_high_tendency_chars,
-        CASE
-            WHEN {scol(C.REGION_SIMILARITY.REGION1)} = ? THEN {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R2)}
-            ELSE {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R1)}
-        END as distinctive_chars
+        {common_chars_col} as common_high_tendency_chars,
+        {distinctive_r2_col} as distinctive_chars
     FROM {similarity_table}
     WHERE {scol(C.REGION_SIMILARITY.REGION_LEVEL)} = ?
-      AND ({scol(C.REGION_SIMILARITY.REGION1)} = ? OR {scol(C.REGION_SIMILARITY.REGION2)} = ?)
+      AND {scol(C.REGION_SIMILARITY.REGION1)} = ?
+      AND {sim_column} >= ?
+    ORDER BY {sim_column} DESC
+    LIMIT ?
+    """
+    region2_query = f"""
+    SELECT
+        {scol(C.REGION_SIMILARITY.REGION1)} as similar_region,
+        {sim_column} as similarity,
+        {common_chars_col} as common_high_tendency_chars,
+        {distinctive_r1_col} as distinctive_chars
+    FROM {similarity_table}
+    WHERE {scol(C.REGION_SIMILARITY.REGION_LEVEL)} = ?
+      AND {scol(C.REGION_SIMILARITY.REGION2)} = ?
       AND {sim_column} >= ?
     ORDER BY {sim_column} DESC
     LIMIT ?
     """
 
-    rows = execute_query(db, query, (target_region, target_region, normalize_region_level(dbpath, T.REGION_SIMILARITY, query_level), target_region, target_region, min_similarity, top_k))
+    rows_by_region = {}
+    for row in execute_query(db, region1_query, (normalized_query_level, target_region, min_similarity, top_k)):
+        rows_by_region[row["similar_region"]] = row
+    for row in execute_query(db, region2_query, (normalized_query_level, target_region, min_similarity, top_k)):
+        current = rows_by_region.get(row["similar_region"])
+        if current is None or row["similarity"] > current["similarity"]:
+            rows_by_region[row["similar_region"]] = row
+    rows = sorted(rows_by_region.values(), key=lambda row: row["similarity"], reverse=True)[:top_k]
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No similar regions found for '{target_region}'")

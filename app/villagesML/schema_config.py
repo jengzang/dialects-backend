@@ -201,6 +201,7 @@ VILLAGES_DATABASES = {
             "village_ngrams": {
                 "name": "village_ngrams",
                 "columns": {
+                    "village_id": "village_id",
                     "committee": "村委会",
                     "name": "自然村",
                     "bigrams": "bigrams",

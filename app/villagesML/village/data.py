@@ -14,6 +14,49 @@ from ..schema_keys import C, T
 router = APIRouter(prefix="/village")
 
 
+def _get_village_identity(
+    db: sqlite3.Connection,
+    dbpath: str,
+    rowid: int,
+    include_location: bool = False,
+) -> dict:
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
+
+    select_parts = [
+        f"{villages_id} as village_id",
+        f"{villages_name} as village_name",
+        f"{villages_committee} as village_committee",
+    ]
+    if include_location:
+        select_parts.extend(
+            [
+                f"{qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)} as city",
+                f"{qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)} as county",
+                f"{qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)} as township",
+                f"CAST({qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)} AS REAL) as longitude",
+                f"CAST({qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)} AS REAL) as latitude",
+            ]
+        )
+
+    village_query = f"""
+        SELECT {", ".join(select_parts)}
+        FROM {villages_table}
+        WHERE {villages_rowid} = ?
+    """
+    village_info = execute_single(db, village_query, (rowid,))
+
+    if not village_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Village {rowid} not found",
+        )
+    return village_info
+
+
 @router.get("/ngrams/{village_id}")
 def get_village_ngrams(
     village_id: int,
@@ -32,11 +75,8 @@ def get_village_ngrams(
     Returns:
         dict: 村庄N-gram信息
     """
-    villages_table = qtable(dbpath, T.VILLAGES)
-    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
-    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
-    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
     ngrams_table = qtable(dbpath, T.VILLAGE_NGRAMS)
+    ngrams_village_id = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.VILLAGE_ID)
     ngrams_name = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.NAME)
     ngrams_committee = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.COMMITTEE)
     ngrams_bigrams = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.BIGRAMS)
@@ -44,24 +84,11 @@ def get_village_ngrams(
     ngrams_prefix_bigram = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.PREFIX_BIGRAM)
     ngrams_suffix_bigram = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.SUFFIX_BIGRAM)
 
-    # First get village name from preprocessed table using ROWID
-    village_query = f"""
-        SELECT {villages_name} as village_name, {villages_committee} as village_committee
-        FROM {villages_table}
-        WHERE {villages_rowid} = ?
-    """
-    village_info = execute_single(db, village_query, (village_id,))
+    village_info = _get_village_identity(db, dbpath, village_id)
 
-    if not village_info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Village {village_id} not found"
-        )
-
-    # Then query ngrams table using village name and committee
-    # Try exact match first
     query = f"""
         SELECT
+            {ngrams_village_id} as village_id,
             {ngrams_committee} as village_committee,
             {ngrams_name} as village_name,
             {ngrams_bigrams} as bigrams,
@@ -69,31 +96,17 @@ def get_village_ngrams(
             {ngrams_prefix_bigram} as prefix_bigram,
             {ngrams_suffix_bigram} as suffix_bigram
         FROM {ngrams_table}
-        WHERE {ngrams_name} = ? AND {ngrams_committee} = ?
+        WHERE {ngrams_village_id} = ?
     """
 
-    result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
-
-    # If no result, try matching by village_name only (committee might differ)
-    if not result:
-        query = f"""
-            SELECT
-                {ngrams_committee} as village_committee,
-                {ngrams_name} as village_name,
-                {ngrams_bigrams} as bigrams,
-                {ngrams_trigrams} as trigrams,
-                {ngrams_prefix_bigram} as prefix_bigram,
-                {ngrams_suffix_bigram} as suffix_bigram
-            FROM {ngrams_table}
-            WHERE {ngrams_name} = ?
-        """
-        result = execute_single(db, query, (village_info['village_name'],))
+    result = execute_single(db, query, (village_info["village_id"],))
 
     if not result:
         # Return empty structure if no ngram data exists for this village
         return {
-            "village_committee": village_info['village_committee'],
-            "village_name": village_info['village_name'],
+            "village_id": village_info["village_id"],
+            "village_committee": village_info["village_committee"],
+            "village_name": village_info["village_name"],
             "bigrams": None,
             "trigrams": None,
             "prefix_bigram": None,
@@ -129,11 +142,8 @@ def get_village_semantic_structure(
     Returns:
         dict: 村庄语义结构
     """
-    villages_table = qtable(dbpath, T.VILLAGES)
-    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
-    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
-    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
     semantic_table = qtable(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)
+    semantic_village_id = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.VILLAGE_ID)
     semantic_name = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.NAME)
     semantic_committee = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.COMMITTEE)
     semantic_sequence = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.SEMANTIC_SEQUENCE)
@@ -142,24 +152,11 @@ def get_village_semantic_structure(
     has_head = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.HAS_HEAD)
     has_settlement = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.HAS_SETTLEMENT)
 
-    # First get village name from preprocessed table using ROWID
-    village_query = f"""
-        SELECT {villages_name} as village_name, {villages_committee} as village_committee
-        FROM {villages_table}
-        WHERE {villages_rowid} = ?
-    """
-    village_info = execute_single(db, village_query, (village_id,))
+    village_info = _get_village_identity(db, dbpath, village_id)
 
-    if not village_info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Village {village_id} not found"
-        )
-
-    # Then query semantic structure table
-    # Try exact match first
     query = f"""
         SELECT
+            {semantic_village_id} as village_id,
             {semantic_committee} as village_committee,
             {semantic_name} as village_name,
             {semantic_sequence} as semantic_sequence,
@@ -168,32 +165,17 @@ def get_village_semantic_structure(
             {has_head} as has_head,
             {has_settlement} as has_settlement
         FROM {semantic_table}
-        WHERE {semantic_name} = ? AND {semantic_committee} = ?
+        WHERE {semantic_village_id} = ?
     """
 
-    result = execute_single(db, query, (village_info['village_name'], village_info['village_committee']))
-
-    # If no result, try matching by village_name only (committee might differ)
-    if not result:
-        query = f"""
-            SELECT
-                {semantic_committee} as village_committee,
-                {semantic_name} as village_name,
-                {semantic_sequence} as semantic_sequence,
-                {sequence_length} as sequence_length,
-                {has_modifier} as has_modifier,
-                {has_head} as has_head,
-                {has_settlement} as has_settlement
-            FROM {semantic_table}
-            WHERE {semantic_name} = ?
-        """
-        result = execute_single(db, query, (village_info['village_name'],))
+    result = execute_single(db, query, (village_info["village_id"],))
 
     if not result:
         # Return empty structure if no semantic data exists for this village
         return {
-            "village_committee": village_info['village_committee'],
-            "village_name": village_info['village_name'],
+            "village_id": village_info["village_id"],
+            "village_committee": village_info["village_committee"],
+            "village_name": village_info["village_name"],
             "semantic_sequence": None,
             "sequence_length": None,
             "has_modifier": None,
@@ -397,11 +379,9 @@ def get_village_complete_profile(
     spatial_clusters_cluster_id = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
     spatial_clusters_cluster_size = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
     semantic_table = qtable(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)
-    semantic_name = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.NAME)
-    semantic_committee = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.COMMITTEE)
+    semantic_village_id = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.VILLAGE_ID)
     ngrams_table = qtable(dbpath, T.VILLAGE_NGRAMS)
-    ngrams_name = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.NAME)
-    ngrams_committee = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.COMMITTEE)
+    ngrams_village_id = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.VILLAGE_ID)
 
     # Get basic info from preprocessed table using ROWID
     basic_query = f"""
@@ -452,45 +432,21 @@ def get_village_complete_profile(
     """
     spatial_features = execute_single(db, spatial_query, (spatial_cluster_run_id, basic_info['village_id_str']))
 
-    # Get semantic structure (uses village_name + committee)
+    # Get semantic structure using materialized village_id.
     semantic_query = f"""
         SELECT *
         FROM {semantic_table}
-        WHERE {semantic_name} = ? AND {semantic_committee} = ?
+        WHERE {semantic_village_id} = ?
     """
-    semantic_structure = execute_single(db, semantic_query, (
-        basic_info['village_name'],
-        basic_info['village_committee']
-    ))
+    semantic_structure = execute_single(db, semantic_query, (basic_info['village_id_str'],))
 
-    # Fallback: try matching by village_name only
-    if not semantic_structure:
-        semantic_query = f"""
-            SELECT *
-            FROM {semantic_table}
-            WHERE {semantic_name} = ?
-        """
-        semantic_structure = execute_single(db, semantic_query, (basic_info['village_name'],))
-
-    # Get n-grams (uses village_name + committee)
+    # Get n-grams using materialized village_id.
     ngrams_query = f"""
         SELECT *
         FROM {ngrams_table}
-        WHERE {ngrams_name} = ? AND {ngrams_committee} = ?
+        WHERE {ngrams_village_id} = ?
     """
-    ngrams = execute_single(db, ngrams_query, (
-        basic_info['village_name'],
-        basic_info['village_committee']
-    ))
-
-    # Fallback: try matching by village_name only
-    if not ngrams:
-        ngrams_query = f"""
-            SELECT *
-            FROM {ngrams_table}
-            WHERE {ngrams_name} = ?
-        """
-        ngrams = execute_single(db, ngrams_query, (basic_info['village_name'],))
+    ngrams = execute_single(db, ngrams_query, (basic_info['village_id_str'],))
 
     # Get features (uses village_id)
     features_query = f"""
