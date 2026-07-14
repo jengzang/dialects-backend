@@ -9,14 +9,15 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/spatial", tags=["spatial-integration"])
 
 
 def _integration_schema(dbpath: str):
-    table = qtable(dbpath, "spatial_tendency_integration")
-    col = lambda name: qcolumn(dbpath, "spatial_tendency_integration", name)
-    analysis_type = run_id_analysis_type(dbpath, "spatial_tendency_integration")
+    table = qtable(dbpath, T.SPATIAL_TENDENCY_INTEGRATION)
+    col = lambda name: qcolumn(dbpath, T.SPATIAL_TENDENCY_INTEGRATION, name)
+    analysis_type = run_id_analysis_type(dbpath, T.SPATIAL_TENDENCY_INTEGRATION)
     return table, col, analysis_type
 
 
@@ -58,60 +59,60 @@ def get_spatial_tendency_integration(
 
     query = f"""
         SELECT
-            {col("id")} as id,
-            {col("run_id")} as run_id,
-            {col("tendency_run_id")} as tendency_run_id,
-            {col("spatial_run_id")} as spatial_run_id,
-            {col("character")} as character,
-            {col("character_category")} as character_category,
-            {col("cluster_id")} as cluster_id,
-            {col("cluster_tendency_mean")} as cluster_tendency_mean,
-            {col("cluster_tendency_std")} as cluster_tendency_std,
-            {col("global_tendency_mean")} as global_tendency_mean,
-            {col("tendency_deviation")} as tendency_deviation,
-            {col("cluster_size")} as cluster_size,
-            {col("n_villages_with_char")} as n_villages_with_char,
-            {col("centroid_lon")} as centroid_lon,
-            {col("centroid_lat")} as centroid_lat,
-            {col("avg_distance_km")} as avg_distance_km,
-            {col("spatial_coherence")} as spatial_coherence,
-            {col("spatial_specificity")} as spatial_specificity,
-            {col("dominant_city")} as dominant_city,
-            {col("dominant_county")} as dominant_county,
-            {col("is_significant")} as is_significant,
-            {col("p_value")} as p_value,
-            {col("u_statistic")} as u_statistic
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.ID)} as id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} as run_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.TENDENCY_RUN_ID)} as tendency_run_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_RUN_ID)} as spatial_run_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} as character,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER_CATEGORY)} as character_category,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} as cluster_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} as cluster_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_STD)} as cluster_tendency_std,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.GLOBAL_TENDENCY_MEAN)} as global_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.TENDENCY_DEVIATION)} as tendency_deviation,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)} as cluster_size,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.N_VILLAGES_WITH_CHAR)} as n_villages_with_char,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LON)} as centroid_lon,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LAT)} as centroid_lat,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.AVG_DISTANCE_KM)} as avg_distance_km,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} as spatial_coherence,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_SPECIFICITY)} as spatial_specificity,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_CITY)} as dominant_city,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_COUNTY)} as dominant_county,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} as is_significant,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.P_VALUE)} as p_value,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.U_STATISTIC)} as u_statistic
         FROM {table}
-        WHERE {col("run_id")} = ?
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
     """
     params = [run_id]
 
     # 现场过滤：字符
     if character is not None:
-        query += f" AND {col('character')} = ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} = ?"
         params.append(character)
 
     # 现场过滤：聚类ID
     if cluster_id is not None:
-        query += f" AND {col('cluster_id')} = ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} = ?"
         params.append(cluster_id)
 
     # 现场过滤：最小聚类大小
     if min_cluster_size is not None:
-        query += f" AND {col('cluster_size')} >= ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)} >= ?"
         params.append(min_cluster_size)
 
     # 现场过滤：最小空间一致性
     if min_spatial_coherence is not None:
-        query += f" AND {col('spatial_coherence')} >= ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} >= ?"
         params.append(min_spatial_coherence)
 
     # 现场过滤：显著性
     if is_significant is not None:
-        query += f" AND {col('is_significant')} = ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} = ?"
         params.append(1 if is_significant else 0)
 
-    query += f" ORDER BY {col('cluster_size')} DESC, {col('spatial_coherence')} DESC LIMIT ?"
+    query += f" ORDER BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)} DESC, {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -152,33 +153,33 @@ def get_integration_by_character(
 
     query = f"""
         SELECT
-            {col("cluster_id")} as cluster_id,
-            {col("cluster_tendency_mean")} as cluster_tendency_mean,
-            {col("cluster_tendency_std")} as cluster_tendency_std,
-            {col("global_tendency_mean")} as global_tendency_mean,
-            {col("tendency_deviation")} as tendency_deviation,
-            {col("cluster_size")} as cluster_size,
-            {col("n_villages_with_char")} as n_villages_with_char,
-            {col("centroid_lon")} as centroid_lon,
-            {col("centroid_lat")} as centroid_lat,
-            {col("avg_distance_km")} as avg_distance_km,
-            {col("spatial_coherence")} as spatial_coherence,
-            {col("spatial_specificity")} as spatial_specificity,
-            {col("dominant_city")} as dominant_city,
-            {col("dominant_county")} as dominant_county,
-            {col("is_significant")} as is_significant,
-            {col("p_value")} as p_value,
-            {col("u_statistic")} as u_statistic
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} as cluster_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} as cluster_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_STD)} as cluster_tendency_std,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.GLOBAL_TENDENCY_MEAN)} as global_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.TENDENCY_DEVIATION)} as tendency_deviation,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)} as cluster_size,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.N_VILLAGES_WITH_CHAR)} as n_villages_with_char,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LON)} as centroid_lon,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LAT)} as centroid_lat,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.AVG_DISTANCE_KM)} as avg_distance_km,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} as spatial_coherence,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_SPECIFICITY)} as spatial_specificity,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_CITY)} as dominant_city,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_COUNTY)} as dominant_county,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} as is_significant,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.P_VALUE)} as p_value,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.U_STATISTIC)} as u_statistic
         FROM {table}
-        WHERE {col("run_id")} = ? AND {col("character")} = ?
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ? AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} = ?
     """
     params = [run_id, character]
 
     if min_spatial_coherence is not None:
-        query += f" AND {col('spatial_coherence')} >= ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} >= ?"
         params.append(min_spatial_coherence)
 
-    query += f" ORDER BY {col('cluster_tendency_mean')} DESC"
+    query += f" ORDER BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -223,34 +224,34 @@ def get_integration_by_cluster(
 
     query = f"""
         SELECT
-            {col("character")} as character,
-            {col("character_category")} as character_category,
-            {col("cluster_tendency_mean")} as cluster_tendency_mean,
-            {col("cluster_tendency_std")} as cluster_tendency_std,
-            {col("global_tendency_mean")} as global_tendency_mean,
-            {col("tendency_deviation")} as tendency_deviation,
-            {col("cluster_size")} as cluster_size,
-            {col("n_villages_with_char")} as n_villages_with_char,
-            {col("centroid_lon")} as centroid_lon,
-            {col("centroid_lat")} as centroid_lat,
-            {col("avg_distance_km")} as avg_distance_km,
-            {col("spatial_coherence")} as spatial_coherence,
-            {col("spatial_specificity")} as spatial_specificity,
-            {col("dominant_city")} as dominant_city,
-            {col("dominant_county")} as dominant_county,
-            {col("is_significant")} as is_significant,
-            {col("p_value")} as p_value,
-            {col("u_statistic")} as u_statistic
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} as character,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER_CATEGORY)} as character_category,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} as cluster_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_STD)} as cluster_tendency_std,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.GLOBAL_TENDENCY_MEAN)} as global_tendency_mean,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.TENDENCY_DEVIATION)} as tendency_deviation,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)} as cluster_size,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.N_VILLAGES_WITH_CHAR)} as n_villages_with_char,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LON)} as centroid_lon,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LAT)} as centroid_lat,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.AVG_DISTANCE_KM)} as avg_distance_km,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)} as spatial_coherence,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_SPECIFICITY)} as spatial_specificity,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_CITY)} as dominant_city,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_COUNTY)} as dominant_county,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} as is_significant,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.P_VALUE)} as p_value,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.U_STATISTIC)} as u_statistic
         FROM {table}
-        WHERE {col("run_id")} = ? AND {col("cluster_id")} = ?
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ? AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} = ?
     """
     params = [run_id, cluster_id]
 
     if min_tendency is not None:
-        query += f" AND {col('cluster_tendency_mean')} >= ?"
+        query += f" AND {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} >= ?"
         params.append(min_tendency)
 
-    query += f" ORDER BY {col('cluster_tendency_mean')} DESC"
+    query += f" ORDER BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)} DESC"
 
     results = execute_query(db, query, tuple(params))
 
@@ -293,13 +294,13 @@ def get_integration_summary(
     overall_query = f"""
         SELECT
             COUNT(*) as total_records,
-            COUNT(DISTINCT {col("character")}) as unique_characters,
-            COUNT(DISTINCT {col("cluster_id")}) as unique_clusters,
-            AVG({col("cluster_tendency_mean")}) as avg_tendency,
-            AVG({col("spatial_coherence")}) as avg_coherence,
-            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_count
+            COUNT(DISTINCT {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)}) as unique_characters,
+            COUNT(DISTINCT {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)}) as unique_clusters,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)}) as avg_tendency,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)}) as avg_coherence,
+            SUM(CASE WHEN {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} = 1 THEN 1 ELSE 0 END) as significant_count
         FROM {table}
-        WHERE {col("run_id")} = ?
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
     """
     overall = execute_single(db, overall_query, (run_id,))
 
@@ -312,14 +313,14 @@ def get_integration_summary(
     # 按字符统计
     char_query = f"""
         SELECT
-            {col("character")} as character,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} as character,
             COUNT(*) as cluster_count,
-            AVG({col("cluster_tendency_mean")}) as avg_tendency,
-            AVG({col("spatial_coherence")}) as avg_coherence,
-            SUM({col("n_villages_with_char")}) as total_villages
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)}) as avg_tendency,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)}) as avg_coherence,
+            SUM({col(C.SPATIAL_TENDENCY_INTEGRATION.N_VILLAGES_WITH_CHAR)}) as total_villages
         FROM {table}
-        WHERE {col("run_id")} = ?
-        GROUP BY {col("character")}
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
+        GROUP BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)}
         ORDER BY avg_tendency DESC
     """
     top_characters = execute_query(db, char_query, (run_id,))
@@ -327,16 +328,16 @@ def get_integration_summary(
     # 按聚类统计
     cluster_query = f"""
         SELECT
-            {col("cluster_id")} as cluster_id,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} as cluster_id,
             COUNT(*) as character_count,
-            AVG({col("cluster_tendency_mean")}) as avg_tendency,
-            AVG({col("spatial_coherence")}) as avg_coherence,
-            MAX({col("cluster_size")}) as cluster_size,
-            MAX({col("dominant_city")}) as dominant_city,
-            MAX({col("dominant_county")}) as dominant_county
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)}) as avg_tendency,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)}) as avg_coherence,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)}) as cluster_size,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_CITY)}) as dominant_city,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_COUNTY)}) as dominant_county
         FROM {table}
-        WHERE {col("run_id")} = ?
-        GROUP BY {col("cluster_id")}
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
+        GROUP BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)}
         ORDER BY cluster_size DESC
         LIMIT 10
     """
@@ -376,17 +377,17 @@ def get_available_characters(
 
     query = f"""
         SELECT
-            {col("character")} as character,
-            {col("character_category")} as category,
-            COUNT(DISTINCT {col("cluster_id")}) as total_clusters,
-            SUM({col("n_villages_with_char")}) as total_villages,
-            AVG({col("cluster_tendency_mean")}) as avg_tendency,
-            AVG({col("spatial_coherence")}) as avg_spatial_coherence,
-            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_clusters
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)} as character,
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER_CATEGORY)} as category,
+            COUNT(DISTINCT {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)}) as total_clusters,
+            SUM({col(C.SPATIAL_TENDENCY_INTEGRATION.N_VILLAGES_WITH_CHAR)}) as total_villages,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)}) as avg_tendency,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)}) as avg_spatial_coherence,
+            SUM(CASE WHEN {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} = 1 THEN 1 ELSE 0 END) as significant_clusters
         FROM {table}
-        WHERE {col("run_id")} = ?
-        GROUP BY {col("character")}, {col("character_category")}
-        ORDER BY {col("character")}
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
+        GROUP BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)}, {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER_CATEGORY)}
+        ORDER BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)}
     """
 
     results = execute_query(db, query, (run_id,))
@@ -432,19 +433,19 @@ def get_cluster_list(
 
     query = f"""
         SELECT
-            {col("cluster_id")} as cluster_id,
-            MAX({col("cluster_size")}) as cluster_size,
-            MAX({col("dominant_city")}) as dominant_city,
-            MAX({col("dominant_county")}) as dominant_county,
-            MAX({col("centroid_lon")}) as centroid_lon,
-            MAX({col("centroid_lat")}) as centroid_lat,
-            COUNT(DISTINCT {col("character")}) as total_characters,
-            AVG({col("cluster_tendency_mean")}) as avg_tendency,
-            AVG({col("spatial_coherence")}) as avg_spatial_coherence,
-            SUM(CASE WHEN {col("is_significant")} = 1 THEN 1 ELSE 0 END) as significant_characters
+            {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)} as cluster_id,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_SIZE)}) as cluster_size,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_CITY)}) as dominant_city,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.DOMINANT_COUNTY)}) as dominant_county,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LON)}) as centroid_lon,
+            MAX({col(C.SPATIAL_TENDENCY_INTEGRATION.CENTROID_LAT)}) as centroid_lat,
+            COUNT(DISTINCT {col(C.SPATIAL_TENDENCY_INTEGRATION.CHARACTER)}) as total_characters,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_TENDENCY_MEAN)}) as avg_tendency,
+            AVG({col(C.SPATIAL_TENDENCY_INTEGRATION.SPATIAL_COHERENCE)}) as avg_spatial_coherence,
+            SUM(CASE WHEN {col(C.SPATIAL_TENDENCY_INTEGRATION.IS_SIGNIFICANT)} = 1 THEN 1 ELSE 0 END) as significant_characters
         FROM {table}
-        WHERE {col("run_id")} = ?
-        GROUP BY {col("cluster_id")}
+        WHERE {col(C.SPATIAL_TENDENCY_INTEGRATION.RUN_ID)} = ?
+        GROUP BY {col(C.SPATIAL_TENDENCY_INTEGRATION.CLUSTER_ID)}
     """
     params = [run_id]
 

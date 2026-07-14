@@ -28,20 +28,28 @@ from .timeout import run_with_timeout, TimeoutException
 from ..config import COMPUTE_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import qcolumn, qtable, resolve_db_path
+from ..schema_keys import C, T, semantic_feature_column
 from app.sql.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/compute/subset")
 
-SUBSET_SEMANTIC_COLUMNS = [f"sem_{tag}" for tag in sorted(SUBSET_SEMANTIC_TAG_WHITELIST)]
-SUBSET_BASE_COLUMNS = ["village_id", "village_name", "city", "county", "name_length", "suffix_1"]
+SUBSET_SEMANTIC_COLUMNS = [semantic_feature_column(tag) for tag in sorted(SUBSET_SEMANTIC_TAG_WHITELIST)]
+SUBSET_BASE_COLUMNS = [
+    C.VILLAGE_FEATURES.VILLAGE_ID,
+    C.VILLAGE_FEATURES.VILLAGE_NAME,
+    C.VILLAGE_FEATURES.CITY,
+    C.VILLAGE_FEATURES.COUNTY,
+    C.VILLAGE_FEATURES.NAME_LENGTH,
+    C.VILLAGE_FEATURES.SUFFIX_1,
+]
 SUBSET_SELECTABLE_COLUMNS = set(SUBSET_BASE_COLUMNS + SUBSET_SEMANTIC_COLUMNS)
 
 
 def _build_select_clause(dbpath: str, select_columns: Optional[List[str]]) -> str:
     feature_column_map = {
-        column: qcolumn(dbpath, "village_features", column)
+        column: qcolumn(dbpath, T.VILLAGE_FEATURES, column)
         for column in SUBSET_SELECTABLE_COLUMNS
     }
     if not select_columns:
@@ -103,10 +111,10 @@ def filter_villages(
         过滤后的DataFrame
     """
     select_clause = _build_select_clause(dbpath, select_columns)
-    features_table = qtable(dbpath, "village_features")
-    city_col = qcolumn(dbpath, "village_features", "city")
-    county_col = qcolumn(dbpath, "village_features", "county")
-    name_col = qcolumn(dbpath, "village_features", "village_name")
+    features_table = qtable(dbpath, T.VILLAGE_FEATURES)
+    city_col = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.CITY)
+    county_col = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.COUNTY)
+    name_col = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.VILLAGE_NAME)
     query = f"SELECT {select_clause} FROM {features_table} WHERE 1=1"
     params = []
 
@@ -130,7 +138,7 @@ def filter_villages(
                     status_code=422,
                     detail=f"Invalid semantic tag: {tag}"
                 )
-            query += f" AND {qcolumn(dbpath, 'village_features', f'sem_{tag}')} = 1"
+            query += f" AND {qcolumn(dbpath, T.VILLAGE_FEATURES, semantic_feature_column(tag))} = 1"
 
     # 名称模糊匹配
     if filter_params.get('name_pattern'):
@@ -178,8 +186,8 @@ def get_villages_by_ids(
 
     # 批量查询（分批处理以避免 SQL 表达式树过大）
     select_clause = _build_select_clause(dbpath, select_columns)
-    features_table = qtable(dbpath, "village_features")
-    village_id_col = qcolumn(dbpath, "village_features", "village_id")
+    features_table = qtable(dbpath, T.VILLAGE_FEATURES)
+    village_id_col = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.VILLAGE_ID)
     batch_size = 500
     all_dfs = []
 
@@ -536,10 +544,10 @@ def _compare_subsets_impl(params: SubsetComparisonParams, dbpath: str) -> Dict[s
                     for i in range(0, len(all_village_ids), batch_size):
                         batch = all_village_ids[i:i + batch_size]
                         placeholders = ','.join(['?' for _ in batch])
-                        villages_table = qtable(dbpath, "villages")
-                        village_id_col = qcolumn(dbpath, "villages", "village_id")
-                        longitude_col = qcolumn(dbpath, "villages", "longitude")
-                        latitude_col = qcolumn(dbpath, "villages", "latitude")
+                        villages_table = qtable(dbpath, T.VILLAGES)
+                        village_id_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+                        longitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
+                        latitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
                         query = f"""
                         SELECT {village_id_col} as village_id, {longitude_col} as longitude, {latitude_col} as latitude
                         FROM {villages_table}

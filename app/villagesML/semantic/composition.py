@@ -8,6 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import normalize_region_level, qcolumn, qtable, table_variant
+from ..schema_keys import C, TABLE_VARIANTS
 
 router = APIRouter(prefix="/semantic")
 
@@ -34,30 +35,30 @@ def get_semantic_bigrams(
     Returns:
         List[dict]: 语义二元组列表
     """
-    logical_table = table_variant(dbpath, "semantic_bigrams_by_detail", detail)
+    logical_table = table_variant(dbpath, TABLE_VARIANTS.SEMANTIC_BIGRAMS_BY_DETAIL, detail)
     table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            {qcolumn(dbpath, logical_table, "category1")} as category1,
-            {qcolumn(dbpath, logical_table, "category2")} as category2,
-            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
-            {qcolumn(dbpath, logical_table, "percentage")} as percentage,
-            {qcolumn(dbpath, logical_table, "pmi")} as pmi_score
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.CATEGORY1)} as category1,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.CATEGORY2)} as category2,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.FREQUENCY)} as frequency,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.PERCENTAGE)} as percentage,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.PMI)} as pmi_score
         FROM {table}
         WHERE 1=1
     """
     params = []
 
     if min_frequency is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.FREQUENCY)} >= ?"
         params.append(min_frequency)
 
     if min_pmi is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'pmi')} >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.PMI)} >= ?"
         params.append(min_pmi)
 
-    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, C.SEMANTIC_BIGRAMS.FREQUENCY)} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -91,26 +92,26 @@ def get_semantic_trigrams(
     Returns:
         List[dict]: 语义三元组列表
     """
-    logical_table = table_variant(dbpath, "semantic_trigrams_by_detail", detail)
+    logical_table = table_variant(dbpath, TABLE_VARIANTS.SEMANTIC_TRIGRAMS_BY_DETAIL, detail)
     table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            {qcolumn(dbpath, logical_table, "category1")} as category1,
-            {qcolumn(dbpath, logical_table, "category2")} as category2,
-            {qcolumn(dbpath, logical_table, "category3")} as category3,
-            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
-            {qcolumn(dbpath, logical_table, "percentage")} as percentage
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.CATEGORY1)} as category1,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.CATEGORY2)} as category2,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.CATEGORY3)} as category3,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.FREQUENCY)} as frequency,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.PERCENTAGE)} as percentage
         FROM {table}
         WHERE 1=1
     """
     params = []
 
     if min_frequency is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.FREQUENCY)} >= ?"
         params.append(min_frequency)
 
-    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, C.SEMANTIC_TRIGRAMS.FREQUENCY)} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -148,34 +149,34 @@ def get_semantic_pmi(
     Returns:
         List[dict]: PMI分数列表
     """
-    logical_table = table_variant(dbpath, "semantic_pmi_by_detail", detail)
+    logical_table = table_variant(dbpath, TABLE_VARIANTS.SEMANTIC_PMI_BY_DETAIL, detail)
     table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            {qcolumn(dbpath, logical_table, "category1")} as category1,
-            {qcolumn(dbpath, logical_table, "category2")} as category2,
-            {qcolumn(dbpath, logical_table, "pmi")} as pmi_score,
-            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
-            {qcolumn(dbpath, logical_table, "is_positive")} as is_positive
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.CATEGORY1)} as category1,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.CATEGORY2)} as category2,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.PMI)} as pmi_score,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.FREQUENCY)} as frequency,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.IS_POSITIVE)} as is_positive
         FROM {table}
         WHERE 1=1
     """
     params = []
 
     if category1 is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'category1')} = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.CATEGORY1)} = ?"
         params.append(category1)
 
     if category2 is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'category2')} = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.CATEGORY2)} = ?"
         params.append(category2)
 
     if min_pmi is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'pmi')} >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.PMI)} >= ?"
         params.append(min_pmi)
 
-    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'pmi')} DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, C.SEMANTIC_PMI.PMI)} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -211,32 +212,32 @@ def get_composition_patterns(
     Returns:
         List[dict]: 组合模式列表
     """
-    logical_table = table_variant(dbpath, "semantic_composition_patterns_by_detail", detail)
+    logical_table = table_variant(dbpath, TABLE_VARIANTS.SEMANTIC_COMPOSITION_PATTERNS_BY_DETAIL, detail)
     table = qtable(dbpath, logical_table)
 
     query = f"""
         SELECT
-            {qcolumn(dbpath, logical_table, "pattern")} as pattern,
-            {qcolumn(dbpath, logical_table, "pattern_type")} as pattern_type,
-            {qcolumn(dbpath, logical_table, "modifier")} as modifier,
-            {qcolumn(dbpath, logical_table, "head")} as head,
-            {qcolumn(dbpath, logical_table, "frequency")} as frequency,
-            {qcolumn(dbpath, logical_table, "percentage")} as percentage,
-            {qcolumn(dbpath, logical_table, "description")} as description
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.PATTERN)} as pattern,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.PATTERN_TYPE)} as pattern_type,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.MODIFIER)} as modifier,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.HEAD)} as head,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.FREQUENCY)} as frequency,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.PERCENTAGE)} as percentage,
+            {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.DESCRIPTION)} as description
         FROM {table}
         WHERE 1=1
     """
     params = []
 
     if pattern_type is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'pattern_type')} = ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.PATTERN_TYPE)} = ?"
         params.append(pattern_type)
 
     if min_frequency is not None:
-        query += f" AND {qcolumn(dbpath, logical_table, 'frequency')} >= ?"
+        query += f" AND {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.FREQUENCY)} >= ?"
         params.append(min_frequency)
 
-    query += f" ORDER BY {qcolumn(dbpath, logical_table, 'frequency')} DESC LIMIT ?"
+    query += f" ORDER BY {qcolumn(dbpath, logical_table, C.SEMANTIC_COMPOSITION_PATTERNS.FREQUENCY)} DESC LIMIT ?"
     params.append(limit)
 
     results = execute_query(db, query, tuple(params))
@@ -282,18 +283,18 @@ def get_semantic_indices(
     Returns:
         List[dict]: 语义指数列表
     """
-    logical_table = table_variant(dbpath, "semantic_indices_by_detail", detail)
+    logical_table = table_variant(dbpath, TABLE_VARIANTS.SEMANTIC_INDICES_BY_DETAIL, detail)
     table = qtable(dbpath, logical_table)
-    region_level_col = qcolumn(dbpath, logical_table, "region_level")
-    region_name_col = qcolumn(dbpath, logical_table, "region_name")
-    city_col = qcolumn(dbpath, logical_table, "city")
-    county_col = qcolumn(dbpath, logical_table, "county")
-    township_col = qcolumn(dbpath, logical_table, "township")
-    category_col = qcolumn(dbpath, logical_table, "category")
-    raw_intensity_col = qcolumn(dbpath, logical_table, "raw_intensity")
-    normalized_index_col = qcolumn(dbpath, logical_table, "normalized_index")
-    rank_col = qcolumn(dbpath, logical_table, "rank_within_province")
-    village_count_col = qcolumn(dbpath, logical_table, "village_count")
+    region_level_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.REGION_NAME)
+    city_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.CITY)
+    county_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.COUNTY)
+    township_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.TOWNSHIP)
+    category_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.CATEGORY)
+    raw_intensity_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.RAW_INTENSITY)
+    normalized_index_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.NORMALIZED_INDEX)
+    rank_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.RANK_WITHIN_PROVINCE)
+    village_count_col = qcolumn(dbpath, logical_table, C.SEMANTIC_INDICES.VILLAGE_COUNT)
 
     # Use pre-computed village_count column for optimal performance
     query = f"""

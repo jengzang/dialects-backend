@@ -9,6 +9,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/village")
 
@@ -31,17 +32,17 @@ def get_village_ngrams(
     Returns:
         dict: 村庄N-gram信息
     """
-    villages_table = qtable(dbpath, "villages")
-    villages_rowid = qcolumn(dbpath, "villages", "rowid")
-    villages_name = qcolumn(dbpath, "villages", "name")
-    villages_committee = qcolumn(dbpath, "villages", "committee")
-    ngrams_table = qtable(dbpath, "village_ngrams")
-    ngrams_name = qcolumn(dbpath, "village_ngrams", "name")
-    ngrams_committee = qcolumn(dbpath, "village_ngrams", "committee")
-    ngrams_bigrams = qcolumn(dbpath, "village_ngrams", "bigrams")
-    ngrams_trigrams = qcolumn(dbpath, "village_ngrams", "trigrams")
-    ngrams_prefix_bigram = qcolumn(dbpath, "village_ngrams", "prefix_bigram")
-    ngrams_suffix_bigram = qcolumn(dbpath, "village_ngrams", "suffix_bigram")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
+    ngrams_table = qtable(dbpath, T.VILLAGE_NGRAMS)
+    ngrams_name = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.NAME)
+    ngrams_committee = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.COMMITTEE)
+    ngrams_bigrams = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.BIGRAMS)
+    ngrams_trigrams = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.TRIGRAMS)
+    ngrams_prefix_bigram = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.PREFIX_BIGRAM)
+    ngrams_suffix_bigram = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.SUFFIX_BIGRAM)
 
     # First get village name from preprocessed table using ROWID
     village_query = f"""
@@ -128,18 +129,18 @@ def get_village_semantic_structure(
     Returns:
         dict: 村庄语义结构
     """
-    villages_table = qtable(dbpath, "villages")
-    villages_rowid = qcolumn(dbpath, "villages", "rowid")
-    villages_name = qcolumn(dbpath, "villages", "name")
-    villages_committee = qcolumn(dbpath, "villages", "committee")
-    semantic_table = qtable(dbpath, "village_semantic_structure")
-    semantic_name = qcolumn(dbpath, "village_semantic_structure", "name")
-    semantic_committee = qcolumn(dbpath, "village_semantic_structure", "committee")
-    semantic_sequence = qcolumn(dbpath, "village_semantic_structure", "semantic_sequence")
-    sequence_length = qcolumn(dbpath, "village_semantic_structure", "sequence_length")
-    has_modifier = qcolumn(dbpath, "village_semantic_structure", "has_modifier")
-    has_head = qcolumn(dbpath, "village_semantic_structure", "has_head")
-    has_settlement = qcolumn(dbpath, "village_semantic_structure", "has_settlement")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
+    semantic_table = qtable(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)
+    semantic_name = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.NAME)
+    semantic_committee = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.COMMITTEE)
+    semantic_sequence = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.SEMANTIC_SEQUENCE)
+    sequence_length = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.SEQUENCE_LENGTH)
+    has_modifier = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.HAS_MODIFIER)
+    has_head = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.HAS_HEAD)
+    has_settlement = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.HAS_SETTLEMENT)
 
     # First get village name from preprocessed table using ROWID
     village_query = f"""
@@ -219,14 +220,14 @@ def get_village_features(
     Returns:
         dict: 村庄特征
     """
-    villages_table = qtable(dbpath, "villages")
-    villages_rowid = qcolumn(dbpath, "villages", "rowid")
-    villages_name = qcolumn(dbpath, "villages", "name")
-    villages_city = qcolumn(dbpath, "villages", "city")
-    villages_county = qcolumn(dbpath, "villages", "county")
-    villages_id = qcolumn(dbpath, "villages", "village_id")
-    features_table = qtable(dbpath, "village_features")
-    features_village_id = qcolumn(dbpath, "village_features", "village_id")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    villages_city = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+    villages_county = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+    villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+    features_table = qtable(dbpath, T.VILLAGE_FEATURES)
+    features_village_id = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.VILLAGE_ID)
 
     # First get village info from preprocessed table using ROWID
     village_query = f"""
@@ -286,22 +287,22 @@ def get_village_spatial_features(
     """
     if clustering_version is None:
         clustering_version = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "spatial_clusters")
+            run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
         )
 
-    villages_table = qtable(dbpath, "villages")
-    villages_rowid = qcolumn(dbpath, "villages", "rowid")
-    villages_id = qcolumn(dbpath, "villages", "village_id")
-    spatial_features_table = qtable(dbpath, "village_spatial_features")
-    spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
-    cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
-    cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
-    cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
-    cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
-    spatial_clusters_table = qtable(dbpath, "spatial_clusters")
-    spatial_clusters_run_id = qcolumn(dbpath, "spatial_clusters", "run_id")
-    spatial_clusters_cluster_id = qcolumn(dbpath, "spatial_clusters", "cluster_id")
-    spatial_clusters_cluster_size = qcolumn(dbpath, "spatial_clusters", "cluster_size")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+    spatial_features_table = qtable(dbpath, T.VILLAGE_SPATIAL_FEATURES)
+    spatial_features_village_id = qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.VILLAGE_ID)
+    cluster_assignments_table = qtable(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS)
+    cluster_assignments_village_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.VILLAGE_ID)
+    cluster_assignments_run_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.RUN_ID)
+    cluster_assignments_cluster_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.CLUSTER_ID)
+    spatial_clusters_table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+    spatial_clusters_run_id = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
+    spatial_clusters_cluster_id = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
+    spatial_clusters_cluster_size = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
 
     # First get village_id from preprocessed table
     village_query = f"""
@@ -321,20 +322,20 @@ def get_village_spatial_features(
     query = f"""
         SELECT
             vsf.{spatial_features_village_id} as village_id,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "village_name")} as village_name,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "city")} as city,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "county")} as county,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "town")} as town,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "longitude")} as longitude,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "latitude")} as latitude,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_1")} as nn_distance_1,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_5")} as nn_distance_5,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "nn_distance_10")} as nn_distance_10,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_1km")} as local_density_1km,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_5km")} as local_density_5km,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "local_density_10km")} as local_density_10km,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "isolation_score")} as isolation_score,
-            vsf.{qcolumn(dbpath, "village_spatial_features", "is_isolated")} as is_isolated,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.VILLAGE_NAME)} as village_name,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.CITY)} as city,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.COUNTY)} as county,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.TOWN)} as town,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.LONGITUDE)} as longitude,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.LATITUDE)} as latitude,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.NN_DISTANCE_1)} as nn_distance_1,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.NN_DISTANCE_5)} as nn_distance_5,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.NN_DISTANCE_10)} as nn_distance_10,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.LOCAL_DENSITY_1KM)} as local_density_1km,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.LOCAL_DENSITY_5KM)} as local_density_5km,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.LOCAL_DENSITY_10KM)} as local_density_10km,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.ISOLATION_SCORE)} as isolation_score,
+            vsf.{qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.IS_ISOLATED)} as is_isolated,
             vca.{cluster_assignments_cluster_id} as spatial_cluster_id,
             sc.{spatial_clusters_cluster_size} as cluster_size
         FROM {spatial_features_table} vsf
@@ -373,34 +374,34 @@ def get_village_complete_profile(
     Returns:
         dict: 村庄完整档案
     """
-    villages_table = qtable(dbpath, "villages")
-    villages_rowid = qcolumn(dbpath, "villages", "rowid")
-    villages_id = qcolumn(dbpath, "villages", "village_id")
-    villages_name = qcolumn(dbpath, "villages", "name")
-    villages_city = qcolumn(dbpath, "villages", "city")
-    villages_county = qcolumn(dbpath, "villages", "county")
-    villages_township = qcolumn(dbpath, "villages", "township")
-    villages_committee = qcolumn(dbpath, "villages", "committee")
-    villages_longitude = qcolumn(dbpath, "villages", "longitude")
-    villages_latitude = qcolumn(dbpath, "villages", "latitude")
-    features_table = qtable(dbpath, "village_features")
-    features_village_id = qcolumn(dbpath, "village_features", "village_id")
-    spatial_features_table = qtable(dbpath, "village_spatial_features")
-    spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
-    cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
-    cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
-    cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
-    cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
-    spatial_clusters_table = qtable(dbpath, "spatial_clusters")
-    spatial_clusters_run_id = qcolumn(dbpath, "spatial_clusters", "run_id")
-    spatial_clusters_cluster_id = qcolumn(dbpath, "spatial_clusters", "cluster_id")
-    spatial_clusters_cluster_size = qcolumn(dbpath, "spatial_clusters", "cluster_size")
-    semantic_table = qtable(dbpath, "village_semantic_structure")
-    semantic_name = qcolumn(dbpath, "village_semantic_structure", "name")
-    semantic_committee = qcolumn(dbpath, "village_semantic_structure", "committee")
-    ngrams_table = qtable(dbpath, "village_ngrams")
-    ngrams_name = qcolumn(dbpath, "village_ngrams", "name")
-    ngrams_committee = qcolumn(dbpath, "village_ngrams", "committee")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+    villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    villages_city = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+    villages_county = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+    villages_township = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)
+    villages_committee = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COMMITTEE)
+    villages_longitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
+    villages_latitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
+    features_table = qtable(dbpath, T.VILLAGE_FEATURES)
+    features_village_id = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.VILLAGE_ID)
+    spatial_features_table = qtable(dbpath, T.VILLAGE_SPATIAL_FEATURES)
+    spatial_features_village_id = qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.VILLAGE_ID)
+    cluster_assignments_table = qtable(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS)
+    cluster_assignments_village_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.VILLAGE_ID)
+    cluster_assignments_run_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.RUN_ID)
+    cluster_assignments_cluster_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.CLUSTER_ID)
+    spatial_clusters_table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+    spatial_clusters_run_id = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
+    spatial_clusters_cluster_id = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
+    spatial_clusters_cluster_size = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
+    semantic_table = qtable(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)
+    semantic_name = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.NAME)
+    semantic_committee = qcolumn(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, C.VILLAGE_SEMANTIC_STRUCTURE.COMMITTEE)
+    ngrams_table = qtable(dbpath, T.VILLAGE_NGRAMS)
+    ngrams_name = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.NAME)
+    ngrams_committee = qcolumn(dbpath, T.VILLAGE_NGRAMS, C.VILLAGE_NGRAMS.COMMITTEE)
 
     # Get basic info from preprocessed table using ROWID
     basic_query = f"""
@@ -435,7 +436,7 @@ def get_village_complete_profile(
 
     # Get spatial features (with clustering info from new table)
     spatial_cluster_run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "spatial_clusters")
+        run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
     )
     spatial_query = f"""
         SELECT

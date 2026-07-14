@@ -11,6 +11,7 @@ from datetime import datetime
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable, quote_identifier, resolve_db_path
+from ..schema_keys import C, T
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
 from ..cache_utils import api_cache
 
@@ -24,11 +25,11 @@ def _get_system_overview_sync(dbpath: str):
     """
     db_file = resolve_db_path(dbpath)
     with get_db_connection(dbpath) as db:
-        villages_table = qtable(dbpath, "villages")
-        villages_city = qcolumn(dbpath, "villages", "city")
-        villages_county = qcolumn(dbpath, "villages", "county")
-        villages_township = qcolumn(dbpath, "villages", "township")
-        char_frequency_table = qtable(dbpath, "char_frequency_global")
+        villages_table = qtable(dbpath, T.VILLAGES)
+        villages_city = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+        villages_county = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+        villages_township = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)
+        char_frequency_table = qtable(dbpath, T.CHAR_FREQUENCY_GLOBAL)
 
         # 获取村庄总数（使用预处理表）
         total_villages_query = f"SELECT COUNT(*) as count FROM {villages_table}"
@@ -90,16 +91,16 @@ def _get_table_info_sync(dbpath: str):
     """
     db_file = resolve_db_path(dbpath)
     with get_db_connection(dbpath) as db:
-        sqlite_master_table = qtable(dbpath, "sqlite_master")
-        sqlite_master_name = qcolumn(dbpath, "sqlite_master", "name")
-        sqlite_master_table_name = qcolumn(dbpath, "sqlite_master", "table_name")
-        sqlite_master_type = qcolumn(dbpath, "sqlite_master", "type")
-        sqlite_stat1_table = qtable(dbpath, "sqlite_stat1")
-        sqlite_stat1_table_name = qcolumn(dbpath, "sqlite_stat1", "table_name")
-        sqlite_stat1_stat = qcolumn(dbpath, "sqlite_stat1", "stat")
-        dbstat_table = qtable(dbpath, "dbstat")
-        dbstat_name = qcolumn(dbpath, "dbstat", "name")
-        dbstat_page_size = qcolumn(dbpath, "dbstat", "page_size")
+        sqlite_master_table = qtable(dbpath, T.SQLITE_MASTER)
+        sqlite_master_name = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.NAME)
+        sqlite_master_table_name = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.TABLE_NAME)
+        sqlite_master_type = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.TYPE)
+        sqlite_stat1_table = qtable(dbpath, T.SQLITE_STAT1)
+        sqlite_stat1_table_name = qcolumn(dbpath, T.SQLITE_STAT1, C.SQLITE_STAT1.TABLE_NAME)
+        sqlite_stat1_stat = qcolumn(dbpath, T.SQLITE_STAT1, C.SQLITE_STAT1.STAT)
+        dbstat_table = qtable(dbpath, T.DBSTAT)
+        dbstat_name = qcolumn(dbpath, T.DBSTAT, C.DBSTAT.NAME)
+        dbstat_page_size = qcolumn(dbpath, T.DBSTAT, C.DBSTAT.PAGE_SIZE)
 
         # 获取所有表名
         tables_query = f"""
@@ -292,10 +293,10 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
     Returns:
         List[dict]: 区域信息列表（包含完整层级信息）
     """
-    villages_table = qtable(dbpath, "villages")
-    villages_city = qcolumn(dbpath, "villages", "city")
-    villages_county = qcolumn(dbpath, "villages", "county")
-    villages_township = qcolumn(dbpath, "villages", "township")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_city = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+    villages_county = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+    villages_township = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)
 
     # 映射级别到数据库列名
     level_column_map = {

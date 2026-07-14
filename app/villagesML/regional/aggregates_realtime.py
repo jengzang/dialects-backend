@@ -15,6 +15,7 @@ import json
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
+from ..schema_keys import T
 
 router = APIRouter(prefix="/regional")
 
@@ -67,10 +68,10 @@ def compute_city_aggregates(
     """
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, "villages_raw")
-    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
     query_basic = f"""
@@ -209,10 +210,10 @@ def compute_county_aggregates(
     """
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, "villages_raw")
-    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
     query_basic = f"""
@@ -392,10 +393,10 @@ def get_town_aggregates(
     """
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    villages_table, vcol = _regional_table(dbpath, "villages_raw")
-    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # Step 1: Get basic aggregations from main table
     query_basic = f"""
@@ -568,7 +569,7 @@ def get_region_spatial_aggregates(
             detail=f"Invalid region_level: {region_level}. Must be one of: city, county, town"
         )
 
-    table, col = _regional_table(dbpath, "region_spatial_aggregates")
+    table, col = _regional_table(dbpath, T.REGION_SPATIAL_AGGREGATES)
     query = f"""
         SELECT
             {col("region_level")} as region_level,
@@ -586,7 +587,7 @@ def get_region_spatial_aggregates(
         FROM {table}
         WHERE {col("region_level")} = ?
     """
-    params = [normalize_region_level(dbpath, "region_spatial_aggregates", region_level)]
+    params = [normalize_region_level(dbpath, T.REGION_SPATIAL_AGGREGATES, region_level)]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
@@ -678,10 +679,10 @@ def get_region_vectors(
     # 获取 run_id
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
-    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
-    villages_table, vcol = _regional_table(dbpath, "villages_raw")
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
+    villages_table, vcol = _regional_table(dbpath, T.VILLAGES_RAW)
 
     # 步骤1: 从 semantic_indices 获取所有符合 level 的区域
     semantic_query = f"""
@@ -691,7 +692,7 @@ def get_region_vectors(
         ORDER BY {scol("region_name")}
         LIMIT ?
     """
-    semantic_rows = execute_query(db, semantic_query, (normalize_region_level(dbpath, "semantic_indices", level), run_id, limit * 10))  # 多取一些，后面过滤
+    semantic_rows = execute_query(db, semantic_query, (normalize_region_level(dbpath, T.SEMANTIC_INDICES, level), run_id, limit * 10))  # 多取一些，后面过滤
 
     if not semantic_rows:
         raise HTTPException(
@@ -781,7 +782,7 @@ def get_region_vectors(
             FROM {semantic_table}
             WHERE {scol("run_id")} = ? AND {scol("region_level")} = ?
         """
-        semantic_params = [run_id, normalize_region_level(dbpath, "semantic_indices", level)]
+        semantic_params = [run_id, normalize_region_level(dbpath, T.SEMANTIC_INDICES, level)]
 
         # 添加层级过滤条件
         if hierarchy['city'] is not None:
@@ -932,7 +933,7 @@ def get_semantic_vector_by_hierarchy(
             detail=f"Missing region name for level {level}"
         )
 
-    semantic_table, scol = _regional_table(dbpath, "semantic_indices")
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
     # 使用层级参数精确查询，避免重名问题
     # 使用 DISTINCT 去除重复数据
@@ -941,7 +942,7 @@ def get_semantic_vector_by_hierarchy(
         FROM {semantic_table}
         WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
     """
-    params = [normalize_region_level(dbpath, "semantic_indices", level), run_id]
+    params = [normalize_region_level(dbpath, T.SEMANTIC_INDICES, level), run_id]
 
     # 添加层级过滤条件
     if city is not None:
@@ -1055,7 +1056,7 @@ def compare_regional_vectors(
     # 获取 run_id
     if request.run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
     else:
         run_id = request.run_id
@@ -1207,7 +1208,7 @@ def batch_compare_vectors(
     # 获取 run_id
     if request.run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
     else:
         run_id = request.run_id
@@ -1299,7 +1300,7 @@ def reduce_vectors(
     # 获取 run_id
     if request.run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
     else:
         run_id = request.run_id
@@ -1416,7 +1417,7 @@ def cluster_vectors(
     # 获取 run_id
     if request.run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "semantic_indices")
+            run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
     else:
         run_id = request.run_id

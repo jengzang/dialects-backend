@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import execute_query, get_db, get_dbpath
 from ..schema_runtime import normalize_region_level, qcolumn, qtable
+from ..schema_keys import T
 
 router = APIRouter(prefix="/semantic/subcategory")
 
@@ -187,7 +188,7 @@ def get_regional_subcategory_vtf(
         WHERE {col("region_level")} = ?
           AND {col("village_count")} >= ?
     """
-    params: List[object] = [normalize_region_level(dbpath, "semantic_subcategory_vtf_regional", region_level), min_villages]
+    params: List[object] = [normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), min_villages]
 
     if region_name:
         query += f" AND {col('region_name')} = ?"
@@ -238,7 +239,7 @@ def get_top_tendency_subcategories(
         WHERE {col("region_level")} = ?
           AND {col("village_count")} >= ?
     """
-    params: List[object] = [normalize_region_level(dbpath, "semantic_subcategory_vtf_regional", region_level), min_villages]
+    params: List[object] = [normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), min_villages]
 
     if parent_category:
         query += f" AND {col('parent_category')} = ?"
@@ -280,7 +281,7 @@ def compare_subcategories(
         ORDER BY {col("vtf")} DESC
     """
 
-    results = execute_query(db, query, (normalize_region_level(dbpath, "semantic_subcategory_vtf_regional", region_level), region_name, parent_category, min_villages))
+    results = execute_query(db, query, (normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), region_name, parent_category, min_villages))
     if not results:
         raise HTTPException(
             status_code=404,

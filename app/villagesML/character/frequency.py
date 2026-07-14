@@ -9,6 +9,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharFrequency, RegionalCharFrequency
 from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/character/frequency")
 
@@ -31,11 +32,11 @@ def get_global_character_frequency(
     Returns:
         List[CharFrequency]: 字符频率列表
     """
-    table = qtable(dbpath, "char_frequency_global")
-    char_col = qcolumn(dbpath, "char_frequency_global", "char")
-    frequency_col = qcolumn(dbpath, "char_frequency_global", "frequency")
-    village_count_col = qcolumn(dbpath, "char_frequency_global", "village_count")
-    rank_col = qcolumn(dbpath, "char_frequency_global", "rank")
+    table = qtable(dbpath, T.CHAR_FREQUENCY_GLOBAL)
+    char_col = qcolumn(dbpath, T.CHAR_FREQUENCY_GLOBAL, C.CHAR_FREQUENCY_GLOBAL.CHAR)
+    frequency_col = qcolumn(dbpath, T.CHAR_FREQUENCY_GLOBAL, C.CHAR_FREQUENCY_GLOBAL.FREQUENCY)
+    village_count_col = qcolumn(dbpath, T.CHAR_FREQUENCY_GLOBAL, C.CHAR_FREQUENCY_GLOBAL.VILLAGE_COUNT)
+    rank_col = qcolumn(dbpath, T.CHAR_FREQUENCY_GLOBAL, C.CHAR_FREQUENCY_GLOBAL.RANK)
 
     query = f"""
         SELECT
@@ -92,16 +93,16 @@ def get_regional_character_frequency(
         List[RegionalCharFrequency]: 区域字符频率列表
     """
     # 构建查询
-    table = qtable(dbpath, "char_regional_analysis")
-    region_level_col = qcolumn(dbpath, "char_regional_analysis", "region_level")
-    region_name_col = qcolumn(dbpath, "char_regional_analysis", "region_name")
-    city_col = qcolumn(dbpath, "char_regional_analysis", "city")
-    county_col = qcolumn(dbpath, "char_regional_analysis", "county")
-    township_col = qcolumn(dbpath, "char_regional_analysis", "township")
-    char_col = qcolumn(dbpath, "char_regional_analysis", "char")
-    frequency_col = qcolumn(dbpath, "char_regional_analysis", "frequency")
-    village_count_col = qcolumn(dbpath, "char_regional_analysis", "village_count")
-    rank_col = qcolumn(dbpath, "char_regional_analysis", "rank_within_region")
+    table = qtable(dbpath, T.CHAR_REGIONAL_ANALYSIS)
+    region_level_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)
+    city_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CITY)
+    county_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.COUNTY)
+    township_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.TOWNSHIP)
+    char_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CHAR)
+    frequency_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.FREQUENCY)
+    village_count_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.VILLAGE_COUNT)
+    rank_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.RANK_WITHIN_REGION)
 
     query = f"""
         SELECT DISTINCT
@@ -117,7 +118,7 @@ def get_regional_character_frequency(
         FROM {table}
         WHERE {region_level_col} = ?
     """
-    params = [normalize_region_level(dbpath, "char_regional_analysis", region_level)]
+    params = [normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:

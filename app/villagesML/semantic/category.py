@@ -10,6 +10,7 @@ import sqlite3
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..models import SemanticCategory, SemanticTendency
 from ..schema_runtime import normalize_region_level, qcolumn, qtable
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/semantic/category")
 
@@ -17,9 +18,9 @@ router = APIRouter(prefix="/semantic/category")
 def _get_semantic_categories_sync(dbpath: str):
     """同步获取所有语义类别"""
     with get_db_connection(dbpath) as db:
-        table = qtable(dbpath, "semantic_vtf_global")
-        category_col = qcolumn(dbpath, "semantic_vtf_global", "category")
-        vtf_count_col = qcolumn(dbpath, "semantic_vtf_global", "vtf_count")
+        table = qtable(dbpath, T.SEMANTIC_VTF_GLOBAL)
+        category_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.CATEGORY)
+        vtf_count_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.VTF_COUNT)
 
         query = f"""
             SELECT
@@ -51,13 +52,13 @@ def _get_global_semantic_vtf_sync(dbpath: str, category: Optional[str], detail: 
     """同步获取全局语义虚拟词频"""
     with get_db_connection(dbpath) as db:
         if detail:
-            table = qtable(dbpath, "semantic_subcategory_vtf_global")
-            subcategory_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "subcategory")
-            parent_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "parent_category")
-            char_count_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "char_count")
-            village_count_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "village_count")
-            vtf_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "vtf")
-            pct_col = qcolumn(dbpath, "semantic_subcategory_vtf_global", "percentage")
+            table = qtable(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL)
+            subcategory_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.SUBCATEGORY)
+            parent_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.PARENT_CATEGORY)
+            char_count_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.CHAR_COUNT)
+            village_count_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.VILLAGE_COUNT)
+            vtf_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.VTF)
+            pct_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_GLOBAL, C.SEMANTIC_SUBCATEGORY_VTF_GLOBAL.PERCENTAGE)
 
             query = f"""
                 SELECT
@@ -73,12 +74,12 @@ def _get_global_semantic_vtf_sync(dbpath: str, category: Optional[str], detail: 
             params = []
             filter_col = parent_col
         else:
-            table = qtable(dbpath, "semantic_vtf_global")
-            category_col = qcolumn(dbpath, "semantic_vtf_global", "category")
-            vtf_col = qcolumn(dbpath, "semantic_vtf_global", "vtf")
-            village_count_col = qcolumn(dbpath, "semantic_vtf_global", "village_count")
-            char_count_col = qcolumn(dbpath, "semantic_vtf_global", "char_count")
-            total_villages_col = qcolumn(dbpath, "semantic_vtf_global", "total_villages")
+            table = qtable(dbpath, T.SEMANTIC_VTF_GLOBAL)
+            category_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.CATEGORY)
+            vtf_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.VTF)
+            village_count_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.VILLAGE_COUNT)
+            char_count_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.CHAR_COUNT)
+            total_villages_col = qcolumn(dbpath, T.SEMANTIC_VTF_GLOBAL, C.SEMANTIC_VTF_GLOBAL.TOTAL_VILLAGES)
 
             query = f"""
                 SELECT
@@ -129,19 +130,19 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
     """同步获取区域语义虚拟词频"""
     with get_db_connection(dbpath) as db:
         if detail:
-            table = qtable(dbpath, "semantic_subcategory_vtf_regional")
-            region_level_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "region_level")
-            region_name_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "region_name")
-            city_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "city")
-            county_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "county")
-            township_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "township")
-            subcategory_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "subcategory")
-            parent_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "parent_category")
-            char_count_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "char_count")
-            village_count_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "village_count")
-            vtf_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "vtf")
-            pct_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "percentage")
-            tendency_col = qcolumn(dbpath, "semantic_subcategory_vtf_regional", "tendency")
+            table = qtable(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL)
+            region_level_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.REGION_LEVEL)
+            region_name_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.REGION_NAME)
+            city_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.CITY)
+            county_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.COUNTY)
+            township_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.TOWNSHIP)
+            subcategory_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.SUBCATEGORY)
+            parent_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.PARENT_CATEGORY)
+            char_count_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.CHAR_COUNT)
+            village_count_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.VILLAGE_COUNT)
+            vtf_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.VTF)
+            pct_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.PERCENTAGE)
+            tendency_col = qcolumn(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, C.SEMANTIC_SUBCATEGORY_VTF_REGIONAL.TENDENCY)
 
             query = f"""
                 SELECT
@@ -160,7 +161,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [normalize_region_level(dbpath, "semantic_subcategory_vtf_regional", region_level)]
+            params = [normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level)]
 
             if city is not None:
                 query += f" AND {city_col} = ?"
@@ -184,14 +185,14 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
 
             query += f" ORDER BY {vtf_col} DESC"
         else:
-            table = qtable(dbpath, "semantic_regional_analysis")
-            region_level_col = qcolumn(dbpath, "semantic_regional_analysis", "region_level")
-            region_name_col = qcolumn(dbpath, "semantic_regional_analysis", "region_name")
-            city_col = qcolumn(dbpath, "semantic_regional_analysis", "city")
-            county_col = qcolumn(dbpath, "semantic_regional_analysis", "county")
-            township_col = qcolumn(dbpath, "semantic_regional_analysis", "township")
-            category_col = qcolumn(dbpath, "semantic_regional_analysis", "category")
-            frequency_col = qcolumn(dbpath, "semantic_regional_analysis", "frequency")
+            table = qtable(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS)
+            region_level_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.REGION_LEVEL)
+            region_name_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.REGION_NAME)
+            city_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.CITY)
+            county_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.COUNTY)
+            township_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.TOWNSHIP)
+            category_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.CATEGORY)
+            frequency_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.FREQUENCY)
 
             query = f"""
                 SELECT
@@ -206,7 +207,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
                 FROM {table}
                 WHERE {region_level_col} = ?
             """
-            params = [normalize_region_level(dbpath, "semantic_regional_analysis", region_level)]
+            params = [normalize_region_level(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, region_level)]
 
             if city is not None:
                 query += f" AND {city_col} = ?"
@@ -270,15 +271,15 @@ async def get_regional_semantic_vtf(
 def _get_semantic_tendency_sync(dbpath: str, run_id: str, region_level: str, region_name: Optional[str], city: Optional[str], county: Optional[str], township: Optional[str], top_n: int):
     """同步获取区域语义倾向性"""
     with get_db_connection(dbpath) as db:
-        table = qtable(dbpath, "semantic_regional_analysis")
-        region_level_col = qcolumn(dbpath, "semantic_regional_analysis", "region_level")
-        region_name_col = qcolumn(dbpath, "semantic_regional_analysis", "region_name")
-        city_col = qcolumn(dbpath, "semantic_regional_analysis", "city")
-        county_col = qcolumn(dbpath, "semantic_regional_analysis", "county")
-        township_col = qcolumn(dbpath, "semantic_regional_analysis", "township")
-        category_col = qcolumn(dbpath, "semantic_regional_analysis", "category")
-        lift_col = qcolumn(dbpath, "semantic_regional_analysis", "lift")
-        z_score_col = qcolumn(dbpath, "semantic_regional_analysis", "z_score")
+        table = qtable(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS)
+        region_level_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.REGION_LEVEL)
+        region_name_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.REGION_NAME)
+        city_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.CITY)
+        county_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.COUNTY)
+        township_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.TOWNSHIP)
+        category_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.CATEGORY)
+        lift_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.LIFT)
+        z_score_col = qcolumn(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, C.SEMANTIC_REGIONAL_ANALYSIS.Z_SCORE)
 
         query = f"""
             SELECT
@@ -293,7 +294,7 @@ def _get_semantic_tendency_sync(dbpath: str, run_id: str, region_level: str, reg
             FROM {table}
             WHERE {region_level_col} = ?
         """
-        params = [normalize_region_level(dbpath, "semantic_regional_analysis", region_level)]
+        params = [normalize_region_level(dbpath, T.SEMANTIC_REGIONAL_ANALYSIS, region_level)]
 
         # 优先使用层级参数（精确匹配）
         if city is not None:

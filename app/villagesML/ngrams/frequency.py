@@ -10,6 +10,7 @@ from collections import OrderedDict
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/ngrams")
 
@@ -76,7 +77,7 @@ def get_ngram_frequency(
     Returns:
         List[dict]: N-gram频率列表
     """
-    table, col = _ngram_schema(dbpath, "ngram_frequency")
+    table, col = _ngram_schema(dbpath, T.NGRAM_FREQUENCY)
     query = f"""
         SELECT
             {col("ngram")} as ngram,
@@ -146,7 +147,7 @@ def get_regional_ngram_frequency(
     Returns:
         List[dict] 或 dict: N-gram频率列表，或包含data和metadata的字典
     """
-    table, col = _ngram_schema(dbpath, "regional_ngram_frequency")
+    table, col = _ngram_schema(dbpath, T.REGIONAL_NGRAM_FREQUENCY)
     level_col = col("level")
     region_col = col("region")
     city_col = col("city")
@@ -320,7 +321,7 @@ def get_structural_patterns(
     Returns:
         List[dict]: 结构化模式列表
     """
-    table, col = _ngram_schema(dbpath, "structural_patterns")
+    table, col = _ngram_schema(dbpath, T.STRUCTURAL_PATTERNS)
     query = f"""
         SELECT
             {col("pattern")} as pattern,
@@ -436,14 +437,14 @@ def get_ngram_tendency(
     """
 
     # 检查 regional_total_raw 字段是否存在（缓存 PRAGMA 结果）
-    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
-    centroids_table, ccol = _ngram_schema(dbpath, "regional_centroids")
+    tendency_table, tcol = _ngram_schema(dbpath, T.NGRAM_TENDENCY)
+    centroids_table, ccol = _ngram_schema(dbpath, T.REGIONAL_CENTROIDS)
     cache_key = f"has_regional_total_raw:{dbpath}"
     if cache_key not in _pragma_cache:
         cursor = db.cursor()
         cursor.execute(f"PRAGMA table_info({tendency_table})")
         columns = [col[1] for col in cursor.fetchall()]
-        _pragma_cache[cache_key] = qcolumn(dbpath, "ngram_tendency", "regional_total_raw").strip('"') in columns
+        _pragma_cache[cache_key] = qcolumn(dbpath, T.NGRAM_TENDENCY, C.NGRAM_TENDENCY.REGIONAL_TOTAL_RAW).strip('"') in columns
     has_regional_total_raw = _pragma_cache[cache_key]
 
     # 根据 region_level 构建不同的查询
@@ -689,8 +690,8 @@ def get_ngram_significance(
     - county: 从 Township 聚合到 County 级别
     - city: 从 Township 聚合到 City 级别
     """
-    significance_table, scol = _ngram_schema(dbpath, "ngram_significance")
-    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
+    significance_table, scol = _ngram_schema(dbpath, T.NGRAM_SIGNIFICANCE)
+    tendency_table, tcol = _ngram_schema(dbpath, T.NGRAM_TENDENCY)
 
     if region_level == "township":
         # Township 级别：直接查询

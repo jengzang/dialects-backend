@@ -8,20 +8,18 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable
+from ..schema_keys import C, T, semantic_feature_categories, semantic_feature_column
 from ..models import SubsetFilterRequest, SubsetFilterResponse, SubsetVillageItem
 
 router = APIRouter(prefix="/subset")
 
-_SEMANTIC_CATEGORIES = {
-    "agriculture", "clan", "direction", "infrastructure",
-    "mountain", "settlement", "symbolic", "vegetation", "water",
-}
+_SEMANTIC_CATEGORIES = semantic_feature_categories()
 
 _STRUCTURE_PATTERN_COLS = {
-    "modifier_head": ("has_modifier = 1", "has_head = 1"),
-    "modifier_only": ("has_modifier = 1", "has_head = 0"),
-    "head_only":    ("has_modifier = 0", "has_head = 1"),
-    "settlement":   ("has_settlement = 1",),
+    "modifier_head": ((C.VILLAGE_SEMANTIC_STRUCTURE.HAS_MODIFIER, "=", 1), (C.VILLAGE_SEMANTIC_STRUCTURE.HAS_HEAD, "=", 1)),
+    "modifier_only": ((C.VILLAGE_SEMANTIC_STRUCTURE.HAS_MODIFIER, "=", 1), (C.VILLAGE_SEMANTIC_STRUCTURE.HAS_HEAD, "=", 0)),
+    "head_only":    ((C.VILLAGE_SEMANTIC_STRUCTURE.HAS_MODIFIER, "=", 0), (C.VILLAGE_SEMANTIC_STRUCTURE.HAS_HEAD, "=", 1)),
+    "settlement":   ((C.VILLAGE_SEMANTIC_STRUCTURE.HAS_SETTLEMENT, "=", 1),),
 }
 
 
@@ -40,26 +38,26 @@ def filter_villages(
     dbpath: str = Depends(get_dbpath),
 ):
     """筛选村庄，一次返回全部匹配结果。所有条件 AND 关系，同组内 OR。"""
-    v_tbl = _qtbl(dbpath, "villages")
-    vf_tbl = _qtbl(dbpath, "village_features")
-    vss_tbl = _qtbl(dbpath, "village_semantic_structure")
+    v_tbl = _qtbl(dbpath, T.VILLAGES)
+    vf_tbl = _qtbl(dbpath, T.VILLAGE_FEATURES)
+    vss_tbl = _qtbl(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)
 
-    V = lambda c: f"v.{_qcol(dbpath, 'villages', c)}"
-    VF = lambda c: f"vf.{_qcol(dbpath, 'village_features', c)}"
-    VSS = lambda c: f"vss.{_qcol(dbpath, 'village_semantic_structure', c)}"
+    V = lambda c: f"v.{_qcol(dbpath, T.VILLAGES, c)}"
+    VF = lambda c: f"vf.{_qcol(dbpath, T.VILLAGE_FEATURES, c)}"
+    VSS = lambda c: f"vss.{_qcol(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE, c)}"
 
-    conditions: list[str] = [f"{V('name')} IS NOT NULL AND {V('name')} != ''"]
+    conditions: list[str] = [f"{V(C.VILLAGES.NAME)} IS NOT NULL AND {V(C.VILLAGES.NAME)} != ''"]
     params: list = []
 
     # ---- 区域 ----
     if req.city is not None:
-        conditions.append(f"{V('city')} = ?")
+        conditions.append(f"{V(C.VILLAGES.CITY)} = ?")
         params.append(req.city)
     if req.county is not None:
-        conditions.append(f"{V('county')} = ?")
+        conditions.append(f"{V(C.VILLAGES.COUNTY)} = ?")
         params.append(req.county)
     if req.township is not None:
-        conditions.append(f"{V('township')} = ?")
+        conditions.append(f"{V(C.VILLAGES.TOWNSHIP)} = ?")
         params.append(req.township)
 
     # ---- 名称 ----
@@ -69,19 +67,19 @@ def filter_villages(
         if mode not in ("contains", "startsWith", "endsWith", "equals"):
             raise HTTPException(status_code=400, detail=f"Invalid name_match_mode: {mode}")
         if mode == "equals":
-            conditions.append(f"{V('name')} = ?")
+            conditions.append(f"{V(C.VILLAGES.NAME)} = ?")
             params.append(kw)
         elif mode == "startsWith":
-            conditions.append(f"{V('name')} LIKE ?")
+            conditions.append(f"{V(C.VILLAGES.NAME)} LIKE ?")
             params.append(f"{kw}%")
         elif mode == "endsWith":
-            conditions.append(f"{V('name')} LIKE ?")
+            conditions.append(f"{V(C.VILLAGES.NAME)} LIKE ?")
             params.append(f"%{kw}")
         else:  # contains
-            conditions.append(f"{V('name')} LIKE ?")
+            conditions.append(f"{V(C.VILLAGES.NAME)} LIKE ?")
             params.append(f"%{kw}%")
 
-    length_expr = f"LENGTH({V('name')})"
+    length_expr = f"LENGTH({V(C.VILLAGES.NAME)})"
     if req.length is not None:
         conditions.append(f"{length_expr} = ?")
         params.append(req.length)
@@ -98,21 +96,21 @@ def filter_villages(
         unknown = set(req.semantic_categories) - _SEMANTIC_CATEGORIES
         if unknown:
             raise HTTPException(status_code=400, detail=f"Unknown semantic categories: {', '.join(sorted(unknown))}")
-        sem_conds = [f"{VF(f'sem_{cat}')} = 1" for cat in req.semantic_categories]
+        sem_conds = [f"{VF(semantic_feature_column(cat))} = 1" for cat in req.semantic_categories]
         sep = " OR " if req.semantic_match == "any" else " AND "
         conditions.append(f"({sep.join(sem_conds)})")
 
     # ---- 结构 ----
     if req.suffix is not None:
-        conditions.append(f"{VF('suffix_1')} = ?")
+        conditions.append(f"{VF(C.VILLAGE_FEATURES.SUFFIX_1)} = ?")
         params.append(req.suffix)
 
     if req.prefix is not None:
-        conditions.append(f"{VF('prefix_1')} = ?")
+        conditions.append(f"{VF(C.VILLAGE_FEATURES.PREFIX_1)} = ?")
         params.append(req.prefix)
 
     if req.char_at_position is not None and req.char_at_value is not None:
-        conditions.append(f"SUBSTR({V('name')}, ?, 1) = ?")
+        conditions.append(f"SUBSTR({V(C.VILLAGES.NAME)}, ?, 1) = ?")
         params.append(req.char_at_position)
         params.append(req.char_at_value)
 
@@ -122,24 +120,23 @@ def filter_villages(
             if p not in _STRUCTURE_PATTERN_COLS:
                 raise HTTPException(status_code=400, detail=f"Unknown structure pattern: {p}")
             clauses = []
-            for clause in _STRUCTURE_PATTERN_COLS[p]:
-                col, op, val = clause.split()
+            for col, op, val in _STRUCTURE_PATTERN_COLS[p]:
                 clauses.append(f"{VSS(col)} {op} {val}")
             pattern_conds.append(f"({' AND '.join(clauses)})")
         conditions.append(f"({' OR '.join(pattern_conds)})")
 
     # ---- 空间 ----
     if req.lon_min is not None:
-        conditions.append(f"{V('longitude')} >= ?")
+        conditions.append(f"{V(C.VILLAGES.LONGITUDE)} >= ?")
         params.append(req.lon_min)
     if req.lon_max is not None:
-        conditions.append(f"{V('longitude')} <= ?")
+        conditions.append(f"{V(C.VILLAGES.LONGITUDE)} <= ?")
         params.append(req.lon_max)
     if req.lat_min is not None:
-        conditions.append(f"{V('latitude')} >= ?")
+        conditions.append(f"{V(C.VILLAGES.LATITUDE)} >= ?")
         params.append(req.lat_min)
     if req.lat_max is not None:
-        conditions.append(f"{V('latitude')} <= ?")
+        conditions.append(f"{V(C.VILLAGES.LATITUDE)} <= ?")
         params.append(req.lat_max)
 
     # ---- JOIN ----
@@ -150,9 +147,9 @@ def filter_villages(
 
     joins = ""
     if need_features:
-        joins += f" LEFT JOIN {vf_tbl} AS vf ON {V('village_id')} = {VF('village_id')}"
+        joins += f" LEFT JOIN {vf_tbl} AS vf ON {V(C.VILLAGES.VILLAGE_ID)} = {VF(C.VILLAGE_FEATURES.VILLAGE_ID)}"
     if need_structure:
-        joins += f" LEFT JOIN {vss_tbl} AS vss ON {V('village_id')} = {VSS('village_id')}"
+        joins += f" LEFT JOIN {vss_tbl} AS vss ON {V(C.VILLAGES.VILLAGE_ID)} = {VSS(C.VILLAGE_SEMANTIC_STRUCTURE.VILLAGE_ID)}"
 
     where_clause = " AND ".join(conditions)
 
@@ -165,9 +162,9 @@ def filter_villages(
     data_sql = f"""
         SELECT
             v.ROWID as id,
-            {V('name')} as name,
-            {V('city')} as city,
-            {V('county')} as county,
+            {V(C.VILLAGES.NAME)} as name,
+            {V(C.VILLAGES.CITY)} as city,
+            {V(C.VILLAGES.COUNTY)} as county,
             {length_expr} as name_length
         FROM {from_clause}
         WHERE {where_clause}

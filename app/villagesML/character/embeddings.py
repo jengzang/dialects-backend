@@ -10,6 +10,7 @@ import json
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/character/embeddings")
 
@@ -33,10 +34,10 @@ def get_character_embedding(
     Returns:
         dict: 字符嵌入信息（包含向量）
     """
-    table = qtable(dbpath, "char_embeddings")
-    run_id_col = qcolumn(dbpath, "char_embeddings", "run_id")
-    char_col = qcolumn(dbpath, "char_embeddings", "char")
-    embedding_vector_col = qcolumn(dbpath, "char_embeddings", "embedding_vector")
+    table = qtable(dbpath, T.CHAR_EMBEDDINGS)
+    run_id_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.RUN_ID)
+    char_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.CHAR)
+    embedding_vector_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.EMBEDDING_VECTOR)
 
     query = f"""
         SELECT
@@ -47,7 +48,7 @@ def get_character_embedding(
     """
 
     run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "char_embeddings")
+        run_id_analysis_type(dbpath, T.CHAR_EMBEDDINGS)
     )
     result = execute_single(db, query, (run_id, char))
 
@@ -84,11 +85,11 @@ def get_similar_characters(
     Returns:
         dict: 包含查询信息和相似字符列表
     """
-    table = qtable(dbpath, "char_similarity")
-    run_id_col = qcolumn(dbpath, "char_similarity", "run_id")
-    char1_col = qcolumn(dbpath, "char_similarity", "char1")
-    char2_col = qcolumn(dbpath, "char_similarity", "char2")
-    similarity_col = qcolumn(dbpath, "char_similarity", "cosine_similarity")
+    table = qtable(dbpath, T.CHAR_SIMILARITY)
+    run_id_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.RUN_ID)
+    char1_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.CHAR1)
+    char2_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.CHAR2)
+    similarity_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.COSINE_SIMILARITY)
 
     query = f"""
         SELECT
@@ -98,7 +99,7 @@ def get_similar_characters(
         WHERE {run_id_col} = ? AND {char1_col} = ?
     """
     run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "char_similarity")
+        run_id_analysis_type(dbpath, T.CHAR_SIMILARITY)
     )
     params = [run_id, char]
 
@@ -145,12 +146,12 @@ def list_character_embeddings(
     """
     # 获取总数
     run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "char_embeddings")
+        run_id_analysis_type(dbpath, T.CHAR_EMBEDDINGS)
     )
-    table = qtable(dbpath, "char_embeddings")
-    run_id_col = qcolumn(dbpath, "char_embeddings", "run_id")
-    char_col = qcolumn(dbpath, "char_embeddings", "char")
-    frequency_col = qcolumn(dbpath, "char_embeddings", "char_frequency")
+    table = qtable(dbpath, T.CHAR_EMBEDDINGS)
+    run_id_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.RUN_ID)
+    char_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.CHAR)
+    frequency_col = qcolumn(dbpath, T.CHAR_EMBEDDINGS, C.CHAR_EMBEDDINGS.CHAR_FREQUENCY)
 
     count_query = f"SELECT COUNT(*) as total FROM {table} WHERE {run_id_col} = ?"
     count_result = execute_single(db, count_query, (run_id,))

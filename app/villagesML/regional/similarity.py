@@ -12,6 +12,7 @@ import json
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import column_name, qcolumn, qtable, normalize_region_level
+from ..schema_keys import C, SIMILARITY_METRIC_COLUMNS, T
 
 router = APIRouter(prefix="/regions")
 
@@ -51,35 +52,35 @@ async def search_similar_regions(
     Returns:
         List of similar regions with scores and common characters
     """
-    similarity_table, scol = _regional_schema(dbpath, "region_similarity")
-    char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
+    similarity_table, scol = _regional_schema(dbpath, T.REGION_SIMILARITY)
+    char_table, ccol = _regional_schema(dbpath, T.CHAR_REGIONAL_ANALYSIS)
     # 构建目标区域查询条件
     target_query = f"""
-    SELECT DISTINCT {scol("region1")} as region_name
+    SELECT DISTINCT {scol(C.REGION_SIMILARITY.REGION1)} as region_name
     FROM {similarity_table}
-    WHERE {scol("region_level")} = ?
+    WHERE {scol(C.REGION_SIMILARITY.REGION_LEVEL)} = ?
     """
-    params = [normalize_region_level(dbpath, "region_similarity", region_level)]
+    params = [normalize_region_level(dbpath, T.REGION_SIMILARITY, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
         # 需要从char_regional_analysis表获取完整信息
         target_query = f"""
-        SELECT DISTINCT {ccol("region_name")} as region_name
+        SELECT DISTINCT {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} as region_name
         FROM {char_table}
-        WHERE {ccol("region_level")} = ? AND {ccol("city")} = ?
+        WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.CITY)} = ?
         """
-        params = [normalize_region_level(dbpath, "char_regional_analysis", region_level), city]
+        params = [normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, region_level), city]
 
         if county is not None:
-            target_query += f" AND {ccol('county')} = ?"
+            target_query += f" AND {ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} = ?"
             params.append(county)
         elif city is not None and region_level == 'township':
             # Handle 东莞市/中山市 (no county level)
-            target_query += f" AND ({ccol('county')} IS NULL OR {ccol('county')} = '')"
+            target_query += f" AND ({ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} IS NULL OR {ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} = '')"
 
         if township is not None:
-            target_query += f" AND {ccol('township')} = ?"
+            target_query += f" AND {ccol(C.CHAR_REGIONAL_ANALYSIS.TOWNSHIP)} = ?"
             params.append(township)
 
     # 向后兼容：region_name（模糊匹配）
@@ -90,11 +91,11 @@ async def search_similar_regions(
             actual_level = 'city'
 
         target_query = f"""
-        SELECT DISTINCT {scol("region1")} as region_name
+        SELECT DISTINCT {scol(C.REGION_SIMILARITY.REGION1)} as region_name
         FROM {similarity_table}
-        WHERE {scol("region_level")} = ? AND {scol("region1")} = ?
+        WHERE {scol(C.REGION_SIMILARITY.REGION_LEVEL)} = ? AND {scol(C.REGION_SIMILARITY.REGION1)} = ?
         """
-        params = [normalize_region_level(dbpath, "region_similarity", actual_level), region_name]
+        params = [normalize_region_level(dbpath, T.REGION_SIMILARITY, actual_level), region_name]
     else:
         raise HTTPException(status_code=400, detail="Must provide either city/county/township or region_name")
 
@@ -119,30 +120,30 @@ async def search_similar_regions(
         query_level = 'city'
 
     # Determine which similarity column to use
-    sim_column = qcolumn(dbpath, "region_similarity", f"{metric}_similarity")
+    sim_column = qcolumn(dbpath, T.REGION_SIMILARITY, getattr(SIMILARITY_METRIC_COLUMNS, metric))
 
     # Query similar regions (check both region1 and region2)
     query = f"""
     SELECT
         CASE
-            WHEN {scol("region1")} = ? THEN {scol("region2")}
-            ELSE {scol("region1")}
+            WHEN {scol(C.REGION_SIMILARITY.REGION1)} = ? THEN {scol(C.REGION_SIMILARITY.REGION2)}
+            ELSE {scol(C.REGION_SIMILARITY.REGION1)}
         END as similar_region,
         {sim_column} as similarity,
-        {scol("common_high_tendency_chars")} as common_high_tendency_chars,
+        {scol(C.REGION_SIMILARITY.COMMON_HIGH_TENDENCY_CHARS)} as common_high_tendency_chars,
         CASE
-            WHEN {scol("region1")} = ? THEN {scol("distinctive_chars_r2")}
-            ELSE {scol("distinctive_chars_r1")}
+            WHEN {scol(C.REGION_SIMILARITY.REGION1)} = ? THEN {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R2)}
+            ELSE {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R1)}
         END as distinctive_chars
     FROM {similarity_table}
-    WHERE {scol("region_level")} = ?
-      AND ({scol("region1")} = ? OR {scol("region2")} = ?)
+    WHERE {scol(C.REGION_SIMILARITY.REGION_LEVEL)} = ?
+      AND ({scol(C.REGION_SIMILARITY.REGION1)} = ? OR {scol(C.REGION_SIMILARITY.REGION2)} = ?)
       AND {sim_column} >= ?
     ORDER BY {sim_column} DESC
     LIMIT ?
     """
 
-    rows = execute_query(db, query, (target_region, target_region, normalize_region_level(dbpath, "region_similarity", query_level), target_region, target_region, min_similarity, top_k))
+    rows = execute_query(db, query, (target_region, target_region, normalize_region_level(dbpath, T.REGION_SIMILARITY, query_level), target_region, target_region, min_similarity, top_k))
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No similar regions found for '{target_region}'")
@@ -184,17 +185,17 @@ async def get_pair_similarity(
     Returns:
         All similarity metrics, common chars, and distinctive chars
     """
-    similarity_table, scol = _regional_schema(dbpath, "region_similarity")
+    similarity_table, scol = _regional_schema(dbpath, T.REGION_SIMILARITY)
     # 先尝试从预计算表查询(同层级)
     query = f"""
     SELECT
-        {scol("region1")} as region1, {scol("region2")} as region2, {scol("region_level")} as region_level,
-        {scol("cosine_similarity")} as cosine_similarity, {scol("jaccard_similarity")} as jaccard_similarity, {scol("euclidean_distance")} as euclidean_distance,
-        {scol("common_high_tendency_chars")} as common_high_tendency_chars,
-        {scol("distinctive_chars_r1")} as distinctive_chars_r1, {scol("distinctive_chars_r2")} as distinctive_chars_r2,
-        {scol("feature_dimension")} as feature_dimension
+        {scol(C.REGION_SIMILARITY.REGION1)} as region1, {scol(C.REGION_SIMILARITY.REGION2)} as region2, {scol(C.REGION_SIMILARITY.REGION_LEVEL)} as region_level,
+        {scol(C.REGION_SIMILARITY.COSINE_SIMILARITY)} as cosine_similarity, {scol(C.REGION_SIMILARITY.JACCARD_SIMILARITY)} as jaccard_similarity, {scol(C.REGION_SIMILARITY.EUCLIDEAN_DISTANCE)} as euclidean_distance,
+        {scol(C.REGION_SIMILARITY.COMMON_HIGH_TENDENCY_CHARS)} as common_high_tendency_chars,
+        {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R1)} as distinctive_chars_r1, {scol(C.REGION_SIMILARITY.DISTINCTIVE_CHARS_R2)} as distinctive_chars_r2,
+        {scol(C.REGION_SIMILARITY.FEATURE_DIMENSION)} as feature_dimension
     FROM {similarity_table}
-    WHERE ({scol("region1")} = ? AND {scol("region2")} = ?) OR ({scol("region1")} = ? AND {scol("region2")} = ?)
+    WHERE ({scol(C.REGION_SIMILARITY.REGION1)} = ? AND {scol(C.REGION_SIMILARITY.REGION2)} = ?) OR ({scol(C.REGION_SIMILARITY.REGION1)} = ? AND {scol(C.REGION_SIMILARITY.REGION2)} = ?)
     """
 
     row = execute_single(db, query, (region1, region2, region2, region1))
@@ -204,25 +205,25 @@ async def get_pair_similarity(
         r1_is_first = (row["region1"] == region1)
         region_level = row["region_level"] if "region_level" in row.keys() else None
 
-        char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
+        char_table, ccol = _regional_schema(dbpath, T.CHAR_REGIONAL_ANALYSIS)
 
         def _fetch_freq_dict(region: str, level: str) -> dict:
             """获取区域全量字符频率（用于 common_chars 频率排序）"""
             q = f"""
-            SELECT {ccol("char")} as char, {ccol("frequency")} as frequency FROM {char_table}
-            WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
+            SELECT {ccol(C.CHAR_REGIONAL_ANALYSIS.CHAR)} as char, {ccol(C.CHAR_REGIONAL_ANALYSIS.FREQUENCY)} as frequency FROM {char_table}
+            WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} = ?
             """
-            rows = execute_query(db, q, (normalize_region_level(dbpath, "char_regional_analysis", level), region))
+            rows = execute_query(db, q, (normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, level), region))
             return {r['char']: r['frequency'] for r in rows} if rows else {}
 
         def _fetch_distinctive(region: str, level: str) -> list:
             """获取高倾向字符（z_score >= 2.0，与批量算法一致）"""
             q = f"""
-            SELECT {ccol("char")} as char FROM {char_table}
-            WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ? AND {ccol("z_score")} >= 2.0
-            ORDER BY {ccol("z_score")} DESC
+            SELECT {ccol(C.CHAR_REGIONAL_ANALYSIS.CHAR)} as char FROM {char_table}
+            WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)} >= 2.0
+            ORDER BY {ccol(C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)} DESC
             """
-            rows = execute_query(db, q, (normalize_region_level(dbpath, "char_regional_analysis", level), region))
+            rows = execute_query(db, q, (normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, level), region))
             return [r['char'] for r in rows] if rows else []
 
         if region_level:
@@ -368,7 +369,7 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
     Returns:
         包含特征向量和元数据的字典,如果找不到则返回None
     """
-    char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
+    char_table, ccol = _regional_schema(dbpath, T.CHAR_REGIONAL_ANALYSIS)
 
     # 检测区域层级
     detected_level = None
@@ -377,9 +378,9 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
         query = f"""
         SELECT COUNT(*) as cnt
         FROM {char_table}
-        WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
+        WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} = ?
         """
-        row = execute_single(db, query, (normalize_region_level(dbpath, "char_regional_analysis", level_value), region_name))
+        row = execute_single(db, query, (normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, level_value), region_name))
         if row and row['cnt'] > 0:
             detected_level = level_value
             break
@@ -389,12 +390,12 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
 
     # 获取该区域的所有字符频率数据
     query = f"""
-    SELECT {ccol("char")} as char, {ccol("frequency")} as frequency
+    SELECT {ccol(C.CHAR_REGIONAL_ANALYSIS.CHAR)} as char, {ccol(C.CHAR_REGIONAL_ANALYSIS.FREQUENCY)} as frequency
     FROM {char_table}
-    WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
-    ORDER BY {ccol("char")}
+    WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} = ?
+    ORDER BY {ccol(C.CHAR_REGIONAL_ANALYSIS.CHAR)}
     """
-    rows = execute_query(db, query, (normalize_region_level(dbpath, "char_regional_analysis", detected_level), region_name))
+    rows = execute_query(db, query, (normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, detected_level), region_name))
 
     if not rows:
         return None
@@ -425,15 +426,15 @@ def _get_high_tendency_chars(db: sqlite3.Connection, dbpath: str, region_name: s
     Returns:
         高倾向字符列表
     """
-    char_table, ccol = _regional_schema(dbpath, "char_regional_analysis")
+    char_table, ccol = _regional_schema(dbpath, T.CHAR_REGIONAL_ANALYSIS)
     query = f"""
-    SELECT {ccol("char")} as char
+    SELECT {ccol(C.CHAR_REGIONAL_ANALYSIS.CHAR)} as char
     FROM {char_table}
-    WHERE {ccol("region_level")} = ? AND {ccol("region_name")} = ?
-    ORDER BY {ccol("z_score")} DESC
+    WHERE {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)} = ? AND {ccol(C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)} = ?
+    ORDER BY {ccol(C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)} DESC
     """
 
-    rows = execute_query(db, query, (normalize_region_level(dbpath, "char_regional_analysis", level), region_name))
+    rows = execute_query(db, query, (normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, level), region_name))
     return [row['char'] for row in rows] if rows else []
 
 
@@ -463,7 +464,7 @@ async def get_similarity_matrix(
         region_list = [r.strip() for r in regions.split(',')]
     else:
         # Get top 20 regions by village count
-        villages_table, vcol = _regional_schema(dbpath, "villages")
+        villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
         county_col = vcol("county")
         query = f"""
         SELECT {county_col} as region_name, COUNT(*) as count
@@ -490,9 +491,10 @@ async def get_similarity_matrix(
     # Build similarity matrix
     n = len(region_list)
     matrix = [[0.0] * n for _ in range(n)]
-    sim_column = qcolumn(dbpath, "region_similarity", f"{metric}_similarity")
-    sim_col_name = column_name(dbpath, "region_similarity", f"{metric}_similarity")
-    similarity_table, scol = _regional_schema(dbpath, "region_similarity")
+    similarity_metric_column = getattr(SIMILARITY_METRIC_COLUMNS, metric)
+    sim_column = qcolumn(dbpath, T.REGION_SIMILARITY, similarity_metric_column)
+    sim_col_name = column_name(dbpath, T.REGION_SIMILARITY, similarity_metric_column)
+    similarity_table, scol = _regional_schema(dbpath, T.REGION_SIMILARITY)
 
     for i, r1 in enumerate(region_list):
         for j, r2 in enumerate(region_list):
@@ -507,7 +509,7 @@ async def get_similarity_matrix(
                     query = f"""
                     SELECT {sim_column}
                     FROM {similarity_table}
-                    WHERE ({scol("region1")} = ? AND {scol("region2")} = ?) OR ({scol("region1")} = ? AND {scol("region2")} = ?)
+                    WHERE ({scol(C.REGION_SIMILARITY.REGION1)} = ? AND {scol(C.REGION_SIMILARITY.REGION2)} = ?) OR ({scol(C.REGION_SIMILARITY.REGION1)} = ? AND {scol(C.REGION_SIMILARITY.REGION2)} = ?)
                     """
                     row = execute_single(db, query, (r1, r2, r2, r1))
                     if row:
@@ -548,7 +550,7 @@ async def list_regions(
     Returns:
         List of region names with village counts
     """
-    villages_table, vcol = _regional_schema(dbpath, "villages")
+    villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
     level_map = {
         "city": vcol("city"),
         "county": vcol("county"),

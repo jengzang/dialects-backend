@@ -10,6 +10,7 @@ from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..models import ClusterAssignment, ClusterProfile, ClusteringMetrics
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/clustering")
 
@@ -39,16 +40,16 @@ def get_cluster_assignments(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "cluster_assignments")
+            run_id_analysis_type(dbpath, T.CLUSTER_ASSIGNMENTS)
         )
 
-    table = qtable(dbpath, "cluster_assignments")
-    run_id_col = qcolumn(dbpath, "cluster_assignments", "run_id")
-    algorithm_col = qcolumn(dbpath, "cluster_assignments", "algorithm")
-    region_level_col = qcolumn(dbpath, "cluster_assignments", "region_level")
-    region_name_col = qcolumn(dbpath, "cluster_assignments", "region_name")
-    cluster_id_col = qcolumn(dbpath, "cluster_assignments", "cluster_id")
-    distance_col = qcolumn(dbpath, "cluster_assignments", "distance_to_centroid")
+    table = qtable(dbpath, T.CLUSTER_ASSIGNMENTS)
+    run_id_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.RUN_ID)
+    algorithm_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.ALGORITHM)
+    region_level_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.REGION_NAME)
+    cluster_id_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.CLUSTER_ID)
+    distance_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.DISTANCE_TO_CENTROID)
 
     query = f"""
         SELECT
@@ -58,7 +59,7 @@ def get_cluster_assignments(
         FROM {table}
         WHERE {run_id_col} = ? AND {algorithm_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, algorithm, normalize_region_level(dbpath, "cluster_assignments", region_level)]
+    params = [run_id, algorithm, normalize_region_level(dbpath, T.CLUSTER_ASSIGNMENTS, region_level)]
 
     # 现场过滤：聚类ID
     if cluster_id is not None:
@@ -103,16 +104,16 @@ def get_cluster_assignment_by_region(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "cluster_assignments")
+            run_id_analysis_type(dbpath, T.CLUSTER_ASSIGNMENTS)
         )
 
-    table = qtable(dbpath, "cluster_assignments")
-    run_id_col = qcolumn(dbpath, "cluster_assignments", "run_id")
-    algorithm_col = qcolumn(dbpath, "cluster_assignments", "algorithm")
-    region_level_col = qcolumn(dbpath, "cluster_assignments", "region_level")
-    region_name_col = qcolumn(dbpath, "cluster_assignments", "region_name")
-    cluster_id_col = qcolumn(dbpath, "cluster_assignments", "cluster_id")
-    distance_col = qcolumn(dbpath, "cluster_assignments", "distance_to_centroid")
+    table = qtable(dbpath, T.CLUSTER_ASSIGNMENTS)
+    run_id_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.RUN_ID)
+    algorithm_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.ALGORITHM)
+    region_level_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.REGION_NAME)
+    cluster_id_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.CLUSTER_ID)
+    distance_col = qcolumn(dbpath, T.CLUSTER_ASSIGNMENTS, C.CLUSTER_ASSIGNMENTS.DISTANCE_TO_CENTROID)
 
     query = f"""
         SELECT
@@ -123,7 +124,7 @@ def get_cluster_assignment_by_region(
         WHERE {run_id_col} = ? AND {region_name_col} = ? AND {algorithm_col} = ? AND {region_level_col} = ?
     """
 
-    result = execute_single(db, query, (run_id, region_name, algorithm, normalize_region_level(dbpath, "cluster_assignments", region_level)))
+    result = execute_single(db, query, (run_id, region_name, algorithm, normalize_region_level(dbpath, T.CLUSTER_ASSIGNMENTS, region_level)))
 
     if not result:
         raise HTTPException(
@@ -157,17 +158,17 @@ def get_cluster_profiles(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "cluster_profiles")
+            run_id_analysis_type(dbpath, T.CLUSTER_PROFILES)
         )
 
-    table = qtable(dbpath, "cluster_profiles")
-    run_id_col = qcolumn(dbpath, "cluster_profiles", "run_id")
-    algorithm_col = qcolumn(dbpath, "cluster_profiles", "algorithm")
-    cluster_id_col = qcolumn(dbpath, "cluster_profiles", "cluster_id")
-    cluster_size_col = qcolumn(dbpath, "cluster_profiles", "cluster_size")
-    top_features_col = qcolumn(dbpath, "cluster_profiles", "top_features_json")
-    top_semantic_col = qcolumn(dbpath, "cluster_profiles", "top_semantic_categories_json")
-    top_suffixes_col = qcolumn(dbpath, "cluster_profiles", "top_suffixes_json")
+    table = qtable(dbpath, T.CLUSTER_PROFILES)
+    run_id_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.RUN_ID)
+    algorithm_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.ALGORITHM)
+    cluster_id_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.CLUSTER_ID)
+    cluster_size_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.CLUSTER_SIZE)
+    top_features_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.TOP_FEATURES_JSON)
+    top_semantic_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.TOP_SEMANTIC_CATEGORIES_JSON)
+    top_suffixes_col = qcolumn(dbpath, T.CLUSTER_PROFILES, C.CLUSTER_PROFILES.TOP_SUFFIXES_JSON)
 
     query = f"""
         SELECT
@@ -230,16 +231,16 @@ def get_clustering_metrics(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "clustering_metrics")
+            run_id_analysis_type(dbpath, T.CLUSTERING_METRICS)
         )
 
-    table = qtable(dbpath, "clustering_metrics")
-    run_id_col = qcolumn(dbpath, "clustering_metrics", "run_id")
-    algorithm_col = qcolumn(dbpath, "clustering_metrics", "algorithm")
-    k_col = qcolumn(dbpath, "clustering_metrics", "k")
-    silhouette_col = qcolumn(dbpath, "clustering_metrics", "silhouette_score")
-    davies_col = qcolumn(dbpath, "clustering_metrics", "davies_bouldin_index")
-    calinski_col = qcolumn(dbpath, "clustering_metrics", "calinski_harabasz_score")
+    table = qtable(dbpath, T.CLUSTERING_METRICS)
+    run_id_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.RUN_ID)
+    algorithm_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.ALGORITHM)
+    k_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.K)
+    silhouette_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.SILHOUETTE_SCORE)
+    davies_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.DAVIES_BOULDIN_INDEX)
+    calinski_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.CALINSKI_HARABASZ_SCORE)
 
     query = f"""
         SELECT
@@ -294,24 +295,24 @@ def get_best_clustering(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "clustering_metrics")
+            run_id_analysis_type(dbpath, T.CLUSTERING_METRICS)
         )
 
     # 根据指标选择排序方向（silhouette和CH越大越好，DB越小越好）
     order = "DESC" if metric in ["silhouette_score", "calinski_harabasz_score"] else "ASC"
     metric_column_map = {
-        "silhouette_score": qcolumn(dbpath, "clustering_metrics", "silhouette_score"),
-        "davies_bouldin_index": qcolumn(dbpath, "clustering_metrics", "davies_bouldin_index"),
-        "calinski_harabasz_score": qcolumn(dbpath, "clustering_metrics", "calinski_harabasz_score"),
+        "silhouette_score": qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.SILHOUETTE_SCORE),
+        "davies_bouldin_index": qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.DAVIES_BOULDIN_INDEX),
+        "calinski_harabasz_score": qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.CALINSKI_HARABASZ_SCORE),
     }
-    metric_col = metric_column_map.get(metric, qcolumn(dbpath, "clustering_metrics", "silhouette_score"))
-    table = qtable(dbpath, "clustering_metrics")
-    run_id_col = qcolumn(dbpath, "clustering_metrics", "run_id")
-    algorithm_col = qcolumn(dbpath, "clustering_metrics", "algorithm")
-    k_col = qcolumn(dbpath, "clustering_metrics", "k")
-    silhouette_col = qcolumn(dbpath, "clustering_metrics", "silhouette_score")
-    davies_col = qcolumn(dbpath, "clustering_metrics", "davies_bouldin_index")
-    calinski_col = qcolumn(dbpath, "clustering_metrics", "calinski_harabasz_score")
+    metric_col = metric_column_map.get(metric, qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.SILHOUETTE_SCORE))
+    table = qtable(dbpath, T.CLUSTERING_METRICS)
+    run_id_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.RUN_ID)
+    algorithm_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.ALGORITHM)
+    k_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.K)
+    silhouette_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.SILHOUETTE_SCORE)
+    davies_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.DAVIES_BOULDIN_INDEX)
+    calinski_col = qcolumn(dbpath, T.CLUSTERING_METRICS, C.CLUSTERING_METRICS.CALINSKI_HARABASZ_SCORE)
 
     query = f"""
         SELECT

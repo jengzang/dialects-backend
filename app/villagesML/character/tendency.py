@@ -9,6 +9,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharTendency, CharTendencyByRegion
 from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/character/tendency")
 
@@ -41,16 +42,16 @@ def get_character_tendency_by_region(
     Returns:
         List[CharTendency]: 字符倾向性列表
     """
-    table = qtable(dbpath, "char_regional_analysis")
-    region_level_col = qcolumn(dbpath, "char_regional_analysis", "region_level")
-    region_name_col = qcolumn(dbpath, "char_regional_analysis", "region_name")
-    city_col = qcolumn(dbpath, "char_regional_analysis", "city")
-    county_col = qcolumn(dbpath, "char_regional_analysis", "county")
-    township_col = qcolumn(dbpath, "char_regional_analysis", "township")
-    char_col = qcolumn(dbpath, "char_regional_analysis", "char")
-    lift_col = qcolumn(dbpath, "char_regional_analysis", "lift")
-    log_odds_col = qcolumn(dbpath, "char_regional_analysis", "log_odds")
-    z_score_col = qcolumn(dbpath, "char_regional_analysis", "z_score")
+    table = qtable(dbpath, T.CHAR_REGIONAL_ANALYSIS)
+    region_level_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)
+    city_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CITY)
+    county_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.COUNTY)
+    township_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.TOWNSHIP)
+    char_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CHAR)
+    lift_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.LIFT)
+    log_odds_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.LOG_ODDS)
+    z_score_col = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)
     sort_col_map = {
         "z_score": z_score_col,
         "lift": lift_col,
@@ -73,7 +74,7 @@ def get_character_tendency_by_region(
         FROM {table}
         WHERE {region_level_col} = ?
     """
-    params = [normalize_region_level(dbpath, "char_regional_analysis", region_level)]
+    params = [normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -132,22 +133,22 @@ def get_character_tendency_by_char(
     Returns:
         List[CharTendencyByRegion]: 各区域倾向性列表（包含区域中心点坐标）
     """
-    regional_table = qtable(dbpath, "char_regional_analysis")
-    regional_region_level = qcolumn(dbpath, "char_regional_analysis", "region_level")
-    regional_region_name = qcolumn(dbpath, "char_regional_analysis", "region_name")
-    regional_city = qcolumn(dbpath, "char_regional_analysis", "city")
-    regional_county = qcolumn(dbpath, "char_regional_analysis", "county")
-    regional_township = qcolumn(dbpath, "char_regional_analysis", "township")
-    regional_char = qcolumn(dbpath, "char_regional_analysis", "char")
-    regional_lift = qcolumn(dbpath, "char_regional_analysis", "lift")
-    regional_z_score = qcolumn(dbpath, "char_regional_analysis", "z_score")
-    villages_table = qtable(dbpath, "villages")
-    villages_longitude = qcolumn(dbpath, "villages", "longitude")
-    villages_latitude = qcolumn(dbpath, "villages", "latitude")
+    regional_table = qtable(dbpath, T.CHAR_REGIONAL_ANALYSIS)
+    regional_region_level = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_LEVEL)
+    regional_region_name = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.REGION_NAME)
+    regional_city = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CITY)
+    regional_county = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.COUNTY)
+    regional_township = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.TOWNSHIP)
+    regional_char = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CHAR)
+    regional_lift = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.LIFT)
+    regional_z_score = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_longitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
+    villages_latitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
     coord_field_map = {
-        "city": qcolumn(dbpath, "villages", "city"),
-        "county": qcolumn(dbpath, "villages", "county"),
-        "township": qcolumn(dbpath, "villages", "township"),
+        "city": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY),
+        "county": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY),
+        "township": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP),
     }
     coord_field = coord_field_map[region_level]
 
@@ -166,7 +167,7 @@ def get_character_tendency_by_char(
         LEFT JOIN {villages_table} v ON c.{regional_region_name} = v.{coord_field}
         WHERE c.{regional_char} = ? AND c.{regional_region_level} = ?
     """
-    params = [character, normalize_region_level(dbpath, "char_regional_analysis", region_level)]
+    params = [character, normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:

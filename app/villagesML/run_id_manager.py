@@ -9,7 +9,14 @@ import time
 from typing import Dict, List, Optional
 
 from .schema_config import DEFAULT_DATABASE_KEY
-from .schema_runtime import column_name, quote_identifier, resolve_db_path, table_name
+from .schema_runtime import (
+    column_name,
+    qrun_id_column_for_physical_table,
+    quote_identifier,
+    resolve_db_path,
+    table_name,
+)
+from .schema_keys import C, T
 
 
 class RunIDManager:
@@ -29,10 +36,10 @@ class RunIDManager:
 
     @property
     def active_run_ids_table(self) -> str:
-        return quote_identifier(table_name(self.dbpath, "active_run_ids"))
+        return quote_identifier(table_name(self.dbpath, T.ACTIVE_RUN_IDS))
 
     def active_run_ids_col(self, logical_column: str) -> str:
-        return quote_identifier(column_name(self.dbpath, "active_run_ids", logical_column))
+        return quote_identifier(column_name(self.dbpath, T.ACTIVE_RUN_IDS, logical_column))
 
     def _load_active_run_ids(self):
         """从数据库加载活跃 run_id 到内存缓存"""
@@ -41,7 +48,7 @@ class RunIDManager:
             cursor = conn.cursor()
 
             cursor.execute(f"""
-                SELECT {self.active_run_ids_col("analysis_type")}, {self.active_run_ids_col("run_id")}
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)}, {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)}
                 FROM {self.active_run_ids_table}
             """)
 
@@ -73,8 +80,8 @@ class RunIDManager:
         try:
             # 获取对应的表名
             cursor.execute(f"""
-                SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-                WHERE {self.active_run_ids_col("analysis_type")} = ?
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
             """, (analysis_type,))
 
             result = cursor.fetchone()
@@ -87,7 +94,7 @@ class RunIDManager:
             # 检查 run_id 是否存在
             cursor.execute(f"""
                 SELECT COUNT(*) FROM {quote_identifier(table_name)}
-                WHERE {quote_identifier("run_id")} = ?
+                WHERE {qrun_id_column_for_physical_table(self.dbpath, table_name)} = ?
                 LIMIT 1
             """, (run_id,))
 
@@ -115,8 +122,8 @@ class RunIDManager:
         try:
             # 获取对应的表名
             cursor.execute(f"""
-                SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-                WHERE {self.active_run_ids_col("analysis_type")} = ?
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
             """, (analysis_type,))
 
             result = cursor.fetchone()
@@ -128,9 +135,9 @@ class RunIDManager:
 
             # 获取最新的 run_id（按字典序降序）
             cursor.execute(f"""
-                SELECT DISTINCT {quote_identifier("run_id")}
+                SELECT DISTINCT {qrun_id_column_for_physical_table(self.dbpath, table_name)}
                 FROM {quote_identifier(table_name)}
-                ORDER BY {quote_identifier("run_id")} DESC
+                ORDER BY {qrun_id_column_for_physical_table(self.dbpath, table_name)} DESC
                 LIMIT 1
             """)
 
@@ -200,8 +207,8 @@ class RunIDManager:
 
         # 获取对应的表名
         cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
+            SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+            WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
         """, (analysis_type,))
 
         result = cursor.fetchone()
@@ -214,9 +221,9 @@ class RunIDManager:
         # 查询该表中所有不同的 run_id
         try:
             cursor.execute(f"""
-                SELECT DISTINCT {quote_identifier("run_id")}
+                SELECT DISTINCT {qrun_id_column_for_physical_table(self.dbpath, table_name)}
                 FROM {quote_identifier(table_name)}
-                ORDER BY {quote_identifier("run_id")} DESC
+                ORDER BY {qrun_id_column_for_physical_table(self.dbpath, table_name)} DESC
             """)
 
             run_ids = [{"run_id": row[0]} for row in cursor.fetchall()]
@@ -250,8 +257,8 @@ class RunIDManager:
 
         # 验证分析类型存在
         cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
+            SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+            WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
         """, (analysis_type,))
 
         result = cursor.fetchone()
@@ -265,7 +272,7 @@ class RunIDManager:
         try:
             cursor.execute(f"""
                 SELECT COUNT(*) FROM {quote_identifier(table_name)}
-                WHERE {quote_identifier("run_id")} = ?
+                WHERE {qrun_id_column_for_physical_table(self.dbpath, table_name)} = ?
             """, (run_id,))
 
             count = cursor.fetchone()[0]
@@ -281,11 +288,11 @@ class RunIDManager:
         # 更新活跃 run_id
         cursor.execute(f"""
             UPDATE {self.active_run_ids_table}
-            SET {self.active_run_ids_col("run_id")} = ?,
-                {self.active_run_ids_col("updated_at")} = ?,
-                {self.active_run_ids_col("updated_by")} = ?,
-                {self.active_run_ids_col("notes")} = ?
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
+            SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)} = ?
+            WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
         """, (run_id, time.time(), updated_by, notes, analysis_type))
 
         conn.commit()
@@ -313,15 +320,15 @@ class RunIDManager:
         try:
             cursor.execute(f"""
                 SELECT created_at, status, total_villages, total_chars
-                FROM {quote_identifier(table_name(self.dbpath, "analysis_runs"))}
-                WHERE {quote_identifier(column_name(self.dbpath, "analysis_runs", "run_id"))} = ?
+                FROM {quote_identifier(table_name(self.dbpath, T.ANALYSIS_RUNS))}
+                WHERE {quote_identifier(column_name(self.dbpath, T.ANALYSIS_RUNS, C.ANALYSIS_RUNS.RUN_ID))} = ?
             """, (run_id,))
 
             result = cursor.fetchone()
             if result:
                 metadata.update({
                     "found": True,
-                    "source": "analysis_runs",
+                    "source": T.ANALYSIS_RUNS,
                     "created_at": result[0],
                     "status": result[1],
                     "total_villages": result[2],
@@ -336,15 +343,15 @@ class RunIDManager:
         try:
             cursor.execute(f"""
                 SELECT created_at, vector_size, window_size, min_count
-                FROM {quote_identifier(table_name(self.dbpath, "embedding_runs"))}
-                WHERE {quote_identifier(column_name(self.dbpath, "embedding_runs", "run_id"))} = ?
+                FROM {quote_identifier(table_name(self.dbpath, T.EMBEDDING_RUNS))}
+                WHERE {quote_identifier(column_name(self.dbpath, T.EMBEDDING_RUNS, C.EMBEDDING_RUNS.RUN_ID))} = ?
             """, (run_id,))
 
             result = cursor.fetchone()
             if result:
                 metadata.update({
                     "found": True,
-                    "source": "embedding_runs",
+                    "source": T.EMBEDDING_RUNS,
                     "created_at": result[0],
                     "vector_size": result[1],
                     "window_size": result[2],
@@ -389,8 +396,8 @@ class RunIDManager:
 
         # 检查分析类型是否存在
         cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
+            SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+            WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
         """, (analysis_type,))
 
         result = cursor.fetchone()
@@ -402,11 +409,11 @@ class RunIDManager:
         # 更新活跃 run_id（不验证是否存在）
         cursor.execute(f"""
             UPDATE {self.active_run_ids_table}
-            SET {self.active_run_ids_col("run_id")} = ?,
-                {self.active_run_ids_col("updated_at")} = ?,
-                {self.active_run_ids_col("updated_by")} = ?,
-                {self.active_run_ids_col("notes")} = ?
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
+            SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)} = ?,
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)} = ?
+            WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
         """, (run_id, time.time(), script_name, notes, analysis_type))
 
         conn.commit()
@@ -433,14 +440,14 @@ class RunIDManager:
 
         cursor.execute(f"""
             SELECT
-                {self.active_run_ids_col("analysis_type")},
-                {self.active_run_ids_col("run_id")},
-                {self.active_run_ids_col("table_name")},
-                {self.active_run_ids_col("updated_at")},
-                {self.active_run_ids_col("updated_by")},
-                {self.active_run_ids_col("notes")}
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)},
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)},
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)},
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)},
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)},
+                {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)}
             FROM {self.active_run_ids_table}
-            ORDER BY {self.active_run_ids_col("analysis_type")}
+            ORDER BY {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)}
         """)
 
         rows = cursor.fetchall()

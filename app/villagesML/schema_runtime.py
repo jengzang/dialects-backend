@@ -82,6 +82,15 @@ def table_name(dbpath: str | None, logical_table: str) -> str:
     return table_config(dbpath, logical_table)["name"]
 
 
+def logical_table_for_name(dbpath: str | None, physical_table_name: str) -> str:
+    """Return the configured logical table key for a physical table name."""
+    tables = get_database_config(dbpath).get("tables", {})
+    for logical_table, config in tables.items():
+        if config.get("name") == physical_table_name:
+            return logical_table
+    raise ValueError(f"Unknown VillagesML physical table: {physical_table_name}")
+
+
 def qtable(dbpath: str | None, logical_table: str) -> str:
     """Return a safely quoted physical table name."""
     return quote_identifier(table_name(dbpath, logical_table))
@@ -109,6 +118,21 @@ def run_id_analysis_type(dbpath: str | None, logical_table: str) -> str:
     if not analysis_type:
         raise ValueError(f"Logical table does not configure a run_id analysis type: {logical_table}")
     return analysis_type
+
+
+def run_id_column(dbpath: str | None, logical_table: str) -> str:
+    """Return the configured run_id logical column for a logical table."""
+    run_id_config = table_config(dbpath, logical_table).get("run_id", {})
+    column = run_id_config.get("column")
+    if not column:
+        raise ValueError(f"Logical table does not configure a run_id column: {logical_table}")
+    return column
+
+
+def qrun_id_column_for_physical_table(dbpath: str | None, physical_table_name: str) -> str:
+    """Return the quoted run_id column for a configured physical table name."""
+    logical_table = logical_table_for_name(dbpath, physical_table_name)
+    return qcolumn(dbpath, logical_table, run_id_column(dbpath, logical_table))
 
 
 def configured_table_list(dbpath: str | None, list_name: str) -> list[str]:

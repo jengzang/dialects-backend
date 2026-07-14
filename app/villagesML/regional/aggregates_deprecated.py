@@ -8,6 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import normalize_region_level, qcolumn, qtable
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/regional")
 
@@ -28,9 +29,9 @@ def get_city_aggregates(
     Returns:
         List[dict]: 城市聚合数据
     """
-    table = qtable(dbpath, "city_aggregates")
-    city_col = qcolumn(dbpath, "city_aggregates", "city")
-    total_villages_col = qcolumn(dbpath, "city_aggregates", "total_villages")
+    table = qtable(dbpath, T.CITY_AGGREGATES)
+    city_col = qcolumn(dbpath, T.CITY_AGGREGATES, C.CITY_AGGREGATES.CITY)
+    total_villages_col = qcolumn(dbpath, T.CITY_AGGREGATES, C.CITY_AGGREGATES.TOTAL_VILLAGES)
 
     query = f"""
         SELECT *
@@ -73,10 +74,10 @@ def get_county_aggregates(
     Returns:
         List[dict]: 县区聚合数据
     """
-    table = qtable(dbpath, "county_aggregates")
-    city_col = qcolumn(dbpath, "county_aggregates", "city")
-    county_col = qcolumn(dbpath, "county_aggregates", "county")
-    total_villages_col = qcolumn(dbpath, "county_aggregates", "total_villages")
+    table = qtable(dbpath, T.COUNTY_AGGREGATES)
+    city_col = qcolumn(dbpath, T.COUNTY_AGGREGATES, C.COUNTY_AGGREGATES.CITY)
+    county_col = qcolumn(dbpath, T.COUNTY_AGGREGATES, C.COUNTY_AGGREGATES.COUNTY)
+    total_villages_col = qcolumn(dbpath, T.COUNTY_AGGREGATES, C.COUNTY_AGGREGATES.TOTAL_VILLAGES)
 
     query = f"""
         SELECT *
@@ -126,10 +127,10 @@ def get_town_aggregates(
     Returns:
         List[dict]: 乡镇聚合数据
     """
-    table = qtable(dbpath, "town_aggregates")
-    county_col = qcolumn(dbpath, "town_aggregates", "county")
-    town_col = qcolumn(dbpath, "town_aggregates", "town")
-    total_villages_col = qcolumn(dbpath, "town_aggregates", "total_villages")
+    table = qtable(dbpath, T.TOWN_AGGREGATES)
+    county_col = qcolumn(dbpath, T.TOWN_AGGREGATES, C.TOWN_AGGREGATES.COUNTY)
+    town_col = qcolumn(dbpath, T.TOWN_AGGREGATES, C.TOWN_AGGREGATES.TOWN)
+    total_villages_col = qcolumn(dbpath, T.TOWN_AGGREGATES, C.TOWN_AGGREGATES.TOTAL_VILLAGES)
 
     query = f"""
         SELECT *
@@ -180,14 +181,14 @@ def get_region_spatial_aggregates(
     Returns:
         List[dict]: 区域空间聚合数据
     """
-    table = qtable(dbpath, "region_spatial_aggregates")
-    region_level_col = qcolumn(dbpath, "region_spatial_aggregates", "region_level")
-    region_name_col = qcolumn(dbpath, "region_spatial_aggregates", "region_name")
-    total_villages_col = qcolumn(dbpath, "region_spatial_aggregates", "total_villages")
-    avg_local_density_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_local_density")
-    avg_nn_distance_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_nn_distance")
-    avg_isolation_score_col = qcolumn(dbpath, "region_spatial_aggregates", "avg_isolation_score")
-    spatial_dispersion_col = qcolumn(dbpath, "region_spatial_aggregates", "spatial_dispersion")
+    table = qtable(dbpath, T.REGION_SPATIAL_AGGREGATES)
+    region_level_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.REGION_NAME)
+    total_villages_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.TOTAL_VILLAGES)
+    avg_local_density_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.AVG_LOCAL_DENSITY)
+    avg_nn_distance_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.AVG_NN_DISTANCE)
+    avg_isolation_score_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.AVG_ISOLATION_SCORE)
+    spatial_dispersion_col = qcolumn(dbpath, T.REGION_SPATIAL_AGGREGATES, C.REGION_SPATIAL_AGGREGATES.SPATIAL_DISPERSION)
 
     query = f"""
         SELECT
@@ -201,7 +202,7 @@ def get_region_spatial_aggregates(
         FROM {table}
         WHERE {region_level_col} = ?
     """
-    params = [normalize_region_level(dbpath, "region_spatial_aggregates", region_level)]
+    params = [normalize_region_level(dbpath, T.REGION_SPATIAL_AGGREGATES, region_level)]
 
     if region_name is not None:
         query += f" AND {region_name_col} = ?"
@@ -239,12 +240,12 @@ def get_region_vectors(
     Returns:
         List[dict]: 区域特征向量（不包含向量数据，仅元数据）
     """
-    table = qtable(dbpath, "region_vectors")
-    region_id_col = qcolumn(dbpath, "region_vectors", "region_id")
-    region_name_col = qcolumn(dbpath, "region_vectors", "region_name")
-    region_level_col = qcolumn(dbpath, "region_vectors", "region_level")
-    n_villages_col = qcolumn(dbpath, "region_vectors", "N_villages")
-    created_at_col = qcolumn(dbpath, "region_vectors", "created_at")
+    table = qtable(dbpath, T.REGION_VECTORS)
+    region_id_col = qcolumn(dbpath, T.REGION_VECTORS, C.REGION_VECTORS.REGION_ID)
+    region_name_col = qcolumn(dbpath, T.REGION_VECTORS, C.REGION_VECTORS.REGION_NAME)
+    region_level_col = qcolumn(dbpath, T.REGION_VECTORS, C.REGION_VECTORS.REGION_LEVEL)
+    n_villages_col = qcolumn(dbpath, T.REGION_VECTORS, C.REGION_VECTORS.N_VILLAGES)
+    created_at_col = qcolumn(dbpath, T.REGION_VECTORS, C.REGION_VECTORS.CREATED_AT)
 
     query = f"""
         SELECT

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ..dependencies import execute_query, execute_single, get_db, get_dbpath
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/spatial")
 
@@ -23,17 +24,17 @@ def get_spatial_hotspots(
     """Get spatial density hotspots."""
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "spatial_hotspots")
+            run_id_analysis_type(dbpath, T.SPATIAL_HOTSPOTS)
         )
 
-    table = qtable(dbpath, "spatial_hotspots")
-    run_id_col = qcolumn(dbpath, "spatial_hotspots", "run_id")
-    hotspot_id_col = qcolumn(dbpath, "spatial_hotspots", "hotspot_id")
-    center_lon_col = qcolumn(dbpath, "spatial_hotspots", "center_lon")
-    center_lat_col = qcolumn(dbpath, "spatial_hotspots", "center_lat")
-    density_score_col = qcolumn(dbpath, "spatial_hotspots", "density_score")
-    village_count_col = qcolumn(dbpath, "spatial_hotspots", "village_count")
-    radius_km_col = qcolumn(dbpath, "spatial_hotspots", "radius_km")
+    table = qtable(dbpath, T.SPATIAL_HOTSPOTS)
+    run_id_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.RUN_ID)
+    hotspot_id_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.HOTSPOT_ID)
+    center_lon_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.CENTER_LON)
+    center_lat_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.CENTER_LAT)
+    density_score_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.DENSITY_SCORE)
+    village_count_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.VILLAGE_COUNT)
+    radius_km_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.RADIUS_KM)
 
     query = f"""
         SELECT
@@ -75,17 +76,17 @@ def get_hotspot_detail(
     """Get one hotspot detail."""
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "spatial_hotspots")
+            run_id_analysis_type(dbpath, T.SPATIAL_HOTSPOTS)
         )
 
-    table = qtable(dbpath, "spatial_hotspots")
-    run_id_col = qcolumn(dbpath, "spatial_hotspots", "run_id")
-    hotspot_id_col = qcolumn(dbpath, "spatial_hotspots", "hotspot_id")
-    center_lon_col = qcolumn(dbpath, "spatial_hotspots", "center_lon")
-    center_lat_col = qcolumn(dbpath, "spatial_hotspots", "center_lat")
-    density_score_col = qcolumn(dbpath, "spatial_hotspots", "density_score")
-    village_count_col = qcolumn(dbpath, "spatial_hotspots", "village_count")
-    radius_km_col = qcolumn(dbpath, "spatial_hotspots", "radius_km")
+    table = qtable(dbpath, T.SPATIAL_HOTSPOTS)
+    run_id_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.RUN_ID)
+    hotspot_id_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.HOTSPOT_ID)
+    center_lon_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.CENTER_LON)
+    center_lat_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.CENTER_LAT)
+    density_score_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.DENSITY_SCORE)
+    village_count_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.VILLAGE_COUNT)
+    radius_km_col = qcolumn(dbpath, T.SPATIAL_HOTSPOTS, C.SPATIAL_HOTSPOTS.RADIUS_KM)
 
     query = f"""
         SELECT
@@ -122,14 +123,14 @@ def get_spatial_clusters(
         if resolved_run_id is None:
             try:
                 resolved_run_id = get_run_id_manager(dbpath).get_active_run_id(
-                    run_id_analysis_type(dbpath, "spatial_clusters")
+                    run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
                 )
             except ValueError:
                 resolved_run_id = None
 
             if not resolved_run_id:
-                table = qtable(dbpath, "spatial_clusters")
-                run_id_col = qcolumn(dbpath, "spatial_clusters", "run_id")
+                table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+                run_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
                 fallback_query = f"""
                     SELECT {run_id_col} as run_id FROM {table}
                     ORDER BY {run_id_col} DESC
@@ -142,15 +143,15 @@ def get_spatial_clusters(
         if not resolved_run_id:
             raise HTTPException(status_code=404, detail="No spatial clusters data found in database")
 
-        table = qtable(dbpath, "spatial_clusters")
-        run_id_col = qcolumn(dbpath, "spatial_clusters", "run_id")
-        cluster_id_col = qcolumn(dbpath, "spatial_clusters", "cluster_id")
-        cluster_size_col = qcolumn(dbpath, "spatial_clusters", "cluster_size")
-        centroid_lon_col = qcolumn(dbpath, "spatial_clusters", "centroid_lon")
-        centroid_lat_col = qcolumn(dbpath, "spatial_clusters", "centroid_lat")
-        avg_distance_col = qcolumn(dbpath, "spatial_clusters", "avg_distance_km")
-        dominant_city_col = qcolumn(dbpath, "spatial_clusters", "dominant_city")
-        dominant_county_col = qcolumn(dbpath, "spatial_clusters", "dominant_county")
+        table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+        run_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
+        cluster_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
+        cluster_size_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
+        centroid_lon_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CENTROID_LON)
+        centroid_lat_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CENTROID_LAT)
+        avg_distance_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.AVG_DISTANCE_KM)
+        dominant_city_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.DOMINANT_CITY)
+        dominant_county_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.DOMINANT_COUNTY)
 
         query = f"""
             SELECT
@@ -211,16 +212,16 @@ def get_cluster_summary(
     """Get cluster summary statistics."""
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "spatial_clusters")
+            run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
         )
 
-    table = qtable(dbpath, "spatial_clusters")
-    run_id_col = qcolumn(dbpath, "spatial_clusters", "run_id")
-    cluster_id_col = qcolumn(dbpath, "spatial_clusters", "cluster_id")
-    cluster_size_col = qcolumn(dbpath, "spatial_clusters", "cluster_size")
-    avg_distance_col = qcolumn(dbpath, "spatial_clusters", "avg_distance_km")
-    centroid_lon_col = qcolumn(dbpath, "spatial_clusters", "centroid_lon")
-    centroid_lat_col = qcolumn(dbpath, "spatial_clusters", "centroid_lat")
+    table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+    run_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
+    cluster_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
+    cluster_size_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
+    avg_distance_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.AVG_DISTANCE_KM)
+    centroid_lon_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CENTROID_LON)
+    centroid_lat_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CENTROID_LAT)
 
     query = f"""
         SELECT
@@ -273,10 +274,10 @@ def get_available_cluster_runs(
     dbpath: str = Depends(get_dbpath),
 ):
     """Get available cluster run ids."""
-    table = qtable(dbpath, "spatial_clusters")
-    run_id_col = qcolumn(dbpath, "spatial_clusters", "run_id")
-    cluster_id_col = qcolumn(dbpath, "spatial_clusters", "cluster_id")
-    cluster_size_col = qcolumn(dbpath, "spatial_clusters", "cluster_size")
+    table = qtable(dbpath, T.SPATIAL_CLUSTERS)
+    run_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.RUN_ID)
+    cluster_id_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_ID)
+    cluster_size_col = qcolumn(dbpath, T.SPATIAL_CLUSTERS, C.SPATIAL_CLUSTERS.CLUSTER_SIZE)
 
     query = f"""
         SELECT
@@ -298,7 +299,7 @@ def get_available_cluster_runs(
         raise HTTPException(status_code=404, detail="No clustering runs found")
 
     active_run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "spatial_clusters")
+        run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
     )
     for result in results:
         result["is_active"] = result["run_id"] == active_run_id
