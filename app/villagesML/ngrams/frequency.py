@@ -3,6 +3,7 @@ N-gram分析API
 N-gram Analysis API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.params import Query as QueryParam
 from typing import Optional, Dict, Any
 import sqlite3
 from itertools import groupby
@@ -53,6 +54,20 @@ def _build_metadata(
         metadata["coverage_rate"] = DATA_RETENTION_RATE
 
     return metadata
+
+
+def _has_specific_region_filter(region_level: str, region_name: Optional[str], city: Optional[str], county: Optional[str], township: Optional[str]) -> bool:
+    if region_name is not None:
+        return True
+    if region_level == "city":
+        return city is not None
+    if region_level == "county":
+        return county is not None
+    return township is not None
+
+
+def _query_bool(value: bool) -> bool:
+    return False if isinstance(value, QueryParam) else bool(value)
 
 
 @router.get("/frequency")
@@ -122,6 +137,7 @@ def get_regional_ngram_frequency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     top_k: int = Query(50, ge=1, le=500, description="每个区域返回前K个n-grams"),
     return_metadata: bool = Query(False, description="是否返回元数据（包含数据说明）"),
+    allow_broad_scan: bool = Query(False, description="显式允许跨全部区域的探索型宽查询"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -157,6 +173,12 @@ def get_regional_ngram_frequency(
     frequency_col = col("frequency")
     percentage_col = col("percentage")
     n_col = col("n")
+
+    if not _query_bool(allow_broad_scan) and not _has_specific_region_filter(region_level, region_name, city, county, township):
+        raise HTTPException(
+            status_code=422,
+            detail=f"regional n-gram top queries require a specific {region_level} region; pass allow_broad_scan=true for exploratory all-region scans.",
+        )
 
     # 根据 region_level 构建不同的查询
     if region_level == "township":
@@ -407,6 +429,7 @@ def get_ngram_tendency(
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值（lift值）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    allow_broad_scan: bool = Query(False, description="显式允许跨全部区域的探索型宽查询"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -449,6 +472,12 @@ def get_ngram_tendency(
         columns = [col[1] for col in cursor.fetchall()]
         _pragma_cache[cache_key] = qcolumn(dbpath, T.NGRAM_TENDENCY, C.NGRAM_TENDENCY.REGIONAL_TOTAL_RAW).strip('"') in columns
     has_regional_total_raw = _pragma_cache[cache_key]
+
+    if ngram is None and not _query_bool(allow_broad_scan) and not _has_specific_region_filter(region_level, region_name, city, county, township):
+        raise HTTPException(
+            status_code=422,
+            detail=f"ngram tendency top queries require a specific {region_level} region; pass allow_broad_scan=true for exploratory all-region scans.",
+        )
 
     # 根据 region_level 构建不同的查询
     if region_level == "township":

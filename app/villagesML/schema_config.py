@@ -41,6 +41,33 @@ VILLAGES_DATABASES = {
                     "latitude": "latitude",
                 },
             },
+            "metadata_overview_stats": {
+                "name": "metadata_overview_stats",
+                "columns": {
+                    "total_villages": "total_villages",
+                    "total_cities": "total_cities",
+                    "total_counties": "total_counties",
+                    "total_townships": "total_townships",
+                    "unique_characters": "unique_characters",
+                    "generated_at": "generated_at",
+                    "data_version": "data_version",
+                },
+            },
+            "region_hierarchy_stats": {
+                "name": "region_hierarchy_stats",
+                "columns": {
+                    "level": "level",
+                    "name": "name",
+                    "city": "city",
+                    "county": "county",
+                    "township": "township",
+                    "parent": "parent",
+                    "village_count": "village_count",
+                    "sort_key": "sort_key",
+                    "generated_at": "generated_at",
+                    "data_version": "data_version",
+                },
+            },
             "active_run_ids": {
                 "name": "active_run_ids",
                 "columns": {

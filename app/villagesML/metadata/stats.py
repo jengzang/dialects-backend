@@ -18,6 +18,35 @@ from ..cache_utils import api_cache
 router = APIRouter(prefix="/metadata/stats")
 
 
+def _table_exists(db: sqlite3.Connection, dbpath: str, logical_table: str) -> bool:
+    sqlite_master_table = qtable(dbpath, T.SQLITE_MASTER)
+    sqlite_master_name = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.NAME)
+    sqlite_master_type = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.TYPE)
+    table_name = qtable(dbpath, logical_table).strip('"')
+    rows = execute_query(
+        db,
+        f"""
+        SELECT {sqlite_master_name} as name
+        FROM {sqlite_master_table}
+        WHERE {sqlite_master_type} = 'table' AND {sqlite_master_name} = ?
+        LIMIT 1
+        """,
+        (table_name,),
+    )
+    return bool(rows)
+
+
+def _parse_stats_datetime(value, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return fallback
+    return fallback
+
+
 def _get_system_overview_sync(dbpath: str):
     """
     同步获取系统概览统计（在线程池中执行）
@@ -25,6 +54,37 @@ def _get_system_overview_sync(dbpath: str):
     """
     db_file = resolve_db_path(dbpath)
     with get_db_connection(dbpath) as db:
+        db_mtime = datetime.fromtimestamp(os.path.getmtime(db_file)) if os.path.exists(db_file) else datetime.now()
+        db_size_mb = os.path.getsize(db_file) / (1024 * 1024) if os.path.exists(db_file) else 0
+
+        if _table_exists(db, dbpath, T.METADATA_OVERVIEW_STATS):
+            overview_table = qtable(dbpath, T.METADATA_OVERVIEW_STATS)
+            overview_rows = execute_query(
+                db,
+                f"""
+                SELECT
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.TOTAL_VILLAGES)} as total_villages,
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.TOTAL_CITIES)} as total_cities,
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.TOTAL_COUNTIES)} as total_counties,
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.TOTAL_TOWNSHIPS)} as total_townships,
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.UNIQUE_CHARACTERS)} as unique_characters,
+                    {qcolumn(dbpath, T.METADATA_OVERVIEW_STATS, C.METADATA_OVERVIEW_STATS.GENERATED_AT)} as generated_at
+                FROM {overview_table}
+                LIMIT 1
+                """,
+            )
+            if overview_rows:
+                row = overview_rows[0]
+                return {
+                    "total_villages": row["total_villages"],
+                    "total_cities": row["total_cities"],
+                    "total_counties": row["total_counties"],
+                    "total_townships": row["total_townships"],
+                    "unique_characters": row["unique_characters"],
+                    "database_size_mb": round(db_size_mb, 2),
+                    "last_updated": _parse_stats_datetime(row.get("generated_at"), db_mtime),
+                }
+
         villages_table = qtable(dbpath, T.VILLAGES)
         villages_city = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
         villages_county = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
@@ -55,12 +115,6 @@ def _get_system_overview_sync(dbpath: str):
         unique_chars_result = execute_query(db, unique_chars_query)
         unique_chars = unique_chars_result[0]["count"] if unique_chars_result else 0
 
-        # 获取数据库大小
-        db_size_mb = os.path.getsize(db_file) / (1024 * 1024) if os.path.exists(db_file) else 0
-
-        # 获取最后更新时间（从数据库文件修改时间）
-        last_updated = datetime.fromtimestamp(os.path.getmtime(db_file)) if os.path.exists(db_file) else datetime.now()
-
         return {
             "total_villages": total_villages,
             "total_cities": total_cities,
@@ -68,7 +122,7 @@ def _get_system_overview_sync(dbpath: str):
             "total_townships": total_townships,
             "unique_characters": unique_chars,
             "database_size_mb": round(db_size_mb, 2),
-            "last_updated": last_updated
+            "last_updated": db_mtime
         }
 
 
@@ -317,9 +371,44 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
             detail=f"Invalid level: {level}. Must be one of: city, county, township"
         )
 
-    level_column = level_column_map[level]
-
     with get_db_connection(dbpath) as db:
+        if _table_exists(db, dbpath, T.REGION_HIERARCHY_STATS):
+            region_table = qtable(dbpath, T.REGION_HIERARCHY_STATS)
+            region_level = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.LEVEL)
+            region_name = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.NAME)
+            region_city = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.CITY)
+            region_county = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.COUNTY)
+            region_township = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.TOWNSHIP)
+            region_parent = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.PARENT)
+            region_village_count = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)
+            region_sort_key = qcolumn(dbpath, T.REGION_HIERARCHY_STATS, C.REGION_HIERARCHY_STATS.SORT_KEY)
+
+            query = f"""
+                SELECT
+                    {region_city} as city,
+                    {region_county} as county,
+                    {region_township} as township,
+                    {region_name} as name,
+                    {region_level} as level,
+                    {region_village_count} as village_count
+                FROM {region_table}
+                WHERE {region_level} = ?
+            """
+            params = [level]
+            if parent is not None:
+                if level == "city":
+                    raise HTTPException(
+                        status_code=422,
+                        detail="City level does not support parent parameter"
+                    )
+                query += f" AND {region_parent} = ?"
+                params.append(parent)
+            query += f" ORDER BY {region_sort_key}"
+            results = execute_query(db, query, tuple(params))
+
+            if results:
+                return results
+
         # 根据 level 构建不同的查询
         if level == 'city':
             # 城市级别：只返回城市，county 和 township 为 NULL

@@ -2,6 +2,7 @@ import sqlite3
 import unittest
 import asyncio
 from unittest.mock import patch
+from fastapi import HTTPException
 
 
 class VillagesMLQueryShapeTests(unittest.TestCase):
@@ -292,6 +293,128 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
         self.assertEqual(result[0]["region_name"], "太平镇")
         self.assertIn('nt."region" = ?', query)
         self.assertIn("太平镇", params)
+
+    def test_metadata_overview_prefers_materialized_stats_table(self) -> None:
+        from app.villagesML.metadata import stats
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "sqlite_master" in query:
+                return [{"name": "metadata_overview_stats"}]
+            if "FROM \"metadata_overview_stats\"" in query:
+                return [
+                    {
+                        "total_villages": 10,
+                        "total_cities": 2,
+                        "total_counties": 3,
+                        "total_townships": 4,
+                        "unique_characters": 99,
+                        "generated_at": "2026-07-14T12:00:00",
+                    }
+                ]
+            return []
+
+        with (
+            patch.object(stats, "execute_query", side_effect=fake_execute_query),
+            patch.object(stats, "resolve_db_path", return_value="/tmp/missing-villages.db"),
+            patch.object(stats, "get_db_connection") as fake_conn,
+        ):
+            fake_conn.return_value.__enter__.return_value = sqlite3.connect(":memory:")
+            result = stats._get_system_overview_sync("village")
+
+        self.assertEqual(result["total_villages"], 10)
+        self.assertEqual(result["unique_characters"], 99)
+        self.assertFalse(any("COUNT(DISTINCT" in query for query, _ in executed))
+        self.assertTrue(any('FROM "metadata_overview_stats"' in query for query, _ in executed))
+
+    def test_metadata_regions_prefers_materialized_hierarchy_table(self) -> None:
+        from app.villagesML.metadata import stats
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "sqlite_master" in query:
+                return [{"name": "region_hierarchy_stats"}]
+            if "FROM \"region_hierarchy_stats\"" in query:
+                return [
+                    {
+                        "city": "广州市",
+                        "county": "从化区",
+                        "township": None,
+                        "name": "从化区",
+                        "level": "county",
+                        "village_count": 8,
+                    }
+                ]
+            return []
+
+        with (
+            patch.object(stats, "execute_query", side_effect=fake_execute_query),
+            patch.object(stats, "get_db_connection") as fake_conn,
+        ):
+            fake_conn.return_value.__enter__.return_value = sqlite3.connect(":memory:")
+            result = stats._get_regions_sync("village", level="county", parent="广州市")
+
+        self.assertEqual(result[0]["name"], "从化区")
+        self.assertEqual(result[0]["village_count"], 8)
+        self.assertFalse(any("GROUP BY" in query for query, _ in executed))
+        self.assertTrue(any('FROM "region_hierarchy_stats"' in query for query, _ in executed))
+        self.assertIn(("county", "广州市"), [params for _, params in executed if params])
+
+    def test_ngram_regional_requires_specific_region_for_township_main_path(self) -> None:
+        from app.villagesML.ngrams import frequency
+
+        with self.assertRaises(HTTPException) as ctx:
+            frequency.get_regional_ngram_frequency(
+                n=2,
+                region_level="township",
+                region_name=None,
+                city=None,
+                county=None,
+                township=None,
+                top_k=50,
+                return_metadata=False,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("specific township region", ctx.exception.detail)
+
+    def test_ngram_tendency_requires_specific_region_for_township_main_path(self) -> None:
+        from app.villagesML.ngrams import frequency
+
+        class FakeCursor:
+            def execute(self, *_args):
+                return None
+
+            def fetchall(self):
+                return [("regional_total_raw", "regional_total_raw")]
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+        frequency._pragma_cache.clear()
+        with self.assertRaises(HTTPException) as ctx:
+            frequency.get_ngram_tendency(
+                ngram=None,
+                region_level="township",
+                region_name=None,
+                city=None,
+                county=None,
+                township=None,
+                min_tendency=None,
+                limit=100,
+                db=FakeConnection(),
+                dbpath="village",
+            )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("specific township region", ctx.exception.detail)
 
 
 if __name__ == "__main__":
