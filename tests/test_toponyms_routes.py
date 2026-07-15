@@ -109,19 +109,23 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertIn("/api/toponyms/names/sample", paths)
         self.assertIn("/api/toponyms/divisions", paths)
 
-    def test_points_endpoint_returns_all_coordinates_and_ids_without_names(self) -> None:
+    def test_points_endpoint_requires_query(self) -> None:
         response = self.client.get("/api/toponyms/points")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_points_endpoint_returns_matched_coordinates_and_ids_without_names(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/points",
+            params={"q": "黄", "match_mode": "prefix", "limit": "10"},
+        )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["count"], 3)
+        self.assertEqual(body["count"], 1)
         self.assertFalse(body["truncated"])
         self.assertEqual(
             body["items"][0],
-            {"id": "outside-1", "longitude": 116.3, "latitude": 39.9},
-        )
-        self.assertEqual(
-            body["items"][1],
             {"id": "village-1", "longitude": 113.1, "latitude": 23.1},
         )
 
@@ -131,10 +135,37 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("area_code", serialized)
         self.assertNotIn("黄村", serialized)
 
+    def test_points_endpoint_supports_suffix_match_and_unlimited_limit(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/points",
+            params={"q": "村", "match_mode": "suffix", "limit": "0"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertFalse(body["truncated"])
+
+    def test_points_endpoint_can_filter_by_bbox_after_name_match(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/points",
+            params={
+                "q": "村",
+                "match_mode": "suffix",
+                "bbox": "113,23,114,24",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual({item["id"] for item in body["items"]}, {"village-1", "village-2"})
+
     def test_names_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
             "/api/toponyms/names/sample",
-            params={"q": "黄", "limit": "10"},
+            params={"q": "黄", "match_mode": "prefix", "limit": "10"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -158,13 +189,26 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("longitude", response.text)
         self.assertNotIn("latitude", response.text)
 
-    def test_points_endpoint_rejects_bbox_parameter(self) -> None:
+    def test_names_endpoint_supports_contains_exact_suffix_and_unlimited_limit(self) -> None:
         response = self.client.get(
-            "/api/toponyms/points",
-            params={"bbox": "113,23,114,24"},
+            "/api/toponyms/names/sample",
+            params={"q": "村", "match_mode": "contains", "limit": "0"},
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items": ["李村", "远村", "黄村"]})
+
+        exact_response = self.client.get(
+            "/api/toponyms/names/sample",
+            params={"q": "黄村", "match_mode": "exact"},
+        )
+        self.assertEqual(exact_response.json(), {"items": ["黄村"]})
+
+        suffix_response = self.client.get(
+            "/api/toponyms/names/sample",
+            params={"q": "村", "match_mode": "suffix", "limit": "0"},
+        )
+        self.assertEqual(suffix_response.json(), {"items": ["李村", "远村", "黄村"]})
 
     def test_points_endpoint_uses_gzip_when_client_accepts_gzip(self) -> None:
         app = FastAPI()
@@ -174,6 +218,7 @@ class ToponymsRoutesTest(unittest.TestCase):
 
         response = client.get(
             "/api/toponyms/points",
+            params={"q": "村", "match_mode": "contains", "limit": "0"},
             headers={"Accept-Encoding": "gzip"},
         )
 

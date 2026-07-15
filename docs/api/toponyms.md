@@ -14,13 +14,21 @@ This is intentional. Do not merge these fields into one response, even for GeoJS
 ## Coordinates
 
 ```http
-GET /api/toponyms/points
+GET /api/toponyms/points?q=黄&match_mode=prefix&limit=5000
 ```
 
-This MVP endpoint has no query parameters. It returns all natural-village point
-coordinates in one response. Query parameters such as `bbox`, `zoom`, and
-`limit` are rejected so callers do not accidentally keep using a tiled loading
-contract.
+This endpoint returns point coordinates for natural villages whose names match
+the query. It never returns the matched names.
+
+Query parameters:
+
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `q` | yes | - | Name query text. Blank values are rejected. |
+| `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
+| `limit` | no | `5000` | Maximum returned points. `0` means no limit. |
+| `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat` filter after name match. |
+| `zoom` | no | - | Optional `0..24`; accepted for frontend state, currently only validated. |
 
 Response:
 
@@ -44,8 +52,11 @@ The response still does not include names, area codes, or place type labels.
 ## Name Samples
 
 ```http
-GET /api/toponyms/names/sample?q=黄&limit=20
+GET /api/toponyms/names/sample?q=黄&match_mode=prefix&limit=20
 ```
+
+`match_mode` supports the same four values as `/api/toponyms/points`.
+`limit=0` means no limit.
 
 Response:
 
@@ -82,9 +93,9 @@ This endpoint omits division centroid coordinates.
 
 ## Index Maintenance
 
-The runtime API can work without the extra indexes, but filtering the full
-`data/toponyms.db` by natural-village type and ordering by id benefits from an
-index. Create the recommended indexes during a maintenance window:
+The runtime API can work without the extra indexes, but name matching and
+optional bbox filtering are much better with indexes. Create the recommended
+indexes during a maintenance window:
 
 ```bash
 .venv/bin/python -m scripts.toponyms.ensure_indexes --db data/toponyms.db
@@ -96,8 +107,11 @@ The helper creates:
 CREATE INDEX IF NOT EXISTS idx_single_type_id
 ON single(place_type_code, id);
 
-CREATE INDEX IF NOT EXISTS idx_single_type_name
-ON single(place_type_code, standard_name);
+CREATE INDEX IF NOT EXISTS idx_single_type_name_id
+ON single(place_type_code, standard_name, id);
+
+CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
+ON single(place_type_code, longitude, latitude, id);
 ```
 
 It also runs `ANALYZE`.
