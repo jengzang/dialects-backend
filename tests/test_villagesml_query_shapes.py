@@ -364,6 +364,30 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
         self.assertTrue(any('FROM "region_hierarchy_stats"' in query for query, _ in executed))
         self.assertIn(("county", "广州市"), [params for _, params in executed if params])
 
+    def test_metadata_regions_does_not_fallback_when_materialized_hierarchy_has_no_match(self) -> None:
+        from app.villagesML.metadata import stats
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "sqlite_master" in query:
+                return [{"name": "region_hierarchy_stats"}]
+            if "FROM \"region_hierarchy_stats\"" in query:
+                return []
+            self.fail(f"unexpected fallback query: {query}")
+
+        with (
+            patch.object(stats, "execute_query", side_effect=fake_execute_query),
+            patch.object(stats, "get_db_connection") as fake_conn,
+        ):
+            fake_conn.return_value.__enter__.return_value = sqlite3.connect(":memory:")
+            with self.assertRaises(HTTPException) as ctx:
+                stats._get_regions_sync("village", level="county", parent="不存在市")
+
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertFalse(any("GROUP BY" in query for query, _ in executed))
+
     def test_ngram_regional_requires_specific_region_for_township_main_path(self) -> None:
         from app.villagesML.ngrams import frequency
 

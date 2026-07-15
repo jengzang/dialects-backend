@@ -408,6 +408,10 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
 
             if results:
                 return results
+            raise HTTPException(
+                status_code=404,
+                detail=f"No regions found for level={level}" + (f", parent={parent}" if parent else "")
+            )
 
         # 根据 level 构建不同的查询
         if level == 'city':
