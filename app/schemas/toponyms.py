@@ -29,6 +29,26 @@ class ToponymNameTreeResponse(BaseModel):
     items: list[ToponymNameDivisionNode]
 
 
+class ToponymDetailDivision(BaseModel):
+    name: str
+    level: int
+
+
+class ToponymDetail(BaseModel):
+    id: str
+    name: str
+    place_type: str | None
+    place_type_code: str | None
+    longitude: float | None
+    latitude: float | None
+    division_path: list[ToponymDetailDivision]
+
+
+class ToponymDetailsResponse(BaseModel):
+    items: list[ToponymDetail]
+    count: int
+
+
 class ToponymDivision(BaseModel):
     code: str
     name: str

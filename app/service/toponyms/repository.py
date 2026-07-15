@@ -208,6 +208,63 @@ def _public_division_name_node(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def list_details_by_ids(*, ids: list[str]) -> list[dict[str, Any]]:
+    if not ids:
+        return []
+
+    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
+    placeholders = ",".join("?" for _ in ids)
+    sql = """
+        SELECT id, standard_name, place_type, place_type_code, area_code, longitude, latitude
+        FROM single
+        WHERE id IN ({placeholders})
+    """.format(placeholders=placeholders)
+
+    with pool.get_connection() as conn:
+        rows = conn.execute(sql, tuple(ids)).fetchall()
+        division_rows = conn.execute(
+            """
+            SELECT code, name, parent_code, level
+            FROM divisions
+            ORDER BY level, code
+            """
+        ).fetchall()
+
+    rows_by_id = {row["id"]: row for row in rows}
+    divisions = {
+        row["code"]: {
+            "code": row["code"],
+            "name": row["name"],
+            "parent_code": row["parent_code"],
+            "level": row["level"],
+        }
+        for row in division_rows
+    }
+
+    items = []
+    for requested_id in ids:
+        row = rows_by_id.get(requested_id)
+        if row is None:
+            continue
+
+        items.append(
+            {
+                "id": row["id"],
+                "name": row["standard_name"],
+                "place_type": row["place_type"],
+                "place_type_code": row["place_type_code"],
+                "longitude": row["longitude"],
+                "latitude": row["latitude"],
+                "division_path": [
+                    {"name": division["name"], "level": division["level"]}
+                    for division in _division_path(row["area_code"], divisions)
+                ],
+            }
+        )
+
+    return items
+
+
 def list_child_divisions(*, parent_code: str) -> list[dict[str, Any]]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     sql = """

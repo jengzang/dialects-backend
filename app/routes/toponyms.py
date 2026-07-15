@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from app.schemas.toponyms import (
+    ToponymDetailsResponse,
     ToponymDivisionsResponse,
     ToponymNameTreeResponse,
     ToponymNamesResponse,
@@ -13,11 +14,13 @@ from app.schemas.toponyms import (
 from app.service.toponyms.config import (
     DEFAULT_NAME_LIMIT,
     DEFAULT_POINT_LIMIT,
+    MAX_DETAIL_IDS,
     MAX_NAME_LIMIT,
     MAX_POINT_LIMIT,
     NATURAL_VILLAGE_PLACE_TYPE_CODE,
 )
 from app.service.toponyms.repository import (
+    list_details_by_ids,
     list_child_divisions,
     list_names_with_division_tree,
     list_points_by_name,
@@ -42,6 +45,24 @@ def _clean_place_type_code(place_type_code: str) -> str:
     if not cleaned or not cleaned.isdigit():
         raise HTTPException(status_code=400, detail="place_type_code must be a non-empty numeric string")
     return cleaned
+
+
+def _clean_ids(raw_ids: list[str]) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw_value in raw_ids:
+        for part in raw_value.split(","):
+            cleaned = part.strip()
+            if not cleaned or cleaned in seen:
+                continue
+            ids.append(cleaned)
+            seen.add(cleaned)
+
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids is required")
+    if len(ids) > MAX_DETAIL_IDS:
+        raise HTTPException(status_code=400, detail=f"ids cannot contain more than {MAX_DETAIL_IDS} values")
+    return ids
 
 
 def _parse_bbox(raw_bbox: str | None) -> tuple[float, float, float, float] | None:
@@ -123,6 +144,15 @@ async def get_toponym_names(
         place_type_code=cleaned_place_type_code,
     )
     return ToponymNamesResponse(items=names)
+
+
+@router.get("/toponyms/details", response_model=ToponymDetailsResponse)
+async def get_toponym_details(
+    ids: list[str] = Query(..., min_length=1, description="逗号分隔或重复传参，最多 10 个 ID"),
+) -> ToponymDetailsResponse:
+    cleaned_ids = _clean_ids(ids)
+    items = await run_in_threadpool(list_details_by_ids, ids=cleaned_ids)
+    return ToponymDetailsResponse(items=items, count=len(items))
 
 
 @router.get("/toponyms/divisions", response_model=ToponymDivisionsResponse)

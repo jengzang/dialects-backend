@@ -17,6 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.common.path import DB_MAPPING
 from app.routes.toponyms import router
+from app.service.toponyms.config import MAX_DETAIL_IDS, MAX_QUERY_LIMIT
 
 
 def create_toponyms_db(path: str) -> None:
@@ -114,6 +115,7 @@ class ToponymsRoutesTest(unittest.TestCase):
 
         self.assertIn("/api/toponyms/points", paths)
         self.assertIn("/api/toponyms/names", paths)
+        self.assertIn("/api/toponyms/details", paths)
         self.assertNotIn("/api/toponyms/names/", paths)
         self.assertNotIn("/api/toponyms/names/sample", paths)
         self.assertIn("/api/toponyms/divisions", paths)
@@ -181,6 +183,19 @@ class ToponymsRoutesTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["count"], 3)
         self.assertFalse(body["truncated"])
+
+    def test_query_limit_uses_configured_upper_bound(self) -> None:
+        accepted = self.client.get(
+            "/api/toponyms/names",
+            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_QUERY_LIMIT)},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+        rejected = self.client.get(
+            "/api/toponyms/names",
+            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_QUERY_LIMIT + 1)},
+        )
+        self.assertEqual(rejected.status_code, 422)
 
     def test_points_endpoint_can_filter_by_bbox_after_name_match(self) -> None:
         response = self.client.get(
@@ -335,6 +350,54 @@ class ToponymsRoutesTest(unittest.TestCase):
         )
         self.assertNotIn("longitude", response.text)
         self.assertNotIn("latitude", response.text)
+
+    def test_details_endpoint_returns_full_records_for_limited_ids(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/details",
+            params={"ids": "village-1,admin-1,missing-id"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "items": [
+                    {
+                        "id": "village-1",
+                        "name": "黄村",
+                        "place_type": "农村居民点",
+                        "place_type_code": "22200",
+                        "longitude": 113.1,
+                        "latitude": 23.1,
+                        "division_path": [
+                            {"name": "广东省", "level": 1},
+                            {"name": "广州市", "level": 2},
+                            {"name": "广州市辖区", "level": 3},
+                            {"name": "越秀街道", "level": 4},
+                        ],
+                    },
+                    {
+                        "id": "admin-1",
+                        "name": "某行政村",
+                        "place_type": "行政村",
+                        "place_type_code": "21610",
+                        "longitude": 113.3,
+                        "latitude": 23.3,
+                        "division_path": [],
+                    },
+                ],
+                "count": 2,
+            },
+        )
+        self.assertNotIn("area_code", response.text)
+
+    def test_details_endpoint_rejects_more_than_configured_ids(self) -> None:
+        ids = ",".join(f"id-{index}" for index in range(MAX_DETAIL_IDS + 1))
+
+        response = self.client.get("/api/toponyms/details", params={"ids": ids})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(str(MAX_DETAIL_IDS), response.text)
 
     def test_names_endpoint_supports_contains_exact_suffix_and_unlimited_limit(self) -> None:
         response = self.client.get(

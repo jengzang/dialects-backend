@@ -7,7 +7,8 @@ The public toponyms APIs deliberately separate coordinates from place names.
 - Coordinate responses return only `id`, `longitude`, and `latitude`.
 - Name responses return only name strings, or division-name tree nodes that
   contain name strings.
-- The backend does not provide `id -> name` or `name -> id/coordinate` lookup APIs.
+- The details response is the only `id -> full record` lookup, and it is capped
+  at 10 IDs per request.
 - `data/toponyms.db` is not exposed through the generic `/sql` database mapping.
 
 This is intentional. Do not merge these fields into one response, even for GeoJSON.
@@ -28,7 +29,7 @@ Query parameters:
 | --- | --- | --- | --- |
 | `q` | yes | - | Name query text. Blank values are rejected. |
 | `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
-| `limit` | no | `5000` | Maximum returned points. `0` means no limit. |
+| `limit` | no | `5000` | Maximum returned points. `0` means no limit. Upper bound: `2000000`. |
 | `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat` filter after name match. |
 | `zoom` | no | - | Optional `0..24`; accepted for frontend state, currently only validated. |
 | `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200` rural residential points, `21610` administrative villages, `27610` village committees. |
@@ -68,7 +69,7 @@ Query parameters:
 | --- | --- | --- | --- |
 | `q` | yes | - | Name query text. Blank values are rejected. |
 | `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
-| `limit` | no | `20` | Maximum returned names. `0` means no limit. |
+| `limit` | no | `20` | Maximum returned names. `0` means no limit. Upper bound: `2000000`. |
 | `include_division_tree` | no | `false` | When `true`, return nested division-name nodes instead of a flat name array. |
 | `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200`, `21610`, `27610`. |
 
@@ -118,6 +119,46 @@ nodes, and matched name strings. They do not expose division codes, toponym IDs,
 coordinates, area codes, or ordering keys.
 
 The response never includes IDs, coordinates, area codes, or ordering keys.
+
+## Details
+
+```http
+GET /api/toponyms/details?ids=10007e71a4c2821a4b0f728b41a2abb4,another-id
+```
+
+This endpoint returns full records for explicit IDs. It is intentionally capped
+at 10 IDs per request.
+
+Query parameters:
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `ids` | yes | Comma-separated IDs or repeated `ids` parameters. Empty values are ignored. At most 10 unique IDs. |
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "10007e71a4c2821a4b0f728b41a2abb4",
+      "name": "黄村",
+      "place_type": "农村居民点",
+      "place_type_code": "22200",
+      "longitude": 113.7347038,
+      "latitude": 23.0417921,
+      "division_path": [
+        {"name": "广东省", "level": 1},
+        {"name": "广州市", "level": 2}
+      ]
+    }
+  ],
+  "count": 1
+}
+```
+
+Missing IDs are skipped. The response does not expose `area_code` or division
+codes.
 
 ## Divisions
 
