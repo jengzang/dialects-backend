@@ -5,7 +5,8 @@
 The public toponyms APIs deliberately separate coordinates from place names.
 
 - Coordinate responses return only `id`, `longitude`, and `latitude`.
-- Name responses return only name strings.
+- Name responses return only name strings, or division-name tree nodes that
+  contain name strings.
 - The backend does not provide `id -> name` or `name -> id/coordinate` lookup APIs.
 - `data/toponyms.db` is not exposed through the generic `/sql` database mapping.
 
@@ -49,14 +50,77 @@ Response:
 
 The response still does not include names, area codes, or place type labels.
 
+## Names
+
+```http
+GET /api/toponyms/names/?q=黄&match_mode=prefix&limit=20
+```
+
+This endpoint returns distinct matched natural-village names. It supports the
+same matching semantics as `/api/toponyms/points`.
+
+Query parameters:
+
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `q` | yes | - | Name query text. Blank values are rejected. |
+| `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
+| `limit` | no | `20` | Maximum returned names. `0` means no limit. |
+| `include_division_tree` | no | `false` | When `true`, return nested division-name nodes instead of a flat name array. |
+
+Flat response:
+
+```json
+{
+  "items": ["黄村", "黄泥村"]
+}
+```
+
+Tree response:
+
+```http
+GET /api/toponyms/names/?q=村&match_mode=suffix&include_division_tree=true&limit=20
+```
+
+```json
+{
+  "items": [
+    {
+      "name": "广东省",
+      "level": 1,
+      "names": [],
+      "children": [
+        {
+          "name": "广州市",
+          "level": 2,
+          "names": [],
+          "children": [
+            {
+              "name": "越秀街道",
+              "level": 4,
+              "names": ["黄村"],
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Tree nodes intentionally expose only division names, division levels, child
+nodes, and matched name strings. They do not expose division codes, toponym IDs,
+coordinates, area codes, or ordering keys.
+
 ## Name Samples
 
 ```http
 GET /api/toponyms/names/sample?q=黄&match_mode=prefix&limit=20
 ```
 
-`match_mode` supports the same four values as `/api/toponyms/points`.
-`limit=0` means no limit.
+This remains a compatibility alias for flat name samples. `match_mode` supports
+the same four values as `/api/toponyms/points`. `limit=0` means no limit.
 
 Response:
 
@@ -109,6 +173,9 @@ ON single(place_type_code, id);
 
 CREATE INDEX IF NOT EXISTS idx_single_type_name_id
 ON single(place_type_code, standard_name, id);
+
+CREATE INDEX IF NOT EXISTS idx_single_type_name_area
+ON single(place_type_code, standard_name, area_code);
 
 CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
 ON single(place_type_code, longitude, latitude, id);

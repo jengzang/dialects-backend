@@ -67,8 +67,15 @@ def create_toponyms_db(path: str) -> None:
         """,
         [
             ("100000", "中华人民共和国", "", 0, 0, 0, None, None, None),
+            ("11", "北京市", "100000", 1, 1, 0, 116.4, 39.9, None),
+            ("1101", "北京市", "11", 2, 1, 0, 116.4, 39.9, None),
+            ("110100", "北京市辖区", "1101", 3, 1, 0, 116.4, 39.9, None),
+            ("110100001", "东城街道", "110100", 4, 1, 0, 116.4, 39.9, None),
             ("44", "广东省", "100000", 1, 2, 0, 113.2, 23.2, None),
             ("4401", "广州市", "44", 2, 2, 0, 113.3, 23.1, None),
+            ("440100", "广州市辖区", "4401", 3, 2, 0, 113.3, 23.1, None),
+            ("440100001", "越秀街道", "440100", 4, 1, 0, 113.1, 23.1, None),
+            ("440100002", "荔湾街道", "440100", 4, 1, 0, 113.2, 23.2, None),
         ],
     )
     conn.commit()
@@ -106,6 +113,7 @@ class ToponymsRoutesTest(unittest.TestCase):
         paths = {route.path for route in app.routes}
 
         self.assertIn("/api/toponyms/points", paths)
+        self.assertIn("/api/toponyms/names/", paths)
         self.assertIn("/api/toponyms/names/sample", paths)
         self.assertIn("/api/toponyms/divisions", paths)
 
@@ -164,6 +172,19 @@ class ToponymsRoutesTest(unittest.TestCase):
 
     def test_names_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
+            "/api/toponyms/names/",
+            params={"q": "黄", "match_mode": "prefix", "limit": "10"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items": ["黄村"]})
+        serialized = response.text
+        self.assertNotIn("village-1", serialized)
+        self.assertNotIn("longitude", serialized)
+        self.assertNotIn("latitude", serialized)
+
+    def test_names_sample_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
+        response = self.client.get(
             "/api/toponyms/names/sample",
             params={"q": "黄", "match_mode": "prefix", "limit": "10"},
         )
@@ -172,6 +193,92 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertEqual(response.json(), {"items": ["黄村"]})
         serialized = response.text
         self.assertNotIn("village-1", serialized)
+        self.assertNotIn("longitude", serialized)
+        self.assertNotIn("latitude", serialized)
+
+    def test_names_endpoint_can_return_division_tree_without_ids_or_coordinates(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/names/",
+            params={
+                "q": "村",
+                "match_mode": "suffix",
+                "limit": "0",
+                "include_division_tree": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            body,
+            {
+                "items": [
+                    {
+                        "name": "北京市",
+                        "level": 1,
+                        "names": [],
+                        "children": [
+                            {
+                                "name": "北京市",
+                                "level": 2,
+                                "names": [],
+                                "children": [
+                                    {
+                                        "name": "北京市辖区",
+                                        "level": 3,
+                                        "names": [],
+                                        "children": [
+                                            {
+                                                "name": "东城街道",
+                                                "level": 4,
+                                                "names": ["远村"],
+                                                "children": [],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "name": "广东省",
+                        "level": 1,
+                        "names": [],
+                        "children": [
+                            {
+                                "name": "广州市",
+                                "level": 2,
+                                "names": [],
+                                "children": [
+                                    {
+                                        "name": "广州市辖区",
+                                        "level": 3,
+                                        "names": [],
+                                        "children": [
+                                            {
+                                                "name": "越秀街道",
+                                                "level": 4,
+                                                "names": ["黄村"],
+                                                "children": [],
+                                            },
+                                            {
+                                                "name": "荔湾街道",
+                                                "level": 4,
+                                                "names": ["李村"],
+                                                "children": [],
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                ]
+            },
+        )
+        serialized = response.text
+        self.assertNotIn("village-1", serialized)
+        self.assertNotIn("area_code", serialized)
         self.assertNotIn("longitude", serialized)
         self.assertNotIn("latitude", serialized)
 

@@ -6,6 +6,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.schemas.toponyms import (
     ToponymDivisionsResponse,
+    ToponymNameTreeResponse,
     ToponymNamesResponse,
     ToponymPointsResponse,
 )
@@ -17,6 +18,7 @@ from app.service.toponyms.config import (
 )
 from app.service.toponyms.repository import (
     list_child_divisions,
+    list_names_with_division_tree,
     list_points_by_name,
     sample_names,
 )
@@ -89,6 +91,32 @@ async def get_toponym_name_samples(
     limit: int = Query(DEFAULT_NAME_LIMIT, ge=0, le=MAX_NAME_LIMIT),
 ) -> ToponymNamesResponse:
     cleaned_query = _clean_query(q)
+    names = await run_in_threadpool(
+        sample_names,
+        query=cleaned_query,
+        match_mode=match_mode,
+        limit=limit,
+    )
+    return ToponymNamesResponse(items=names)
+
+
+@router.get("/toponyms/names/", response_model=ToponymNamesResponse | ToponymNameTreeResponse)
+async def get_toponym_names(
+    q: str = Query(..., min_length=1),
+    match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
+    limit: int = Query(DEFAULT_NAME_LIMIT, ge=0, le=MAX_NAME_LIMIT),
+    include_division_tree: bool = Query(False, description="true 时返回行政区划层级树"),
+) -> ToponymNamesResponse | ToponymNameTreeResponse:
+    cleaned_query = _clean_query(q)
+    if include_division_tree:
+        items = await run_in_threadpool(
+            list_names_with_division_tree,
+            query=cleaned_query,
+            match_mode=match_mode,
+            limit=limit,
+        )
+        return ToponymNameTreeResponse(items=items)
+
     names = await run_in_threadpool(
         sample_names,
         query=cleaned_query,

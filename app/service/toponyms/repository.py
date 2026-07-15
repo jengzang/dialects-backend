@@ -99,6 +99,107 @@ def sample_names(*, query: str, match_mode: str, limit: int) -> list[str]:
     return [row["standard_name"] for row in rows]
 
 
+def list_names_with_division_tree(
+    *,
+    query: str,
+    match_mode: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
+    params: list[Any] = [
+        NATURAL_VILLAGE_PLACE_TYPE_CODE,
+        _like_pattern(query, match_mode),
+    ]
+    limit_clause = ""
+    if limit > 0:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
+
+    sql = """
+        SELECT DISTINCT standard_name, area_code
+        FROM single
+        WHERE place_type_code = ?
+          AND {name_condition}
+          AND TRIM(COALESCE(standard_name, '')) <> ''
+          AND TRIM(COALESCE(area_code, '')) <> ''
+        ORDER BY area_code, standard_name
+        {limit_clause}
+    """.format(name_condition=_name_condition(match_mode), limit_clause=limit_clause)
+    with pool.get_connection() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        division_rows = conn.execute(
+            """
+            SELECT code, name, parent_code, level
+            FROM divisions
+            ORDER BY level, code
+            """
+        ).fetchall()
+
+    divisions = {
+        row["code"]: {
+            "code": row["code"],
+            "name": row["name"],
+            "parent_code": row["parent_code"],
+            "level": row["level"],
+        }
+        for row in division_rows
+    }
+
+    root_nodes: dict[str, dict[str, Any]] = {}
+    nodes_by_code: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        path = _division_path(row["area_code"], divisions)
+        if not path:
+            continue
+
+        parent_children = root_nodes
+        for division in path:
+            code = division["code"]
+            if code not in parent_children:
+                node = {
+                    "_code": code,
+                    "name": division["name"],
+                    "level": division["level"],
+                    "names": [],
+                    "children": [],
+                    "_children_by_code": {},
+                }
+                parent_children[code] = node
+                nodes_by_code[code] = node
+            node = parent_children[code]
+            parent_children = node["_children_by_code"]
+
+        leaf = nodes_by_code[path[-1]["code"]]
+        if row["standard_name"] not in leaf["names"]:
+            leaf["names"].append(row["standard_name"])
+
+    return [_public_division_name_node(node) for node in root_nodes.values()]
+
+
+def _division_path(
+    area_code: str,
+    divisions: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    path: list[dict[str, Any]] = []
+    current = divisions.get(area_code)
+    while current is not None and current["level"] > 0:
+        path.append(current)
+        current = divisions.get(current["parent_code"])
+    path.reverse()
+    return path
+
+
+def _public_division_name_node(node: dict[str, Any]) -> dict[str, Any]:
+    children = [_public_division_name_node(child) for child in node["_children_by_code"].values()]
+    return {
+        "name": node["name"],
+        "level": node["level"],
+        "names": node["names"],
+        "children": children,
+    }
+
+
 def list_child_divisions(*, parent_code: str) -> list[dict[str, Any]]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     sql = """

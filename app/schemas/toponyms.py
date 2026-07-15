@@ -18,6 +18,17 @@ class ToponymNamesResponse(BaseModel):
     items: list[str]
 
 
+class ToponymNameDivisionNode(BaseModel):
+    name: str
+    level: int
+    names: list[str]
+    children: list["ToponymNameDivisionNode"]
+
+
+class ToponymNameTreeResponse(BaseModel):
+    items: list[ToponymNameDivisionNode]
+
+
 class ToponymDivision(BaseModel):
     code: str
     name: str
