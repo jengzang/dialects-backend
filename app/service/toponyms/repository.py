@@ -27,6 +27,7 @@ def list_points_by_name(
     query: str,
     match_mode: str,
     limit: int,
+    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
     bbox: tuple[float, float, float, float] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
@@ -35,7 +36,7 @@ def list_points_by_name(
         _name_condition(match_mode),
     ]
     params: list[Any] = [
-        NATURAL_VILLAGE_PLACE_TYPE_CODE,
+        place_type_code,
         _like_pattern(query, match_mode),
     ]
 
@@ -73,10 +74,16 @@ def list_points_by_name(
     return items, bool(limit > 0 and len(rows) > limit)
 
 
-def sample_names(*, query: str, match_mode: str, limit: int) -> list[str]:
+def sample_names(
+    *,
+    query: str,
+    match_mode: str,
+    limit: int,
+    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
+) -> list[str]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     params: list[Any] = [
-        NATURAL_VILLAGE_PLACE_TYPE_CODE,
+        place_type_code,
         _like_pattern(query, match_mode),
     ]
     limit_clause = ""
@@ -104,10 +111,11 @@ def list_names_with_division_tree(
     query: str,
     match_mode: str,
     limit: int,
+    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
 ) -> list[dict[str, Any]]:
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     params: list[Any] = [
-        NATURAL_VILLAGE_PLACE_TYPE_CODE,
+        place_type_code,
         _like_pattern(query, match_mode),
     ]
     limit_clause = ""

@@ -18,8 +18,9 @@ This is intentional. Do not merge these fields into one response, even for GeoJS
 GET /api/toponyms/points?q=黄&match_mode=prefix&limit=5000
 ```
 
-This endpoint returns point coordinates for natural villages whose names match
-the query. It never returns the matched names.
+This endpoint returns point coordinates for matching names. It defaults to
+natural-village points (`place_type_code=22200`) and never returns the matched
+names or place type labels.
 
 Query parameters:
 
@@ -30,6 +31,7 @@ Query parameters:
 | `limit` | no | `5000` | Maximum returned points. `0` means no limit. |
 | `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat` filter after name match. |
 | `zoom` | no | - | Optional `0..24`; accepted for frontend state, currently only validated. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200` rural residential points, `21610` administrative villages, `27610` village committees. |
 
 Response:
 
@@ -53,11 +55,12 @@ The response still does not include names, area codes, or place type labels.
 ## Names
 
 ```http
-GET /api/toponyms/names/?q=黄&match_mode=prefix&limit=20
+GET /api/toponyms/names?q=黄&match_mode=prefix&limit=20
 ```
 
-This endpoint returns distinct matched natural-village names. It supports the
-same matching semantics as `/api/toponyms/points`.
+This endpoint returns distinct matched names. It defaults to natural-village
+names (`place_type_code=22200`) and supports the same matching semantics as
+`/api/toponyms/points`.
 
 Query parameters:
 
@@ -67,6 +70,7 @@ Query parameters:
 | `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
 | `limit` | no | `20` | Maximum returned names. `0` means no limit. |
 | `include_division_tree` | no | `false` | When `true`, return nested division-name nodes instead of a flat name array. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200`, `21610`, `27610`. |
 
 Flat response:
 
@@ -79,7 +83,7 @@ Flat response:
 Tree response:
 
 ```http
-GET /api/toponyms/names/?q=村&match_mode=suffix&include_division_tree=true&limit=20
+GET /api/toponyms/names?q=村&match_mode=suffix&include_division_tree=true&limit=20
 ```
 
 ```json
@@ -112,23 +116,6 @@ GET /api/toponyms/names/?q=村&match_mode=suffix&include_division_tree=true&limi
 Tree nodes intentionally expose only division names, division levels, child
 nodes, and matched name strings. They do not expose division codes, toponym IDs,
 coordinates, area codes, or ordering keys.
-
-## Name Samples
-
-```http
-GET /api/toponyms/names/sample?q=黄&match_mode=prefix&limit=20
-```
-
-This remains a compatibility alias for flat name samples. `match_mode` supports
-the same four values as `/api/toponyms/points`. `limit=0` means no limit.
-
-Response:
-
-```json
-{
-  "items": ["黄村", "黄泥村"]
-}
-```
 
 The response never includes IDs, coordinates, area codes, or ordering keys.
 

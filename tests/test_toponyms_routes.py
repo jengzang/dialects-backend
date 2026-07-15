@@ -113,8 +113,9 @@ class ToponymsRoutesTest(unittest.TestCase):
         paths = {route.path for route in app.routes}
 
         self.assertIn("/api/toponyms/points", paths)
-        self.assertIn("/api/toponyms/names/", paths)
-        self.assertIn("/api/toponyms/names/sample", paths)
+        self.assertIn("/api/toponyms/names", paths)
+        self.assertNotIn("/api/toponyms/names/", paths)
+        self.assertNotIn("/api/toponyms/names/sample", paths)
         self.assertIn("/api/toponyms/divisions", paths)
 
     def test_points_endpoint_requires_query(self) -> None:
@@ -142,6 +143,33 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("standard_name", serialized)
         self.assertNotIn("area_code", serialized)
         self.assertNotIn("黄村", serialized)
+
+    def test_points_endpoint_can_filter_by_place_type_code(self) -> None:
+        default_response = self.client.get(
+            "/api/toponyms/points",
+            params={"q": "某行政村", "match_mode": "exact", "limit": "10"},
+        )
+        self.assertEqual(default_response.status_code, 200)
+        self.assertEqual(default_response.json()["items"], [])
+
+        response = self.client.get(
+            "/api/toponyms/points",
+            params={
+                "q": "某行政村",
+                "match_mode": "exact",
+                "place_type_code": "21610",
+                "limit": "10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(
+            body["items"][0],
+            {"id": "admin-1", "longitude": 113.3, "latitude": 23.3},
+        )
+        self.assertNotIn("某行政村", response.text)
 
     def test_points_endpoint_supports_suffix_match_and_unlimited_limit(self) -> None:
         response = self.client.get(
@@ -172,7 +200,7 @@ class ToponymsRoutesTest(unittest.TestCase):
 
     def test_names_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
-            "/api/toponyms/names/",
+            "/api/toponyms/names",
             params={"q": "黄", "match_mode": "prefix", "limit": "10"},
         )
 
@@ -183,22 +211,34 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("longitude", serialized)
         self.assertNotIn("latitude", serialized)
 
-    def test_names_sample_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
+    def test_names_endpoint_can_filter_by_place_type_code(self) -> None:
+        default_response = self.client.get(
+            "/api/toponyms/names",
+            params={"q": "某行政村", "match_mode": "exact", "limit": "10"},
+        )
+        self.assertEqual(default_response.status_code, 200)
+        self.assertEqual(default_response.json(), {"items": []})
+
         response = self.client.get(
-            "/api/toponyms/names/sample",
-            params={"q": "黄", "match_mode": "prefix", "limit": "10"},
+            "/api/toponyms/names",
+            params={
+                "q": "某行政村",
+                "match_mode": "exact",
+                "place_type_code": "21610",
+                "limit": "10",
+            },
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"items": ["黄村"]})
+        self.assertEqual(response.json(), {"items": ["某行政村"]})
         serialized = response.text
-        self.assertNotIn("village-1", serialized)
+        self.assertNotIn("admin-1", serialized)
         self.assertNotIn("longitude", serialized)
         self.assertNotIn("latitude", serialized)
 
     def test_names_endpoint_can_return_division_tree_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
-            "/api/toponyms/names/",
+            "/api/toponyms/names",
             params={
                 "q": "村",
                 "match_mode": "suffix",
@@ -298,7 +338,7 @@ class ToponymsRoutesTest(unittest.TestCase):
 
     def test_names_endpoint_supports_contains_exact_suffix_and_unlimited_limit(self) -> None:
         response = self.client.get(
-            "/api/toponyms/names/sample",
+            "/api/toponyms/names",
             params={"q": "村", "match_mode": "contains", "limit": "0"},
         )
 
@@ -306,16 +346,24 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertEqual(response.json(), {"items": ["李村", "远村", "黄村"]})
 
         exact_response = self.client.get(
-            "/api/toponyms/names/sample",
+            "/api/toponyms/names",
             params={"q": "黄村", "match_mode": "exact"},
         )
         self.assertEqual(exact_response.json(), {"items": ["黄村"]})
 
         suffix_response = self.client.get(
-            "/api/toponyms/names/sample",
+            "/api/toponyms/names",
             params={"q": "村", "match_mode": "suffix", "limit": "0"},
         )
         self.assertEqual(suffix_response.json(), {"items": ["李村", "远村", "黄村"]})
+
+    def test_names_sample_endpoint_is_removed(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/names/sample",
+            params={"q": "黄", "match_mode": "prefix", "limit": "10"},
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_points_endpoint_uses_gzip_when_client_accepts_gzip(self) -> None:
         app = FastAPI()
