@@ -486,13 +486,15 @@ def process_縣志_excel(file, level=1, output_path=None):
 
         # 嘗試按列名定位拼音列（聲母+韻母基底，不含聲調）；其餘列均視為字組數據
         base_idx = None
+        rime_headers = None
         for idx, name in enumerate(first_row_cells):
             if name in XZ_BASE_ALIASES:
                 base_idx = idx
                 break
 
         if base_idx is not None:
-            print(f"[列名] 檢測到拼音列={first_row_cells[base_idx]}(idx={base_idx})，其餘{len(first_row_cells)-1}列為字組數據")
+            rime_headers = [c for i, c in enumerate(first_row_cells) if i != base_idx]
+            print(f"[列名] 檢測到拼音列={first_row_cells[base_idx]}(idx={base_idx})，韻母頭={rime_headers}，其餘{len(first_row_cells)-1}列為字組數據")
             lines = []
             for _, row in df.iloc[1:].iterrows():
                 cells = [str(c) for c in row.tolist() if pd.notna(c)]
@@ -503,6 +505,18 @@ def process_縣志_excel(file, level=1, output_path=None):
                 char_groups = [c for i, c in enumerate(cells) if i != base_idx]
                 line = base + "\t" + "\t".join(char_groups) if char_groups else base
                 lines.append(line.strip())
+
+            # 檢測第一列是僅聲母（新格式，需從列頭取韻母）還是聲母+韻母（原格式）
+            if rime_headers:
+                onset_has_rhyme = False
+                for line in lines[:5]:
+                    base_val = line.split("\t")[0].strip()
+                    if base_val and RE_VOWEL_PATTERN_COMP.search(base_val):
+                        onset_has_rhyme = True
+                        break
+                if onset_has_rhyme:
+                    print(f"[檢測] 第一列已含聲母+韻母，不使用列頭作為韻母")
+                    rime_headers = None
         else:
             all_rows = [
                 "\t".join([str(cell) for cell in row if pd.notna(cell)]).strip()
@@ -553,7 +567,8 @@ def process_縣志_excel(file, level=1, output_path=None):
             continue
 
         拼音 = parts[0].strip()
-        for cell in parts[1:]:
+        for col_idx, cell in enumerate(parts[1:]):
+            rime = rime_headers[col_idx] if rime_headers and col_idx < len(rime_headers) else ""
             matches = RE_COUNTY_MATCHES.findall(cell)
             if not matches:
                 if debug:
@@ -589,7 +604,7 @@ def process_縣志_excel(file, level=1, output_path=None):
                     mapping = dict(mapping)
                     candidates = mapping.get(字, [字])  # 支援多候選繁體字
 
-                    音標 = f"{拼音}{調號}"
+                    音標 = f"{拼音}{rime}{調號}"
                     for cand in candidates:
                         row = [cand, 音標, 註]
                         rows.append(row)
