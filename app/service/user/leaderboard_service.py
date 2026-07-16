@@ -91,6 +91,11 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
         "prefixes": ["/api/villages/","/api/locations/"],
         "exclude_prefixes": ["/api/villages/admin/"],
     },
+    "category_用户自定义": {
+        "paths": ["/api/custom_regions"],
+        "prefixes": ["/user/custom/"],
+        "exclude_prefixes": [],
+    },
 }
 
 SQL_TREE_RULE: RuleConfig = {
@@ -134,6 +139,14 @@ ENDPOINT_PATHS = [
     "/api/tools/praat/jobs",
     "/sql/query",
     "/api/get_coordinates",
+    "/user/custom/batch-create",
+    "/user/custom/edit",
+    "/user/custom/batch-delete",
+    "/user/custom/points",
+    "/user/custom/features",
+    "/user/custom/data-by-point",
+    "/user/custom/data-by-feature",
+    "/api/custom_regions",
 ]
 
 
@@ -285,7 +298,7 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     This function computes:
     - 1 online time ranking
     - 1 total queries ranking
-    - 5 category rankings
+    - 6 category rankings
     - 2 grouped endpoint rankings
     - individual endpoint rankings
     """
