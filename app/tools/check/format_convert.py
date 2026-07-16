@@ -589,19 +589,32 @@ def process_縣志_word(file, level=1, output_path=None):
 
         current_vowel = None  # e.g., 'i', 'u'
 
+        # 检测文件中是否存在 # 前缀的韵母标题；若无则启用裸韵母模式
+        has_hash_headers = any(
+            ln.strip().startswith(("#", "＃")) for ln in text.splitlines() if ln.strip()
+        )
+        bare_vowel_mode = not has_hash_headers
+
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
 
             if line.startswith(("#", "＃")):
-                # 去掉第一个字符并取剩余部分作为当前元音
                 current_vowel = line[1:].strip()
+                continue
+
+            # 裸韵母模式：无 # 前缀的文件中，不含 [／［ 的行视为韵母标题
+            if bare_vowel_mode and not re.search(r"[\[［]", line):
+                current_vowel = line
+                continue
+
+            if not current_vowel:
                 continue
 
             # 1. 匹配开头直到遇到半角 [ 或全角 ［
             match = re.match(r"^([^\[［]+)", line)
-            if not match or not current_vowel:
+            if not match:
                 continue
 
             initial = match.group(1).strip()

@@ -472,27 +472,25 @@ async def upload_file(
         print(f"[INFO] 开始提取声母、韵母、声调...")
         df_extracted = _format_convert()["extract_all_from_files"](str(file_path), preserve_empty_rows=True)
 
-        # 【新增】验证行数一致
-        if len(df_extracted) != len(df):
-            print(f"[WARNING] 提取结果行数不一致: 原始{len(df)}行, 提取{len(df_extracted)}行")
-            # 截断或补齐
-            if len(df_extracted) < len(df):
-                # 补齐空行
-                missing_rows = len(df) - len(df_extracted)
-                empty_rows = pd.DataFrame([{"声母": "", "韵母": "", "声调": ""}] * missing_rows)
-                df_extracted = pd.concat([df_extracted, empty_rows], ignore_index=True)
-            else:
-                # 截断多余行
-                df_extracted = df_extracted.iloc[:len(df)]
+        required_cols = {"声母", "韵母", "声调"}
+        if required_cols.issubset(df_extracted.columns) and len(df_extracted) > 0:
+            if len(df_extracted) != len(df):
+                print(f"[WARNING] 提取结果行数不一致: 原始{len(df)}行, 提取{len(df_extracted)}行")
+                if len(df_extracted) < len(df):
+                    missing_rows = len(df) - len(df_extracted)
+                    empty_rows = pd.DataFrame([{"声母": "", "韵母": "", "声调": ""}] * missing_rows)
+                    df_extracted = pd.concat([df_extracted, empty_rows], ignore_index=True)
+                else:
+                    df_extracted = df_extracted.iloc[:len(df)]
 
-        # 【新增】合并声母、韵母、声调列（覆盖已有列）
-        df['声母'] = df_extracted['声母'].fillna("")
-        df['韵母'] = df_extracted['韵母'].fillna("")
-        df['声调'] = df_extracted['声调'].fillna("")
+            df['声母'] = df_extracted['声母'].fillna("")
+            df['韵母'] = df_extracted['韵母'].fillna("")
+            df['声调'] = df_extracted['声调'].fillna("")
 
-        # 【新增】保存回文件
-        df.to_excel(file_path, index=False)
-        print(f"[INFO] 声韵数据已提取并保存")
+            df.to_excel(file_path, index=False)
+            print(f"[INFO] 声韵数据已提取并保存")
+        else:
+            print(f"[WARN] 声韵提取无结果（文件可能无数据行或列名不匹配），跳过声韵提取")
 
         # 1. 确定最终的文件名
         final_filename = file.filename

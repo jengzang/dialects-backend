@@ -62,7 +62,7 @@ class UserMeResponse(BaseModel):
 
     total_online_seconds: int
 
-    usage_summary: List[ApiUsageStat] = []
+    # usage_summary: List[ApiUsageStat] = []
 
 
 class Token(BaseModel):
