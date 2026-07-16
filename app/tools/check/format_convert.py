@@ -544,6 +544,7 @@ def process_縣志_excel(file, level=1, output_path=None):
             raise UnicodeDecodeError("❌ 無法讀取文件，請確認編碼格式")
 
     total, skipped, simplified_count = 0, 0, 0
+    current_rime = ""
 
     for lineno, line in enumerate(lines, 1):
         total += 1
@@ -557,6 +558,7 @@ def process_縣志_excel(file, level=1, output_path=None):
             skipped += 1
             continue
         if line.startswith("#"):
+            current_rime = line[1:].strip()
             continue
 
         parts = line.split("\t")
@@ -568,7 +570,7 @@ def process_縣志_excel(file, level=1, output_path=None):
 
         拼音 = parts[0].strip()
         for col_idx, cell in enumerate(parts[1:]):
-            rime = rime_headers[col_idx] if rime_headers and col_idx < len(rime_headers) else ""
+            rime = (rime_headers[col_idx] if rime_headers and col_idx < len(rime_headers) else "") or current_rime
             matches = RE_COUNTY_MATCHES.findall(cell)
             if not matches:
                 if debug:
