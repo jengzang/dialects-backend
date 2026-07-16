@@ -433,8 +433,14 @@ async def download_merge_result(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    # 1. 字典访问修复
-    output_path_str = task['data'].get("output_path")
+    if task.get("status") == TaskStatus.PENDING:
+        raise HTTPException(status_code=400, detail="任务尚未开始处理")
+    if task.get("status") == TaskStatus.PROCESSING:
+        raise HTTPException(status_code=400, detail="任务仍在处理中，请等待完成后再下载")
+    if task.get("status") == TaskStatus.FAILED:
+        raise HTTPException(status_code=400, detail=f"任务处理失败: {task.get('error', '未知错误')}")
+
+    output_path_str = (task.get("data") or {}).get("output_path")
     if not output_path_str:
         raise HTTPException(status_code=404, detail="结果文件记录不存在")
 
