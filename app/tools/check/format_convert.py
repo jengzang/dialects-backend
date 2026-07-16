@@ -390,13 +390,27 @@ def process_跳跳老鼠(file, level=1, output_path=None):
     wb = load_workbook(file, data_only=True)
     sheet = wb.active
 
+    # 列名別名
+    PHON_ALIASES = {'讀音', '音標', 'IPA', 'ipa', 'syllable', '读音', '发音', 'phon', '拼音'}
+    CHAR_ALIASES = {'字組', '字组', '單字', '单字', '漢字', '汉字', 'char', 'word', '字', '詞', '词'}
+
+    # 嘗試從第一行檢測列名
+    first_row_vals = [str(c).strip() if c is not None else "" for c in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), [])]
+    phon_idx, char_idx = 0, 1  # 默認按位置
+    for idx, col_name in enumerate(first_row_vals):
+        if col_name in PHON_ALIASES:
+            phon_idx = idx
+        elif col_name in CHAR_ALIASES:
+            char_idx = idx
+    has_header = any(v in PHON_ALIASES or v in CHAR_ALIASES for v in first_row_vals)
+    start_row = 2 if has_header else 1
+    if has_header:
+        print(f"[列名] 檢測到表頭，讀音列={first_row_vals[phon_idx]}(idx={phon_idx})，字組列={first_row_vals[char_idx]}(idx={char_idx})")
+
     def parse_row(line, line_num):
         parts = [str(c).strip() if c is not None else "" for c in line]
-        if len(parts) < 2:
-            print(f"⚠️ 第 {line_num} 行欄位不足，跳過：{parts}")
-            return []
-        phon = parts[0]
-        組 = parts[1]
+        phon = parts[phon_idx] if phon_idx < len(parts) else ""
+        組 = parts[char_idx] if char_idx < len(parts) else ""
         if not phon or not 組:
             print(f"⚠️ 第 {line_num} 行缺音或字，跳過")
             return []
@@ -409,7 +423,7 @@ def process_跳跳老鼠(file, level=1, output_path=None):
             result.append((字, phon, 註))
         return result
 
-    for i, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+    for i, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
         if not row or str(row[0]).startswith("#"):
             continue
         parsed = parse_row(row, i)
@@ -471,11 +485,42 @@ def process_縣志_excel(file, level=1, output_path=None):
 
     ext = os.path.splitext(file)[1].lower()
     if ext in [".xlsx", ".xls"]:
-        df = pd.read_excel(file, sheet_name=0, header=None)
-        lines = [
-            "\t".join([str(cell) for cell in row if pd.notna(cell)]).strip()
-            for _, row in df.iterrows()
-        ]
+        df = pd.read_excel(file, sheet_name=0, header=None, dtype=str)
+        first_row_cells = [str(c) for c in df.iloc[0].tolist() if pd.notna(c)]
+
+        # 嘗試按列名定位拼音列（聲母+韻母基底，不含聲調）；其餘列均視為字組數據
+        BASE_ALIASES = {'拼音', 'pinyin', '音韻', '音韵', '讀音', '读音', '發音', '发音'}
+        base_idx = None
+        for idx, name in enumerate(first_row_cells):
+            if name in BASE_ALIASES:
+                base_idx = idx
+                break
+
+        if base_idx is not None:
+            print(f"[列名] 檢測到拼音列={first_row_cells[base_idx]}(idx={base_idx})，其餘{len(first_row_cells)-1}列為字組數據")
+            lines = []
+            for _, row in df.iloc[1:].iterrows():
+                cells = [str(c) for c in row.tolist() if pd.notna(c)]
+                if not cells:
+                    continue
+                base = cells[base_idx] if base_idx < len(cells) else ""
+                # 剩餘列全部拼成字組數據（保持原有 tab 分隔格式）
+                char_groups = [c for i, c in enumerate(cells) if i != base_idx]
+                line = base + "\t" + "\t".join(char_groups) if char_groups else base
+                lines.append(line.strip())
+        else:
+            all_rows = [
+                "\t".join([str(cell) for cell in row if pd.notna(cell)]).strip()
+                for _, row in df.iterrows()
+            ]
+            # 檢測第一行是否為表頭（含已知列名關鍵詞則跳過）
+            HEADER_TERMS = {'韻母', '拼音', '漢字', '單字', '音標', '#漢字', '声母', '韻母', '聲母', '音标', '汉字', '单字', '字組', '字组'}
+            start_idx = 0
+            if all_rows and any(term in all_rows[0] for term in HEADER_TERMS):
+                print(f"[列名] 檢測到表頭，跳過第一行：{all_rows[0][:80]}")
+                start_idx = 1
+            lines = all_rows[start_idx:]
+
         print(f"📖 讀取 Excel：{file}")
     else:
         encodings = ["utf-8", "utf-8-sig", "big5", "gb18030"]

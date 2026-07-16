@@ -436,9 +436,9 @@ async def upload_file(
                         mapped_cols[std_col] = v
                         break
 
-            # 如果缺少必需列，尝试格式转换
+            # 跳跳老鼠和縣志始終走格式轉換，不走 col_map 捷徑
             required_cols = {"漢字", "音標"}
-            if not (required_cols <= set(mapped_cols.keys())):
+            if format_type in ('跳跳老鼠', '縣志') or not (required_cols <= set(mapped_cols.keys())):
 
                 task_dir = file_manager.get_task_dir(task_id, "check")
                 output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
