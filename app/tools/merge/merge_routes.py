@@ -430,17 +430,13 @@ async def download_merge_result(task_id: str):
         raise HTTPException(status_code=404, detail="任务不存在")
 
     # 1. 字典访问修复
-    if task['status'] != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="任务尚未完成")
-
-    # 2. 字典访问修复
     output_path_str = task['data'].get("output_path")
     if not output_path_str:
         raise HTTPException(status_code=404, detail="结果文件记录不存在")
 
     file_path = Path(output_path_str).resolve()
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="服务器上的结果文件已丢失")
+        raise HTTPException(status_code=404, detail="文件不存在或任务尚未完成")
 
     # 3. 准备文件名
     filename = "合并结果.xlsx"

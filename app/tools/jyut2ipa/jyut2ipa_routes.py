@@ -461,18 +461,13 @@ async def download_result(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    # 👇 修复：字典访问
-    if task['status'] != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="任务尚未完成")
-
-    # 👇 修复：字典访问
     output_path_str = task['data'].get("output_path")
     if not output_path_str:
         raise HTTPException(status_code=404, detail="结果文件记录不存在")
 
     file_path = Path(output_path_str)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="结果文件已在服务器上被清理")
+        raise HTTPException(status_code=404, detail="文件不存在或任务尚未完成")
 
     # 准备下载文件名 (保留原始文件名逻辑)
     original_filename = task['data'].get('filename', 'result.xlsx')
