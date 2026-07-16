@@ -20,7 +20,7 @@ from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 from xlrd import open_workbook
 
-from app.common.constants import col_map, vowel_pattern
+from app.common.constants import col_map, vowel_pattern, TT_PHON_ALIASES, TT_CHAR_ALIASES, XZ_BASE_ALIASES, XZ_HEADER_TERMS
 from app.common.s2t import s2t_pro
 
 # 预编译正则表达式 - 性能优化
@@ -390,19 +390,15 @@ def process_跳跳老鼠(file, level=1, output_path=None):
     wb = load_workbook(file, data_only=True)
     sheet = wb.active
 
-    # 列名別名
-    PHON_ALIASES = {'讀音', '音標', 'IPA', 'ipa', 'syllable', '读音', '发音', 'phon', '拼音'}
-    CHAR_ALIASES = {'字組', '字组', '單字', '单字', '漢字', '汉字', 'char', 'word', '字', '詞', '词'}
-
     # 嘗試從第一行檢測列名
     first_row_vals = [str(c).strip() if c is not None else "" for c in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), [])]
     phon_idx, char_idx = 0, 1  # 默認按位置
     for idx, col_name in enumerate(first_row_vals):
-        if col_name in PHON_ALIASES:
+        if col_name in TT_PHON_ALIASES:
             phon_idx = idx
-        elif col_name in CHAR_ALIASES:
+        elif col_name in TT_CHAR_ALIASES:
             char_idx = idx
-    has_header = any(v in PHON_ALIASES or v in CHAR_ALIASES for v in first_row_vals)
+    has_header = any(v in TT_PHON_ALIASES or v in TT_CHAR_ALIASES for v in first_row_vals)
     start_row = 2 if has_header else 1
     if has_header:
         print(f"[列名] 檢測到表頭，讀音列={first_row_vals[phon_idx]}(idx={phon_idx})，字組列={first_row_vals[char_idx]}(idx={char_idx})")
@@ -489,10 +485,9 @@ def process_縣志_excel(file, level=1, output_path=None):
         first_row_cells = [str(c) for c in df.iloc[0].tolist() if pd.notna(c)]
 
         # 嘗試按列名定位拼音列（聲母+韻母基底，不含聲調）；其餘列均視為字組數據
-        BASE_ALIASES = {'拼音', 'pinyin', '音韻', '音韵', '讀音', '读音', '發音', '发音'}
         base_idx = None
         for idx, name in enumerate(first_row_cells):
-            if name in BASE_ALIASES:
+            if name in XZ_BASE_ALIASES:
                 base_idx = idx
                 break
 
@@ -514,9 +509,8 @@ def process_縣志_excel(file, level=1, output_path=None):
                 for _, row in df.iterrows()
             ]
             # 檢測第一行是否為表頭（含已知列名關鍵詞則跳過）
-            HEADER_TERMS = {'韻母', '拼音', '漢字', '單字', '音標', '#漢字', '声母', '韻母', '聲母', '音标', '汉字', '单字', '字組', '字组'}
             start_idx = 0
-            if all_rows and any(term in all_rows[0] for term in HEADER_TERMS):
+            if all_rows and any(term in all_rows[0] for term in XZ_HEADER_TERMS):
                 print(f"[列名] 檢測到表頭，跳過第一行：{all_rows[0][:80]}")
                 start_idx = 1
             lines = all_rows[start_idx:]
