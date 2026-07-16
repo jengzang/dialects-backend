@@ -83,8 +83,8 @@ class UploadResponse(BaseModel):
 class ErrorItem(BaseModel):
     """错误项"""
     row: int
-    error_type: str  # nonSingleChar, invalidIpa, missingTone
-    field: str  # char, ipa
+    error_type: str  # nonSingleChar, invalidIpa, missingTone, emptyOnset, emptyRime
+    field: str  # char, ipa, onset, rime
     value: str
     message: str
 
@@ -96,6 +96,7 @@ class AnalysisResult(BaseModel):
     error_count: int
     errors: List[ErrorItem]
     error_stats: Dict[str, int]
+    warning_stats: Optional[Dict[str, int]] = None
 
 
 class AnalyzeTaskResponse(BaseModel):
@@ -248,6 +249,10 @@ def analyze_excel_file(
         "invalidIpa": 0,
         "missingTone": 0
     }
+    warning_stats = {
+        "emptyOnset": 0,
+        "emptyRime": 0
+    }
 
     # 解析输出
     lines = check_output.split('\n')
@@ -286,7 +291,25 @@ def analyze_excel_file(
                     message=get_error_message(current_error_type)
                 ))
 
-    return df, errors, error_stats, col_hanzi, col_ipa
+    # 檢查空聲母和空韻母（warning，非 error）
+    col_onset = next((c for c in df.columns if c in ('声母', '聲母', 'onset')), None)
+    col_rime = next((c for c in df.columns if c in ('韵母', '韻母', 'rime')), None)
+    if col_onset:
+        for i, row in df.iterrows():
+            val = str(row.get(col_onset, "")).strip()
+            hanzi = str(row.get(col_hanzi, "")).strip()
+            ipa = str(row.get(col_ipa, "")).strip()
+            if not val and hanzi and ipa:
+                warning_stats["emptyOnset"] += 1
+    if col_rime:
+        for i, row in df.iterrows():
+            val = str(row.get(col_rime, "")).strip()
+            hanzi = str(row.get(col_hanzi, "")).strip()
+            ipa = str(row.get(col_ipa, "")).strip()
+            if not val and hanzi and ipa:
+                warning_stats["emptyRime"] += 1
+
+    return df, errors, error_stats, warning_stats, col_hanzi, col_ipa
 
 
 def get_error_message(error_type: str) -> str:
@@ -294,7 +317,9 @@ def get_error_message(error_type: str) -> str:
     messages = {
         "nonSingleChar": "应为单字汉字",
         "invalidIpa": "音标格式异常",
-        "missingTone": "缺少声调"
+        "missingTone": "缺少声调",
+        "emptyOnset": "声母为空",
+        "emptyRime": "韵母为空",
     }
     return messages.get(error_type, "未知错误")
 
@@ -314,7 +339,7 @@ async def analyze_file_async(task_id: str, file_path: Path) -> None:
     try:
         with ProgressHeartbeat(CHECK_ANALYZE_HEARTBEAT_SECONDS, lambda: task_manager.update_task(task_id)):
             update_progress("read_file", 5.0, "正在读取文件...")
-            df, errors, error_stats, col_hanzi, col_ipa = analyze_excel_file(
+            df, errors, error_stats, warning_stats, col_hanzi, col_ipa = analyze_excel_file(
                 file_path,
                 progress_callback=update_progress,
             )
@@ -329,6 +354,7 @@ async def analyze_file_async(task_id: str, file_path: Path) -> None:
                     **(task_manager.get_task(task_id) or {}).get("data", {}),
                     "errors": [error.dict() for error in errors],
                     "error_stats": error_stats,
+                    "warning_stats": warning_stats,
                     "col_hanzi": col_hanzi,
                     "col_ipa": col_ipa,
                     "analysis_result": {
@@ -337,6 +363,7 @@ async def analyze_file_async(task_id: str, file_path: Path) -> None:
                         "error_count": len(errors),
                         "errors": [error.dict() for error in errors],
                         "error_stats": error_stats,
+                        "warning_stats": warning_stats,
                     },
                 },
             )
@@ -558,7 +585,7 @@ async def analyze_file(task_id: str):
     try:
         task_manager.update_task(task_id, status=TaskStatus.PROCESSING, message="正在分析文件...")
 
-        df, errors, error_stats, col_hanzi, col_ipa = analyze_excel_file(file_path)
+        df, errors, error_stats, warning_stats, col_hanzi, col_ipa = analyze_excel_file(file_path)
 
         # 更新任务信息
         task_manager.update_task(
@@ -570,6 +597,7 @@ async def analyze_file(task_id: str):
                 **task['data'],
                 "errors": [error.dict() for error in errors],
                 "error_stats": error_stats,
+                "warning_stats": warning_stats,
                 "col_hanzi": col_hanzi,
                 "col_ipa": col_ipa
             }
@@ -580,7 +608,8 @@ async def analyze_file(task_id: str):
             total_rows=len(df),
             error_count=len(errors),
             errors=errors,
-            error_stats=error_stats
+            error_stats=error_stats,
+            warning_stats=warning_stats
         )
 
     except HTTPException:
