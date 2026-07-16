@@ -300,17 +300,35 @@ API_ROUTE_CONFIG = {
     },
 
     # ===== 其他 tools API =====
+    "/api/tools/check/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,  # 不记录参数（避免泄露 task_id）
+        "log_body": False,
+    },
     "/api/tools/check/*": {
         "rate_limit": True,
         "require_login": True,
         "log_params": True,
         "log_body": True,
     },
+    "/api/tools/merge/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,
+        "log_body": False,
+    },
     "/api/tools/merge/*": {
         "rate_limit": True,
         "require_login": True,
         "log_params": True,
         "log_body": True,
+    },
+    "/api/tools/jyut2ipa/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,  # 不记录参数（避免泄露 task_id）
+        "log_body": False,
     },
     "/api/tools/jyut2ipa/*": {
         "rate_limit": True,

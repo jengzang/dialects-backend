@@ -20,7 +20,7 @@ from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 from xlrd import open_workbook
 
-from app.common.constants import col_map, vowel_pattern
+from app.common.constants import col_map, vowel_pattern, TT_PHON_ALIASES, TT_CHAR_ALIASES, XZ_BASE_ALIASES, XZ_HEADER_TERMS
 from app.common.s2t import s2t_pro
 
 # 预编译正则表达式 - 性能优化
@@ -390,13 +390,23 @@ def process_跳跳老鼠(file, level=1, output_path=None):
     wb = load_workbook(file, data_only=True)
     sheet = wb.active
 
+    # 嘗試從第一行檢測列名
+    first_row_vals = [str(c).strip() if c is not None else "" for c in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), [])]
+    phon_idx, char_idx = 0, 1  # 默認按位置
+    for idx, col_name in enumerate(first_row_vals):
+        if col_name in TT_PHON_ALIASES:
+            phon_idx = idx
+        elif col_name in TT_CHAR_ALIASES:
+            char_idx = idx
+    has_header = any(v in TT_PHON_ALIASES or v in TT_CHAR_ALIASES for v in first_row_vals)
+    start_row = 2 if has_header else 1
+    if has_header:
+        print(f"[列名] 檢測到表頭，讀音列={first_row_vals[phon_idx]}(idx={phon_idx})，字組列={first_row_vals[char_idx]}(idx={char_idx})")
+
     def parse_row(line, line_num):
         parts = [str(c).strip() if c is not None else "" for c in line]
-        if len(parts) < 2:
-            print(f"⚠️ 第 {line_num} 行欄位不足，跳過：{parts}")
-            return []
-        phon = parts[0]
-        組 = parts[1]
+        phon = parts[phon_idx] if phon_idx < len(parts) else ""
+        組 = parts[char_idx] if char_idx < len(parts) else ""
         if not phon or not 組:
             print(f"⚠️ 第 {line_num} 行缺音或字，跳過")
             return []
@@ -409,7 +419,7 @@ def process_跳跳老鼠(file, level=1, output_path=None):
             result.append((字, phon, 註))
         return result
 
-    for i, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+    for i, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
         if not row or str(row[0]).startswith("#"):
             continue
         parsed = parse_row(row, i)
@@ -471,11 +481,54 @@ def process_縣志_excel(file, level=1, output_path=None):
 
     ext = os.path.splitext(file)[1].lower()
     if ext in [".xlsx", ".xls"]:
-        df = pd.read_excel(file, sheet_name=0, header=None)
-        lines = [
-            "\t".join([str(cell) for cell in row if pd.notna(cell)]).strip()
-            for _, row in df.iterrows()
-        ]
+        df = pd.read_excel(file, sheet_name=0, header=None, dtype=str)
+        first_row_cells = [str(c) for c in df.iloc[0].tolist() if pd.notna(c)]
+
+        # 嘗試按列名定位拼音列（聲母+韻母基底，不含聲調）；其餘列均視為字組數據
+        base_idx = None
+        rime_headers = None
+        for idx, name in enumerate(first_row_cells):
+            if name in XZ_BASE_ALIASES:
+                base_idx = idx
+                break
+
+        if base_idx is not None:
+            rime_headers = [c for i, c in enumerate(first_row_cells) if i != base_idx]
+            print(f"[列名] 檢測到拼音列={first_row_cells[base_idx]}(idx={base_idx})，韻母頭={rime_headers}，其餘{len(first_row_cells)-1}列為字組數據")
+            lines = []
+            for _, row in df.iloc[1:].iterrows():
+                cells = [str(c) for c in row.tolist() if pd.notna(c)]
+                if not cells:
+                    continue
+                base = cells[base_idx] if base_idx < len(cells) else ""
+                # 剩餘列全部拼成字組數據（保持原有 tab 分隔格式）
+                char_groups = [c for i, c in enumerate(cells) if i != base_idx]
+                line = base + "\t" + "\t".join(char_groups) if char_groups else base
+                lines.append(line.strip())
+
+            # 檢測第一列是僅聲母（新格式，需從列頭取韻母）還是聲母+韻母（原格式）
+            if rime_headers:
+                onset_has_rhyme = False
+                for line in lines[:5]:
+                    base_val = line.split("\t")[0].strip()
+                    if base_val and RE_VOWEL_PATTERN_COMP.search(base_val):
+                        onset_has_rhyme = True
+                        break
+                if onset_has_rhyme:
+                    print(f"[檢測] 第一列已含聲母+韻母，不使用列頭作為韻母")
+                    rime_headers = None
+        else:
+            all_rows = [
+                "\t".join([str(cell) for cell in row if pd.notna(cell)]).strip()
+                for _, row in df.iterrows()
+            ]
+            # 檢測第一行是否為表頭（含已知列名關鍵詞則跳過）
+            start_idx = 0
+            if all_rows and any(term in all_rows[0] for term in XZ_HEADER_TERMS):
+                print(f"[列名] 檢測到表頭，跳過第一行：{all_rows[0][:80]}")
+                start_idx = 1
+            lines = all_rows[start_idx:]
+
         print(f"📖 讀取 Excel：{file}")
     else:
         encodings = ["utf-8", "utf-8-sig", "big5", "gb18030"]
@@ -491,6 +544,7 @@ def process_縣志_excel(file, level=1, output_path=None):
             raise UnicodeDecodeError("❌ 無法讀取文件，請確認編碼格式")
 
     total, skipped, simplified_count = 0, 0, 0
+    current_rime = ""
 
     for lineno, line in enumerate(lines, 1):
         total += 1
@@ -504,6 +558,7 @@ def process_縣志_excel(file, level=1, output_path=None):
             skipped += 1
             continue
         if line.startswith("#"):
+            current_rime = line[1:].strip()
             continue
 
         parts = line.split("\t")
@@ -514,7 +569,8 @@ def process_縣志_excel(file, level=1, output_path=None):
             continue
 
         拼音 = parts[0].strip()
-        for cell in parts[1:]:
+        for col_idx, cell in enumerate(parts[1:]):
+            rime = (rime_headers[col_idx] if rime_headers and col_idx < len(rime_headers) else "") or current_rime
             matches = RE_COUNTY_MATCHES.findall(cell)
             if not matches:
                 if debug:
@@ -550,7 +606,7 @@ def process_縣志_excel(file, level=1, output_path=None):
                     mapping = dict(mapping)
                     candidates = mapping.get(字, [字])  # 支援多候選繁體字
 
-                    音標 = f"{拼音}{調號}"
+                    音標 = f"{拼音}{rime}{調號}"
                     for cand in candidates:
                         row = [cand, 音標, 註]
                         rows.append(row)
@@ -589,19 +645,32 @@ def process_縣志_word(file, level=1, output_path=None):
 
         current_vowel = None  # e.g., 'i', 'u'
 
+        # 检测文件中是否存在 # 前缀的韵母标题；若无则启用裸韵母模式
+        has_hash_headers = any(
+            ln.strip().startswith(("#", "＃")) for ln in text.splitlines() if ln.strip()
+        )
+        bare_vowel_mode = not has_hash_headers
+
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
 
             if line.startswith(("#", "＃")):
-                # 去掉第一个字符并取剩余部分作为当前元音
                 current_vowel = line[1:].strip()
+                continue
+
+            # 裸韵母模式：无 # 前缀的文件中，不含 [／［ 的行视为韵母标题
+            if bare_vowel_mode and not re.search(r"[\[［]", line):
+                current_vowel = line
+                continue
+
+            if not current_vowel:
                 continue
 
             # 1. 匹配开头直到遇到半角 [ 或全角 ［
             match = re.match(r"^([^\[［]+)", line)
-            if not match or not current_vowel:
+            if not match:
                 continue
 
             initial = match.group(1).strip()

@@ -6,6 +6,7 @@ import json
 import uuid
 import time
 import copy
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
@@ -98,8 +99,12 @@ class TaskManager:
 
     def _save_json(self, path: Path, data: Dict):
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            tmp_path = path.parent / f".{path.name}.{os.getpid()}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            tmp_path.replace(path)
         except Exception as e:
             print(f"[TaskManager] Save Error: {e}")
 
@@ -139,36 +144,36 @@ class TaskManager:
         json_path = self._get_task_json_path(task_id, tool_name)
         self._save_json(json_path, task_info)
         with self._lock:
-            self._task_cache[task_id] = copy.deepcopy(task_info)
+            self._task_cache[task_id] = (copy.deepcopy(task_info), time.time())
 
         return task_id
 
+    _CACHE_TTL = 1.0  # 缓存有效期（秒），超时后从文件刷新
+
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """
-        获取任务信息
-        返回字典 dict，不再是 Task 对象
+        获取任务信息。带 TTL 的缓存：短时间内重复读取走缓存，
+        超时后从文件刷新，避免多 worker 缓存永久不一致。
         """
-        # 优先走内存缓存，降低高频轮询的磁盘 I/O
-        with self._lock:
-            cached = self._task_cache.get(task_id)
-            if cached is not None:
-                return copy.deepcopy(cached)
-
-        # 1. 解析 ID 拿到 tool_name，并进行路径安全校验
         tool_name, _ = self._parse_id(task_id)
         try:
-            # 2. 拼路径
             json_path = self._get_task_json_path(task_id, tool_name)
         except ValueError:
             return None
 
-        # 3. 读文件并回填缓存
-        task_info = self._load_json(json_path)
-        if task_info is not None:
+        now = time.time()
+        with self._lock:
+            entry = self._task_cache.get(task_id)
+            if entry is not None:
+                data, cached_at = entry
+                if now - cached_at < self._CACHE_TTL:
+                    return copy.deepcopy(data)
+
+        data = self._load_json(json_path)
+        if data is not None:
             with self._lock:
-                self._task_cache[task_id] = copy.deepcopy(task_info)
-            return copy.deepcopy(task_info)
-        return None
+                self._task_cache[task_id] = (copy.deepcopy(data), now)
+        return data
 
     def update_task(self, task_id: str, **kwargs):
         """更新任务状态（读-改-写）"""
@@ -180,10 +185,8 @@ class TaskManager:
 
         # 加锁是为了防止极端的并发写入冲突（同一任务极短时间内被两次更新）
         with self._lock:
-            # 1. 优先读缓存，缓存缺失时再读文件
-            task_info = self._task_cache.get(task_id)
-            if task_info is None:
-                task_info = self._load_json(json_path)
+            # 始终从文件读取最新状态，避免多 worker 缓存不一致
+            task_info = self._load_json(json_path)
             if not task_info:
                 return
             task_info = copy.deepcopy(task_info)
@@ -201,7 +204,7 @@ class TaskManager:
 
             # 3. 写入
             self._save_json(json_path, task_info)
-            self._task_cache[task_id] = copy.deepcopy(task_info)
+            self._task_cache[task_id] = (copy.deepcopy(task_info), time.time())
 
     def update_task_cleanup(
         self,
@@ -292,7 +295,7 @@ class TaskManager:
                     if task_data:
                         tasks[task_data['task_id']] = task_data
                         with self._lock:
-                            self._task_cache[task_data['task_id']] = copy.deepcopy(task_data)
+                            self._task_cache[task_data['task_id']] = (copy.deepcopy(task_data), time.time())
 
         return tasks
 

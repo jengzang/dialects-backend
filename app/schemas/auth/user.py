@@ -5,7 +5,7 @@ from datetime import datetime
 
 # 請求體
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
+    username: str = Field(min_length=1, max_length=50)
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     # full_name: Optional[str] = None
@@ -62,7 +62,7 @@ class UserMeResponse(BaseModel):
 
     total_online_seconds: int
 
-    usage_summary: List[ApiUsageStat] = []
+    # usage_summary: List[ApiUsageStat] = []
 
 
 class Token(BaseModel):
