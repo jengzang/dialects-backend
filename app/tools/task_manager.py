@@ -6,6 +6,7 @@ import json
 import uuid
 import time
 import copy
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
@@ -98,8 +99,12 @@ class TaskManager:
 
     def _save_json(self, path: Path, data: Dict):
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            tmp_path = path.parent / f".{path.name}.{os.getpid()}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            tmp_path.replace(path)
         except Exception as e:
             print(f"[TaskManager] Save Error: {e}")
 

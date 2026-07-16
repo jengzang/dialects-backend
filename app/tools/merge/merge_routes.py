@@ -120,6 +120,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
 
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=20.0,
                 message=f"参考表加载完成，共{char_count}个字，开始合并文件...",
                 stage="preparing_merge",
@@ -131,6 +132,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
 
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=30.0,
                 message=f"正在合并{total_files}个文件...",
                 stage="merging_files",
@@ -144,6 +146,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
 
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=80.0,
                 message="合并完成，正在生成结果文件...",
                 stage="building_workbook",
@@ -161,6 +164,7 @@ async def merge_files_async(task_id: str, reference_path: Path, file_paths: List
             output_path = reference_path.parent / "merge.xlsx"
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=95.0,
                 message="正在保存合并结果...",
                 stage="saving_result",
