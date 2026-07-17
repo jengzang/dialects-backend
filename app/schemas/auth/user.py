@@ -89,6 +89,7 @@ class RankingDetail(BaseModel):
     value: int = Field(description="User's value for this metric")
     gap_to_prev: Optional[int] = Field(description="Gap to previous rank (null for rank 1)")
     first_place_value: int = Field(description="First place user's value")
+    percentile: float = Field(description="Percentage of participants surpassed (0-100)")
 
 
 class LeaderboardResponse(BaseModel):
