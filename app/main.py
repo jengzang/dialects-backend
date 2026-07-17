@@ -118,14 +118,27 @@ def _is_backend_path(path: str) -> bool:
 
 
 def _apply_common_middlewares(app: FastAPI) -> None:
+    # Cookie 认证需要 allow_credentials=True，因此 origins 必须显式列出（不能用 "*"）
     if _RUN_TYPE == "WEB":
         cors_origins = ["https://dialects.yzup.top", "https://yzup.top"]
+        allow_credentials = True
+    elif _RUN_TYPE == "MINE":
+        cors_origins = [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+        ]
+        allow_credentials = True
     else:
+        # EXE 模式（Electron 内嵌浏览器，同源请求无需 CORS）
         cors_origins = ["*"]
+        allow_credentials = False
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

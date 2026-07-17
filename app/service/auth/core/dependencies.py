@@ -13,7 +13,12 @@ from app.service.auth.database.connection import get_db
 from app.service.auth.database.models import User, ApiUsageLog
 from app.service.auth.session.service import get_valid_session_by_public_id
 from app.service.auth.security.cache_security import sign_user_data, verify_user_data  # ✅ 导入签名函数
-from app.common.config import MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME  # 根據你的設定實際調整
+from app.common.config import MAX_LOGIN_PER_MINUTE, CACHE_EXPIRATION_TIME
+from app.common.auth_config import (
+    AUTH_COOKIE_NAME,
+    CSRF_ENABLED,
+    ALLOWED_ORIGINS,
+)
 from app.common.api_config import MAX_USER_REQUESTS_PER_HOUR, MAX_IP_REQUESTS_PER_HOUR
 from app.redis_client import redis_client
 
@@ -218,178 +223,52 @@ def _has_active_token_session(db: Session, payload: dict) -> bool:
     return get_valid_session_by_public_id(db, session_public_id) is not None
 
 
-async def get_current_user(
-        request: Request,
-        db: Session = Depends(get_db),
-        require_admin: bool = False  # [OK] 預設不要求管理員
-) -> models.User:
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        if not require_admin:
-            return None  # 匿名用户
-        else:
-            raise HTTPException(status_code=401, detail="未登錄用戶沒有訪問此資源的權限")
-    else:
-        token = auth_header.split(" ")[1]
-        try:
-            payload = utils.decode_access_token(token)
-            # username = payload.get("sub")
-            username = payload.get("sub")  # 从 JWT 中提取邮箱作为唯一标识
-            if not username:
-                return None  # Token 無效
-        except JWTError:
-            return None  # Token 解碼失敗
-
-    # 1. 首先检查缓存中是否存在该用户
-    cached_user = await redis_client.get(f"user:{username}")
-    if cached_user:
-        # ✅ 验证签名
-        user_dict = verify_user_data(cached_user)
-        if user_dict:
-            user = models.User(**user_dict)
-            print(f"使用缓存:{username}")
-            return user
-        else:
-            # 签名无效，删除缓存并重新查库
-            print(f"[SECURITY] Invalid cache for {username}, re-fetching from DB")
-            await redis_client.delete(f"user:{username}")
-
-    # 2. 如果缓存中没有，查询数据库
-    # print("啥都没存,我还是查库")
-    user = db.query(models.User).filter(models.User.username == username).first()
-    # print(user)
-    if not user:
-        return None  # 用户不存在
-
-    # 将用户信息存入缓存，并设置过期时间
-    try:
-        # ✅ 签名数据后再存储
-        signed_data = sign_user_data(user_to_dict(user))
-        await redis_client.setex(
-            f"user:{username}",
-            CACHE_EXPIRATION_TIME,
-            signed_data
-        )
-        print(f"[SAVE] 緩存寫入成功: user:{username}")
-    except Exception as e:
-        print(f"[X] 寫入緩存時發生錯誤: {e}")
-
-    if require_admin and user.role != "admin":
-        raise HTTPException(status_code=403, detail="你沒有訪問此資源的權限")
-
-    return user
-
-
-# [OK] 1. 改為 async def
-async def get_current_user_for_middleware(request: Request, db: Session):
-    # --- 前半部分邏輯不變 ---
-    auth_header = request.headers.get("Authorization")
-    # 打印调试信息，查看 token
-    # print(f"Authorization header: {auth_header}")
-
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None  # 匿名用户，返回 None
-
-    token = auth_header.split(" ")[1]
-    try:
-        # 解码 JWT token
-        payload = utils.decode_access_token(token)
-        username = payload.get("sub")  # 使用邮箱作为唯一标识
-        if not username:
-            return None  # Token 无效，返回 None
-    except JWTError as e:
-        print(f"JWT decode error: {e}")  # 打印错误信息，帮助调试
-        return None  # 如果解码失败，返回 None
-
-    # --- Redis 部分改為異步 ---
-    try:
-        # [OK] 2. 加上 await
-        cached_user = await redis_client.get(f"user:{username}")
-        if cached_user:
-            # ✅ 验证签名
-            user_dict = verify_user_data(cached_user)
-            if user_dict:
-                user = models.User(**user_dict)
-                return user
-            else:
-                # 签名无效，删除缓存
-                print(f"[SECURITY] Invalid cache for {username} in middleware")
-                await redis_client.delete(f"user:{username}")
-    except Exception as e:
-        print(f"Redis error in middleware: {e}")
-        # 如果 Redis 掛了，不要崩潰，繼續查數據庫
-
-    # --- 數據庫部分 (保持同步阻塞) ---
-    # [!] 注意：這裡 sql.query 是同步的，會稍微阻塞 Event Loop，但在中間件裡通常可以接受
-    user = db.query(models.User).filter(models.User.username == username).first()
-
-    if not user:
-        return None
-
-    # --- 寫回 Redis 改為異步 ---
-    try:
-        # ✅ 签名数据后再存储
-        signed_data = sign_user_data(user_to_dict(user))
-        await redis_client.setex(
-            f"user:{username}",
-            CACHE_EXPIRATION_TIME,
-            signed_data
-        )
-    except Exception as e:
-        print(f"Redis set error: {e}")
-
-    return user
-
-async def get_current_admin_user(
-    request: Request,
-    db: Session = Depends(get_db)
-) -> models.User:
+def _extract_auth_token(request: Request) -> tuple[Optional[str], Optional[str]]:
     """
-    获取当前admin用户（必须从数据库验证）
+    从请求中提取认证 token，同时支持 Authorization Bearer 和 HttpOnly Cookie。
 
-    重要：不能只信任JWT中的role字段，必须从DB验证
+    优先级：Authorization Bearer > Cookie。
+    如果 Authorization 头存在，则独占使用（无效也不回退到 Cookie），避免凭证混淆。
+
+    Returns:
+        (token, source) — source 为 "bearer" 或 "cookie"；无有效凭证时返回 (None, None)
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    # 解析JWT获取username和role
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="未登錄用戶沒有訪問此資源的權限")
+    if auth_header:
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer "):].strip()
+            if token:
+                return (token, "bearer")
+        # Authorization 头存在但格式无效 → 不回退到 Cookie
+        return (None, "bearer")
 
-    token = auth_header.split(" ")[1]
-    try:
-        payload = utils.decode_access_token(token)
-        username = payload.get("sub")
-        role_in_jwt = payload.get("role")  # JWT中的role（不能作为唯一依据）
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    # 无 Authorization 头 → 读取 Cookie（Web 浏览器）
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if token:
+        return (token, "cookie")
 
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    # ✅ 从数据库验证role（最终权威）
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # ⚠️ 安全检查：如果JWT的role和数据库不一致，记录安全事件
-    if role_in_jwt and role_in_jwt != user.role:
-        logger.warning(f"[SECURITY] Role mismatch for {username}: JWT={role_in_jwt}, DB={user.role}")
-        # 可选：记录到安全日志表，或触发告警
-
-    # ✅ 验证是否为admin（基于数据库中的role）
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    return user
+    return (None, None)
 
 
-def _extract_bearer_token(request: Request) -> Optional[str]:
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None
-    return auth_header.split(" ", 1)[1]
+def _validate_csrf(request: Request, auth_source: str) -> None:
+    """
+    Cookie 认证的写请求需要校验 Origin 头（CSRF 防护）。
+
+    Bearer 认证的请求不需要 CSRF 校验（浏览器不会自动携带 Authorization 头）。
+    """
+    if not CSRF_ENABLED:
+        return
+    if auth_source != "cookie":
+        return
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+
+    origin = request.headers.get("Origin")
+    if not origin:
+        raise HTTPException(status_code=403, detail="CSRF: Missing Origin header for cookie-based request")
+
+    if origin not in ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="CSRF: Untrusted origin")
 
 
 async def _load_user_from_cache_or_db(db: Session, sub: str, ver: int = 1) -> Optional[models.User]:
@@ -446,7 +325,7 @@ async def get_current_user(
         db: Session = Depends(get_db),
         require_admin: bool = False
 ) -> models.User:
-    token = _extract_bearer_token(request)
+    token, source = _extract_auth_token(request)
     if not token:
         if not require_admin:
             return None
@@ -474,6 +353,9 @@ async def get_current_user(
             return None
         raise HTTPException(status_code=401, detail="Invalid token")
 
+    # Cookie 认证的写请求需要校验 Origin（CSRF 防护）
+    _validate_csrf(request, source)
+
     user = await _load_user_from_cache_or_db(db, sub, ver)
     if not user:
         return None
@@ -485,7 +367,7 @@ async def get_current_user(
 
 
 async def get_current_user_for_middleware(request: Request, db: Session):
-    token = _extract_bearer_token(request)
+    token, source = _extract_auth_token(request)
     if not token:
         return None
 
@@ -506,6 +388,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
         print(f"JWT decode error: {e}")
         return None
 
+    # middleware 不需要 CSRF 校验（日志记录用途）
     return await _load_user_from_cache_or_db(db, sub, ver)
 
 
@@ -513,7 +396,7 @@ async def get_current_admin_user(
     request: Request,
     db: Session = Depends(get_db)
 ) -> models.User:
-    token = _extract_bearer_token(request)
+    token, source = _extract_auth_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -535,12 +418,15 @@ async def get_current_admin_user(
     if not _has_active_token_session(db, payload):
         raise HTTPException(status_code=401, detail="Session is no longer active")
 
+    # Cookie 认证的写请求需要校验 Origin（CSRF 防护，admin 操作更严格要求）
+    _validate_csrf(request, source)
+
     user = await _load_user_from_cache_or_db(db, sub, ver)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     if role_in_jwt and role_in_jwt != user.role:
-        logger.warning(f"[SECURITY] Role mismatch for {username}: JWT={role_in_jwt}, DB={user.role}")
+        logger.warning(f"[SECURITY] Role mismatch for user_id={user.id}: JWT={role_in_jwt}, DB={user.role}")
 
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")

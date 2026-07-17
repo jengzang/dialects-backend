@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.service.auth.core.dependencies import (
     check_login_rate_limit,
     warn_legacy_token_without_session,
+    _extract_auth_token,
 )
 from app.service.auth.core import utils
 from app.service.auth.core.service import update_user_profile, models
@@ -25,19 +26,73 @@ from app.service.auth.session.online_time_guard import check_online_time_report_
 from app.schemas import auth as schemas
 from app.service.auth.core import service
 from app.service.auth.database.connection import get_db
-from app.common.config import REQUIRE_EMAIL_VERIFICATION, FRONTEND_VERIFY_EMAIL_URL
+from app.common.config import FRONTEND_VERIFY_EMAIL_URL
+from app.common.auth_config import (
+    REQUIRE_EMAIL_VERIFICATION,
+    AUTH_COOKIE_NAME,
+    AUTH_COOKIE_SECURE,
+    AUTH_COOKIE_SAMESITE,
+    AUTH_COOKIE_DOMAIN,
+    REFRESH_COOKIE_NAME,
+    REFRESH_COOKIE_SECURE,
+    REFRESH_COOKIE_SAMESITE,
+    ACCESS_TOKEN_EXPIRE_SECONDS,
+    REFRESH_TOKEN_EXPIRE_SECONDS,
+)
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Web 登录/刷新成功后设置 HttpOnly Cookie"""
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=AUTH_COOKIE_SECURE,
+        samesite=AUTH_COOKIE_SAMESITE,
+        domain=AUTH_COOKIE_DOMAIN,
+        path="/",
+        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
+    )
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=REFRESH_COOKIE_SECURE,
+        samesite=REFRESH_COOKIE_SAMESITE,
+        domain=AUTH_COOKIE_DOMAIN,
+        path="/",
+        max_age=REFRESH_TOKEN_EXPIRE_SECONDS,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    """注销时清除认证 Cookie"""
+    # 同时清除新旧两种可能的 cookie name（防止配置变更后残留）
+    for name in (AUTH_COOKIE_NAME, "access_token", REFRESH_COOKIE_NAME, "refresh_token"):
+        response.delete_cookie(
+            key=name,
+            path="/",
+            secure=AUTH_COOKIE_SECURE,
+            samesite=AUTH_COOKIE_SAMESITE,
+            domain=AUTH_COOKIE_DOMAIN,
+        )
 
 
 def _load_active_user_from_token(
+    request: Request,
     db: Session,
-    token: str,
     *,
     include_usage_summary: bool = False,
 ):
+    """从请求中提取 token（支持 Authorization Bearer 和 HttpOnly Cookie），校验并加载用户"""
+    token, __source = _extract_auth_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     try:
         payload = utils.decode_access_token(token)
     except JWTError as e:
@@ -128,8 +183,14 @@ def register(user: schemas.UserCreate, request: Request, db: Session = Depends(g
 
 
 # 登录：未验证时返回 403；其它无效凭证返回 401
-@router.post("/login", response_model=schemas.TokenPair)
-def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/login")
+def login(
+    request: Request,
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    client_type: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
     client_ip = utils.extract_client_ip(request)
 
     # [OK] 檢查 IP 是否超過登入次數限制
@@ -152,23 +213,41 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         ip_address=ip_address
     )
 
+    # Web 客户端：通过 HttpOnly Cookie 返回 token
+    if client_type == "web":
+        _set_auth_cookies(response, access_token, refresh_token)
+
+    # 移动端 / 旧前端：通过 JSON 返回 token（web 也返回，前端忽略即可）
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "expires_in": 30 * 60  # 30 minutes in seconds
+        "expires_in": ACCESS_TOKEN_EXPIRE_SECONDS,
     }
 # Token refresh endpoint
-@router.post("/refresh", response_model=schemas.TokenPair)
+@router.post("/refresh")
 def refresh(
     request: Request,
-    refresh_token: str = Body(..., embed=True),
+    response: Response,
+    refresh_token: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db)
 ):
     """
     Exchange refresh token for new access + refresh token pair.
     Implements token rotation for security.
+
+    Web 客户端：refresh_token 从 Cookie 读取（请求体可为空），成功后重新 Set-Cookie。
+    移动端：refresh_token 从 JSON body 读取。
     """
+    # Web：优先从 JSON body 读取，为空时从 Cookie 读取
+    if not refresh_token:
+        refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not refresh_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh token required"
+        )
+
     ip_address = utils.extract_client_ip(request)
     device_info = request.headers.get("User-Agent", "Unknown")
 
@@ -191,11 +270,16 @@ def refresh(
                 detail="Refresh token session is invalid"
             )
 
+        new_access_token = issue_access_token_for_session(token_obj.user, token_obj.session)
+        # 刷新成功后重新 Set-Cookie（如果请求带了 Refresh Cookie 说明是 Web 客户端）
+        if request.cookies.get(REFRESH_COOKIE_NAME):
+            _set_auth_cookies(response, new_access_token, token_obj.token)
+
         return {
-            "access_token": issue_access_token_for_session(token_obj.user, token_obj.session),
+            "access_token": new_access_token,
             "refresh_token": token_obj.token,
             "token_type": "bearer",
-            "expires_in": 30 * 60
+            "expires_in": ACCESS_TOKEN_EXPIRE_SECONDS,
         }
 
     new_access_token, new_refresh_token = refresh_session(
@@ -205,11 +289,15 @@ def refresh(
         device_info=device_info
     )
 
+    # 刷新成功后重新 Set-Cookie（如果请求带了 Refresh Cookie 说明是 Web 客户端）
+    if request.cookies.get(REFRESH_COOKIE_NAME):
+        _set_auth_cookies(response, new_access_token, new_refresh_token)
+
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
-        "expires_in": 30 * 60  # 30 minutes in seconds
+        "expires_in": ACCESS_TOKEN_EXPIRE_SECONDS,
     }
 
 
@@ -764,12 +852,16 @@ def wechat_rebind(payload: schemas.WechatTokenRequest, request: Request, token: 
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ========== Me（恢复 & 最小化改动）==========
+# ========== Me ==========
 @router.get("/me", response_model=schemas.UserMeResponse)
-def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def me(
+    request: Request,
+    db: Session = Depends(get_db),
+    _swagger_auth: Optional[str] = Depends(oauth2_scheme),  # 仅用于 Swagger UI 生成 Authorize 按钮
+):
     user, _ = _load_active_user_from_token(
+        request,
         db,
-        token,
         include_usage_summary=True,
     )
     payload = schemas.UserMeResponse.model_validate(user)
@@ -778,15 +870,17 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
 
 
 # ========== Logout ==========
-@router.post("/logout", response_model=schemas.LogoutResponse)
+@router.post("/logout")
 def logout(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    response: Response,
     refresh_token: Optional[str] = Body(None),
     logout_all: bool = Body(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _swagger_auth: Optional[str] = Depends(oauth2_scheme),  # 仅用于 Swagger UI
 ):
-    """Logout user and revoke tokens"""
-    user, payload = _load_active_user_from_token(db, token)
+    """Logout user and revoke tokens. Web 客户端会清除 Cookie。"""
+    user, payload = _load_active_user_from_token(request, db)
     session_public_id = payload.get("session_id")
     current_session = (
         get_valid_session_by_public_id(db, session_public_id)
@@ -795,7 +889,7 @@ def logout(
     session_seconds = current_session.total_online_seconds if current_session else 0
     total_seconds = user.total_online_seconds or 0
 
-    # Revoke tokens
+    # 服务端撤销
     if logout_all:
         revoke_user_sessions(db, user.id, reason="logout_all")
         service.revoke_all_user_tokens(db, user.id)
@@ -803,6 +897,9 @@ def logout(
         revoke_session_by_public_id(db, session_public_id, reason="logout")
     elif refresh_token:
         service.revoke_single_token(db, refresh_token)
+
+    # 清除认证 Cookie
+    _clear_auth_cookies(response)
 
     return {
         "message": "Logout successful",
@@ -816,10 +913,10 @@ def logout(
 def report_online_time(
     request: Request,
     seconds: int = Body(..., embed=True, ge=1, le=3600),  # 1秒到1小时
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _swagger_auth: Optional[str] = Depends(oauth2_scheme),  # 仅用于 Swagger UI
 ):
-    user, payload = _load_active_user_from_token(db, token)
+    user, payload = _load_active_user_from_token(request, db)
     session_id = payload.get("session_id")
     ip_address = utils.extract_client_ip(request)
 
@@ -871,14 +968,15 @@ def report_online_time(
 
 @router.put("/updateProfile")
 async def update_profile(
+    request: Request,
     username: str = Form(None),  # 使用 Form 获取数据
     email: str = Form(None),
     password: str = Form(None),
     new_password: Optional[str] = Form(None),
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _swagger_auth: Optional[str] = Depends(oauth2_scheme),  # 仅用于 Swagger UI
 ):
-    current_user, _ = _load_active_user_from_token(db, token)
+    current_user, _ = _load_active_user_from_token(request, db)
 
     try:
         # 防止通过表单 email 指向他人账号（兼容旧前端保留字段）
@@ -899,49 +997,14 @@ async def update_profile(
 
 @router.get("/leaderboard", response_model=schemas.LeaderboardResponse)
 def get_leaderboard(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    _swagger_auth: Optional[str] = Depends(oauth2_scheme),  # 仅用于 Swagger UI
 ):
-    user, _ = _load_active_user_from_token(db, token)
-
     """
     Get comprehensive leaderboard rankings for current user.
-
-    Returns category, grouped, and endpoint ranking metrics in a single response:
-    - online_time: Total online time ranking
-    - total_queries: Total API queries ranking
-    - category_音韻查詢: Phonology queries category
-    - category_字調查詢: Character/tone queries category
-    - category_音系分析: System analysis category
-    - category_工具使用: Tools usage category
-    - category_其他查询: Other queries category, including villagesML aggregate
-    - endpoint_group_villages_ml: Aggregated villagesML ranking
-    - endpoint_group_pho_pie: Aggregated pho_pie ranking
-    - endpoint_*: Individual endpoint rankings
-
-    Each ranking includes:
-    - rank: User's rank (null if no activity)
-    - value: User's value for this metric
-    - gap_to_prev: Gap to previous rank (null for rank 1)
-    - first_place_value: First place user's value
     """
-    try:
-        payload = utils.decode_access_token(token)
-        sub = payload.get("sub")
-        ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
-
-        if not sub:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    # 新版 token（ver >= 2）：sub 是 user_id
-    if ver >= 2:
-        user = db.query(models.User).filter(models.User.id == int(sub)).first()
-    else:
-        user = db.query(models.User).filter(models.User.username == sub).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user, _payload = _load_active_user_from_token(request, db)
 
     # Calculate all rankings
     from app.service.user.leaderboard_service import get_user_leaderboard

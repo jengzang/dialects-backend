@@ -86,6 +86,8 @@ def create_access_token(user_id: int, role: str = "user", session_id: str = None
     payload = {
         "sub": str(user_id),
         "ver": 2,  # token 版本：2=sub 为 user_id，旧 token 无此字段默认为 1（sub 为 username）
+        "iss": ISSUER,
+        "aud": AUDIENCE,
         "role": role,  # ✅ 添加role字段（仅作性能优化，不能作为权限判断唯一依据）
         "session_id": session_id,  # ✅ 添加session_id字段（用于心跳双写）
         "iat": now_ts,
@@ -99,7 +101,8 @@ def decode_access_token(token: str) -> dict:
     # current key cannot decode the token, so the common path avoids extra I/O.
     current_key = get_secret_key()
     try:
-        return jwt.decode(token, current_key, algorithms=[ALGORITHM])
+        return jwt.decode(token, current_key, algorithms=[ALGORITHM],
+                          audience=AUDIENCE, issuer=ISSUER)
     except JWTError as first_error:
         seen_keys = {current_key}
         for old_key in get_old_secret_keys():
@@ -107,7 +110,8 @@ def decode_access_token(token: str) -> dict:
                 continue
             seen_keys.add(old_key)
             try:
-                return jwt.decode(token, old_key, algorithms=[ALGORITHM])
+                return jwt.decode(token, old_key, algorithms=[ALGORITHM],
+                                  audience=AUDIENCE, issuer=ISSUER)
             except JWTError:
                 continue
         raise first_error
