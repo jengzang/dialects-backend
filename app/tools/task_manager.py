@@ -148,7 +148,7 @@ class TaskManager:
 
         return task_id
 
-    _CACHE_TTL = 1.0  # 缓存有效期（秒），超时后从文件刷新
+    _CACHE_TTL = 0.5  # 缓存有效期（秒），超时后从文件刷新
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """

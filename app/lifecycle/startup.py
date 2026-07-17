@@ -46,6 +46,7 @@ def migrate_user_region_tables() -> None:
 
 def migrate_logs_database() -> None:
     from app.service.logging.core.database import (
+        merge_static_usage_daily_paths,
         migrate_api_diagnostic_events,
         migrate_hourly_daily_stats,
     )
@@ -56,6 +57,7 @@ def migrate_logs_database() -> None:
     try:
         logs_db = sqlite3.connect(LOGS_DATABASE_PATH)
         migrate_hourly_daily_stats(logs_db)
+        merge_static_usage_daily_paths(logs_db)
         migrate_api_diagnostic_events()
         print("[OK] logs.db schema check completed")
     except Exception as exc:

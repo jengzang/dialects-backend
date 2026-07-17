@@ -23,7 +23,10 @@ from app.service.logging.stats.diagnostic_pipeline import enqueue_diagnostic_eve
 from app.service.logging.stats.html_visit_pipeline import update_html_visit
 from app.service.logging.stats.keyword_pipeline import log_all_fields
 from app.service.logging.stats.online_time_pipeline import enqueue_online_time_non_blocking
-from app.service.logging.stats.usage_pipeline import normalize_api_path, update_count
+from app.service.logging.stats.usage_pipeline import (
+    normalize_api_path,
+    update_count,
+)
 from app.service.logging.utils.diagnostics import (
     normalize_diagnostic_route,
     serialize_diagnostic_headers,

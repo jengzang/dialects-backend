@@ -117,6 +117,68 @@ def migrate_hourly_daily_stats(db):
     print("[Migration] Hourly and daily stats migration completed")
 
 
+def merge_static_usage_daily_paths(db):
+    """
+    Merge api_usage_daily rows that differ only by content hash.
+
+    Vite/Rollup builds embed content hashes in filenames (e.g.
+    /assets/ToolsPage.ozFry4P6.js).  Each deployment creates new hashes,
+    so the same logical file gets recorded under many different path keys.
+    This one-off migration normalizes those paths in-place.
+    """
+    from app.service.logging.stats.usage_pipeline import normalize_content_hash_path
+
+    cursor = db.cursor()
+
+    cursor.execute("SELECT id, date, path, call_count FROM api_usage_daily")
+    rows = cursor.fetchall()
+    if not rows:
+        return
+
+    merge_map: dict[tuple[str, str], list[int]] = {}
+
+    for row_id, date, path, count in rows:
+        normalized = normalize_content_hash_path(path)
+        if normalized == path:
+            continue
+        key = (date if date else "", normalized)
+        if key not in merge_map:
+            merge_map[key] = [0, []]
+        merge_map[key][0] += count
+        merge_map[key][1].append(row_id)
+
+    if not merge_map:
+        print("[Merge] No content-hash paths found in api_usage_daily")
+        return
+
+    for (date_str, normalized_path), (total, row_ids) in merge_map.items():
+        date_val = date_str if date_str else None
+        cursor.execute(
+            "SELECT id, call_count FROM api_usage_daily WHERE date IS ? AND path = ?",
+            (date_val, normalized_path),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            cursor.execute(
+                "UPDATE api_usage_daily SET call_count = call_count + ?, updated_at = datetime('now') WHERE id = ?",
+                (total, existing[0]),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO api_usage_daily (date, path, call_count, updated_at) VALUES (?, ?, ?, datetime('now'))",
+                (date_val, normalized_path, total),
+            )
+
+        for rid in row_ids:
+            cursor.execute("DELETE FROM api_usage_daily WHERE id = ?", (rid,))
+
+    db.commit()
+    print(
+        f"[Merge] Normalized {len(merge_map)} unique content-hash paths "
+        f"in api_usage_daily ({sum(len(v[1]) for v in merge_map.values())} rows merged)"
+    )
+
+
 def migrate_api_diagnostic_events():
     """Ensure the logs.db diagnostic-event table and indexes exist."""
     ApiDiagnosticEvent.__table__.create(bind=engine, checkfirst=True)

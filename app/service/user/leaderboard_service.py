@@ -153,11 +153,12 @@ ENDPOINT_PATHS = [
 class RankingDetail:
     """Individual ranking detail."""
 
-    def __init__(self, rank: Optional[int], value: int, gap_to_prev: Optional[int], first_place_value: int):
+    def __init__(self, rank: Optional[int], value: int, gap_to_prev: Optional[int], first_place_value: int, percentile: float):
         self.rank = rank
         self.value = value
         self.gap_to_prev = gap_to_prev
         self.first_place_value = first_place_value
+        self.percentile = percentile
 
 
 def _build_usage_filter(rule: RuleConfig):
@@ -195,6 +196,9 @@ def _build_exact_path_rule(path: str) -> RuleConfig:
 def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetail:
     """Calculate ranking metrics from a per-user totals subquery."""
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
+    participants = db.query(func.count(user_totals.c.total)).filter(
+        user_totals.c.total > 0
+    ).scalar()
 
     if user_total == 0:
         rank = db.query(func.count(user_totals.c.total)).filter(
@@ -206,7 +210,7 @@ def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetai
         ).order_by(user_totals.c.total.asc()).first()
 
         gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
 
     rank = db.query(func.count(user_totals.c.total)).filter(
         user_totals.c.total > user_total
@@ -217,7 +221,8 @@ def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetai
     ).order_by(user_totals.c.total.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_total
-    return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+    percentile = round((participants - rank) / participants * 100, 1) if participants > 0 else 0.0
+    return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
 def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
@@ -226,6 +231,9 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
     user_value = user.total_online_seconds if user else 0
 
     first_place_value = db.query(func.max(models.User.total_online_seconds)).scalar() or 0
+    participants = db.query(func.count(models.User.id)).filter(
+        models.User.total_online_seconds > 0
+    ).scalar()
 
     if user_value == 0:
         rank = db.query(func.count(models.User.id)).filter(
@@ -237,7 +245,7 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
         ).order_by(models.User.total_online_seconds.asc()).first()
 
         gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
 
     rank = db.query(func.count(models.User.id)).filter(
         models.User.total_online_seconds > user_value
@@ -248,7 +256,8 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
     ).order_by(models.User.total_online_seconds.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_value
-    return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+    percentile = round((participants - rank) / participants * 100, 1) if participants > 0 else 0.0
+    return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
 def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
@@ -328,6 +337,7 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
             "value": detail.value,
             "gap_to_prev": detail.gap_to_prev,
             "first_place_value": detail.first_place_value,
+            "percentile": detail.percentile,
         }
 
     return {
