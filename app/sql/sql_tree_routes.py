@@ -167,6 +167,7 @@ def _build_lazy_children_response(
     level_columns: List[int],
     parent_path: Optional[List[str]],
     filters: Optional[Dict[int, List[str]]],
+    is_admin: bool = False,
 ):
     parent_path = parent_path or []
     target_level = len(parent_path)
@@ -208,7 +209,7 @@ def _build_lazy_children_response(
     sql += f" ORDER BY {target_col_q} ASC"
 
     row_limit = None
-    if target_level == 0:
+    if not is_admin and target_level == 0:
         row_limit = SQL_TREE_LAZY_ROOT_MAX_CHILDREN + 1
         sql += f" LIMIT {row_limit}"
 
@@ -232,7 +233,7 @@ def _build_lazy_children_response(
         children.append(_EMPTY_PLACEHOLDER)
 
     truncated = False
-    if target_level == 0 and len(children) > SQL_TREE_LAZY_ROOT_MAX_CHILDREN:
+    if not is_admin and target_level == 0 and len(children) > SQL_TREE_LAZY_ROOT_MAX_CHILDREN:
         truncated = True
         children = children[:SQL_TREE_LAZY_ROOT_MAX_CHILDREN]
 
@@ -537,7 +538,7 @@ def _get_full_tree_sync(
                 all_column_names=all_column_names,
                 filters=params.filters,
             )
-            if filtered_count > SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD:
+            if not (user and user.role == "admin") and filtered_count > SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD:
                 return _build_lazy_fallback_response(
                     cursor=cursor,
                     table_q=table_q,
@@ -567,12 +568,13 @@ def _get_full_tree_sync(
             order_by = ", ".join([f"{_quote_identifier(name)} ASC" for name in level_col_names])
             sql += f" ORDER BY {order_by}"
 
-            # 执行查询（加上限保护，避免全表超大结果拖垮接口）
-            sql += f" LIMIT {SQL_TREE_FULL_MAX_ROWS + 1}"
+            # 执行查询（非管理员加上限保护，避免全表超大结果拖垮接口）
+            if not (user and user.role == "admin"):
+                sql += f" LIMIT {SQL_TREE_FULL_MAX_ROWS + 1}"
             cursor.execute(sql, values)
             rows = [{k: _safe_value(v) for k, v in zip(row.keys(), row)} for row in cursor.fetchall()]
 
-            if len(rows) > SQL_TREE_FULL_MAX_ROWS:
+            if not (user and user.role == "admin") and len(rows) > SQL_TREE_FULL_MAX_ROWS:
                 return _build_lazy_fallback_response(
                     cursor=cursor,
                     table_q=table_q,
@@ -670,6 +672,7 @@ def _get_tree_children_sync(
                 level_columns=params.level_columns,
                 parent_path=params.parent_path,
                 filters=params.filters,
+                is_admin=bool(user and user.role == "admin"),
             )
 
         except HTTPException:
