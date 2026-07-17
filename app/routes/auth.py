@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session, joinedload
 
 from app.service.auth.core.dependencies import (
@@ -44,14 +44,15 @@ def _load_active_user_from_token(
         print("JWTError:", e)
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    username = payload.get("sub")
-    if not username:
+    sub = payload.get("sub")
+    ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
+    if not sub:
         raise HTTPException(status_code=401, detail="Invalid token (no subject)")
 
     session_public_id = payload.get("session_id")
     if not session_public_id:
         warn_legacy_token_without_session(
-            username=username,
+            username=(sub if ver < 2 else None),
             source="_load_active_user_from_token",
         )
     if session_public_id and not get_valid_session_by_public_id(db, session_public_id):
@@ -61,7 +62,11 @@ def _load_active_user_from_token(
     if include_usage_summary:
         query = query.options(joinedload(models.User.usage_summary))
 
-    user = query.filter(models.User.username == username).first()
+    # 新版 token（ver >= 2）：sub 是 user_id
+    if ver >= 2:
+        user = query.filter(models.User.id == int(sub)).first()
+    else:
+        user = query.filter(models.User.username == sub).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -876,15 +881,6 @@ async def update_profile(
     current_user, _ = _load_active_user_from_token(db, token)
 
     try:
-        payload = utils.decode_access_token(token)
-        token_username = payload.get("sub")
-        if not token_username:
-            raise HTTPException(status_code=401, detail="Invalid token")
-
-        current_user = db.query(models.User).filter(models.User.username == token_username).first()
-        if not current_user:
-            raise HTTPException(status_code=404, detail="User not found")
-
         # 防止通过表单 email 指向他人账号（兼容旧前端保留字段）
         if email and email != current_user.email:
             raise HTTPException(status_code=403, detail="只能修改自己的帳號資料")
@@ -897,8 +893,6 @@ async def update_profile(
             new_password=new_password
         )
         return {" message": "用戶資料更新成功!", "user": {"username": updated_user.username, "email": updated_user.email}}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -933,14 +927,19 @@ def get_leaderboard(
     """
     try:
         payload = utils.decode_access_token(token)
-        username = payload.get("sub")
+        sub = payload.get("sub")
+        ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
 
-        if not username:
+        if not sub:
             raise HTTPException(status_code=401, detail="Invalid token")
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = db.query(models.User).filter(models.User.username == username).first()
+    # 新版 token（ver >= 2）：sub 是 user_id
+    if ver >= 2:
+        user = db.query(models.User).filter(models.User.id == int(sub)).first()
+    else:
+        user = db.query(models.User).filter(models.User.username == sub).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 

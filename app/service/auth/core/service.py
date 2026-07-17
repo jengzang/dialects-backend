@@ -1593,7 +1593,7 @@ def issue_token_for_user(user: models.User, minutes: int = utils.ACCESS_TOKEN_EX
         DeprecationWarning,
         stacklevel=2,
     )
-    return utils.create_access_token(subject=user.username, expires_minutes=minutes)
+    return utils.create_access_token(user_id=user.id, expires_minutes=minutes)
 
 
 def update_user_profile(

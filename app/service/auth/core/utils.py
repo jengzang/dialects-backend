@@ -67,12 +67,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 # ===== JWT =====
-def create_access_token(subject: str, role: str = "user", session_id: str = None, expires_minutes: int | None = None) -> str:
+def create_access_token(user_id: int, role: str = "user", session_id: str = None, expires_minutes: int | None = None) -> str:
     """
     创建访问令牌
 
     Args:
-        subject: 用户名
+        user_id: 用户ID（不可变标识，改名不影响 token 有效性）
         role: 用户角色（仅作性能优化，不能作为权限判断唯一依据）
         session_id: 会话ID（用于心跳双写）
         expires_minutes: 过期时间（分钟）
@@ -84,7 +84,8 @@ def create_access_token(subject: str, role: str = "user", session_id: str = None
     now_ts = int(time.time())
     exp_minutes = expires_minutes if (expires_minutes and expires_minutes > 0) else ACCESS_TOKEN_EXPIRE_MINUTES
     payload = {
-        "sub": subject,
+        "sub": str(user_id),
+        "ver": 2,  # token 版本：2=sub 为 user_id，旧 token 无此字段默认为 1（sub 为 username）
         "role": role,  # ✅ 添加role字段（仅作性能优化，不能作为权限判断唯一依据）
         "session_id": session_id,  # ✅ 添加session_id字段（用于心跳双写）
         "iat": now_ts,
@@ -115,7 +116,6 @@ def decode_access_token(token: str) -> dict:
 def create_refresh_token() -> str:
     """Generate cryptographically secure refresh token"""
     return secrets.token_urlsafe(64)
-
 
 def create_opaque_token(length: int = 48) -> str:
     """Generate an opaque token for email verification / password reset."""
@@ -217,19 +217,19 @@ def verify_wechat_access_token(access_token: str, openid: str) -> dict:
     }
 
 
-def create_token_pair(username: str, role: str = "user", session_id: str = None) -> dict:
+def create_token_pair(user_id: int, role: str = "user", session_id: str = None) -> dict:
     """
     Create access + refresh token pair
 
     Args:
-        username: 用户名
+        user_id: 用户ID（不可变标识）
         role: 用户角色
         session_id: 会话ID
 
     Returns:
         包含access_token, refresh_token的字典
     """
-    access_token = create_access_token(username, role, session_id, ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(user_id, role, session_id, ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token = create_refresh_token()
     return {
         "access_token": access_token,

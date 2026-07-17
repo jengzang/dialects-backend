@@ -392,7 +392,31 @@ def _extract_bearer_token(request: Request) -> Optional[str]:
     return auth_header.split(" ", 1)[1]
 
 
-async def _load_user_from_cache_or_db(db: Session, username: str) -> Optional[models.User]:
+async def _load_user_from_cache_or_db(db: Session, sub: str, ver: int = 1) -> Optional[models.User]:
+    # 新版 token（ver >= 2）：sub 是 user_id，缓存 key 用 user:id:{user_id}
+    if ver >= 2:
+        user_id = int(sub)
+        cache_key = f"user:id:{user_id}"
+        cached_user = await redis_client.get(cache_key)
+        if cached_user:
+            user_dict = verify_user_data(cached_user)
+            if user_dict:
+                return models.User(**user_dict)
+            await redis_client.delete(cache_key)
+
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            return None
+
+        try:
+            signed_data = sign_user_data(user_to_dict(user))
+            await redis_client.setex(cache_key, CACHE_EXPIRATION_TIME, signed_data)
+        except Exception as e:
+            print(f"[X] Failed to update user cache: {e}")
+        return user
+
+    # 旧版 token（无 ver 字段，默认为 1）：sub 是 username，保持旧逻辑
+    username = sub
     cached_user = await redis_client.get(f"user:{username}")
     if cached_user:
         user_dict = verify_user_data(cached_user)
@@ -430,14 +454,15 @@ async def get_current_user(
 
     try:
         payload = utils.decode_access_token(token)
-        username = payload.get("sub")
-        if not username:
+        sub = payload.get("sub")
+        ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
+        if not sub:
             if not require_admin:
                 return None
             raise HTTPException(status_code=401, detail="Invalid token")
         if not payload.get("session_id"):
             warn_legacy_token_without_session(
-                username=username,
+                username=(sub if ver < 2 else None),
                 source="get_current_user",
             )
         if not _has_active_token_session(db, payload):
@@ -449,7 +474,7 @@ async def get_current_user(
             return None
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = await _load_user_from_cache_or_db(db, username)
+    user = await _load_user_from_cache_or_db(db, sub, ver)
     if not user:
         return None
 
@@ -466,12 +491,13 @@ async def get_current_user_for_middleware(request: Request, db: Session):
 
     try:
         payload = utils.decode_access_token(token)
-        username = payload.get("sub")
-        if not username:
+        sub = payload.get("sub")
+        ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
+        if not sub:
             return None
         if not payload.get("session_id"):
             warn_legacy_token_without_session(
-                username=username,
+                username=(sub if ver < 2 else None),
                 source="get_current_user_for_middleware",
             )
         if not _has_active_token_session(db, payload):
@@ -480,7 +506,7 @@ async def get_current_user_for_middleware(request: Request, db: Session):
         print(f"JWT decode error: {e}")
         return None
 
-    return await _load_user_from_cache_or_db(db, username)
+    return await _load_user_from_cache_or_db(db, sub, ver)
 
 
 async def get_current_admin_user(
@@ -493,22 +519,23 @@ async def get_current_admin_user(
 
     try:
         payload = utils.decode_access_token(token)
-        username = payload.get("sub")
+        sub = payload.get("sub")
+        ver = payload.get("ver", 1)  # 无 ver 字段的旧 token 默认为 1（sub 是 username）
         role_in_jwt = payload.get("role")
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    if not username:
+    if not sub:
         raise HTTPException(status_code=401, detail="Invalid token")
     if not payload.get("session_id"):
         warn_legacy_token_without_session(
-            username=username,
+            username=(sub if ver < 2 else None),
             source="get_current_admin_user",
         )
     if not _has_active_token_session(db, payload):
         raise HTTPException(status_code=401, detail="Session is no longer active")
 
-    user = db.query(User).filter(User.username == username).first()
+    user = await _load_user_from_cache_or_db(db, sub, ver)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 

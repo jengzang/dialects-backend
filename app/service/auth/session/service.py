@@ -147,7 +147,7 @@ def get_valid_session_by_public_id(
 
 
 def issue_access_token_for_session(user: User, session: Session) -> str:
-    return create_access_token(user.username, user.role, session.session_id)
+    return create_access_token(user.id, user.role, session.session_id)
 
 
 def _matches_refresh_request(
@@ -423,7 +423,7 @@ def create_session(
     db.flush()  # 获取session.id
 
     # 生成token
-    token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
+    token_pair = create_token_pair(user.id, user.role, session.session_id)  # ✅ 传入session_id
     access_token = token_pair["access_token"]
     refresh_token_str = create_refresh_token()
 
@@ -559,7 +559,7 @@ def refresh_session(
         session.last_activity_at = now
 
     # 创建新token对
-    token_pair = create_token_pair(user.username, user.role, session.session_id)  # ✅ 传入session_id
+    token_pair = create_token_pair(user.id, user.role, session.session_id)  # ✅ 传入session_id
     new_access_token = token_pair["access_token"]
     new_refresh_token_str = create_refresh_token()
 

@@ -354,7 +354,9 @@ async def update_role_logic(
     # 清除缓存
     from app.redis_client import redis_client
     try:
+        # 清除新旧两种缓存 key
         await redis_client.delete(f"user:{username}")
+        await redis_client.delete(f"user:id:{db_user.id}")
         print(f"[CACHE-INVALIDATE] Cleared cache for {username} after role change: {old_role} -> {role}")
     except Exception as e:
         print(f"[CACHE-INVALIDATE] Failed to clear cache: {e}")
