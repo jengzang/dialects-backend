@@ -30,6 +30,7 @@ from app.service.auth.database.models import User
 from app.common.path import DB_MAPPING
 from app.common.config import (
     SQL_TREE_FULL_MAX_ROWS,
+    SQL_TREE_FULL_ADMIN_MAX_ROWS,
     SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
     SQL_TREE_LAZY_ROOT_MAX_CHILDREN,
 )
@@ -327,11 +328,12 @@ def _build_lazy_fallback_response(
     filters: Optional[Dict[int, List[str]]],
     reason: str,
     filtered_count: Optional[int] = None,
+    limit: int = SQL_TREE_FULL_MAX_ROWS,
 ) -> Dict[str, Any]:
     response = {
         "mode": "lazy_fallback",
         "reason": reason,
-        "limit": SQL_TREE_FULL_MAX_ROWS,
+        "limit": limit,
         "threshold": SQL_TREE_FULL_PRECHECK_COUNT_THRESHOLD,
         "levels": len(level_columns),
         "lazy_bootstrap": _build_full_tree_lazy_bootstrap(
@@ -568,13 +570,13 @@ def _get_full_tree_sync(
             order_by = ", ".join([f"{_quote_identifier(name)} ASC" for name in level_col_names])
             sql += f" ORDER BY {order_by}"
 
-            # 执行查询（非管理员加上限保护，避免全表超大结果拖垮接口）
-            if not (user and user.role == "admin"):
-                sql += f" LIMIT {SQL_TREE_FULL_MAX_ROWS + 1}"
+            # 执行查询（加上限保护，避免全表超大结果拖垮接口）
+            row_limit = SQL_TREE_FULL_ADMIN_MAX_ROWS if (user and user.role == "admin") else SQL_TREE_FULL_MAX_ROWS
+            sql += f" LIMIT {row_limit + 1}"
             cursor.execute(sql, values)
             rows = [{k: _safe_value(v) for k, v in zip(row.keys(), row)} for row in cursor.fetchall()]
 
-            if not (user and user.role == "admin") and len(rows) > SQL_TREE_FULL_MAX_ROWS:
+            if len(rows) > row_limit:
                 return _build_lazy_fallback_response(
                     cursor=cursor,
                     table_q=table_q,
@@ -584,6 +586,7 @@ def _get_full_tree_sync(
                     filters=params.filters,
                     reason="full_tree_row_limit_exceeded",
                     filtered_count=filtered_count,
+                    limit=row_limit,
                 )
 
             # 3. 传入数据列名进行构建
