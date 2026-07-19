@@ -2,6 +2,26 @@
 
 The new GIS API is served under `/api/gis/**` by the GIS worker.
 
+## Runtime data files
+
+Production GIS API runtime reads only `data/gis/`. Upload this directory with
+the backend deployment:
+
+```text
+data/gis/areacity.features.jsonl
+data/gis/areacity.index.sqlite
+data/gis/areacity.subgeom.bin
+data/gis/areacity.meta.json
+data/gis/areacity.build_manifest.json
+```
+
+The API does not read `data/geo/` at runtime. If GIS assets need to be rebuilt,
+run the dedicated preprocessing scripts separately and then copy the generated
+runtime files into `data/gis/`.
+
+Set `GIS_DATA_DIR=/absolute/path/to/data/gis` to use a runtime data directory
+outside the repository.
+
 ## Resolve administrative features
 
 Use `GET /api/gis/resolve` to convert an administrative path into a stable
