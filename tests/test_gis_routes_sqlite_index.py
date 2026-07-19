@@ -48,6 +48,80 @@ def test_gis_routes_status_search_children_boundary_and_point():
     assert boundary_data["geometry"]["type"] in {"Polygon", "MultiPolygon"}
 
 
+def test_gis_resolve_returns_unique_feature_with_structured_path():
+    app = create_gis_app()
+    client = TestClient(app)
+
+    resp = client.get(
+        "/api/gis/resolve",
+        params={"province": "北京市", "city": "北京市", "county": "东城区"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["matched"] is True
+    assert data["ambiguous"] is False
+    assert data["candidates"] == []
+    assert data["feature"]["id"] == 110101
+    assert data["feature"]["name"] == "东城区"
+    assert data["feature"]["path"] == [
+        {"id": 11, "name": "北京市", "deep": 0},
+        {"id": 1101, "name": "北京市", "deep": 1},
+        {"id": 110101, "name": "东城区", "deep": 2},
+    ]
+    assert data["feature"]["path_names"] == {
+        "province": "北京市",
+        "city": "北京市",
+        "county": "东城区",
+    }
+
+
+def test_gis_resolve_accepts_slash_path_and_municipality_short_path():
+    app = create_gis_app()
+    client = TestClient(app)
+
+    short_resp = client.get("/api/gis/resolve", params={"path": "北京市/东城区"})
+    full_resp = client.get("/api/gis/resolve", params={"path": "北京市/北京市/东城区"})
+
+    assert short_resp.status_code == 200
+    assert full_resp.status_code == 200
+    assert short_resp.json()["matched"] is True
+    assert full_resp.json()["matched"] is True
+    assert short_resp.json()["feature"]["id"] == 110101
+    assert full_resp.json()["feature"]["id"] == 110101
+
+
+def test_gis_resolve_reports_ambiguous_candidates_instead_of_guessing():
+    app = create_gis_app()
+    client = TestClient(app)
+
+    resp = client.get("/api/gis/resolve", params={"province": "北京市"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["matched"] is False
+    assert data["ambiguous"] is True
+    assert data["feature"] is None
+    assert [item["id"] for item in data["candidates"]] == [11, 1101]
+
+
+def test_gis_resolve_reports_not_found_for_missing_path():
+    app = create_gis_app()
+    client = TestClient(app)
+
+    resp = client.get("/api/gis/resolve", params={"province": "广东省", "city": "东莞市"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["matched"] is False
+    assert data["ambiguous"] is False
+    assert data["feature"] is None
+    assert data["candidates"] == []
+
+
 def test_gis_geometry_query_returns_intersections():
     app = create_gis_app()
     client = TestClient(app)
