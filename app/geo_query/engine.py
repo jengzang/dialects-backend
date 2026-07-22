@@ -12,7 +12,6 @@ from .config import (
     GEO_FEATURES_JSONL_PATH,
     GEO_GRID_FACTOR,
     GEO_INDEX_SQLITE_PATH,
-    GEO_INDEX_JSON_PATH,
     GEO_META_JSON_PATH,
     GEO_POINT_TOLERANCE_METRE,
     GEO_SUBGEOM_WKB_PATH,
@@ -22,7 +21,6 @@ from .index_store import (
     connect_index_db,
     count_subgeometries,
     load_features,
-    load_index,
     load_subgeometry_by_ids,
     query_candidate_records_by_bbox,
     query_feature_part_ids,
@@ -181,6 +179,86 @@ class AreaCityQueryPy:
             if q in feature.name.lower() or q in feature.ext_path.lower():
                 results.append(feature.to_dict())
         return results
+
+    def feature_path(self, feature_id: int) -> list[dict]:
+        self.check_init_is_ok()
+        path = []
+        current = self.features.get(feature_id)
+        seen_ids = set()
+        while current is not None and current.id not in seen_ids:
+            seen_ids.add(current.id)
+            path.append({"id": current.id, "name": current.name, "deep": current.deep})
+            if current.pid == 0:
+                break
+            current = self.features.get(current.pid)
+        path.reverse()
+        return path
+
+    def feature_to_resolved_dict(self, feature_id: int) -> dict | None:
+        feature = self.features.get(feature_id)
+        if feature is None:
+            return None
+        item = feature.to_dict()
+        path = self.feature_path(feature_id)
+        item["path"] = path
+        path_by_deep = {part["deep"]: part["name"] for part in path}
+        item["path_names"] = {
+            "province": path_by_deep.get(0),
+            "city": path_by_deep.get(1),
+            "county": path_by_deep.get(2),
+        }
+        return item
+
+    def resolve(
+        self,
+        *,
+        province: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        path: str | None = None,
+    ) -> dict:
+        self.check_init_is_ok()
+        requested_parts = self._resolve_requested_parts(province=province, city=city, county=county, path=path)
+        if not requested_parts:
+            return {"success": True, "matched": False, "ambiguous": False, "feature": None, "candidates": []}
+
+        candidates = [
+            resolved
+            for feature_id in sorted(self.features)
+            if (resolved := self.feature_to_resolved_dict(feature_id)) is not None
+            and self._path_matches_request(resolved["path"], requested_parts)
+        ]
+        if len(candidates) == 1:
+            return {"success": True, "matched": True, "ambiguous": False, "feature": candidates[0], "candidates": []}
+        return {
+            "success": True,
+            "matched": False,
+            "ambiguous": len(candidates) > 1,
+            "feature": None,
+            "candidates": candidates,
+        }
+
+    def _resolve_requested_parts(
+        self,
+        *,
+        province: str | None,
+        city: str | None,
+        county: str | None,
+        path: str | None,
+    ) -> list[str]:
+        if path is not None and path.strip():
+            return [part.strip() for part in path.replace(">", "/").split("/") if part.strip()]
+        return [part.strip() for part in (province, city, county) if part is not None and part.strip()]
+
+    def _path_matches_request(self, feature_path: list[dict], requested_parts: list[str]) -> bool:
+        names = [part["name"] for part in feature_path]
+        if names == requested_parts:
+            return True
+        if len(requested_parts) == 2 and len(names) == 3 and names[0] == names[1] == requested_parts[0] and names[2] == requested_parts[1]:
+            return True
+        if len(requested_parts) == 1:
+            return names[-1] == requested_parts[0]
+        return False
 
     def children(self, parent_id: int | None = None, deep: int | None = None) -> list[dict]:
         self.check_init_is_ok()

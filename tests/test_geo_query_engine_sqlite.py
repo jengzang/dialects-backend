@@ -5,7 +5,7 @@ from app.geo_query.engine import AreaCityQueryPy
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SQLITE_INDEX = ROOT / "data/geo/generated/engine/wgs84/areacity.index.sqlite"
+SQLITE_INDEX = ROOT / "data/gis/areacity.index.sqlite"
 
 
 def test_engine_bbox_candidates_and_boundary_rebuild():

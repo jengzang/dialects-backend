@@ -193,12 +193,9 @@ def _build_exact_path_rule(path: str) -> RuleConfig:
     }
 
 
-def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetail:
+def _rank_from_totals(db: Session, user_total: int, user_totals, total_users: int) -> RankingDetail:
     """Calculate ranking metrics from a per-user totals subquery."""
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
-    participants = db.query(func.count(user_totals.c.total)).filter(
-        user_totals.c.total > 0
-    ).scalar()
 
     if user_total == 0:
         rank = db.query(func.count(user_totals.c.total)).filter(
@@ -221,19 +218,19 @@ def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetai
     ).order_by(user_totals.c.total.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_total
-    percentile = round((participants - rank) / participants * 100, 1) if participants > 0 else 0.0
+    if total_users <= 1:
+        percentile = 100.0
+    else:
+        percentile = round((total_users - rank) / (total_users - 1) * 100, 1)
     return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
-def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
+def _calculate_online_time_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
     """Calculate ranking based on total online time."""
     user = db.query(models.User).filter(models.User.id == user_id).first()
     user_value = user.total_online_seconds if user else 0
 
     first_place_value = db.query(func.max(models.User.total_online_seconds)).scalar() or 0
-    participants = db.query(func.count(models.User.id)).filter(
-        models.User.total_online_seconds > 0
-    ).scalar()
 
     if user_value == 0:
         rank = db.query(func.count(models.User.id)).filter(
@@ -256,11 +253,14 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
     ).order_by(models.User.total_online_seconds.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_value
-    percentile = round((participants - rank) / participants * 100, 1) if participants > 0 else 0.0
+    if total_users <= 1:
+        percentile = 100.0
+    else:
+        percentile = round((total_users - rank) / (total_users - 1) * 100, 1)
     return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
-def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
+def _calculate_total_queries_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
     """Calculate ranking based on total API queries across all endpoints."""
     user_total = db.query(func.sum(models.ApiUsageSummary.count)).filter(
         models.ApiUsageSummary.user_id == user_id
@@ -271,10 +271,10 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
         func.sum(models.ApiUsageSummary.count).label("total"),
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    return _rank_from_totals(db, user_total, user_totals)
+    return _rank_from_totals(db, user_total, user_totals, total_users)
 
 
-def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig) -> RankingDetail:
+def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig, total_users: int) -> RankingDetail:
     """Calculate ranking based on aggregated query count for a rule of endpoints."""
     usage_filter = _build_usage_filter(rule)
 
@@ -292,12 +292,12 @@ def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig) -> Ra
         usage_filter
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    return _rank_from_totals(db, user_total, user_totals)
+    return _rank_from_totals(db, user_total, user_totals, total_users)
 
 
-def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str) -> RankingDetail:
+def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str, total_users: int) -> RankingDetail:
     """Calculate ranking based on query count for one exact endpoint."""
-    return _calculate_aggregate_rank(db, user_id, _build_exact_path_rule(endpoint_path))
+    return _calculate_aggregate_rank(db, user_id, _build_exact_path_rule(endpoint_path), total_users)
 
 
 def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
@@ -311,24 +311,24 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     - 2 grouped endpoint rankings
     - individual endpoint rankings
     """
-    rankings = {}
-
-    rankings["online_time"] = _calculate_online_time_rank(db, user_id)
-    rankings["total_queries"] = _calculate_total_queries_rank(db, user_id)
-
-    for category_name, rule in CATEGORY_RULES.items():
-        rankings[category_name] = _calculate_aggregate_rank(db, user_id, rule)
-
-    for group_name, rule in AGGREGATED_ENDPOINT_RULES.items():
-        rankings[group_name] = _calculate_aggregate_rank(db, user_id, rule)
-
-    for endpoint_path in ENDPOINT_PATHS:
-        key_name = f"endpoint_{endpoint_path.replace('/', '_').replace(':', '_')}"
-        rankings[key_name] = _calculate_endpoint_rank(db, user_id, endpoint_path)
-
     total_users = db.query(func.count(func.distinct(models.User.id))).filter(
         models.User.total_online_seconds > 0
     ).scalar()
+
+    rankings = {}
+
+    rankings["online_time"] = _calculate_online_time_rank(db, user_id, total_users)
+    rankings["total_queries"] = _calculate_total_queries_rank(db, user_id, total_users)
+
+    for category_name, rule in CATEGORY_RULES.items():
+        rankings[category_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
+
+    for group_name, rule in AGGREGATED_ENDPOINT_RULES.items():
+        rankings[group_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
+
+    for endpoint_path in ENDPOINT_PATHS:
+        key_name = f"endpoint_{endpoint_path.replace('/', '_').replace(':', '_')}"
+        rankings[key_name] = _calculate_endpoint_rank(db, user_id, endpoint_path, total_users)
 
     rankings_dict = {}
     for key, detail in rankings.items():

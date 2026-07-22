@@ -61,6 +61,17 @@ def geo_search(q: str = Query(..., min_length=1), deep: int | None = Query(None,
     return {"success": True, "items": engine.search(q, deep)}
 
 
+@router.get("/gis/resolve")
+def geo_resolve(
+    province: str | None = Query(None, min_length=1),
+    city: str | None = Query(None, min_length=1),
+    county: str | None = Query(None, min_length=1),
+    path: str | None = Query(None, min_length=1, description="Slash-separated administrative path, for example 北京市/北京市/东城区"),
+    engine=Depends(get_geo_engine),
+):
+    return engine.resolve(province=province, city=city, county=county, path=path)
+
+
 @router.get("/gis/children")
 def geo_children(
     parent_id: int | None = Query(None, ge=0),
