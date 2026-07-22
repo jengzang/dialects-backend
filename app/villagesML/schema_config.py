@@ -26,6 +26,7 @@ VILLAGES_DATABASES = {
                     "township": "乡镇级",
                     "longitude": "longitude",
                     "latitude": "latitude",
+                    "dialect": "方言分布",
                 },
             },
             "villages_raw": {
@@ -33,12 +34,13 @@ VILLAGES_DATABASES = {
                 "logical_name": "广东省自然村",
                 "columns": {
                     "name": "自然村",
-                    "committee": "村委会",
+                    "committee": "行政村",
                     "city": "市级",
                     "county": "区县级",
                     "township": "乡镇级",
                     "longitude": "longitude",
                     "latitude": "latitude",
+                    "dialect": "方言分布",
                 },
             },
             "metadata_overview_stats": {

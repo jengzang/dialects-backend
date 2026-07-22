@@ -26,15 +26,17 @@ _DEFAULT_LOGICAL_ALIASES = {
         "township": "乡镇级",
         "longitude": "longitude",
         "latitude": "latitude",
+        "dialect": "方言分布",
     },
     "villages_raw": {
         "name": "自然村",
-        "committee": "村委会",
+        "committee": "行政村",
         "city": "市级",
         "county": "区县级",
         "township": "乡镇级",
         "longitude": "longitude",
         "latitude": "latitude",
+        "dialect": "方言分布",
     },
 }
 

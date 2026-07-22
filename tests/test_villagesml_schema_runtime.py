@@ -97,6 +97,11 @@ class VillagesMLSchemaRuntimeTests(unittest.TestCase):
 
         self.assertEqual(qtable("village", "villages"), '"广东省自然村_预处理"')
         self.assertEqual(qcolumn("village", "villages", "name"), '"自然村_规范名"')
+        self.assertEqual(qcolumn("village", "villages", "committee"), '"村委会"')
+        self.assertEqual(qcolumn("village", "villages", "dialect"), '"方言分布"')
+        self.assertEqual(qtable("village", "villages_raw"), '"广东省自然村"')
+        self.assertEqual(qcolumn("village", "villages_raw", "committee"), '"行政村"')
+        self.assertEqual(qcolumn("village", "villages_raw", "dialect"), '"方言分布"')
         self.assertEqual(qtable("village", "village_ngrams"), '"village_ngrams"')
         self.assertEqual(qcolumn("village", "village_ngrams", "committee"), '"村委会"')
         self.assertEqual(qtable("village", "sqlite_master"), '"sqlite_master"')
@@ -110,6 +115,75 @@ class VillagesMLSchemaRuntimeTests(unittest.TestCase):
             "regional_ngram_frequency",
             configured_table_list("village", "database_statistics"),
         )
+
+    def test_raw_village_logical_view_uses_current_physical_columns(self) -> None:
+        from app.villagesML.schema_runtime import install_schema_views
+
+        with sqlite3.connect(":memory:") as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute(
+                """
+                CREATE TABLE physical_raw_villages (
+                    自然村 TEXT,
+                    行政村 TEXT,
+                    市级 TEXT,
+                    区县级 TEXT,
+                    乡镇级 TEXT,
+                    longitude REAL,
+                    latitude REAL,
+                    方言分布 TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO physical_raw_villages
+                VALUES ('水口', '水口行政村', '广州市', '从化区', '太平镇', 113.1, 23.1, '粤语')
+                """
+            )
+
+            test_config = {
+                "raw_test": {
+                    "path_key": "raw_test",
+                    "tables": {
+                        "villages_raw": {
+                            "name": "physical_raw_villages",
+                            "logical_name": "villages_raw_view",
+                            "columns": {
+                                "name": "自然村",
+                                "committee": "行政村",
+                                "city": "市级",
+                                "county": "区县级",
+                                "township": "乡镇级",
+                                "longitude": "longitude",
+                                "latitude": "latitude",
+                                "dialect": "方言分布",
+                            },
+                        }
+                    },
+                }
+            }
+
+            with patch("app.villagesML.schema_config.VILLAGES_DATABASES", test_config):
+                install_schema_views(conn, "raw_test")
+                row = conn.execute(
+                    """
+                    SELECT
+                        自然村,
+                        行政村,
+                        市级,
+                        区县级,
+                        乡镇级,
+                        longitude,
+                        latitude,
+                        方言分布
+                    FROM villages_raw_view
+                    """
+                ).fetchone()
+
+        self.assertEqual(row["自然村"], "水口")
+        self.assertEqual(row["行政村"], "水口行政村")
+        self.assertEqual(row["方言分布"], "粤语")
 
     def test_villages_routes_expose_dbpath_query_parameter(self) -> None:
         from fastapi import FastAPI
