@@ -68,6 +68,27 @@ VILLAGES_DATABASES = {
                     "data_version": "data_version",
                 },
             },
+            "regional_basic_stats": {
+                "name": "regional_basic_stats",
+                "columns": {
+                    "region_key": "region_key",
+                    "region_level": "region_level",
+                    "region_name": "region_name",
+                    "city": "city",
+                    "county": "county",
+                    "township": "township",
+                    "village_count": "village_count",
+                    "avg_name_length": "avg_name_length",
+                    "generated_at": "generated_at",
+                    "data_version": "data_version",
+                },
+            },
+            "query_policy_config": {
+                "name": "query_policy_config",
+                "columns": {
+                    "profile": "profile",
+                },
+            },
             "active_run_ids": {
                 "name": "active_run_ids",
                 "columns": {
@@ -619,8 +640,12 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "region_level": "region_level",
                     "region_name": "region_name",
+                    "city": "city",
+                    "county": "county",
+                    "township": "township",
                     "centroid_lon": "centroid_lon",
                     "centroid_lat": "centroid_lat",
+                    "village_count": "village_count",
                 },
             },
             "ngram_significance": {

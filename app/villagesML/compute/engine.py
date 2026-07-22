@@ -33,6 +33,7 @@ from ..schema_runtime import (
     run_id_analysis_type,
     table_variant,
 )
+from .. import compact
 from .validators import SUBSET_SEMANTIC_TAG_WHITELIST
 
 _SEM_NAMES = sorted(SUBSET_SEMANTIC_TAG_WHITELIST)
@@ -66,6 +67,10 @@ class ClusteringEngine:
     def _column(self, logical_table: str, logical_column: str) -> str:
         return qcolumn(self.dbpath, logical_table, logical_column)
 
+    def _is_compact(self) -> bool:
+        with self._connection() as conn:
+            return compact.is_compact_db(conn, self.dbpath)
+
     def get_regional_features(
         self,
         region_level: str,
@@ -97,6 +102,11 @@ class ClusteringEngine:
                 logger.info(f"Aggregate table {agg_table} unavailable: {e}")
 
         if agg_df is None or len(agg_df) == 0:
+            if self._is_compact():
+                raise ValueError(
+                    "This compact database cannot compute regional clustering from "
+                    "village_features; regional aggregate tables are required."
+                )
             logger.info(f"Aggregate table {agg_table} missing/empty, computing from village_features")
             with self._connection() as conn:
                 vf_table = self._table(T.VILLAGE_FEATURES)

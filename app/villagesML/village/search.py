@@ -12,6 +12,7 @@ from ..models import VillageDetail, PaginatedResponse
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 from ..schema_keys import C, T
+from ..compact import require_non_compact
 
 router = APIRouter(prefix="/village/search")
 
@@ -60,6 +61,8 @@ def search_villages(
     Returns:
         PaginatedResponse: 分页响应，包含总数和数据列表
     """
+    require_non_compact(db, dbpath)
+
     # 构建 WHERE 条件
     villages_table = qtable(dbpath, T.VILLAGES)
     village_name_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
@@ -153,6 +156,8 @@ def get_village_detail(
     Returns:
         VillageDetail: 村庄详情
     """
+    require_non_compact(db, dbpath)
+
     if village_id is None and (village_name is None or city is None or county is None):
         raise HTTPException(
             status_code=400,

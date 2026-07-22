@@ -20,6 +20,7 @@ from .timeout import run_with_timeout, TimeoutException
 from ..config import COMPUTE_TIMEOUT, COMPUTE_SCAN_TIMEOUT, COMPUTE_SEMANTIC_TIMEOUT, COMPUTE_HEAVY_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import resolve_db_path
+from .. import compact
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +296,8 @@ async def run_sampled_village_clustering(
         HTTPException: 如果计算失败或超时
     """
     try:
+        compact.require_non_compact_path(engine.db_path, engine.dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("sampled_villages", params.dict())
         if cached_result:
@@ -399,6 +402,8 @@ async def run_hierarchical_clustering(
         HTTPException: 如果计算失败或超时
     """
     try:
+        compact.require_non_compact_path(engine.db_path, engine.dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("hierarchical", params.dict())
         if cached_result:

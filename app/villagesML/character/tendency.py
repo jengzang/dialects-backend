@@ -142,15 +142,14 @@ def get_character_tendency_by_char(
     regional_char = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CHAR)
     regional_lift = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.LIFT)
     regional_z_score = qcolumn(dbpath, T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.Z_SCORE)
-    villages_table = qtable(dbpath, T.VILLAGES)
-    villages_longitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
-    villages_latitude = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
-    coord_field_map = {
-        "city": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY),
-        "county": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY),
-        "township": qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP),
-    }
-    coord_field = coord_field_map[region_level]
+    centroid_table = qtable(dbpath, T.REGIONAL_CENTROIDS)
+    centroid_region_level = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.REGION_LEVEL)
+    centroid_region_name = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.REGION_NAME)
+    centroid_city = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.CITY)
+    centroid_county = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.COUNTY)
+    centroid_township = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.TOWNSHIP)
+    centroid_lon = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.CENTROID_LON)
+    centroid_lat = qcolumn(dbpath, T.REGIONAL_CENTROIDS, C.REGIONAL_CENTROIDS.CENTROID_LAT)
 
     query = f"""
         SELECT
@@ -161,10 +160,15 @@ def get_character_tendency_by_char(
             c.{regional_township} as township,
             c.{regional_lift} as lift,
             c.{regional_z_score} as z_score,
-            AVG(v.{villages_longitude}) as centroid_lon,
-            AVG(v.{villages_latitude}) as centroid_lat
+            rc.{centroid_lon} as centroid_lon,
+            rc.{centroid_lat} as centroid_lat
         FROM {regional_table} c
-        LEFT JOIN {villages_table} v ON c.{regional_region_name} = v.{coord_field}
+        LEFT JOIN {centroid_table} rc
+            ON c.{regional_region_level} = rc.{centroid_region_level}
+            AND c.{regional_region_name} = rc.{centroid_region_name}
+            AND COALESCE(c.{regional_city}, '') = COALESCE(rc.{centroid_city}, '')
+            AND COALESCE(c.{regional_county}, '') = COALESCE(rc.{centroid_county}, '')
+            AND COALESCE(c.{regional_township}, '') = COALESCE(rc.{centroid_township}, '')
         WHERE c.{regional_char} = ? AND c.{regional_region_level} = ?
     """
     params = [character, normalize_region_level(dbpath, T.CHAR_REGIONAL_ANALYSIS, region_level)]
@@ -180,10 +184,7 @@ def get_character_tendency_by_char(
         query += f" AND c.{regional_township} = ?"
         params.append(township)
 
-    query += f"""
-        GROUP BY c.{regional_region_level}, c.{regional_region_name}, c.{regional_city}, c.{regional_county}, c.{regional_township}, c.{regional_lift}, c.{regional_z_score}
-        ORDER BY c.{regional_z_score} DESC
-    """
+    query += f" ORDER BY c.{regional_z_score} DESC"
 
     results = execute_query(db, query, tuple(params))
 

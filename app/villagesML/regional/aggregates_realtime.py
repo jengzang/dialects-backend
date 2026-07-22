@@ -16,12 +16,153 @@ from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
 from ..schema_keys import T
+from ..schema_keys import C
+from ..compact import table_exists
 
 router = APIRouter(prefix="/regional")
 
 
 def _regional_table(dbpath: str, logical_table: str):
     return qtable(dbpath, logical_table), lambda name: qcolumn(dbpath, logical_table, name)
+
+
+SEMANTIC_CATEGORIES = (
+    "mountain",
+    "water",
+    "settlement",
+    "direction",
+    "clan",
+    "symbolic",
+    "agriculture",
+    "vegetation",
+    "infrastructure",
+)
+
+
+def _semantic_key(row: dict, level: str) -> tuple:
+    if level == "city":
+        return (row.get("city"),)
+    if level == "county":
+        return (row.get("city"), row.get("county"))
+    return (row.get("city"), row.get("county"), row.get("township"))
+
+
+def _add_semantic_stats(row: dict, semantic_stats: dict[str, float], total: int, run_id: str) -> dict:
+    for category in SEMANTIC_CATEGORIES:
+        pct = semantic_stats.get(category, 0.0) * 100
+        row[f"sem_{category}_pct"] = pct
+        row[f"sem_{category}_count"] = int(pct / 100 * total)
+    row["run_id"] = run_id
+    return row
+
+
+def _compute_regional_basic_aggregates(
+    db: sqlite3.Connection,
+    dbpath: str,
+    level: str,
+    run_id: str,
+    *,
+    city: Optional[str] = None,
+    county: Optional[str] = None,
+    township: Optional[str] = None,
+    region_name: Optional[str] = None,
+    county_name: Optional[str] = None,
+    city_name: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    basic_table, bcol = _regional_table(dbpath, T.REGIONAL_BASIC_STATS)
+    semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
+
+    basic_query = f"""
+        SELECT
+            {bcol(C.REGIONAL_BASIC_STATS.REGION_NAME)} as region_name,
+            {bcol(C.REGIONAL_BASIC_STATS.CITY)} as city,
+            {bcol(C.REGIONAL_BASIC_STATS.COUNTY)} as county,
+            {bcol(C.REGIONAL_BASIC_STATS.TOWNSHIP)} as township,
+            {bcol(C.REGIONAL_BASIC_STATS.VILLAGE_COUNT)} as total_villages,
+            {bcol(C.REGIONAL_BASIC_STATS.AVG_NAME_LENGTH)} as avg_name_length
+        FROM {basic_table}
+        WHERE {bcol(C.REGIONAL_BASIC_STATS.REGION_LEVEL)} = ?
+    """
+    basic_params: list[Any] = [level]
+
+    if city is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.CITY)} = ?"
+        basic_params.append(city)
+    if county is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.COUNTY)} = ?"
+        basic_params.append(county)
+    elif city is not None and level == "township":
+        basic_query += f" AND ({bcol(C.REGIONAL_BASIC_STATS.COUNTY)} IS NULL OR {bcol(C.REGIONAL_BASIC_STATS.COUNTY)} = '')"
+    if township is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.TOWNSHIP)} = ?"
+        basic_params.append(township)
+    if region_name is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.REGION_NAME)} = ?"
+        basic_params.append(region_name)
+    if county_name is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.COUNTY)} = ?"
+        basic_params.append(county_name)
+    if city_name is not None:
+        basic_query += f" AND {bcol(C.REGIONAL_BASIC_STATS.CITY)} = ?"
+        basic_params.append(city_name)
+
+    basic_query += f" ORDER BY {bcol(C.REGIONAL_BASIC_STATS.VILLAGE_COUNT)} DESC"
+    if limit is not None:
+        basic_query += " LIMIT ?"
+        basic_params.append(limit)
+
+    basic_results = execute_query(db, basic_query, tuple(basic_params))
+
+    semantic_query = f"""
+        SELECT
+            {scol(C.SEMANTIC_INDICES.CITY)} as city,
+            {scol(C.SEMANTIC_INDICES.COUNTY)} as county,
+            {scol(C.SEMANTIC_INDICES.TOWNSHIP)} as township,
+            {scol(C.SEMANTIC_INDICES.CATEGORY)} as category,
+            {scol(C.SEMANTIC_INDICES.RAW_INTENSITY)} as raw_intensity
+        FROM {semantic_table}
+        WHERE {scol(C.SEMANTIC_INDICES.REGION_LEVEL)} = ? AND {scol(C.SEMANTIC_INDICES.RUN_ID)} = ?
+    """
+    semantic_params: list[Any] = [normalize_region_level(dbpath, T.SEMANTIC_INDICES, level), run_id]
+
+    if city is not None:
+        semantic_query += f" AND {scol(C.SEMANTIC_INDICES.CITY)} = ?"
+        semantic_params.append(city)
+    if county is not None:
+        semantic_query += f" AND {scol(C.SEMANTIC_INDICES.COUNTY)} = ?"
+        semantic_params.append(county)
+    elif city is not None and level == "township":
+        semantic_query += f" AND ({scol(C.SEMANTIC_INDICES.COUNTY)} IS NULL OR {scol(C.SEMANTIC_INDICES.COUNTY)} = '')"
+    if township is not None:
+        semantic_query += f" AND {scol(C.SEMANTIC_INDICES.TOWNSHIP)} = ?"
+        semantic_params.append(township)
+    if region_name is not None:
+        semantic_query += f" AND {scol(C.SEMANTIC_INDICES.REGION_NAME)} = ?"
+        semantic_params.append(region_name)
+    if county_name is not None:
+        semantic_query += f" AND ({scol(C.SEMANTIC_INDICES.COUNTY)} = ? OR {scol(C.SEMANTIC_INDICES.REGION_NAME)} = ?)"
+        semantic_params.extend([county_name, county_name])
+
+    semantic_results = execute_query(db, semantic_query, tuple(semantic_params))
+    semantic_by_region: dict[tuple, dict[str, float]] = {}
+    for row in semantic_results:
+        semantic_by_region.setdefault(_semantic_key(row, level), {})[row["category"]] = row["raw_intensity"]
+
+    final_results = []
+    for row in basic_results:
+        if level == "township":
+            row["town"] = row.pop("township")
+        total = row["total_villages"]
+        key_row = {
+            "city": row.get("city"),
+            "county": row.get("county"),
+            "township": row.get("town") if level == "township" else row.get("township"),
+        }
+        final_results.append(_add_semantic_stats(row, semantic_by_region.get(_semantic_key(key_row, level), {}), total, run_id))
+
+    return final_results
+
 
 def _np():
     import numpy as np
@@ -70,6 +211,15 @@ def compute_city_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
+    if table_exists(db, dbpath, T.REGIONAL_BASIC_STATS):
+        return _compute_regional_basic_aggregates(
+            db,
+            dbpath,
+            "city",
+            run_id,
+            city=city,
+        )
+
     villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
@@ -212,6 +362,18 @@ def compute_county_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
+    if table_exists(db, dbpath, T.REGIONAL_BASIC_STATS):
+        return _compute_regional_basic_aggregates(
+            db,
+            dbpath,
+            "county",
+            run_id,
+            city=city,
+            county=county,
+            county_name=county_name,
+            city_name=city_name,
+        )
+
     villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
@@ -395,6 +557,26 @@ def get_town_aggregates(
         run_id = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SEMANTIC_INDICES)
         )
+    if table_exists(db, dbpath, T.REGIONAL_BASIC_STATS):
+        results = _compute_regional_basic_aggregates(
+            db,
+            dbpath,
+            "township",
+            run_id,
+            city=city,
+            county=county,
+            township=township,
+            region_name=town_name,
+            county_name=county_name,
+            limit=limit,
+        )
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail="No town aggregates found"
+            )
+        return results
+
     villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
 
@@ -683,16 +865,48 @@ def get_region_vectors(
         )
     semantic_table, scol = _regional_table(dbpath, T.SEMANTIC_INDICES)
     villages_table, vcol = _regional_table(dbpath, T.VILLAGES)
+    hierarchy_table = None
+    hcol = None
+    if table_exists(db, dbpath, T.REGION_HIERARCHY_STATS):
+        hierarchy_table, hcol = _regional_table(dbpath, T.REGION_HIERARCHY_STATS)
 
     # 步骤1: 从 semantic_indices 获取所有符合 level 的区域
-    semantic_query = f"""
-        SELECT DISTINCT {scol("region_name")} as region_name
-        FROM {semantic_table}
-        WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
-        ORDER BY {scol("region_name")}
-        LIMIT ?
-    """
-    semantic_rows = execute_query(db, semantic_query, (normalize_region_level(dbpath, T.SEMANTIC_INDICES, level), run_id, limit * 10))  # 多取一些，后面过滤
+    if hierarchy_table is not None and hcol is not None:
+        hierarchy_query = f"""
+            SELECT
+                {hcol(C.REGION_HIERARCHY_STATS.NAME)} as region_name,
+                {hcol(C.REGION_HIERARCHY_STATS.CITY)} as city,
+                {hcol(C.REGION_HIERARCHY_STATS.COUNTY)} as county,
+                {hcol(C.REGION_HIERARCHY_STATS.TOWNSHIP)} as township
+            FROM {hierarchy_table}
+            WHERE {hcol(C.REGION_HIERARCHY_STATS.LEVEL)} = ?
+        """
+        hierarchy_params: list[Any] = [level]
+        if city:
+            hierarchy_query += f" AND {hcol(C.REGION_HIERARCHY_STATS.CITY)} = ?"
+            hierarchy_params.append(city)
+        if county:
+            hierarchy_query += f" AND {hcol(C.REGION_HIERARCHY_STATS.COUNTY)} = ?"
+            hierarchy_params.append(county)
+        elif city and level == "township":
+            hierarchy_query += f" AND ({hcol(C.REGION_HIERARCHY_STATS.COUNTY)} IS NULL OR {hcol(C.REGION_HIERARCHY_STATS.COUNTY)} = '')"
+        if township:
+            hierarchy_query += f" AND {hcol(C.REGION_HIERARCHY_STATS.TOWNSHIP)} = ?"
+            hierarchy_params.append(township)
+        hierarchy_query += f" ORDER BY {hcol(C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)} DESC LIMIT ?"
+        hierarchy_params.append(limit)
+        hierarchy_list = [dict(row) for row in execute_query(db, hierarchy_query, tuple(hierarchy_params))]
+        semantic_rows = [{"region_name": row["region_name"]} for row in hierarchy_list]
+    else:
+        semantic_query = f"""
+            SELECT DISTINCT {scol("region_name")} as region_name
+            FROM {semantic_table}
+            WHERE {scol("region_level")} = ? AND {scol("run_id")} = ?
+            ORDER BY {scol("region_name")}
+            LIMIT ?
+        """
+        semantic_rows = execute_query(db, semantic_query, (normalize_region_level(dbpath, T.SEMANTIC_INDICES, level), run_id, limit * 10))  # 多取一些，后面过滤
+        hierarchy_list = []
 
     if not semantic_rows:
         raise HTTPException(
@@ -701,7 +915,7 @@ def get_region_vectors(
         )
 
     # 步骤2: 如果提供了 city/county/township 过滤参数，从主表验证并过滤
-    if city or county or township:
+    if hierarchy_table is None and (city or county or township):
         # 从主表获取符合条件的 region_name
         filter_query = "SELECT DISTINCT "
 
@@ -738,33 +952,34 @@ def get_region_vectors(
                 detail=f"No regions found for level={level}, city={city}, county={county}, township={township}"
             )
 
-    # 限制返回数量
-    semantic_rows = semantic_rows[:limit]
+    if hierarchy_table is None:
+        # 限制返回数量
+        semantic_rows = semantic_rows[:limit]
 
-    # 步骤3: 从主表获取层级信息
-    region_names = [row['region_name'] for row in semantic_rows]
-    placeholders = ','.join(['?'] * len(region_names))
+        # 步骤3: 从主表获取层级信息
+        region_names = [row['region_name'] for row in semantic_rows]
+        placeholders = ','.join(['?'] * len(region_names))
 
-    hierarchy_query = f"SELECT DISTINCT "
+        hierarchy_query = f"SELECT DISTINCT "
 
-    if level == 'city':
-        hierarchy_query += f"{vcol('city')} as region_name, {vcol('city')} as city, NULL as county, NULL as township FROM {villages_table} WHERE {vcol('city')} IN ({placeholders})"
-    elif level == 'county':
-        hierarchy_query += f"{vcol('county')} as region_name, {vcol('city')} as city, {vcol('county')} as county, NULL as township FROM {villages_table} WHERE {vcol('county')} IN ({placeholders})"
-    elif level == 'township':
-        hierarchy_query += f"{vcol('township')} as region_name, {vcol('city')} as city, {vcol('county')} as county, {vcol('township')} as township FROM {villages_table} WHERE {vcol('township')} IN ({placeholders})"
+        if level == 'city':
+            hierarchy_query += f"{vcol('city')} as region_name, {vcol('city')} as city, NULL as county, NULL as township FROM {villages_table} WHERE {vcol('city')} IN ({placeholders})"
+        elif level == 'county':
+            hierarchy_query += f"{vcol('county')} as region_name, {vcol('city')} as city, {vcol('county')} as county, NULL as township FROM {villages_table} WHERE {vcol('county')} IN ({placeholders})"
+        elif level == 'township':
+            hierarchy_query += f"{vcol('township')} as region_name, {vcol('city')} as city, {vcol('county')} as county, {vcol('township')} as township FROM {villages_table} WHERE {vcol('township')} IN ({placeholders})"
 
-    hierarchy_rows = execute_query(db, hierarchy_query, tuple(region_names))
+        hierarchy_rows = execute_query(db, hierarchy_query, tuple(region_names))
 
-    # 构建层级信息列表（支持重名区域）
-    hierarchy_list = []
-    for row in hierarchy_rows:
-        hierarchy_list.append({
-            'region_name': row['region_name'],
-            'city': row['city'],
-            'county': row['county'],
-            'township': row['township']
-        })
+        # 构建层级信息列表（支持重名区域）
+        hierarchy_list = []
+        for row in hierarchy_rows:
+            hierarchy_list.append({
+                'region_name': row['region_name'],
+                'city': row['city'],
+                'county': row['county'],
+                'township': row['township']
+            })
 
     # 步骤4: 使用层级参数精确查询 semantic_indices 表
     results = []

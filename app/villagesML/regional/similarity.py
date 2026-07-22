@@ -13,6 +13,7 @@ import json
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import column_name, qcolumn, qtable, normalize_region_level
 from ..schema_keys import C, SIMILARITY_METRIC_COLUMNS, T
+from ..compact import table_exists
 
 router = APIRouter(prefix="/regions")
 
@@ -483,17 +484,29 @@ async def get_similarity_matrix(
     if regions:
         region_list = [r.strip() for r in regions.split(',')]
     else:
-        # Get top 20 regions by village count
-        villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
-        county_col = vcol("county")
-        query = f"""
-        SELECT {county_col} as region_name, COUNT(*) as count
-        FROM {villages_table}
-        GROUP BY {county_col}
-        ORDER BY count DESC
-        LIMIT 20
-        """
-        rows = execute_query(db, query)
+        if table_exists(db, dbpath, T.REGION_HIERARCHY_STATS):
+            hierarchy_table, hcol = _regional_schema(dbpath, T.REGION_HIERARCHY_STATS)
+            query = f"""
+            SELECT {hcol(C.REGION_HIERARCHY_STATS.NAME)} as region_name,
+                   {hcol(C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)} as count
+            FROM {hierarchy_table}
+            WHERE {hcol(C.REGION_HIERARCHY_STATS.LEVEL)} = 'county'
+            ORDER BY {hcol(C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)} DESC
+            LIMIT 20
+            """
+            rows = execute_query(db, query)
+        else:
+            # Get top 20 regions by village count
+            villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
+            county_col = vcol(C.VILLAGES.COUNTY)
+            query = f"""
+            SELECT {county_col} as region_name, COUNT(*) as count
+            FROM {villages_table}
+            GROUP BY {county_col}
+            ORDER BY count DESC
+            LIMIT 20
+            """
+            rows = execute_query(db, query)
         region_list = [row["region_name"] for row in rows]
 
     if not region_list:
@@ -570,23 +583,37 @@ async def list_regions(
     Returns:
         List of region names with village counts
     """
-    villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
-    level_map = {
-        "city": vcol("city"),
-        "county": vcol("county"),
-        "township": vcol("township")
-    }
+    if region_level not in {"city", "county", "township"}:
+        region_level = "county"
 
-    column = level_map.get(region_level, vcol("county"))
+    if table_exists(db, dbpath, T.REGION_HIERARCHY_STATS):
+        hierarchy_table, hcol = _regional_schema(dbpath, T.REGION_HIERARCHY_STATS)
+        query = f"""
+        SELECT {hcol(C.REGION_HIERARCHY_STATS.NAME)} as region_name,
+               {hcol(C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)} as village_count
+        FROM {hierarchy_table}
+        WHERE {hcol(C.REGION_HIERARCHY_STATS.LEVEL)} = ?
+        ORDER BY {hcol(C.REGION_HIERARCHY_STATS.VILLAGE_COUNT)} DESC
+        """
+        rows = execute_query(db, query, (region_level,))
+    else:
+        villages_table, vcol = _regional_schema(dbpath, T.VILLAGES)
+        level_map = {
+            "city": vcol(C.VILLAGES.CITY),
+            "county": vcol(C.VILLAGES.COUNTY),
+            "township": vcol(C.VILLAGES.TOWNSHIP)
+        }
 
-    query = f"""
-    SELECT {column} as region_name, COUNT(*) as village_count
-    FROM {villages_table}
-    GROUP BY {column}
-    ORDER BY village_count DESC
-    """
+        column = level_map[region_level]
 
-    rows = execute_query(db, query)
+        query = f"""
+        SELECT {column} as region_name, COUNT(*) as village_count
+        FROM {villages_table}
+        GROUP BY {column}
+        ORDER BY village_count DESC
+        """
+
+        rows = execute_query(db, query)
 
     return {
         "region_level": region_level,

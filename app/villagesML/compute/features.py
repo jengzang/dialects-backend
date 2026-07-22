@@ -18,6 +18,7 @@ from .timeout import run_with_timeout, TimeoutException
 from ..config import COMPUTE_FEATURE_TIMEOUT, COMPUTE_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import resolve_db_path
+from .. import compact
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ async def extract_features(
         HTTPException: 如果提取失败或超时
     """
     try:
+        compact.require_non_compact_path(engine.db_path, engine.dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("feature_extract", params.dict())
         if cached_result:
@@ -107,6 +110,8 @@ async def aggregate_features(
         HTTPException: 如果聚合失败或超时
     """
     try:
+        compact.require_non_compact_path(engine.db_path, engine.dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("feature_aggregate", params.dict())
         if cached_result:
@@ -139,4 +144,3 @@ async def aggregate_features(
     except Exception as e:
         logger.error(f"Feature aggregation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Aggregation failed: {str(e)}")
-

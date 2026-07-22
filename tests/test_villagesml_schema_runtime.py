@@ -100,6 +100,10 @@ class VillagesMLSchemaRuntimeTests(unittest.TestCase):
         self.assertEqual(qtable("village", "village_ngrams"), '"village_ngrams"')
         self.assertEqual(qcolumn("village", "village_ngrams", "committee"), '"村委会"')
         self.assertEqual(qtable("village", "sqlite_master"), '"sqlite_master"')
+        self.assertEqual(qtable("village", "regional_basic_stats"), '"regional_basic_stats"')
+        self.assertEqual(qcolumn("village", "regional_basic_stats", "avg_name_length"), '"avg_name_length"')
+        self.assertEqual(qcolumn("village", "regional_basic_stats", "region_key"), '"region_key"')
+        self.assertEqual(qcolumn("village", "query_policy_config", "profile"), '"profile"')
         self.assertEqual(qcolumn("village", "city_aggregates", "total_villages"), '"total_villages"')
         self.assertEqual(qcolumn("village", "region_vectors", "region_id"), '"region_id"')
         self.assertIn(

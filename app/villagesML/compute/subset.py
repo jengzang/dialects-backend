@@ -29,6 +29,7 @@ from ..config import COMPUTE_TIMEOUT
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import qcolumn, qtable, resolve_db_path
 from ..schema_keys import C, T, semantic_feature_column
+from .. import compact
 from app.sql.db_pool import get_db_pool
 
 logger = logging.getLogger(__name__)
@@ -315,6 +316,8 @@ async def cluster_subset(
         HTTPException: 如果聚类失败或超时
     """
     try:
+        compact.require_non_compact_path(resolve_db_path(dbpath), dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("subset_cluster", params.dict())
         if cached_result:
@@ -628,6 +631,8 @@ async def compare_subsets(
         HTTPException: 如果对比失败或超时
     """
     try:
+        compact.require_non_compact_path(resolve_db_path(dbpath), dbpath)
+
         # 检查缓存
         cached_result = compute_cache.get("subset_compare", params.dict())
         if cached_result:

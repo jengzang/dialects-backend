@@ -10,6 +10,7 @@ from ..dependencies import get_db, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable
 from ..schema_keys import C, T, semantic_feature_categories, semantic_feature_column
 from ..models import SubsetFilterRequest, SubsetFilterResponse, SubsetVillageItem
+from ..compact import require_non_compact
 
 router = APIRouter(prefix="/subset")
 
@@ -38,6 +39,8 @@ def filter_villages(
     dbpath: str = Depends(get_dbpath),
 ):
     """筛选村庄，一次返回全部匹配结果。所有条件 AND 关系，同组内 OR。"""
+    require_non_compact(db, dbpath)
+
     v_tbl = _qtbl(dbpath, T.VILLAGES)
     vf_tbl = _qtbl(dbpath, T.VILLAGE_FEATURES)
     vss_tbl = _qtbl(dbpath, T.VILLAGE_SEMANTIC_STRUCTURE)

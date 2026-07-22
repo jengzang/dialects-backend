@@ -175,19 +175,31 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
         self.assertEqual(len(similarity_queries), 2)
         self.assertTrue(all(" OR " not in query for query in similarity_queries))
 
-    def test_regional_aggregates_use_preprocessed_villages_not_raw_table(self) -> None:
+    def test_regional_aggregates_use_regional_basic_stats(self) -> None:
         from app.villagesML.regional import aggregates_realtime
 
         executed = []
 
         def fake_execute_query(_db, query, params=()):
             executed.append((query, params))
-            if "GROUP BY" in query:
-                return [{"city": "广州市", "total_villages": 10, "avg_name_length": 2.5}]
+            if "FROM \"regional_basic_stats\"" in query:
+                return [
+                    {
+                        "region_name": "广州市",
+                        "city": "广州市",
+                        "county": None,
+                        "township": None,
+                        "total_villages": 10,
+                        "avg_name_length": 2.5,
+                    }
+                ]
+            if "FROM \"semantic_indices\"" in query:
+                return [{"city": "广州市", "county": None, "township": None, "category": "water", "raw_intensity": 0.2}]
             return []
 
         with (
             patch.object(aggregates_realtime, "execute_query", side_effect=fake_execute_query),
+            patch.object(aggregates_realtime, "table_exists", return_value=True),
             patch.object(aggregates_realtime.get_run_id_manager("village").__class__, "get_active_run_id", return_value="run_1"),
         ):
             result = aggregates_realtime.compute_city_aggregates(
@@ -198,10 +210,12 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
             )
 
         self.assertEqual(result[0]["city"], "广州市")
-        basic_queries = [query for query, _ in executed if "COUNT(DISTINCT" in query]
-        self.assertTrue(basic_queries)
-        self.assertIn('FROM "广东省自然村_预处理" v', basic_queries[0])
-        self.assertNotIn('FROM "广东省自然村" v', basic_queries[0])
+        self.assertEqual(result[0]["sem_water_count"], 2)
+        queries = "\n".join(query for query, _ in executed)
+        self.assertIn('FROM "regional_basic_stats"', queries)
+        self.assertNotIn("COUNT(DISTINCT", queries)
+        self.assertNotIn('"广东省自然村_预处理"', queries)
+        self.assertNotIn('"广东省自然村"', queries)
 
     def test_township_ngram_regional_adds_region_lookup_when_township_is_known(self) -> None:
         from app.villagesML.ngrams import frequency
@@ -387,6 +401,266 @@ class VillagesMLQueryShapeTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 404)
         self.assertFalse(any("GROUP BY" in query for query, _ in executed))
+
+    def test_character_tendency_by_char_uses_regional_centroids(self) -> None:
+        from app.villagesML.character import tendency
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            return [
+                {
+                    "region_level": "county",
+                    "region_name": "从化区",
+                    "city": "广州市",
+                    "county": "从化区",
+                    "township": None,
+                    "lift": 1.2,
+                    "z_score": 2.3,
+                    "centroid_lon": 113.5,
+                    "centroid_lat": 23.5,
+                }
+            ]
+
+        with patch.object(tendency, "execute_query", side_effect=fake_execute_query):
+            result = tendency.get_character_tendency_by_char(
+                character="水",
+                region_level="county",
+                city=None,
+                county=None,
+                township=None,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(result[0]["centroid_lon"], 113.5)
+        query = executed[0][0]
+        self.assertIn('"regional_centroids"', query)
+        self.assertNotIn('"广东省自然村_预处理"', query)
+
+    def test_region_similarity_list_uses_hierarchy_stats(self) -> None:
+        from app.villagesML.regional import similarity
+
+        executed = []
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "sqlite_master" in query:
+                return [{"name": "region_hierarchy_stats"}]
+            return [{"region_name": "从化区", "village_count": 8}]
+
+        with (
+            patch.object(similarity, "execute_query", side_effect=fake_execute_query),
+            patch.object(similarity, "table_exists", return_value=True),
+        ):
+            result = asyncio.run(
+                similarity.list_regions(
+                    region_level="county",
+                    db=sqlite3.connect(":memory:"),
+                    dbpath="village",
+                )
+            )
+
+        self.assertEqual(result["regions"][0]["region_name"], "从化区")
+        queries = "\n".join(query for query, _ in executed)
+        self.assertIn('"region_hierarchy_stats"', queries)
+        self.assertNotIn('"广东省自然村_预处理"', queries)
+
+    def test_region_vectors_use_hierarchy_stats_for_paths(self) -> None:
+        from app.villagesML.regional import aggregates_realtime
+
+        executed = []
+        categories = [
+            "agriculture",
+            "clan",
+            "direction",
+            "infrastructure",
+            "mountain",
+            "settlement",
+            "symbolic",
+            "vegetation",
+            "water",
+        ]
+
+        def fake_execute_query(_db, query, params=()):
+            executed.append((query, params))
+            if "sqlite_master" in query:
+                return [{"name": "region_hierarchy_stats"}]
+            if "FROM \"region_hierarchy_stats\"" in query:
+                return [
+                    {
+                        "region_name": "从化区",
+                        "city": "广州市",
+                        "county": "从化区",
+                        "township": None,
+                    }
+                ]
+            if "FROM \"semantic_indices\"" in query:
+                return [
+                    {
+                        "region_name": "从化区",
+                        "city": "广州市",
+                        "county": "从化区",
+                        "township": None,
+                        "category": category,
+                        "raw_intensity": 0.1,
+                        "village_count": 8,
+                    }
+                    for category in categories
+                ]
+            return []
+
+        with (
+            patch.object(aggregates_realtime, "execute_query", side_effect=fake_execute_query),
+            patch.object(aggregates_realtime, "table_exists", return_value=True),
+            patch.object(aggregates_realtime.get_run_id_manager("village").__class__, "get_active_run_id", return_value="run_1"),
+        ):
+            result = aggregates_realtime.get_region_vectors(
+                level="county",
+                city="广州市",
+                county="从化区",
+                township=None,
+                limit=100,
+                run_id=None,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(result[0]["region_name"], "从化区")
+        queries = "\n".join(query for query, _ in executed)
+        self.assertIn('"region_hierarchy_stats"', queries)
+        self.assertNotIn('"广东省自然村_预处理"', queries)
+
+    def test_village_detail_is_controlled_error_in_compact_mode(self) -> None:
+        from app.villagesML.village import search
+
+        with (
+            patch("app.villagesML.compact.is_compact_db", return_value=True),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            search.get_village_detail(
+                village_id=7,
+                village_name=None,
+                city=None,
+                county=None,
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+    def test_village_data_endpoints_are_controlled_errors_in_compact_mode(self) -> None:
+        from app.villagesML.village import data
+
+        endpoints = [
+            data.get_village_ngrams,
+            data.get_village_semantic_structure,
+            data.get_village_features,
+            data.get_village_spatial_features,
+            data.get_village_complete_profile,
+        ]
+
+        for endpoint in endpoints:
+            with (
+                self.subTest(endpoint=endpoint.__name__),
+                patch("app.villagesML.compact.is_compact_db", return_value=True),
+                self.assertRaises(HTTPException) as ctx,
+            ):
+                endpoint(7, db=sqlite3.connect(":memory:"), dbpath="village")
+
+            self.assertEqual(ctx.exception.status_code, 501)
+            self.assertIn("compact database", ctx.exception.detail)
+
+    def test_subset_filter_is_controlled_error_in_compact_mode(self) -> None:
+        from app.villagesML.models import SubsetFilterRequest
+        from app.villagesML.village import subset_filter
+
+        with (
+            patch("app.villagesML.compact.is_compact_db", return_value=True),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            subset_filter.filter_villages(
+                SubsetFilterRequest(max_results=10),
+                db=sqlite3.connect(":memory:"),
+                dbpath="village",
+            )
+
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+    def test_compute_village_level_routes_are_controlled_errors_in_compact_mode(self) -> None:
+        from app.villagesML.compute import clustering, features, subset
+
+        class FakeEngine:
+            db_path = "/tmp/missing-villages.db"
+            dbpath = "village"
+
+        fake_engine = FakeEngine()
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(features.extract_features(params=object(), engine=fake_engine))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(features.aggregate_features(params=object(), engine=fake_engine))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            patch.object(subset, "resolve_db_path", return_value="/tmp/missing-villages.db"),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(subset.cluster_subset(params=object(), dbpath="village"))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            patch.object(subset, "resolve_db_path", return_value="/tmp/missing-villages.db"),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(subset.compare_subsets(params=object(), dbpath="village"))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(clustering.run_sampled_village_clustering(params=object(), engine=fake_engine))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+        with (
+            patch("app.villagesML.compact.require_non_compact_path", side_effect=HTTPException(status_code=501, detail="compact database")),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            asyncio.run(clustering.run_hierarchical_clustering(params=object(), engine=fake_engine))
+        self.assertEqual(ctx.exception.status_code, 501)
+        self.assertIn("compact database", ctx.exception.detail)
+
+    def test_compact_clustering_forbids_village_features_fallback(self) -> None:
+        from app.villagesML.compute.engine import ClusteringEngine
+
+        engine = ClusteringEngine("/tmp/missing-villages.db", dbpath="village")
+
+        with (
+            patch.object(engine, "_connection") as fake_connection,
+            patch("app.villagesML.compute.engine.pd.read_sql_query", return_value=[]),
+            patch("app.villagesML.compact.is_compact_db", return_value=True),
+            self.assertRaisesRegex(ValueError, "compact database"),
+        ):
+            fake_connection.return_value.__enter__.return_value = sqlite3.connect(":memory:")
+            engine.get_regional_features("city", {"use_semantic": True})
 
     def test_ngram_regional_requires_specific_region_for_township_main_path(self) -> None:
         from app.villagesML.ngrams import frequency

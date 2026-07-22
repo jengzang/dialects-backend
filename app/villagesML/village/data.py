@@ -10,6 +10,7 @@ from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 from ..schema_keys import C, T
+from .. import compact
 
 router = APIRouter(prefix="/village")
 
@@ -20,6 +21,8 @@ def _get_village_identity(
     rowid: int,
     include_location: bool = False,
 ) -> dict:
+    compact.require_non_compact(db, dbpath)
+
     villages_table = qtable(dbpath, T.VILLAGES)
     villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
     villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
@@ -202,6 +205,8 @@ def get_village_features(
     Returns:
         dict: 村庄特征
     """
+    compact.require_non_compact(db, dbpath)
+
     villages_table = qtable(dbpath, T.VILLAGES)
     villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
     villages_name = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
@@ -267,6 +272,8 @@ def get_village_spatial_features(
     Returns:
         dict: 村庄空间特征
     """
+    compact.require_non_compact(db, dbpath)
+
     if clustering_version is None:
         clustering_version = get_run_id_manager(dbpath).get_active_run_id(
             run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
@@ -356,6 +363,8 @@ def get_village_complete_profile(
     Returns:
         dict: 村庄完整档案
     """
+    compact.require_non_compact(db, dbpath)
+
     villages_table = qtable(dbpath, T.VILLAGES)
     villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
     villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
