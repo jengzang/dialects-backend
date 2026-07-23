@@ -11,6 +11,7 @@ DEFAULT_DATABASE_KEY = "village"
 VILLAGES_DATABASES = {
     "village": {
         "path_key": "village",
+        "region_level_order": ["city", "county", "township", "committee"],
         "tables": {
             "villages": {
                 "name": "广东省自然村_预处理",
@@ -18,7 +19,7 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "rowid": "ROWID",
                     "village_id": "village_id",
-                    "name": "自然村_规范名",
+                    "name": "自然村_去前缀",
                     "raw_name": "自然村",
                     "committee": "村委会",
                     "city": "市级",

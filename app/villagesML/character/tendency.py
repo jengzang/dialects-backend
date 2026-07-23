@@ -9,14 +9,14 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..models import CharTendency, CharTendencyByRegion
 from ..schema_runtime import qcolumn, qtable, normalize_region_level
-from ..schema_keys import C, T
+from ..schema_keys import C, T, REGION_LEVELS, region_level_regex
 
 router = APIRouter(prefix="/character/tendency")
 
 
 @router.get("/by-region", response_model=List[CharTendency])
 def get_character_tendency_by_region(
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query(..., description="区域级别", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
@@ -83,7 +83,7 @@ def get_character_tendency_by_region(
     if county is not None:
         query += f" AND {county_col} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
@@ -112,7 +112,7 @@ def get_character_tendency_by_region(
 @router.get("/by-char", response_model=List[CharTendencyByRegion])
 def get_character_tendency_by_char(
     character: str = Query(..., description="字符", min_length=1, max_length=1),
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query(..., description="区域级别", pattern=region_level_regex()),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),

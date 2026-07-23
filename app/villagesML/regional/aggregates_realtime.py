@@ -15,7 +15,7 @@ import json
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
-from ..schema_keys import T
+from ..schema_keys import T, REGION_LEVELS, region_level_regex
 from ..schema_keys import C
 from ..compact import table_exists
 
@@ -40,9 +40,9 @@ SEMANTIC_CATEGORIES = (
 
 
 def _semantic_key(row: dict, level: str) -> tuple:
-    if level == "city":
+    if level == REGION_LEVELS[0]:
         return (row.get("city"),)
-    if level == "county":
+    if level == REGION_LEVELS[1]:
         return (row.get("city"), row.get("county"))
     return (row.get("city"), row.get("county"), row.get("township"))
 
@@ -811,7 +811,7 @@ def get_region_spatial_aggregates(
 
 @router.get("/vectors")
 def get_region_vectors(
-    level: str = Query(..., description="区域层级（city/county/township）", pattern="^(city|county|township)$"),
+    level: str = Query(..., description="区域层级（city/county/township）", pattern=region_level_regex()),
     city: Optional[str] = Query(None, description="市级名称（精确匹配）"),
     county: Optional[str] = Query(None, description="县级名称（精确匹配）"),
     township: Optional[str] = Query(None, description="乡镇级名称（精确匹配）"),
@@ -919,11 +919,11 @@ def get_region_vectors(
         # 从主表获取符合条件的 region_name
         filter_query = "SELECT DISTINCT "
 
-        if level == 'city':
+        if level == REGION_LEVELS[0]:
             filter_query += f"{vcol('city')} as region_name FROM {villages_table} WHERE 1=1"
-        elif level == 'county':
+        elif level == REGION_LEVELS[1]:
             filter_query += f"{vcol('county')} as region_name FROM {villages_table} WHERE {vcol('county')} IS NOT NULL"
-        elif level == 'township':
+        elif level == REGION_LEVELS[2]:
             filter_query += f"{vcol('township')} as region_name FROM {villages_table} WHERE 1=1"
 
         filter_params = []
@@ -962,11 +962,11 @@ def get_region_vectors(
 
         hierarchy_query = f"SELECT DISTINCT "
 
-        if level == 'city':
+        if level == REGION_LEVELS[0]:
             hierarchy_query += f"{vcol('city')} as region_name, {vcol('city')} as city, NULL as county, NULL as township FROM {villages_table} WHERE {vcol('city')} IN ({placeholders})"
-        elif level == 'county':
+        elif level == REGION_LEVELS[1]:
             hierarchy_query += f"{vcol('county')} as region_name, {vcol('city')} as city, {vcol('county')} as county, NULL as township FROM {villages_table} WHERE {vcol('county')} IN ({placeholders})"
-        elif level == 'township':
+        elif level == REGION_LEVELS[2]:
             hierarchy_query += f"{vcol('township')} as region_name, {vcol('city')} as city, {vcol('county')} as county, {vcol('township')} as township FROM {villages_table} WHERE {vcol('township')} IN ({placeholders})"
 
         hierarchy_rows = execute_query(db, hierarchy_query, tuple(region_names))
@@ -1006,7 +1006,7 @@ def get_region_vectors(
         if hierarchy['county'] is not None:
             semantic_query += f" AND {scol('county')} = ?"
             semantic_params.append(hierarchy['county'])
-        elif hierarchy['city'] is not None and level == 'township':
+        elif hierarchy['city'] is not None and level == REGION_LEVELS[2]:
             # Handle 东莞市/中山市 (no county level)
             semantic_query += f" AND ({scol('county')} IS NULL OR {scol('county')} = '')"
         if hierarchy['township'] is not None:
@@ -1130,11 +1130,11 @@ def get_semantic_vector_by_hierarchy(
         HTTPException: 如果区域不存在或数据不完整
     """
     # 根据层级确定 region_name
-    if level == 'city':
+    if level == REGION_LEVELS[0]:
         region_name = city
-    elif level == 'county':
+    elif level == REGION_LEVELS[1]:
         region_name = county
-    elif level == 'township':
+    elif level == REGION_LEVELS[2]:
         region_name = township
     else:
         raise HTTPException(
@@ -1166,7 +1166,7 @@ def get_semantic_vector_by_hierarchy(
     if county is not None:
         query += f" AND {scol('county')} = ?"
         params.append(county)
-    elif city is not None and level == 'township':
+    elif city is not None and level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({scol('county')} IS NULL OR {scol('county')} = '')"
     if township is not None:

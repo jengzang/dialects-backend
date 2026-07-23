@@ -12,7 +12,7 @@ import json
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import column_name, qcolumn, qtable, normalize_region_level
-from ..schema_keys import C, SIMILARITY_METRIC_COLUMNS, T
+from ..schema_keys import C, REGION_LEVELS, SIMILARITY_METRIC_COLUMNS, T, region_level_regex
 from ..compact import table_exists
 
 router = APIRouter(prefix="/regions")
@@ -24,7 +24,7 @@ def _regional_schema(dbpath: str, logical_table: str):
 
 @router.get("/similarity/search")
 async def search_similar_regions(
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query(..., description="区域级别", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="县级过滤"),
@@ -76,7 +76,7 @@ async def search_similar_regions(
         if county is not None:
             target_query += f" AND {ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} = ?"
             params.append(county)
-        elif city is not None and region_level == 'township':
+        elif city is not None and region_level == REGION_LEVELS[2]:
             # Handle 东莞市/中山市 (no county level)
             target_query += f" AND ({ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} IS NULL OR {ccol(C.CHAR_REGIONAL_ANALYSIS.COUNTY)} = '')"
 
@@ -88,8 +88,8 @@ async def search_similar_regions(
     elif region_name is not None:
         # 特殊处理：中山市和东莞市没有县级，当 county 级别查询时自动切换到 city 级别
         actual_level = region_level
-        if region_level == 'county' and region_name in ['中山市', '东莞市']:
-            actual_level = 'city'
+        if region_level == REGION_LEVELS[1] and region_name in ['中山市', '东莞市']:
+            actual_level = REGION_LEVELS[0]
 
         target_query = f"""
         SELECT DISTINCT {scol(C.REGION_SIMILARITY.REGION1)} as region_name
@@ -117,8 +117,8 @@ async def search_similar_regions(
 
     # 确定实际查询的级别（处理中山市/东莞市特殊情况）
     query_level = region_level
-    if region_level == 'county' and target_region in ['中山市', '东莞市']:
-        query_level = 'city'
+    if region_level == REGION_LEVELS[1] and target_region in ['中山市', '东莞市']:
+        query_level = REGION_LEVELS[0]
 
     # Determine which similarity column to use
     sim_column = qcolumn(dbpath, T.REGION_SIMILARITY, getattr(SIMILARITY_METRIC_COLUMNS, metric))
@@ -394,7 +394,7 @@ def _get_region_features(db: sqlite3.Connection, dbpath: str, region_name: str) 
 
     # 检测区域层级
     detected_level = None
-    for level_value in ('city', 'county', 'township'):
+    for level_value in REGION_LEVELS[:3]:
         # 尝试查询该层级是否有数据
         query = f"""
         SELECT COUNT(*) as cnt
@@ -583,8 +583,8 @@ async def list_regions(
     Returns:
         List of region names with village counts
     """
-    if region_level not in {"city", "county", "township"}:
-        region_level = "county"
+    if region_level not in set(REGION_LEVELS[:3]):
+        region_level = REGION_LEVELS[1]
 
     if table_exists(db, dbpath, T.REGION_HIERARCHY_STATS):
         hierarchy_table, hcol = _regional_schema(dbpath, T.REGION_HIERARCHY_STATS)

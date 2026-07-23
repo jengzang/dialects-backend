@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, validator, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from ..schema_keys import semantic_feature_categories
+from ..schema_keys import REGION_LEVELS, semantic_feature_categories
 
 SUBSET_SEMANTIC_TAG_WHITELIST = semantic_feature_categories()
 
@@ -22,9 +22,9 @@ class AlgorithmType(str, Enum):
 
 class RegionLevel(str, Enum):
     """区域级别"""
-    CITY = "city"
-    COUNTY = "county"
-    TOWNSHIP = "township"
+    CITY = REGION_LEVELS[0]
+    COUNTY = REGION_LEVELS[1]
+    TOWNSHIP = REGION_LEVELS[2]
 
 
 class FeatureConfig(BaseModel):

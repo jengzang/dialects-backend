@@ -10,7 +10,7 @@ import sqlite3
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..models import SemanticCategory, SemanticTendency
 from ..schema_runtime import normalize_region_level, qcolumn, qtable
-from ..schema_keys import C, T
+from ..schema_keys import C, T, REGION_LEVELS, region_level_regex
 
 router = APIRouter(prefix="/semantic/category")
 
@@ -169,7 +169,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
             if county is not None:
                 query += f" AND {county_col} = ?"
                 params.append(county)
-            elif city is not None and region_level == 'township':
+            elif city is not None and region_level == REGION_LEVELS[2]:
                 query += f" AND ({county_col} IS NULL OR {county_col} = '')"
             if township is not None:
                 query += f" AND {township_col} = ?"
@@ -215,7 +215,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
             if county is not None:
                 query += f" AND {county_col} = ?"
                 params.append(county)
-            elif city is not None and region_level == 'township':
+            elif city is not None and region_level == REGION_LEVELS[2]:
                 query += f" AND ({county_col} IS NULL OR {county_col} = '')"
             if township is not None:
                 query += f" AND {township_col} = ?"
@@ -240,7 +240,7 @@ def _get_regional_semantic_vtf_sync(dbpath: str, run_id: str, region_level: str,
 
 @router.get("/vtf/regional")
 async def get_regional_semantic_vtf(
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query(..., description="区域级别", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
@@ -303,7 +303,7 @@ def _get_semantic_tendency_sync(dbpath: str, run_id: str, region_level: str, reg
         if county is not None:
             query += f" AND {county_col} = ?"
             params.append(county)
-        elif city is not None and region_level == 'township':
+        elif city is not None and region_level == REGION_LEVELS[2]:
             # Handle 东莞市/中山市 (no county level)
             query += f" AND ({county_col} IS NULL OR {county_col} = '')"
         if township is not None:
@@ -330,7 +330,7 @@ def _get_semantic_tendency_sync(dbpath: str, run_id: str, region_level: str, reg
 
 @router.get("/tendency", response_model=List[SemanticTendency])
 async def get_semantic_tendency(
-    region_level: str = Query(..., description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query(..., description="区域级别", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),

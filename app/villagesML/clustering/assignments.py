@@ -10,7 +10,7 @@ from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..models import ClusterAssignment, ClusterProfile, ClusteringMetrics
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
-from ..schema_keys import C, T
+from ..schema_keys import C, T, region_level_regex
 
 router = APIRouter(prefix="/clustering")
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/clustering")
 def get_cluster_assignments(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     algorithm: str = Query("kmeans", description="聚类算法", pattern="^(kmeans|dbscan|gmm)$"),
-    region_level: str = Query("county", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("county", description="区域级别", pattern=region_level_regex()),
     cluster_id: Optional[int] = Query(None, description="聚类ID过滤"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),

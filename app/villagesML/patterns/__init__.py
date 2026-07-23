@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import qcolumn, qtable, normalize_region_level
-from ..schema_keys import T
+from ..schema_keys import REGION_LEVELS, T
 
 router = APIRouter(prefix="/patterns")
 
@@ -124,7 +124,7 @@ def get_regional_pattern_frequency(
     if county is not None:
         query += f" AND {col('county')} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:
@@ -209,7 +209,7 @@ def get_pattern_tendency(
     if county is not None:
         query += f" AND {col('county')} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:

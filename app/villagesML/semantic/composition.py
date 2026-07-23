@@ -8,7 +8,7 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
 from ..schema_runtime import normalize_region_level, qcolumn, qtable, table_variant
-from ..schema_keys import C, TABLE_VARIANTS
+from ..schema_keys import C, TABLE_VARIANTS, REGION_LEVELS
 
 router = APIRouter(prefix="/semantic")
 
@@ -334,7 +334,7 @@ def get_semantic_indices(
     if county is not None:
         query += f" AND {county_col} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:

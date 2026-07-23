@@ -24,7 +24,7 @@ from sklearn.metrics import (
 import logging
 from app.sql.db_pool import get_db_pool
 from ..schema_config import DEFAULT_DATABASE_KEY
-from ..schema_keys import C, REGION_LEVEL_CONFIGS, T, TABLE_VARIANTS, semantic_feature_column
+from ..schema_keys import C, REGION_LEVEL_CONFIGS, REGION_LEVELS, T, TABLE_VARIANTS, semantic_feature_column
 from ..schema_runtime import (
     qcolumn,
     qtable,
@@ -435,11 +435,11 @@ class ClusteringEngine:
 
         # 映射region_level到数据库中的region_level值
         db_level_map = {
-            'city': 'city',
-            'county': 'county',
-            'township': 'township'
+            REGION_LEVELS[0]: REGION_LEVELS[0],
+            REGION_LEVELS[1]: REGION_LEVELS[1],
+            REGION_LEVELS[2]: REGION_LEVELS[2],
         }
-        db_level = db_level_map.get(region_level, 'county')
+        db_level = db_level_map.get(region_level, REGION_LEVELS[1])
 
         # region_filter 语义：传入的是"父级区域名"，用于限制目标级别的范围
         # - city 级：用户传城市名 → 过滤 region_name（region_name 本身就是城市名）
@@ -1116,14 +1116,14 @@ class ClusteringEngine:
         }
 
         # 1. 三级各自独立聚类（不按父级分组，保证 cluster_id 语义全局一致）
-        city_result = self.run_clustering({**base, 'k': params['k_city'], 'region_level': 'city'})
+        city_result = self.run_clustering({**base, 'k': params['k_city'], 'region_level': REGION_LEVELS[0]})
         logger.info(f"City clustering: {city_result['n_regions']} cities → {params['k_city']} clusters")
 
-        county_result = self.run_clustering({**base, 'k': params['k_county'], 'region_level': 'county'})
+        county_result = self.run_clustering({**base, 'k': params['k_county'], 'region_level': REGION_LEVELS[1]})
         logger.info(f"County clustering: {county_result['n_regions']} counties → {params['k_county']} clusters")
 
         try:
-            township_result = self.run_clustering({**base, 'k': params['k_township'], 'region_level': 'township'})
+            township_result = self.run_clustering({**base, 'k': params['k_township'], 'region_level': REGION_LEVELS[2]})
             logger.info(f"Township clustering: {township_result['n_regions']} townships → {params['k_township']} clusters")
             township_to_cluster = {a['region_name']: a['cluster_id'] for a in township_result['assignments']}
             township_metrics = township_result['metrics']
@@ -1163,20 +1163,20 @@ class ClusteringEngine:
                     if tc is None:
                         continue
                     township_children.append({
-                        'level': 'township',
+                        'level': REGION_LEVELS[2],
                         'region_name': township_name,
                         'cluster_id': tc
                     })
 
                 county_children.append({
-                    'level': 'county',
+                    'level': REGION_LEVELS[1],
                     'region_name': county_name,
                     'cluster_id': county_cluster_id,
                     'children': township_children
                 })
 
             tree.append({
-                'level': 'city',
+                'level': REGION_LEVELS[0],
                 'region_name': city_name,
                 'cluster_id': city_cluster_id,
                 'children': county_children
@@ -1796,9 +1796,9 @@ class FeatureEngine:
                     cr_freq = self._column(T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.FREQUENCY)
                     cr_rank = self._column(T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.RANK_WITHIN_REGION)
 
-                    if region_level == 'city':
+                    if region_level == REGION_LEVELS[0]:
                         cr_name_col = self._column(T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.CITY)
-                    elif region_level == 'township':
+                    elif region_level == REGION_LEVELS[2]:
                         cr_name_col = self._column(T.CHAR_REGIONAL_ANALYSIS, C.CHAR_REGIONAL_ANALYSIS.TOWNSHIP)
                     else:
                         cr_name_col = cr_region
@@ -1863,9 +1863,9 @@ class FeatureEngine:
             rk = row['region_key']
             total = int(row['total_villages'])
 
-            if region_level == 'township':
+            if region_level == REGION_LEVELS[2]:
                 region_name = f"{row['city']} > {row['county']} > {row['town']}"
-            elif region_level == 'county':
+            elif region_level == REGION_LEVELS[1]:
                 region_name = f"{row['city']} > {row['county']}"
             else:
                 region_name = row[region_col]

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable, quote_identifier, resolve_db_path
-from ..schema_keys import C, T
+from ..schema_keys import C, T, REGION_LEVELS
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
 from ..cache_utils import api_cache
 
@@ -396,7 +396,7 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
             """
             params = [level]
             if parent is not None:
-                if level == "city":
+                if level == REGION_LEVELS[0]:
                     raise HTTPException(
                         status_code=422,
                         detail="City level does not support parent parameter"
@@ -414,7 +414,7 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
             )
 
         # 根据 level 构建不同的查询
-        if level == 'city':
+        if level == REGION_LEVELS[0]:
             # 城市级别：只返回城市，county 和 township 为 NULL
             if parent is not None:
                 raise HTTPException(
@@ -437,7 +437,7 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
             """
             results = execute_query(db, query)
 
-        elif level == 'county':
+        elif level == REGION_LEVELS[1]:
             # 县区级别：返回城市和县区，township 为 NULL
             if parent is None:
                 query = f"""
@@ -473,7 +473,7 @@ def _get_regions_sync(dbpath: str, level: str, parent: Optional[str] = None):
                 """
                 results = execute_query(db, query, (parent,))
 
-        else:  # level == 'township'
+        else:  # level == REGION_LEVELS[2]
             # 乡镇级别：返回完整的层级信息
             if parent is None:
                 query = f"""

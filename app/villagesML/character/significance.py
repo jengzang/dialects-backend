@@ -12,7 +12,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
-from ..schema_keys import C, T
+from ..schema_keys import C, T, REGION_LEVELS, region_level_regex
 
 router = APIRouter(prefix="/character/significance")
 
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/character/significance")
 def get_character_significance(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     min_zscore: Optional[float] = Query(None, description="最小Z分数阈值"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
@@ -92,7 +92,7 @@ def get_significant_characters_by_region(
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     significance_only: bool = Query(True, description="仅返回显著字符"),
     top_k: int = Query(20, ge=1, le=100, description="返回前K个字符"),
     db: sqlite3.Connection = Depends(get_db),
@@ -153,7 +153,7 @@ def get_significant_characters_by_region(
     if county is not None:
         query += f" AND {county_col} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
@@ -186,7 +186,7 @@ def get_significant_characters_by_region(
 @router.get("/summary")
 def get_significance_summary(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):

@@ -75,3 +75,10 @@ SIMILARITY_METRIC_COLUMNS = _namespace({
     "cosine": C.REGION_SIMILARITY.COSINE_SIMILARITY,
     "jaccard": C.REGION_SIMILARITY.JACCARD_SIMILARITY,
 })
+
+REGION_LEVELS: list[str] = list(_DEFAULT_CONFIG["region_level_order"])
+
+
+def region_level_regex(max_depth: int = 2) -> str:
+    choices = '|'.join(REGION_LEVELS[:max_depth + 1])
+    return f"^({choices})$"

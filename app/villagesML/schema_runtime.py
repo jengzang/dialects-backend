@@ -11,6 +11,7 @@ from typing import Any
 from app.common.path import DB_MAPPING
 
 from . import schema_config
+from .schema_keys import REGION_LEVELS
 
 
 _IDENTIFIER_RE = re.compile(r"^[\w\u4e00-\u9fff]+$", re.UNICODE)
@@ -18,7 +19,7 @@ _DEFAULT_LOGICAL_ALIASES = {
     "villages": {
         "rowid": "ROWID",
         "village_id": "village_id",
-        "name": "自然村_规范名",
+        "name": "自然村_去前缀",
         "raw_name": "自然村",
         "committee": "村委会",
         "city": "市级",
@@ -181,7 +182,7 @@ def column_value_map(dbpath: str | None, logical_table: str, logical_column: str
     return value_maps.get(logical_column, {})
 
 
-_REGION_LEVEL_MAP: dict[str, str] = {"市级": "city", "区县级": "county", "乡镇级": "township"}
+_REGION_LEVEL_MAP: dict[str, str] = {"市级": REGION_LEVELS[0], "区县级": REGION_LEVELS[1], "乡镇级": REGION_LEVELS[2]}
 
 
 def normalize_region_level(dbpath: str | None, logical_table: str, region_level: str) -> str:
