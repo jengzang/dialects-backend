@@ -31,6 +31,8 @@ GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
 VILLAGE_ADMIN_DB_PATH = os.path.join(BASE_DIR, "data", "villages_admin.db")
 YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
 GIS_DATA_DIR = os.path.join(BASE_DIR, "data", "gis")
+VOCABULARY_DB_PATH = os.path.join(BASE_DIR, "data", "vocabulary.db")
+VOCABULARY_DB_URL = f"sqlite:///{VOCABULARY_DB_PATH}"
 
 # 字表寫入SQL路徑依賴
 APPEND_PATH = os.path.join(BASE_DIR, "make", "data", "dependency", "jengzang補充.xlsx")
@@ -83,6 +85,7 @@ DB_MAPPING = {
     "dialects": DIALECTS_DB_USER,
     "dialects_admin": DIALECTS_DB_ADMIN,
     "yubao": YUBAO_DB_PATH,
+    "vocabulary": VOCABULARY_DB_PATH,
     "logs": LOGS_DATABASE_PATH,
     # "supple": SUPPLE_DB_PATH,
     # "auth": USER_DATABASE_PATH
