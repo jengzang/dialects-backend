@@ -3,11 +3,19 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from app.schemas.vocabulary import VocabularyItemsResponse, VocabularyUploadResponse
-from app.service.auth.core.dependencies import get_current_user
+from app.schemas.vocabulary import (
+    VocabularyItemsResponse,
+    VocabularyPermissionResponse,
+    VocabularyPermissionUpdateRequest,
+    VocabularyUploadResponse,
+)
+from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
-from app.service.vocabulary.service import import_vocabulary_upload, query_vocabulary_items
+from app.service.vocabulary.logging import record_vocabulary_log
+from app.service.vocabulary.models import VocabularyPermission
+from app.service.vocabulary.query import query_vocabulary_items
+from app.service.vocabulary.service import import_vocabulary_upload
 
 
 router = APIRouter()
@@ -61,3 +69,44 @@ async def upload_vocabulary(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary upload failed: {exc}")
+
+
+@router.put("/admin/permissions/{user_id}", response_model=VocabularyPermissionResponse)
+def set_vocabulary_permission(
+    user_id: int,
+    params: VocabularyPermissionUpdateRequest,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission = db.query(VocabularyPermission).filter(
+        VocabularyPermission.user_id == user_id
+    ).first()
+    if permission is None:
+        permission = VocabularyPermission(
+            user_id=user_id,
+            permission_level=params.permission_level,
+        )
+        db.add(permission)
+    else:
+        permission.permission_level = params.permission_level
+
+    record_vocabulary_log(
+        session=db,
+        user_id=current_admin.id,
+        permission_level="manage",
+        source="admin",
+        action="set_permission",
+        table_name="vocabulary_permissions",
+        target_scope=f"target_user_id = {user_id}",
+        affected_rows=1,
+        payload={
+            "target_user_id": user_id,
+            "permission_level": params.permission_level,
+        },
+    )
+    db.commit()
+    db.refresh(permission)
+    return VocabularyPermissionResponse(
+        user_id=permission.user_id,
+        permission_level=permission.permission_level,
+    )

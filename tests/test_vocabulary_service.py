@@ -13,7 +13,8 @@ from app.service.vocabulary.models import (
     VocabularyPermission,
 )
 from app.service.vocabulary.permissions import get_effective_permission_level
-from app.service.vocabulary.service import import_vocabulary_upload, query_vocabulary_items
+from app.service.vocabulary.query import query_vocabulary_items
+from app.service.vocabulary.service import import_vocabulary_upload
 
 
 class _User:

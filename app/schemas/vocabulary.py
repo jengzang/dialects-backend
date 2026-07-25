@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -28,3 +30,12 @@ class VocabularyItemsResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class VocabularyPermissionUpdateRequest(BaseModel):
+    permission_level: Literal["edit", "manage"]
+
+
+class VocabularyPermissionResponse(BaseModel):
+    user_id: int
+    permission_level: str
