@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.routes.vocabulary import (
     get_vocabulary_items,
+    get_vocabulary_logs,
     get_vocabulary_locations,
     get_vocabulary_map_points,
     update_vocabulary_location,
@@ -103,6 +104,22 @@ def test_locations_endpoints_depend_on_current_user() -> None:
     for endpoint in (get_vocabulary_locations, update_vocabulary_location):
         dependency = signature(endpoint).parameters["current_user"].default.dependency
         assert dependency is get_current_user
+
+
+def test_logs_endpoint_depends_on_current_user() -> None:
+    dependency = signature(get_vocabulary_logs).parameters["current_user"].default.dependency
+    assert dependency is get_current_user
+
+
+def test_main_routes_registers_vocabulary_logs_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/logs" in paths
 
 
 def test_location_update_schema_rejects_location_name() -> None:
@@ -455,5 +472,72 @@ def test_manage_location_patch_can_update_target_user_location(tmp_path: Path) -
         assert log.user_id == 1
         assert log.permission_level == "manage"
         assert "user_id = 8" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_edit_user_cannot_read_vocabulary_logs_endpoint(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            get_vocabulary_logs(
+                user_id=None,
+                permission_level=None,
+                source=None,
+                action=None,
+                table_name=None,
+                status=None,
+                page=1,
+                page_size=50,
+                current_user=_User(7),
+                db=session,
+            )
+
+        assert raised.value.status_code == 403
+    finally:
+        session.close()
+
+
+def test_manage_user_can_read_vocabulary_logs_endpoint(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="manage"))
+        session.add(
+            VocabularyLog(
+                operation_id="op-1",
+                user_id=8,
+                permission_level="edit",
+                source="upload",
+                action="import",
+                table_name="vocabulary_entries",
+                target_scope="user_id = 8",
+                affected_rows=12,
+                status="success",
+                payload_json='{"location_name":"息烽"}',
+            )
+        )
+        session.commit()
+
+        result = get_vocabulary_logs(
+            user_id=8,
+            permission_level=None,
+            source="upload",
+            action=None,
+            table_name=None,
+            status=None,
+            page=1,
+            page_size=50,
+            current_user=_User(7),
+            db=session,
+        )
+
+        assert result.total == 1
+        assert result.logs[0].operation_id == "op-1"
+        assert result.logs[0].user_id == 8
+        assert result.logs[0].source == "upload"
+        assert result.logs[0].payload_json == '{"location_name":"息烽"}'
     finally:
         session.close()

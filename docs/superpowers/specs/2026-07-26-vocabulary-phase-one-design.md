@@ -114,7 +114,7 @@ Columns:
 - `payload_json`: serialized request/operation payload.
 - `created_at`: log creation time.
 
-Only `manage` users can query `vocabulary_logs`. Logs are system-written; they are not editable through the generic vocabulary SQL mutation APIs. Logs are operation-level, not row-level: one upload, batch mutation, or batch replace writes one log row regardless of how many vocabulary rows it affects.
+Only `manage` and admin users can query `vocabulary_logs`, and they do so through the dedicated `/api/vocabulary/logs` endpoint. Logs are system-written; they are not exposed through the generic vocabulary SQL APIs. Logs are operation-level, not row-level: one upload, batch mutation, or batch replace writes one log row regardless of how many vocabulary rows it affects.
 
 ## API
 
@@ -211,9 +211,26 @@ Rules:
 - `manage` and admin users can update any user's row. If more than one row has the same `location_name`, the request must include `?user_id=...` to disambiguate.
 - Successful updates write one `vocabulary_logs` row with `source = location_editor`, `action = update_location`, and `table_name = vocabulary_locations`.
 
+### `GET /api/vocabulary/logs`
+
+Reads operation logs for vocabulary edits. This endpoint is only available to `manage` and admin users.
+
+Query parameters:
+
+- `user_id`
+- `permission_level`
+- `source`
+- `action`
+- `table_name`
+- `status`
+- `page`: default `1`.
+- `page_size`: default `50`, max `200`.
+
+Rows are sorted newest first. The response includes `payload_json` as the stored serialized operation payload.
+
 ## Vocabulary SQL API
 
-All vocabulary SQL editor APIs are mounted under `/api/vocabulary/sql/*` and operate only on `vocabulary.db`. Requests do not include `db_key`.
+All vocabulary SQL editor APIs are mounted under `/api/vocabulary/sql/*`, operate only on `vocabulary.db`, and are intentionally restricted to the `vocabulary_entries` table. Requests do not include `db_key`.
 
 Initial endpoints:
 
@@ -230,8 +247,8 @@ Initial endpoints:
 Table exposure:
 
 - `vocabulary_entries`: readable/editable.
-- `vocabulary_locations`: readable/editable.
-- `vocabulary_logs`: readable by `manage` only.
+- `vocabulary_locations`: not exposed through `/api/vocabulary/sql/*`; use `/api/vocabulary/locations`.
+- `vocabulary_logs`: not exposed through `/api/vocabulary/sql/*`; use `/api/vocabulary/logs`.
 - `vocabulary_permissions`: not exposed through `/api/vocabulary/sql/*`.
 
 Permission rules:

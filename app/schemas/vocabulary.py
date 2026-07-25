@@ -83,6 +83,28 @@ class VocabularyLocationUpdateRequest(BaseModel):
     atlas_region: str | None = None
 
 
+class VocabularyLogResponse(BaseModel):
+    id: int
+    operation_id: str
+    user_id: int
+    permission_level: str
+    source: str
+    action: str
+    table_name: str
+    target_scope: str
+    affected_rows: int
+    status: str
+    payload_json: str
+    created_at: str
+
+
+class VocabularyLogsResponse(BaseModel):
+    logs: list[VocabularyLogResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class VocabularyPermissionUpdateRequest(BaseModel):
     permission_level: Literal["edit", "manage"]
 

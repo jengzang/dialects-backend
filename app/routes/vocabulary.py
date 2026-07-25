@@ -8,6 +8,8 @@ from app.schemas.vocabulary import (
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
     VocabularyLocationUpdateRequest,
+    VocabularyLogResponse,
+    VocabularyLogsResponse,
     VocabularyMapPointsResponse,
     VocabularyPermissionResponse,
     VocabularyPermissionUpdateRequest,
@@ -17,7 +19,7 @@ from app.service.auth.core.dependencies import get_current_admin_user, get_curre
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.models import VocabularyLocation, VocabularyPermission
+from app.service.vocabulary.models import VocabularyLocation, VocabularyLog, VocabularyPermission
 from app.service.vocabulary.permissions import get_effective_permission_level
 from app.service.vocabulary.query import query_vocabulary_items, query_vocabulary_map_points
 from app.service.vocabulary.service import import_vocabulary_upload
@@ -64,6 +66,23 @@ def _string_value(value: Any, *, allow_empty: bool = True) -> str:
     if not allow_empty and not cleaned:
         raise HTTPException(status_code=400, detail="coordinates 不能为空")
     return cleaned
+
+
+def _log_response(log: VocabularyLog) -> VocabularyLogResponse:
+    return VocabularyLogResponse(
+        id=log.id,
+        operation_id=log.operation_id,
+        user_id=log.user_id,
+        permission_level=log.permission_level,
+        source=log.source,
+        action=log.action,
+        table_name=log.table_name,
+        target_scope=log.target_scope or "",
+        affected_rows=log.affected_rows,
+        status=log.status,
+        payload_json=log.payload_json or "{}",
+        created_at=log.created_at.isoformat(sep=" ") if log.created_at else "",
+    )
 
 
 @router.get("/items", response_model=VocabularyItemsResponse)
@@ -216,6 +235,52 @@ def update_vocabulary_location(
         raise
 
     return _location_response(target)
+
+
+@router.get("/logs", response_model=VocabularyLogsResponse)
+def get_vocabulary_logs(
+    user_id: Optional[int] = Query(default=None),
+    permission_level: Optional[str] = Query(default=None),
+    source: Optional[str] = Query(default=None),
+    action: Optional[str] = Query(default=None),
+    table_name: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    effective_permission = get_effective_permission_level(db, current_user)
+    if effective_permission != "manage":
+        raise HTTPException(status_code=403, detail="只有 manage 用户可以查看词表编辑日志")
+
+    query = db.query(VocabularyLog)
+    if user_id is not None:
+        query = query.filter(VocabularyLog.user_id == user_id)
+    if permission_level:
+        query = query.filter(VocabularyLog.permission_level == permission_level)
+    if source:
+        query = query.filter(VocabularyLog.source == source)
+    if action:
+        query = query.filter(VocabularyLog.action == action)
+    if table_name:
+        query = query.filter(VocabularyLog.table_name == table_name)
+    if status:
+        query = query.filter(VocabularyLog.status == status)
+
+    total = query.count()
+    rows = (
+        query.order_by(VocabularyLog.created_at.desc(), VocabularyLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return VocabularyLogsResponse(
+        logs=[_log_response(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post("/upload", response_model=VocabularyUploadResponse)

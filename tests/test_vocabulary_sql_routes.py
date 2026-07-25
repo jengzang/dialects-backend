@@ -222,7 +222,7 @@ def test_manage_batch_replace_can_touch_all_entries(tmp_path: Path) -> None:
         session.close()
 
 
-def test_edit_cannot_query_logs(tmp_path: Path) -> None:
+def test_vocabulary_sql_cannot_query_logs_table(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import query_table
     from app.schemas.vocabulary_sql import QueryParams
 
@@ -239,7 +239,7 @@ def test_edit_cannot_query_logs(tmp_path: Path) -> None:
                 )
             )
 
-        assert raised.value.status_code == 403
+        assert raised.value.status_code == 400
     finally:
         session.close()
 
@@ -338,9 +338,30 @@ def test_update_rejects_user_id_changes(tmp_path: Path) -> None:
         session.close()
 
 
-def test_manage_can_query_logs(tmp_path: Path) -> None:
-    from app.routes.vocabulary_sql import mutate_table, query_table
-    from app.schemas.vocabulary_sql import MutationParams, QueryParams
+def test_vocabulary_sql_only_allows_entries_table(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import query_table
+    from app.schemas.vocabulary_sql import QueryParams
+
+    session = _make_session(tmp_path)
+    try:
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                query_table(
+                    QueryParams(table_name="vocabulary_locations"),
+                    current_user=_User(1, role="admin"),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+    finally:
+        session.close()
+
+
+def test_manage_can_query_logs_through_dedicated_endpoint(tmp_path: Path) -> None:
+    from app.routes.vocabulary import get_vocabulary_logs
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
 
     session = _make_session(tmp_path)
     try:
@@ -361,24 +382,29 @@ def test_manage_can_query_logs(tmp_path: Path) -> None:
             )
         )
 
-        result = asyncio.run(
-            query_table(
-                QueryParams(table_name="vocabulary_logs"),
-                current_user=_User(1, role="admin"),
-                db=session,
-            )
+        result = get_vocabulary_logs(
+            user_id=None,
+            permission_level=None,
+            source=None,
+            action=None,
+            table_name=None,
+            status=None,
+            page=1,
+            page_size=50,
+            current_user=_User(1, role="admin"),
+            db=session,
         )
 
-        assert result["total"] == 1
-        assert result["data"][0]["action"] == "create"
-        assert result["data"][0]["source"] == "sql_editor"
-        assert result["data"][0]["status"] == "success"
-        assert result["data"][0]["operation_id"]
+        assert result.total == 1
+        assert result.logs[0].action == "create"
+        assert result.logs[0].source == "sql_editor"
+        assert result.logs[0].status == "success"
+        assert result.logs[0].operation_id
     finally:
         session.close()
 
 
-def test_manage_cannot_mutate_logs_through_generic_sql(tmp_path: Path) -> None:
+def test_vocabulary_sql_cannot_mutate_logs_table(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
 
@@ -403,7 +429,7 @@ def test_manage_cannot_mutate_logs_through_generic_sql(tmp_path: Path) -> None:
                 )
             )
 
-        assert raised.value.status_code == 403
+        assert raised.value.status_code == 400
         assert session.query(VocabularyLog).count() == 0
     finally:
         session.close()

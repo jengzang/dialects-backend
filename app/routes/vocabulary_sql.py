@@ -21,10 +21,9 @@ from app.service.vocabulary.permissions import get_effective_permission_level
 
 router = APIRouter()
 
-EDITABLE_TABLES = {"vocabulary_entries", "vocabulary_locations"}
-MANAGE_ONLY_READ_TABLES = {"vocabulary_logs"}
-ALLOWED_TABLES = EDITABLE_TABLES | MANAGE_ONLY_READ_TABLES
-OWNED_TABLES = {"vocabulary_entries", "vocabulary_locations"}
+EDITABLE_TABLES = {"vocabulary_entries"}
+ALLOWED_TABLES = EDITABLE_TABLES
+OWNED_TABLES = {"vocabulary_entries"}
 WRITE_PROTECTED_COLUMNS = {"id", "user_id"}
 
 
@@ -54,8 +53,6 @@ def _require_table_access(
         raise HTTPException(status_code=400, detail=f"无效的词表表名: {table_name}")
 
     permission_level = get_effective_permission_level(db, user)
-    if table_name in MANAGE_ONLY_READ_TABLES and permission_level != "manage":
-        raise HTTPException(status_code=403, detail="只有 manage 用户可以访问该表")
     if write and table_name not in EDITABLE_TABLES:
         raise HTTPException(status_code=403, detail="该表不允许通过词表 SQL 接口编辑")
     return permission_level
