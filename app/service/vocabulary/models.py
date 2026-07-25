@@ -24,7 +24,6 @@ class VocabularyEntry(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
-    username = Column(String(100), nullable=False)
     location_name = Column(String(200), nullable=False, index=True)
     standard_word = Column(String(500), nullable=False, index=True)
     local_expression = Column(Text, nullable=False)
@@ -45,7 +44,6 @@ class VocabularyLocation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
-    username = Column(String(100), nullable=False)
     location_name = Column(String(200), nullable=False, index=True)
     coordinates = Column(String(200), nullable=False)
     province = Column(String(100), default="")
@@ -71,7 +69,6 @@ class VocabularyPermission(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, unique=True, index=True)
-    username = Column(String(100), nullable=False)
     permission_level = Column(String(20), nullable=False)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

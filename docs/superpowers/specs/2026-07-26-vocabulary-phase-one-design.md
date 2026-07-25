@@ -37,7 +37,6 @@ Columns:
 
 - `id`: integer primary key.
 - `user_id`: uploader id, filled from the authenticated user.
-- `username`: uploader username, filled from the authenticated user.
 - `location_name`: location short name, copied from the uploaded location JSON.
 - `standard_word`: standard written word or definition-like prompt. This replaces the less intuitive name `written`.
 - `local_expression`: local dialect expression.
@@ -62,7 +61,6 @@ Columns:
 
 - `id`: integer primary key.
 - `user_id`: uploader id.
-- `username`: uploader username.
 - `location_name`: required location short name.
 - `coordinates`: required longitude/latitude string.
 - `province`
@@ -91,7 +89,6 @@ Columns:
 
 - `id`: integer primary key.
 - `user_id`: unique user id.
-- `username`: username snapshot.
 - `permission_level`: either `edit` or `manage`.
 - `created_at`
 - `updated_at`

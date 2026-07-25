@@ -33,12 +33,10 @@ def _upsert_location(
     if location is None:
         location = VocabularyLocation(
             user_id=user.id,
-            username=user.username,
             location_name=normalized_location.location_name,
         )
         session.add(location)
 
-    location.username = user.username
     location.coordinates = normalized_location.coordinates
     location.province = normalized_location.province
     location.city = normalized_location.city
@@ -89,7 +87,6 @@ def import_vocabulary_upload(
             session.add(
                 VocabularyEntry(
                     user_id=user.id,
-                    username=user.username,
                     location_name=normalized_location.location_name,
                     standard_word=row.standard_word,
                     local_expression=row.local_expression,

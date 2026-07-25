@@ -16,9 +16,8 @@ from app.service.vocabulary.service import import_vocabulary_upload
 
 
 class _User:
-    def __init__(self, user_id: int, username: str = "user@example.com", role: str = "user"):
+    def __init__(self, user_id: int, role: str = "user"):
         self.id = user_id
-        self.username = username
         self.role = role
 
 
@@ -36,19 +35,28 @@ def test_admin_permission_resolves_to_manage(tmp_path: Path) -> None:
         session.close()
 
 
+def test_vocabulary_tables_store_user_id_without_username(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        for table in (VocabularyEntry, VocabularyLocation, VocabularyPermission):
+            assert "user_id" in table.__table__.columns
+            assert "username" not in table.__table__.columns
+    finally:
+        session.close()
+
+
 def test_edit_permission_resolves_to_edit(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
         session.add(
             VocabularyPermission(
                 user_id=7,
-                username="editor@example.com",
                 permission_level="edit",
             )
         )
         session.commit()
 
-        assert get_effective_permission_level(session, _User(7, "editor@example.com")) == "edit"
+        assert get_effective_permission_level(session, _User(7)) == "edit"
     finally:
         session.close()
 
@@ -70,7 +78,6 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         session.add(
             VocabularyPermission(
                 user_id=7,
-                username="editor@example.com",
                 permission_level="edit",
             )
         )
@@ -78,7 +85,6 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
             [
                 VocabularyEntry(
                     user_id=7,
-                    username="editor@example.com",
                     location_name="息烽",
                     standard_word="旧词",
                     local_expression="旧讲法",
@@ -87,7 +93,6 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
                 ),
                 VocabularyEntry(
                     user_id=8,
-                    username="other@example.com",
                     location_name="息烽",
                     standard_word="别人词",
                     local_expression="别人讲法",
@@ -99,7 +104,6 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         session.add(
             VocabularyLocation(
                 user_id=7,
-                username="editor@example.com",
                 location_name="息烽",
                 coordinates="old",
             )
@@ -113,7 +117,7 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         ).encode("utf-8")
         result = import_vocabulary_upload(
             session=session,
-            user=_User(7, "editor@example.com"),
+            user=_User(7),
             filename="upload.csv",
             content=csv_content,
             location_payload=json.dumps(
