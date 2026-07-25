@@ -4,7 +4,7 @@
 
 Add the first phase of vocabulary-list support: create `data/vocabulary.db`, define the storage model, and expose an authenticated upload API that imports one location's vocabulary entries from spreadsheet or document files.
 
-This phase covers only data creation and replacement-on-upload. Query display, user editing screens, delete APIs, and reuse of generic `sql/admin` editing routes are intentionally left for later phases.
+This phase covers data creation, replacement-on-upload, and a vocabulary-scoped SQL editing/query surface under `/api/vocabulary/sql/*`. User-facing display APIs remain a later phase, but the SQL-style editor APIs can now support internal/admin editing workflows with row-level permission rules.
 
 ## Scope
 
@@ -13,17 +13,17 @@ Phase one includes:
 - A new `vocabulary.db` SQLite database.
 - Three tables: entries, locations, and permissions.
 - A new upload API under `/api/vocabulary`.
+- A vocabulary-only SQL query/edit API under `/api/vocabulary/sql/*`.
 - File parsers for table files and two document formats.
 - Permission checks with two levels: `edit` and `manage`.
 - Replacement behavior for repeat uploads with the same user and location short name.
+- Operation logs for all vocabulary edit actions.
 
 Phase one does not include:
 
-- Public or authenticated read/query APIs.
-- General edit or delete APIs.
 - Full permission-management APIs.
 - UI behavior.
-- Reuse of `sql/admin` routes for editing.
+- Raw SQL, DDL, tree APIs, or arbitrary `db_key`/database access.
 
 ## Database
 
@@ -44,8 +44,6 @@ Columns:
 - `notes`: optional note.
 - `informations`: reserved text column, initially empty.
 - `source_filename`: original upload filename.
-- `created_at`: creation time.
-- `updated_at`: update time.
 
 Indexes:
 
@@ -72,8 +70,6 @@ Columns:
 - `yindian_region`: 音典分区.
 - `atlas_region`: 地图集 or 方音图鉴分区.
 - `raw_location_json`: original frontend location JSON as text.
-- `created_at`
-- `updated_at`
 
 Uniqueness:
 
@@ -90,8 +86,6 @@ Columns:
 - `id`: integer primary key.
 - `user_id`: unique user id.
 - `permission_level`: either `edit` or `manage`.
-- `created_at`
-- `updated_at`
 
 Rules:
 
@@ -101,6 +95,27 @@ Rules:
 - Users without a permission row cannot upload.
 
 Because both `edit` and `manage` include upload capability, the upload endpoint only checks that the effective permission level is one of those two values.
+
+### `vocabulary_logs`
+
+This table stores audit records for vocabulary edit operations.
+
+Columns:
+
+- `id`: integer primary key.
+- `operation_id`: UUID for the user-level operation.
+- `user_id`: acting user id.
+- `permission_level`: effective permission at the time of operation.
+- `source`: operation source, such as `upload`, `sql_editor`, `batch_mutate`, or `batch_replace`.
+- `action`: operation action, such as `import`, `create`, `update`, `delete`, or `replace`.
+- `table_name`: affected vocabulary table.
+- `target_scope`: human-readable summary of the server-side scope applied.
+- `affected_rows`: number of rows changed.
+- `status`: operation status. The current implemented write paths record `success`.
+- `payload_json`: serialized request/operation payload.
+- `created_at`: log creation time.
+
+Only `manage` users can query `vocabulary_logs`. Logs are system-written; they are not editable through the generic vocabulary SQL mutation APIs. Logs are operation-level, not row-level: one upload, batch mutation, or batch replace writes one log row regardless of how many vocabulary rows it affects.
 
 ## API
 
@@ -158,6 +173,40 @@ When a user uploads a file for a location short name that already has entries fr
 If parsing or inserting fails, the transaction rolls back. This prevents a partially deleted location vocabulary.
 
 The phase-one rule is user scoped: an `edit` user's upload replaces only that user's rows for the same location name. `manage` privileges do not change upload replacement scope in this phase; broader management behavior is deferred to later editing APIs.
+
+Upload writes one `vocabulary_logs` row with `source = upload`, `action = import`, the acting `user_id`, effective permission level, affected row count, filename, parser mode, location name, and deleted/reinserted counts.
+
+## Vocabulary SQL API
+
+All vocabulary SQL editor APIs are mounted under `/api/vocabulary/sql/*` and operate only on `vocabulary.db`. Requests do not include `db_key`.
+
+Initial endpoints:
+
+- `POST /api/vocabulary/sql/query`
+- `GET /api/vocabulary/sql/query/columns`
+- `GET /api/vocabulary/sql/query/count`
+- `GET /api/vocabulary/sql/distinct/{table_name}/{column}`
+- `POST /api/vocabulary/sql/distinct-query`
+- `POST /api/vocabulary/sql/mutate`
+- `POST /api/vocabulary/sql/batch-mutate`
+- `POST /api/vocabulary/sql/batch-replace-preview`
+- `POST /api/vocabulary/sql/batch-replace-execute`
+
+Table exposure:
+
+- `vocabulary_entries`: readable/editable.
+- `vocabulary_locations`: readable/editable.
+- `vocabulary_logs`: readable by `manage` only.
+- `vocabulary_permissions`: not exposed through `/api/vocabulary/sql/*`.
+
+Permission rules:
+
+- `manage` can query and edit all exposed editable rows.
+- `edit` can query and edit only rows where `user_id = current_user.id`.
+- Create operations ignore any submitted `user_id` and force `user_id = current_user.id`.
+- `user_id` and `id` are not mutable through generic edit endpoints.
+- `batch-replace-preview` and `batch-replace-execute` use the same server-side `WHERE` builder, so preview and execution have the same row scope.
+- All mutation, batch mutation, batch replace, and upload operations write one operation-level `vocabulary_logs` row.
 
 ## Parsers
 

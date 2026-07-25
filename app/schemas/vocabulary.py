@@ -11,3 +11,20 @@ class VocabularyUploadResponse(BaseModel):
     skipped_count: int
     errors: list[str]
     parser_mode: str
+
+
+class VocabularyItemResponse(BaseModel):
+    standard_word: str
+    local_expression: str
+    ipa: str
+    notes: str
+    informations: str
+    location_name: str
+    location_label: str
+
+
+class VocabularyItemsResponse(BaseModel):
+    items: list[VocabularyItemResponse]
+    total: int
+    page: int
+    page_size: int

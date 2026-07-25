@@ -34,7 +34,7 @@ def create_vocabulary_engine_and_session(db_path: str | Path = VOCABULARY_DB_PAT
 engine, SessionLocal = create_vocabulary_engine_and_session(VOCABULARY_DB_PATH)
 
 
-_TABLE_COLUMNS_WITHOUT_USERNAME = {
+_EXPECTED_TABLE_COLUMNS = {
     "vocabulary_entries": [
         "id",
         "user_id",
@@ -45,8 +45,6 @@ _TABLE_COLUMNS_WITHOUT_USERNAME = {
         "notes",
         "informations",
         "source_filename",
-        "created_at",
-        "updated_at",
     ],
     "vocabulary_locations": [
         "id",
@@ -62,15 +60,25 @@ _TABLE_COLUMNS_WITHOUT_USERNAME = {
         "yindian_region",
         "atlas_region",
         "raw_location_json",
-        "created_at",
-        "updated_at",
     ],
     "vocabulary_permissions": [
         "id",
         "user_id",
         "permission_level",
+    ],
+    "vocabulary_logs": [
+        "id",
+        "operation_id",
+        "user_id",
+        "permission_level",
+        "source",
+        "action",
+        "table_name",
+        "target_scope",
+        "affected_rows",
+        "status",
+        "payload_json",
         "created_at",
-        "updated_at",
     ],
 }
 
@@ -88,26 +96,47 @@ def _table_has_column(conn, table_name: str, column_name: str) -> bool:
     return any(row[1] == column_name for row in rows)
 
 
-def _rebuild_table_without_username(conn, table_name: str) -> None:
-    columns = _TABLE_COLUMNS_WITHOUT_USERNAME[table_name]
-    quoted_columns = ", ".join(f'"{column}"' for column in columns)
+def _get_existing_columns(conn, table_name: str) -> list[str]:
+    rows = conn.exec_driver_sql(f'PRAGMA table_info("{table_name}")').fetchall()
+    return [row[1] for row in rows]
+
+
+def _get_column_metadata(conn, table_name: str) -> dict[str, dict[str, object]]:
+    rows = conn.exec_driver_sql(f'PRAGMA table_info("{table_name}")').fetchall()
+    return {
+        row[1]: {
+            "type": row[2],
+            "notnull": bool(row[3]),
+            "default_value": row[4],
+            "pk": bool(row[5]),
+        }
+        for row in rows
+    }
+
+
+def _rebuild_table_with_expected_columns(conn, table_name: str) -> None:
+    columns = _EXPECTED_TABLE_COLUMNS[table_name]
+    existing_columns = set(_get_existing_columns(conn, table_name))
+    preserved_columns = [column for column in columns if column in existing_columns]
+    quoted_columns = ", ".join(f'"{column}"' for column in preserved_columns)
     temp_table_name = f"{table_name}_new"
 
     conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{temp_table_name}"')
     table = Base.metadata.tables[table_name]
     conn.exec_driver_sql(f'ALTER TABLE "{table_name}" RENAME TO "{temp_table_name}"')
     table.create(bind=conn, checkfirst=False)
-    conn.exec_driver_sql(
-        f'INSERT INTO "{table_name}" ({quoted_columns}) '
-        f'SELECT {quoted_columns} FROM "{temp_table_name}"'
-    )
+    if preserved_columns:
+        conn.exec_driver_sql(
+            f'INSERT INTO "{table_name}" ({quoted_columns}) '
+            f'SELECT {quoted_columns} FROM "{temp_table_name}"'
+        )
     conn.exec_driver_sql(f'DROP TABLE "{temp_table_name}"')
 
 
 def _drop_vocabulary_indexes(conn) -> None:
     rows = conn.exec_driver_sql(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name IN "
-        "('vocabulary_entries', 'vocabulary_locations', 'vocabulary_permissions') "
+        "('vocabulary_entries', 'vocabulary_locations', 'vocabulary_permissions', 'vocabulary_logs') "
         "AND sql IS NOT NULL"
     ).fetchall()
     for row in rows:
@@ -118,7 +147,7 @@ def migrate_remove_username_columns(target_engine: Engine) -> None:
     with target_engine.begin() as conn:
         tables_to_rebuild = [
             table_name
-            for table_name in _TABLE_COLUMNS_WITHOUT_USERNAME
+            for table_name in _EXPECTED_TABLE_COLUMNS
             if _table_exists(conn, table_name) and _table_has_column(conn, table_name, "username")
         ]
         if not tables_to_rebuild:
@@ -126,12 +155,77 @@ def migrate_remove_username_columns(target_engine: Engine) -> None:
 
         _drop_vocabulary_indexes(conn)
         for table_name in tables_to_rebuild:
-            _rebuild_table_without_username(conn, table_name)
+            _rebuild_table_with_expected_columns(conn, table_name)
+
+
+def migrate_remove_unused_timestamp_columns(target_engine: Engine) -> None:
+    with target_engine.begin() as conn:
+        tables_to_rebuild = [
+            table_name
+            for table_name in (
+                "vocabulary_entries",
+                "vocabulary_locations",
+                "vocabulary_permissions",
+            )
+            if _table_exists(conn, table_name)
+            and (
+                _table_has_column(conn, table_name, "created_at")
+                or _table_has_column(conn, table_name, "updated_at")
+            )
+        ]
+        if not tables_to_rebuild:
+            return
+
+        _drop_vocabulary_indexes(conn)
+        for table_name in tables_to_rebuild:
+            _rebuild_table_with_expected_columns(conn, table_name)
+
+
+def migrate_vocabulary_logs_operation_columns(target_engine: Engine) -> None:
+    with target_engine.begin() as conn:
+        if not _table_exists(conn, "vocabulary_logs"):
+            return
+
+        existing_columns = set(_get_existing_columns(conn, "vocabulary_logs"))
+        if "operation_id" not in existing_columns:
+            conn.exec_driver_sql(
+                'ALTER TABLE "vocabulary_logs" ADD COLUMN "operation_id" VARCHAR(36) DEFAULT ""'
+            )
+        if "source" not in existing_columns:
+            conn.exec_driver_sql(
+                'ALTER TABLE "vocabulary_logs" ADD COLUMN "source" VARCHAR(50) DEFAULT "legacy"'
+            )
+        if "status" not in existing_columns:
+            conn.exec_driver_sql(
+                'ALTER TABLE "vocabulary_logs" ADD COLUMN "status" VARCHAR(20) DEFAULT "success"'
+            )
+
+        conn.exec_driver_sql(
+            "UPDATE vocabulary_logs "
+            "SET operation_id = 'legacy-' || id "
+            "WHERE operation_id IS NULL OR operation_id = ''"
+        )
+        conn.exec_driver_sql(
+            "UPDATE vocabulary_logs SET source = 'legacy' "
+            "WHERE source IS NULL OR source = ''"
+        )
+        conn.exec_driver_sql(
+            "UPDATE vocabulary_logs SET status = 'success' "
+            "WHERE status IS NULL OR status = ''"
+        )
+
+        column_metadata = _get_column_metadata(conn, "vocabulary_logs")
+        required_columns = ("operation_id", "source", "status")
+        if any(not column_metadata[column]["notnull"] for column in required_columns):
+            _drop_vocabulary_indexes(conn)
+            _rebuild_table_with_expected_columns(conn, "vocabulary_logs")
 
 
 def migrate_vocabulary_database(target_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=target_engine)
     migrate_remove_username_columns(target_engine)
+    migrate_remove_unused_timestamp_columns(target_engine)
+    migrate_vocabulary_logs_operation_columns(target_engine)
     Base.metadata.create_all(bind=target_engine)
 
 
