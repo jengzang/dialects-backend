@@ -47,6 +47,16 @@ class VocabularyMapPointsResponse(BaseModel):
     omitted_without_coordinates: int
 
 
+class VocabularyLocationOptionResponse(BaseModel):
+    location_name: str
+    location_label: str
+
+
+class VocabularyLocationOptionsResponse(BaseModel):
+    locations: list[VocabularyLocationOptionResponse]
+    total: int
+
+
 class VocabularyLocationResponse(BaseModel):
     user_id: int
     location_name: str

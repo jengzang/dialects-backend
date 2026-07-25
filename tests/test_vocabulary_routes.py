@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.routes.vocabulary import (
     get_vocabulary_items,
+    get_vocabulary_location_options,
     get_vocabulary_logs,
     get_vocabulary_locations,
     get_vocabulary_map_points,
@@ -84,6 +85,27 @@ def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> N
     assert "q" in parameters
     assert "search_fields" in parameters
     assert "locations" in parameters
+    assert "page" not in parameters
+    assert "page_size" not in parameters
+
+
+def test_main_routes_registers_vocabulary_location_options_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/location-options" in paths
+
+
+def test_location_options_endpoint_is_public_read_shape() -> None:
+    parameters = signature(get_vocabulary_location_options).parameters
+
+    assert "db" in parameters
+    assert "current_user" not in parameters
+    assert "user_id" not in parameters
     assert "page" not in parameters
     assert "page_size" not in parameters
 

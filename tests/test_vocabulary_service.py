@@ -13,7 +13,11 @@ from app.service.vocabulary.models import (
     VocabularyPermission,
 )
 from app.service.vocabulary.permissions import get_effective_permission_level
-from app.service.vocabulary.query import query_vocabulary_items, query_vocabulary_map_points
+from app.service.vocabulary.query import (
+    query_vocabulary_items,
+    query_vocabulary_location_options,
+    query_vocabulary_map_points,
+)
 from app.service.vocabulary.service import import_vocabulary_upload
 
 
@@ -550,5 +554,54 @@ def test_query_vocabulary_map_points_aggregates_locations_without_pagination(tmp
         assert result.points[0].location_label == "贵州 / 贵阳 / 息烽"
         assert result.points[0].longitude == 106.74
         assert result.points[0].latitude == 27.09
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_location_options_returns_distinct_public_names(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_location_options(session=session)
+
+        assert result.total == 2
+        assert [
+            (location.location_name, location.location_label)
+            for location in result.locations
+        ] == [
+            ("天柱竹林", "贵州 / 黔东南 / 天柱"),
+            ("息烽", "贵州 / 贵阳 / 息烽"),
+        ]
+        assert not hasattr(result.locations[0], "user_id")
+        assert not hasattr(result.locations[0], "coordinates")
     finally:
         session.close()

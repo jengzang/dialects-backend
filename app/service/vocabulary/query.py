@@ -40,6 +40,18 @@ class VocabularyMapPointsResult:
     omitted_without_coordinates: int
 
 
+@dataclass(frozen=True)
+class VocabularyLocationOption:
+    location_name: str
+    location_label: str
+
+
+@dataclass(frozen=True)
+class VocabularyLocationOptionsResult:
+    locations: list[VocabularyLocationOption]
+    total: int
+
+
 SEARCH_FIELD_COLUMNS = {
     "definition": ("e.standard_word",),
     "headword": ("e.local_expression",),
@@ -298,4 +310,45 @@ def query_vocabulary_map_points(
         total_entries=total_entries,
         total_points=len(points),
         omitted_without_coordinates=omitted_without_coordinates,
+    )
+
+
+def query_vocabulary_location_options(*, session: Session) -> VocabularyLocationOptionsResult:
+    conn = session.connection().connection
+    cursor = conn.cursor()
+    select_sql = (
+        "SELECT "
+        "location_name, province, city, county, town, "
+        "administrative_village, natural_village, MIN(id) AS first_location_id "
+        "FROM vocabulary_locations "
+        "GROUP BY "
+        "location_name, province, city, county, town, "
+        "administrative_village, natural_village "
+        "ORDER BY location_name ASC, first_location_id ASC"
+    )
+
+    cursor.execute(select_sql)
+    column_names = [description[0] for description in cursor.description]
+    rows = [
+        {column_names[index]: value for index, value in enumerate(row)}
+        for row in cursor.fetchall()
+    ]
+
+    seen_location_names = set()
+    locations: list[VocabularyLocationOption] = []
+    for row in rows:
+        location_name = row["location_name"] or ""
+        if not location_name or location_name in seen_location_names:
+            continue
+        seen_location_names.add(location_name)
+        locations.append(
+            VocabularyLocationOption(
+                location_name=location_name,
+                location_label=_format_location(row),
+            )
+        )
+
+    return VocabularyLocationOptionsResult(
+        locations=locations,
+        total=len(locations),
     )

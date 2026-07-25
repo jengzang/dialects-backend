@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.vocabulary import (
     VocabularyItemsResponse,
+    VocabularyLocationOptionsResponse,
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
     VocabularyLocationUpdateRequest,
@@ -21,7 +22,11 @@ from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyLocation, VocabularyLog, VocabularyPermission
 from app.service.vocabulary.permissions import get_effective_permission_level
-from app.service.vocabulary.query import query_vocabulary_items, query_vocabulary_map_points
+from app.service.vocabulary.query import (
+    query_vocabulary_items,
+    query_vocabulary_location_options,
+    query_vocabulary_map_points,
+)
 from app.service.vocabulary.service import import_vocabulary_upload
 
 
@@ -127,6 +132,16 @@ def get_vocabulary_map_points(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary map query failed: {exc}") from exc
+
+
+@router.get("/location-options", response_model=VocabularyLocationOptionsResponse)
+def get_vocabulary_location_options(
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return query_vocabulary_location_options(session=db)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vocabulary location options query failed: {exc}") from exc
 
 
 @router.get("/locations", response_model=VocabularyLocationsResponse)
