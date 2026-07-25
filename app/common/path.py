@@ -85,7 +85,6 @@ DB_MAPPING = {
     "dialects": DIALECTS_DB_USER,
     "dialects_admin": DIALECTS_DB_ADMIN,
     "yubao": YUBAO_DB_PATH,
-    "vocabulary": VOCABULARY_DB_PATH,
     "logs": LOGS_DATABASE_PATH,
     # "supple": SUPPLE_DB_PATH,
     # "auth": USER_DATABASE_PATH

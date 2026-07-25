@@ -64,6 +64,7 @@ class SqlAdminPermissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["role"], "admin")
         self.assertIn("query", result["editable_db_keys"])
         self.assertIn("query_admin", result["editable_db_keys"])
+        self.assertNotIn("vocabulary", result["editable_db_keys"])
         self.assertNotIn("permissions", result)
 
     async def test_my_sql_permissions_only_reports_current_user_editable_databases(self) -> None:
@@ -149,6 +150,30 @@ class SqlAdminPermissionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
         self.assertEqual(rows, [("old",)])
+
+    async def test_generic_sql_does_not_expose_vocabulary_database(self) -> None:
+        from app.common.path import DB_MAPPING
+
+        self.assertNotIn("vocabulary", DB_MAPPING)
+
+        with self.assertRaises(HTTPException) as raised:
+            await mutate_table(
+                MutationParams(
+                    db_key="vocabulary",
+                    table_name="vocabulary_entries",
+                    action="create",
+                    data={
+                        "location_name": "息烽",
+                        "standard_word": "太阳",
+                        "local_expression": "日头",
+                        "ipa": "ipa",
+                    },
+                ),
+                current_user=_FakeUser(user_id=1, role="admin"),
+                auth_db=_FakeAuthDb(can_write=None),
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
 
 
 if __name__ == "__main__":
