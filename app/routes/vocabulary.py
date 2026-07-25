@@ -1,10 +1,14 @@
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.schemas.vocabulary import (
     VocabularyItemsResponse,
+    VocabularyLocationResponse,
+    VocabularyLocationsResponse,
+    VocabularyLocationUpdateRequest,
+    VocabularyMapPointsResponse,
     VocabularyPermissionResponse,
     VocabularyPermissionUpdateRequest,
     VocabularyUploadResponse,
@@ -13,12 +17,53 @@ from app.service.auth.core.dependencies import get_current_admin_user, get_curre
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.models import VocabularyPermission
-from app.service.vocabulary.query import query_vocabulary_items
+from app.service.vocabulary.models import VocabularyLocation, VocabularyPermission
+from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.query import query_vocabulary_items, query_vocabulary_map_points
 from app.service.vocabulary.service import import_vocabulary_upload
 
 
 router = APIRouter()
+
+
+def _location_label(location: VocabularyLocation) -> str:
+    parts = [
+        location.province,
+        location.city,
+        location.county,
+        location.town,
+        location.administrative_village,
+        location.natural_village,
+    ]
+    label = " / ".join(part for part in parts if part)
+    return label or location.location_name
+
+
+def _location_response(location: VocabularyLocation) -> VocabularyLocationResponse:
+    return VocabularyLocationResponse(
+        user_id=location.user_id,
+        location_name=location.location_name,
+        coordinates=location.coordinates,
+        province=location.province or "",
+        city=location.city or "",
+        county=location.county or "",
+        town=location.town or "",
+        administrative_village=location.administrative_village or "",
+        natural_village=location.natural_village or "",
+        yindian_region=location.yindian_region or "",
+        atlas_region=location.atlas_region or "",
+        location_label=_location_label(location),
+    )
+
+
+def _string_value(value: Any, *, allow_empty: bool = True) -> str:
+    if value is None:
+        cleaned = ""
+    else:
+        cleaned = str(value).strip()
+    if not allow_empty and not cleaned:
+        raise HTTPException(status_code=400, detail="coordinates 不能为空")
+    return cleaned
 
 
 @router.get("/items", response_model=VocabularyItemsResponse)
@@ -43,6 +88,134 @@ def get_vocabulary_items(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary query failed: {exc}") from exc
+
+
+@router.get("/map-points", response_model=VocabularyMapPointsResponse)
+def get_vocabulary_map_points(
+    q: Optional[str] = Query(default=None),
+    search_fields: Optional[list[str]] = Query(default=None),
+    locations: Optional[list[str]] = Query(default=None),
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return query_vocabulary_map_points(
+            session=db,
+            q=q,
+            search_fields=search_fields,
+            locations=locations,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vocabulary map query failed: {exc}") from exc
+
+
+@router.get("/locations", response_model=VocabularyLocationsResponse)
+def get_vocabulary_locations(
+    user_id: Optional[int] = Query(default=None),
+    location_name: Optional[str] = Query(default=None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    query = db.query(VocabularyLocation)
+
+    if permission_level == "edit":
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif user_id is not None:
+        query = query.filter(VocabularyLocation.user_id == user_id)
+
+    if location_name:
+        query = query.filter(VocabularyLocation.location_name == location_name)
+
+    total = query.count()
+    rows = (
+        query.order_by(
+            VocabularyLocation.user_id.asc(),
+            VocabularyLocation.location_name.asc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return VocabularyLocationsResponse(
+        locations=[_location_response(row) for row in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.patch("/locations/{location_name}", response_model=VocabularyLocationResponse)
+def update_vocabulary_location(
+    location_name: str,
+    params: VocabularyLocationUpdateRequest,
+    user_id: Optional[int] = Query(default=None),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    raw_updates = params.model_dump(exclude_unset=True)
+    if not raw_updates:
+        raise HTTPException(status_code=400, detail="至少需要提供一个可更新字段")
+
+    updates: dict[str, str] = {}
+    for field, value in raw_updates.items():
+        updates[field] = _string_value(value, allow_empty=field != "coordinates")
+
+    query = db.query(VocabularyLocation).filter(
+        VocabularyLocation.location_name == location_name,
+    )
+    if permission_level == "edit":
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="edit 用户只能编辑自己的地点信息")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif user_id is not None:
+        query = query.filter(VocabularyLocation.user_id == user_id)
+
+    matches = query.order_by(VocabularyLocation.user_id.asc()).all()
+    if not matches:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+    if permission_level == "manage" and user_id is None and len(matches) > 1:
+        raise HTTPException(status_code=400, detail="同名地点属于多个用户，请通过 user_id 指定目标")
+
+    target = matches[0]
+    changes = {}
+    for field, value in updates.items():
+        old_value = getattr(target, field) or ""
+        if old_value != value:
+            changes[field] = {"old": old_value, "new": value}
+        setattr(target, field, value)
+
+    try:
+        record_vocabulary_log(
+            session=db,
+            user_id=current_user.id,
+            permission_level=permission_level,
+            source="location_editor",
+            action="update_location",
+            table_name="vocabulary_locations",
+            target_scope=f"user_id = {target.user_id}; location_name = {location_name}",
+            affected_rows=1,
+            payload={
+                "location_name": location_name,
+                "target_user_id": target.user_id,
+                "updated_fields": sorted(updates),
+                "changes": changes,
+            },
+        )
+        db.commit()
+        db.refresh(target)
+    except Exception:
+        db.rollback()
+        raise
+
+    return _location_response(target)
 
 
 @router.post("/upload", response_model=VocabularyUploadResponse)

@@ -13,7 +13,7 @@ from app.service.vocabulary.models import (
     VocabularyPermission,
 )
 from app.service.vocabulary.permissions import get_effective_permission_level
-from app.service.vocabulary.query import query_vocabulary_items
+from app.service.vocabulary.query import query_vocabulary_items, query_vocabulary_map_points
 from app.service.vocabulary.service import import_vocabulary_upload
 
 
@@ -46,6 +46,7 @@ def test_vocabulary_tables_store_user_id_without_username(tmp_path: Path) -> Non
         for table in (VocabularyEntry, VocabularyLocation, VocabularyPermission):
             assert "created_at" not in table.__table__.columns
             assert "updated_at" not in table.__table__.columns
+        assert "raw_location_json" not in VocabularyLocation.__table__.columns
     finally:
         session.close()
 
@@ -93,6 +94,59 @@ def test_migration_backfills_and_constrains_vocabulary_log_operation_columns(tmp
     assert column_info["source"]["notnull"]
     assert column_info["status"]["notnull"]
     assert row == ("legacy-1", "legacy", "success")
+
+
+def test_migration_removes_legacy_location_raw_json_column(tmp_path: Path) -> None:
+    engine, _ = create_vocabulary_engine_and_session(tmp_path / "legacy_locations.db")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE vocabulary_locations (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                location_name VARCHAR(200) NOT NULL,
+                coordinates VARCHAR(200) NOT NULL,
+                province VARCHAR(100),
+                city VARCHAR(100),
+                county VARCHAR(100),
+                town VARCHAR(100),
+                administrative_village VARCHAR(200),
+                natural_village VARCHAR(200),
+                yindian_region VARCHAR(200),
+                atlas_region VARCHAR(200),
+                raw_location_json TEXT
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            INSERT INTO vocabulary_locations (
+                user_id, location_name, coordinates, province, city,
+                county, town, administrative_village, natural_village,
+                yindian_region, atlas_region, raw_location_json
+            )
+            VALUES (
+                7, '息烽', '106.734862,27.09809', '贵州', '贵阳',
+                '息烽', '', '', '', '中上江-荆益-川黔',
+                '西南官话-川黔片-成渝小片', '{"location_name":"息烽"}'
+            )
+            """
+        )
+
+    migrate_vocabulary_database(engine)
+
+    with engine.connect() as conn:
+        columns = [
+            row[1]
+            for row in conn.exec_driver_sql('PRAGMA table_info("vocabulary_locations")').fetchall()
+        ]
+        row = conn.exec_driver_sql(
+            "SELECT user_id, location_name, coordinates, province, city, county "
+            "FROM vocabulary_locations"
+        ).fetchone()
+
+    assert "raw_location_json" not in columns
+    assert row == (7, "息烽", "106.734862,27.09809", "贵州", "贵阳", "息烽")
 
 
 def test_edit_permission_resolves_to_edit(tmp_path: Path) -> None:
@@ -400,5 +454,101 @@ def test_query_vocabulary_items_filters_locations_independently(tmp_path: Path) 
 
         assert result.total == 1
         assert result.items[0].location_name == "天柱竹林"
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_points_aggregates_locations_without_pagination(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="无坐标点",
+                    coordinates="unknown",
+                    province="贵州",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="zɿ2 tʰəu2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="红日",
+                    local_expression="日头",
+                    ipa="zɿ2 tʰəu2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ɤ3 tiao2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="无坐标点",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ŋye2 kuaŋ1",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_map_points(session=session, q="日头")
+
+        assert result.total_entries == 4
+        assert result.total_points == 2
+        assert result.omitted_without_coordinates == 1
+        assert [(point.location_name, point.entry_count) for point in result.points] == [
+            ("息烽", 2),
+            ("天柱竹林", 1),
+        ]
+        assert result.points[0].location_label == "贵州 / 贵阳 / 息烽"
+        assert result.points[0].longitude == 106.74
+        assert result.points[0].latitude == 27.09
     finally:
         session.close()

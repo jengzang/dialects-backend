@@ -23,6 +23,23 @@ class VocabularyItemsResult:
     page_size: int
 
 
+@dataclass(frozen=True)
+class VocabularyMapPoint:
+    location_name: str
+    location_label: str
+    longitude: float
+    latitude: float
+    entry_count: int
+
+
+@dataclass(frozen=True)
+class VocabularyMapPointsResult:
+    points: list[VocabularyMapPoint]
+    total_entries: int
+    total_points: int
+    omitted_without_coordinates: int
+
+
 SEARCH_FIELD_COLUMNS = {
     "definition": ("e.standard_word",),
     "headword": ("e.local_expression",),
@@ -97,6 +114,20 @@ def _format_location(row: dict) -> str:
     return row["location_name"] or ""
 
 
+def _parse_coordinates(value: str | None) -> tuple[float, float] | None:
+    if not value:
+        return None
+    parts = value.replace("，", ",").split(",")
+    if len(parts) < 2:
+        return None
+    try:
+        longitude = float(parts[0].strip())
+        latitude = float(parts[1].strip())
+    except ValueError:
+        return None
+    return longitude, latitude
+
+
 def _row_to_vocabulary_item(row: dict) -> VocabularyItem:
     return VocabularyItem(
         standard_word=row["standard_word"] or "",
@@ -109,22 +140,12 @@ def _row_to_vocabulary_item(row: dict) -> VocabularyItem:
     )
 
 
-def query_vocabulary_items(
+def _build_filter_clause(
     *,
-    session: Session,
-    q: str | None = None,
-    search_fields: str | Iterable[str] | None = None,
-    locations: str | Iterable[str] | None = None,
-    page: int = 1,
-    page_size: int = 50,
-) -> VocabularyItemsResult:
-    if page < 1:
-        raise ValueError("page must be at least 1")
-    if page_size < 1:
-        raise ValueError("page_size must be at least 1")
-    if page_size > 200:
-        raise ValueError("page_size cannot exceed 200")
-
+    q: str | None,
+    search_fields: str | Iterable[str] | None,
+    locations: str | Iterable[str] | None,
+) -> tuple[str, list[str]]:
     fields = _normalize_search_fields(search_fields)
     location_terms = _normalize_multi_value(locations)
     clauses: list[str] = []
@@ -151,7 +172,30 @@ def query_vocabulary_items(
             terms=location_terms,
         )
 
-    where_clause = " AND ".join(clauses) if clauses else "1=1"
+    return " AND ".join(clauses) if clauses else "1=1", values
+
+
+def query_vocabulary_items(
+    *,
+    session: Session,
+    q: str | None = None,
+    search_fields: str | Iterable[str] | None = None,
+    locations: str | Iterable[str] | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> VocabularyItemsResult:
+    if page < 1:
+        raise ValueError("page must be at least 1")
+    if page_size < 1:
+        raise ValueError("page_size must be at least 1")
+    if page_size > 200:
+        raise ValueError("page_size cannot exceed 200")
+
+    where_clause, values = _build_filter_clause(
+        q=q,
+        search_fields=search_fields,
+        locations=locations,
+    )
     offset = (page - 1) * page_size
     conn = session.connection().connection
     cursor = conn.cursor()
@@ -188,4 +232,70 @@ def query_vocabulary_items(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+def query_vocabulary_map_points(
+    *,
+    session: Session,
+    q: str | None = None,
+    search_fields: str | Iterable[str] | None = None,
+    locations: str | Iterable[str] | None = None,
+) -> VocabularyMapPointsResult:
+    where_clause, values = _build_filter_clause(
+        q=q,
+        search_fields=search_fields,
+        locations=locations,
+    )
+    conn = session.connection().connection
+    cursor = conn.cursor()
+    select_sql = (
+        "SELECT "
+        "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
+        "l.administrative_village, l.natural_village, COUNT(*) AS entry_count, "
+        "MIN(e.id) AS first_entry_id "
+        "FROM vocabulary_entries e "
+        "LEFT JOIN vocabulary_locations l "
+        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
+        f"WHERE {where_clause} "
+        "GROUP BY "
+        "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
+        "l.administrative_village, l.natural_village "
+        "ORDER BY first_entry_id ASC"
+    )
+
+    cursor.execute(select_sql, values)
+    column_names = [description[0] for description in cursor.description]
+    rows = [
+        {column_names[index]: value for index, value in enumerate(row)}
+        for row in cursor.fetchall()
+    ]
+
+    points: list[VocabularyMapPoint] = []
+    omitted_without_coordinates = 0
+    total_entries = 0
+    for row in rows:
+        entry_count = int(row["entry_count"] or 0)
+        total_entries += entry_count
+        parsed_coordinates = _parse_coordinates(row["coordinates"])
+        if parsed_coordinates is None:
+            omitted_without_coordinates += 1
+            continue
+
+        longitude, latitude = parsed_coordinates
+        points.append(
+            VocabularyMapPoint(
+                location_name=row["location_name"] or "",
+                location_label=_format_location(row),
+                longitude=longitude,
+                latitude=latitude,
+                entry_count=entry_count,
+            )
+        )
+
+    return VocabularyMapPointsResult(
+        points=points,
+        total_entries=total_entries,
+        total_points=len(points),
+        omitted_without_coordinates=omitted_without_coordinates,
     )

@@ -15,7 +15,6 @@ class NormalizedLocation:
     natural_village: str = ""
     yindian_region: str = ""
     atlas_region: str = ""
-    raw_location_json: str = ""
 
 
 _LOCATION_ALIASES = {
@@ -69,7 +68,6 @@ def normalize_location_payload(payload: Mapping[str, Any] | str) -> NormalizedLo
     else:
         payload_map = payload
 
-    raw_location_json = json.dumps(payload_map, ensure_ascii=False, sort_keys=True)
     values = {
         field: _get_alias(payload_map, field)
         for field in _LOCATION_ALIASES
@@ -91,5 +89,4 @@ def normalize_location_payload(payload: Mapping[str, Any] | str) -> NormalizedLo
         natural_village=values["natural_village"],
         yindian_region=values["yindian_region"],
         atlas_region=values["atlas_region"],
-        raw_location_json=raw_location_json,
     )

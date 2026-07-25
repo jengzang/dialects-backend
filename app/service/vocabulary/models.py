@@ -52,8 +52,6 @@ class VocabularyLocation(Base):
     natural_village = Column(String(200), default="")
     yindian_region = Column(String(200), default="")
     atlas_region = Column(String(200), default="")
-    raw_location_json = Column(Text, default="")
-
     __table_args__ = (
         UniqueConstraint("user_id", "location_name", name="uq_vocabulary_location_user_name"),
         Index("idx_vocabulary_locations_user_location", "user_id", "location_name"),

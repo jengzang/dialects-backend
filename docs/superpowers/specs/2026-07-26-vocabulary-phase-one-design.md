@@ -11,7 +11,7 @@ This phase covers data creation, replacement-on-upload, and a vocabulary-scoped 
 Phase one includes:
 
 - A new `vocabulary.db` SQLite database.
-- Three tables: entries, locations, and permissions.
+- Four tables: entries, locations, permissions, and operation logs.
 - A new upload API under `/api/vocabulary`.
 - A vocabulary-only SQL query/edit API under `/api/vocabulary/sql/*`.
 - File parsers for table files and two document formats.
@@ -69,7 +69,6 @@ Columns:
 - `natural_village`
 - `yindian_region`: 音典分区.
 - `atlas_region`: 地图集 or 方音图鉴分区.
-- `raw_location_json`: original frontend location JSON as text.
 
 Uniqueness:
 
@@ -176,6 +175,42 @@ The phase-one rule is user scoped: an `edit` user's upload replaces only that us
 
 Upload writes one `vocabulary_logs` row with `source = upload`, `action = import`, the acting `user_id`, effective permission level, affected row count, filename, parser mode, location name, and deleted/reinserted counts.
 
+### `GET /api/vocabulary/locations`
+
+Reads location metadata for the dedicated vocabulary database.
+
+Query parameters:
+
+- `user_id`: optional. Only `manage` and admin users can use this to inspect a specific user's locations. `edit` users are always scoped to their own `user_id`.
+- `location_name`: optional exact short-name filter.
+- `page`: default `1`.
+- `page_size`: default `50`, max `200`.
+
+Response rows expose `user_id`, `location_name`, editable metadata fields, and `location_label`. They do not expose the internal location `id`.
+
+### `PATCH /api/vocabulary/locations/{location_name}`
+
+Updates metadata for an existing vocabulary location. `location_name` is the path identity and cannot be changed by this API.
+
+Body fields are optional, but at least one must be present:
+
+- `coordinates`
+- `province`
+- `city`
+- `county`
+- `town`
+- `administrative_village`
+- `natural_village`
+- `yindian_region`
+- `atlas_region`
+
+Rules:
+
+- `coordinates`, if supplied, cannot be empty.
+- `edit` users can update only the matching `(current_user.id, location_name)` row. Passing another `user_id` returns `403`.
+- `manage` and admin users can update any user's row. If more than one row has the same `location_name`, the request must include `?user_id=...` to disambiguate.
+- Successful updates write one `vocabulary_logs` row with `source = location_editor`, `action = update_location`, and `table_name = vocabulary_locations`.
+
 ## Vocabulary SQL API
 
 All vocabulary SQL editor APIs are mounted under `/api/vocabulary/sql/*` and operate only on `vocabulary.db`. Requests do not include `db_key`.
@@ -206,7 +241,7 @@ Permission rules:
 - Create operations ignore any submitted `user_id` and force `user_id = current_user.id`.
 - `user_id` and `id` are not mutable through generic edit endpoints.
 - `batch-replace-preview` and `batch-replace-execute` use the same server-side `WHERE` builder, so preview and execution have the same row scope.
-- All mutation, batch mutation, batch replace, and upload operations write one operation-level `vocabulary_logs` row.
+- All mutation, batch mutation, batch replace, upload, permission admin, and dedicated location metadata updates write one operation-level `vocabulary_logs` row.
 
 ## Parsers
 
@@ -271,7 +306,7 @@ Each paragraph is one vocabulary row:
 
 New code should be isolated under `app/service/vocabulary/`:
 
-- `models.py`: SQLAlchemy models for the three tables.
+- `models.py`: SQLAlchemy models for the vocabulary tables.
 - `database.py`: engine, session dependency, and schema migration.
 - `permissions.py`: effective permission lookup.
 - `location.py`: location JSON normalization.

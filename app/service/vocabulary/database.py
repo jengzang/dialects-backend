@@ -59,7 +59,6 @@ _EXPECTED_TABLE_COLUMNS = {
         "natural_village",
         "yindian_region",
         "atlas_region",
-        "raw_location_json",
     ],
     "vocabulary_permissions": [
         "id",
@@ -181,6 +180,17 @@ def migrate_remove_unused_timestamp_columns(target_engine: Engine) -> None:
             _rebuild_table_with_expected_columns(conn, table_name)
 
 
+def migrate_remove_legacy_location_raw_json_column(target_engine: Engine) -> None:
+    with target_engine.begin() as conn:
+        if not _table_exists(conn, "vocabulary_locations"):
+            return
+        if not _table_has_column(conn, "vocabulary_locations", "raw_location_json"):
+            return
+
+        _drop_vocabulary_indexes(conn)
+        _rebuild_table_with_expected_columns(conn, "vocabulary_locations")
+
+
 def migrate_vocabulary_logs_operation_columns(target_engine: Engine) -> None:
     with target_engine.begin() as conn:
         if not _table_exists(conn, "vocabulary_logs"):
@@ -225,6 +235,7 @@ def migrate_vocabulary_database(target_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=target_engine)
     migrate_remove_username_columns(target_engine)
     migrate_remove_unused_timestamp_columns(target_engine)
+    migrate_remove_legacy_location_raw_json_column(target_engine)
     migrate_vocabulary_logs_operation_columns(target_engine)
     Base.metadata.create_all(bind=target_engine)
 

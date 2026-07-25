@@ -47,7 +47,6 @@ def _upsert_location(
     location.natural_village = normalized_location.natural_village
     location.yindian_region = normalized_location.yindian_region
     location.atlas_region = normalized_location.atlas_region
-    location.raw_location_json = normalized_location.raw_location_json
     return location
 
 

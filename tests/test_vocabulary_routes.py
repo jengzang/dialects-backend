@@ -1,10 +1,20 @@
 from inspect import signature
 from pathlib import Path
 
-from app.routes.vocabulary import get_vocabulary_items, upload_vocabulary
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from app.routes.vocabulary import (
+    get_vocabulary_items,
+    get_vocabulary_locations,
+    get_vocabulary_map_points,
+    update_vocabulary_location,
+    upload_vocabulary,
+)
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
 from app.service.vocabulary.database import create_vocabulary_engine_and_session
-from app.service.vocabulary.models import Base, VocabularyLog, VocabularyPermission
+from app.service.vocabulary.models import Base, VocabularyLocation, VocabularyLog, VocabularyPermission
 
 
 class _User:
@@ -54,6 +64,53 @@ def test_items_endpoint_accepts_query_parameters() -> None:
     assert "locations" in parameters
     assert "page" in parameters
     assert "page_size" in parameters
+
+
+def test_main_routes_registers_vocabulary_map_points_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/map-points" in paths
+
+
+def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> None:
+    parameters = signature(get_vocabulary_map_points).parameters
+
+    assert "q" in parameters
+    assert "search_fields" in parameters
+    assert "locations" in parameters
+    assert "page" not in parameters
+    assert "page_size" not in parameters
+
+
+def test_main_routes_registers_vocabulary_locations_endpoints() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/locations" in paths
+    assert "/api/vocabulary/locations/{location_name}" in paths
+
+
+def test_locations_endpoints_depend_on_current_user() -> None:
+    for endpoint in (get_vocabulary_locations, update_vocabulary_location):
+        dependency = signature(endpoint).parameters["current_user"].default.dependency
+        assert dependency is get_current_user
+
+
+def test_location_update_schema_rejects_location_name() -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    assert "location_name" not in VocabularyLocationUpdateRequest.model_fields
+    with pytest.raises(ValidationError):
+        VocabularyLocationUpdateRequest(location_name="新简称", city="贵阳")
 
 
 def test_main_routes_registers_vocabulary_sql_endpoints() -> None:
@@ -137,5 +194,266 @@ def test_admin_permission_endpoint_writes_vocabulary_log(tmp_path: Path) -> None
         assert log.table_name == "vocabulary_permissions"
         assert log.affected_rows == 1
         assert "target_user_id = 7" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_edit_locations_list_only_returns_current_users_rows(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.73,27.10",
+                    province="贵州",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="罗田胜利",
+                    coordinates="115.46,31.13",
+                    province="湖北",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = get_vocabulary_locations(
+            user_id=None,
+            location_name=None,
+            page=1,
+            page_size=20,
+            current_user=_User(7),
+            db=session,
+        )
+
+        assert result.total == 1
+        assert [row.user_id for row in result.locations] == [7]
+        assert result.locations[0].location_name == "息烽"
+    finally:
+        session.close()
+
+
+def test_manage_locations_list_can_filter_by_user_id_and_location_name(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.73,27.10",
+                    province="贵州",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="息烽",
+                    coordinates="106.74,27.11",
+                    province="贵州",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="罗田胜利",
+                    coordinates="115.46,31.13",
+                    province="湖北",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = get_vocabulary_locations(
+            user_id=8,
+            location_name="息烽",
+            page=1,
+            page_size=20,
+            current_user=_User(1, role="admin"),
+            db=session,
+        )
+
+        assert result.total == 1
+        assert result.locations[0].user_id == 8
+        assert result.locations[0].location_name == "息烽"
+    finally:
+        session.close()
+
+
+def test_edit_location_patch_updates_own_location_and_logs(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="old",
+                    province="贵州",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="息烽",
+                    coordinates="other",
+                    province="贵州",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(
+                coordinates="106.734862,27.09809",
+                city="贵阳",
+                county="息烽",
+            ),
+            user_id=None,
+            current_user=_User(7),
+            db=session,
+        )
+
+        own = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 7,
+            VocabularyLocation.location_name == "息烽",
+        ).one()
+        other = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 8,
+            VocabularyLocation.location_name == "息烽",
+        ).one()
+        log = session.query(VocabularyLog).one()
+
+        assert result.user_id == 7
+        assert result.location_name == "息烽"
+        assert own.coordinates == "106.734862,27.09809"
+        assert own.city == "贵阳"
+        assert other.coordinates == "other"
+        assert log.user_id == 7
+        assert log.permission_level == "edit"
+        assert log.source == "location_editor"
+        assert log.action == "update_location"
+        assert log.table_name == "vocabulary_locations"
+        assert log.affected_rows == 1
+        assert "user_id = 7" in log.target_scope
+        assert "location_name = 息烽" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_edit_location_patch_cannot_target_other_user_id(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyLocation(
+                user_id=8,
+                location_name="息烽",
+                coordinates="other",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            update_vocabulary_location(
+                location_name="息烽",
+                params=VocabularyLocationUpdateRequest(city="贵阳"),
+                user_id=8,
+                current_user=_User(7),
+                db=session,
+            )
+
+        assert raised.value.status_code == 403
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_manage_location_patch_requires_user_id_when_name_is_ambiguous(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.73,27.10",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="息烽",
+                    coordinates="106.74,27.11",
+                ),
+            ]
+        )
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            update_vocabulary_location(
+                location_name="息烽",
+                params=VocabularyLocationUpdateRequest(city="贵阳"),
+                user_id=None,
+                current_user=_User(1, role="admin"),
+                db=session,
+            )
+
+        assert raised.value.status_code == 400
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_manage_location_patch_can_update_target_user_location(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.73,27.10",
+                    city="旧",
+                ),
+                VocabularyLocation(
+                    user_id=8,
+                    location_name="息烽",
+                    coordinates="106.74,27.11",
+                    city="旧",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(city="贵阳"),
+            user_id=8,
+            current_user=_User(1, role="admin"),
+            db=session,
+        )
+
+        target = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 8,
+            VocabularyLocation.location_name == "息烽",
+        ).one()
+        untouched = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 7,
+            VocabularyLocation.location_name == "息烽",
+        ).one()
+        log = session.query(VocabularyLog).one()
+
+        assert result.user_id == 8
+        assert target.city == "贵阳"
+        assert untouched.city == "旧"
+        assert log.user_id == 1
+        assert log.permission_level == "manage"
+        assert "user_id = 8" in log.target_scope
     finally:
         session.close()
