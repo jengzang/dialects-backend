@@ -15,6 +15,7 @@ from app.schemas.vocabulary_sql import (
 from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
+from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.permissions import get_effective_permission_level
 
@@ -184,7 +185,37 @@ def _where_sql(clauses: list[str]) -> str:
 
 
 def _row_to_dict(cursor, row) -> dict[str, Any]:
-    return {description[0]: row[index] for index, description in enumerate(cursor.description)}
+    result = {}
+    for index, description in enumerate(cursor.description):
+        column_name = "rowid" if description[0] == "__rowid__" else description[0]
+        result[column_name] = row[index]
+    return result
+
+
+def _fetch_one_row_snapshot(
+    cursor,
+    *,
+    table_name: str,
+    clauses: list[str],
+    values: list[Any],
+) -> dict[str, Any] | None:
+    cursor.execute(
+        f"SELECT rowid AS __rowid__, * FROM {_quote_identifier(table_name)} WHERE {_where_sql(clauses)} LIMIT 1",
+        values,
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _row_to_dict(cursor, row)
+
+
+def _select_columns(snapshot: dict[str, Any] | None, columns: Iterable[str], pk_column: str) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    selected = {pk_column: snapshot.get(pk_column)}
+    for column in columns:
+        selected[column] = snapshot.get(column)
+    return selected
 
 
 def _sanitize_create_data(record: dict[str, Any], user: User, permission_level: str) -> dict[str, Any]:
@@ -393,6 +424,11 @@ async def mutate_table(
             )
             affected_rows = cursor.rowcount
             target_scope = f"user_id = {data.get('user_id')}"
+            payload = {
+                **params.model_dump(),
+                "after": {"id": cursor.lastrowid},
+                "rollback_supported": True,
+            }
         elif params.action == "update":
             _validate_mutable_columns(db, params.table_name, params.data.keys(), "data字段")
             if not params.data:
@@ -404,10 +440,21 @@ async def mutate_table(
                 current_user,
             )
             clauses.append(f"{pk_q} = ?")
+            before_snapshot = _fetch_one_row_snapshot(
+                cursor,
+                table_name=params.table_name,
+                clauses=clauses,
+                values=where_values + [params.pk_value],
+            )
             sql = f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}"
             cursor.execute(sql, list(params.data.values()) + where_values + [params.pk_value])
             affected_rows = cursor.rowcount
             target_scope = f"{scope_description}; {params.pk_column} = {params.pk_value}"
+            payload = {
+                **params.model_dump(),
+                "before": _select_columns(before_snapshot, params.data.keys(), params.pk_column),
+                "rollback_supported": before_snapshot is not None,
+            }
         else:
             clauses, where_values, scope_description = _scope_clause(
                 params.table_name,
@@ -415,12 +462,23 @@ async def mutate_table(
                 current_user,
             )
             clauses.append(f"{pk_q} = ?")
+            before_snapshot = _fetch_one_row_snapshot(
+                cursor,
+                table_name=params.table_name,
+                clauses=clauses,
+                values=where_values + [params.pk_value],
+            )
             cursor.execute(
                 f"DELETE FROM {table_q} WHERE {_where_sql(clauses)}",
                 where_values + [params.pk_value],
             )
             affected_rows = cursor.rowcount
             target_scope = f"{scope_description}; {params.pk_column} = {params.pk_value}"
+            payload = {
+                **params.model_dump(),
+                "before": before_snapshot,
+                "rollback_supported": before_snapshot is not None,
+            }
 
         _log_write(
             db,
@@ -431,7 +489,7 @@ async def mutate_table(
             table_name=params.table_name,
             target_scope=target_scope,
             affected_rows=affected_rows,
-            payload=params.model_dump(),
+            payload=payload,
         )
         db.commit()
         return {"status": "success", "action": params.action, "affected_rows": affected_rows}
@@ -440,6 +498,7 @@ async def mutate_table(
         raise
     except Exception as exc:
         db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
         raise HTTPException(status_code=400, detail=f"操作失败: {exc}") from exc
 
 
@@ -469,17 +528,25 @@ async def batch_mutate_table(
             cols_q = ",".join(_quote_identifier(col) for col in cols)
             placeholders = ",".join(["?"] * len(cols))
             sql = f"INSERT INTO {table_q} ({cols_q}) VALUES ({placeholders})"
+            created_ids = []
             for i, record in enumerate(records):
                 try:
                     cursor.execute(sql, [record.get(col) for col in cols])
                     success_count += 1
+                    created_ids.append(cursor.lastrowid)
                 except Exception as exc:
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
             target_scope = f"user_id = {current_user.id}" if permission_level == "edit" else "created rows"
+            payload = {
+                **params.model_dump(),
+                "after": [{"id": row_id} for row_id in created_ids],
+                "rollback_supported": True,
+            }
         elif params.action == "batch_update":
             if not params.update_data:
                 raise HTTPException(status_code=400, detail="update_data 不能为空")
+            before_snapshots = []
             for i, record in enumerate(params.update_data):
                 try:
                     if params.pk_column not in record:
@@ -491,6 +558,12 @@ async def batch_mutate_table(
                         raise ValueError("没有需要更新的字段")
                     clauses, where_values, _ = _scope_clause(params.table_name, permission_level, current_user)
                     clauses.append(f"{pk_q} = ?")
+                    before_snapshot = _fetch_one_row_snapshot(
+                        cursor,
+                        table_name=params.table_name,
+                        clauses=clauses,
+                        values=where_values + [pk_value],
+                    )
                     set_clause = ", ".join(f"{_quote_identifier(key)} = ?" for key in update_fields)
                     cursor.execute(
                         f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
@@ -498,6 +571,9 @@ async def batch_mutate_table(
                     )
                     if cursor.rowcount > 0:
                         success_count += 1
+                        selected = _select_columns(before_snapshot, update_fields.keys(), params.pk_column)
+                        if selected is not None:
+                            before_snapshots.append(selected)
                     else:
                         error_count += 1
                         errors.append(f"第{i + 1}条记录未找到或无权限 (主键={pk_value})")
@@ -505,12 +581,22 @@ async def batch_mutate_table(
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
             target_scope = f"user_id = {current_user.id}" if permission_level == "edit" else "all rows"
+            payload = {
+                **params.model_dump(),
+                "before": before_snapshots,
+                "rollback_supported": success_count == len(before_snapshots),
+            }
         else:
             if not params.delete_ids:
                 raise HTTPException(status_code=400, detail="delete_ids 不能为空")
             clauses, where_values, scope_description = _scope_clause(params.table_name, permission_level, current_user)
             placeholders = ",".join(["?"] * len(params.delete_ids))
             clauses.append(f"{pk_q} IN ({placeholders})")
+            cursor.execute(
+                f"SELECT rowid AS __rowid__, * FROM {table_q} WHERE {_where_sql(clauses)}",
+                where_values + params.delete_ids,
+            )
+            before_snapshots = [_row_to_dict(cursor, row) for row in cursor.fetchall()]
             cursor.execute(
                 f"DELETE FROM {table_q} WHERE {_where_sql(clauses)}",
                 where_values + params.delete_ids,
@@ -520,6 +606,11 @@ async def batch_mutate_table(
                 error_count = len(params.delete_ids) - success_count
                 errors.append(f"有 {error_count} 条记录未找到或无权限")
             target_scope = scope_description
+            payload = {
+                **params.model_dump(),
+                "before": before_snapshots,
+                "rollback_supported": success_count == len(before_snapshots),
+            }
 
         _log_write(
             db,
@@ -530,7 +621,7 @@ async def batch_mutate_table(
             table_name=params.table_name,
             target_scope=target_scope,
             affected_rows=success_count,
-            payload=params.model_dump(),
+            payload=payload,
         )
         db.commit()
         return {
@@ -546,6 +637,7 @@ async def batch_mutate_table(
         raise
     except Exception as exc:
         db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
         raise HTTPException(status_code=400, detail=f"批量操作失败: {exc}") from exc
 
 
@@ -614,10 +706,14 @@ async def batch_replace_execute(
             table_name=params.table_name,
             target_scope=scope_description,
             affected_rows=affected_rows,
-            payload=params.model_dump(),
+            payload={
+                **params.model_dump(),
+                "rollback_supported": False,
+            },
         )
         db.commit()
         return {"status": "success", "affected_rows": affected_rows}
     except Exception as exc:
         db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
         raise HTTPException(status_code=400, detail=f"批量替换失败: {exc}") from exc

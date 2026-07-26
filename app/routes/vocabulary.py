@@ -22,6 +22,7 @@ from app.schemas.vocabulary import (
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
+from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyLocation, VocabularyLog, VocabularyPermission
 from app.service.vocabulary.permissions import get_effective_permission_level
@@ -249,8 +250,9 @@ def update_vocabulary_location(
         )
         db.commit()
         db.refresh(target)
-    except Exception:
+    except Exception as exc:
         db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
         raise
 
     return _location_response(target)
@@ -325,6 +327,7 @@ async def upload_vocabulary(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        raise_vocabulary_database_busy_if_locked(exc)
         raise HTTPException(status_code=500, detail=f"Vocabulary upload failed: {exc}")
 
 
@@ -351,6 +354,7 @@ async def preview_vocabulary_upload_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        raise_vocabulary_database_busy_if_locked(exc)
         raise HTTPException(status_code=500, detail=f"Vocabulary upload preview failed: {exc}")
 
 
@@ -432,34 +436,51 @@ def set_vocabulary_permission(
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission = db.query(VocabularyPermission).filter(
-        VocabularyPermission.user_id == user_id
-    ).first()
-    if permission is None:
-        permission = VocabularyPermission(
-            user_id=user_id,
-            permission_level=params.permission_level,
+    try:
+        previous_permission = db.query(VocabularyPermission).filter(
+            VocabularyPermission.user_id == user_id
+        ).first()
+        before = (
+            {"permission_level": previous_permission.permission_level}
+            if previous_permission is not None
+            else None
         )
-        db.add(permission)
-    else:
-        permission.permission_level = params.permission_level
+        db.connection().exec_driver_sql(
+            """
+            INSERT INTO vocabulary_permissions (user_id, permission_level)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                permission_level = excluded.permission_level
+            """,
+            (user_id, params.permission_level),
+        )
+        permission = db.query(VocabularyPermission).filter(
+            VocabularyPermission.user_id == user_id
+        ).one()
 
-    record_vocabulary_log(
-        session=db,
-        user_id=current_admin.id,
-        permission_level="manage",
-        source="admin",
-        action="set_permission",
-        table_name="vocabulary_permissions",
-        target_scope=f"target_user_id = {user_id}",
-        affected_rows=1,
-        payload={
-            "target_user_id": user_id,
-            "permission_level": params.permission_level,
-        },
-    )
-    db.commit()
-    db.refresh(permission)
+        record_vocabulary_log(
+            session=db,
+            user_id=current_admin.id,
+            permission_level="manage",
+            source="admin",
+            action="set_permission",
+            table_name="vocabulary_permissions",
+            target_scope=f"target_user_id = {user_id}",
+            affected_rows=1,
+            payload={
+                "target_user_id": user_id,
+                "permission_level": params.permission_level,
+                "before": before,
+                "after": {"permission_level": params.permission_level},
+                "rollback_supported": True,
+            },
+        )
+        db.commit()
+        db.refresh(permission)
+    except Exception as exc:
+        db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
+        raise
     return VocabularyPermissionResponse(
         user_id=permission.user_id,
         permission_level=permission.permission_level,

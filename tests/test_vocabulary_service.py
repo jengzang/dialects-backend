@@ -66,6 +66,17 @@ def test_vocabulary_tables_store_user_id_without_username(tmp_path: Path) -> Non
         session.close()
 
 
+def test_vocabulary_sqlite_connections_wait_for_busy_writes(tmp_path: Path) -> None:
+    engine, _ = create_vocabulary_engine_and_session(tmp_path / "vocabulary.db")
+    raw_conn = engine.raw_connection()
+    try:
+        timeout_ms = raw_conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    finally:
+        raw_conn.close()
+
+    assert timeout_ms == 10000
+
+
 def test_migration_backfills_and_constrains_vocabulary_log_operation_columns(tmp_path: Path) -> None:
     engine, _ = create_vocabulary_engine_and_session(tmp_path / "legacy_vocabulary.db")
     with engine.begin() as conn:
@@ -272,6 +283,50 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         session.close()
 
 
+def test_import_upserts_existing_location_metadata(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyLocation(
+                user_id=7,
+                location_name="息烽",
+                coordinates="old",
+                province="旧省",
+            )
+        )
+        session.commit()
+
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=(
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8"),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                    "省": "贵州",
+                    "市": "贵阳",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        locations = session.query(VocabularyLocation).all()
+        assert result.location_id == locations[0].id
+        assert len(locations) == 1
+        assert locations[0].coordinates == "106.73,27.10"
+        assert locations[0].province == "贵州"
+        assert locations[0].city == "贵阳"
+    finally:
+        session.close()
+
+
 def test_preview_upload_reports_import_counts_without_changing_database(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -472,6 +527,56 @@ def test_import_vocabulary_upload_writes_log(tmp_path: Path) -> None:
         assert log.table_name == "vocabulary_entries"
         assert log.affected_rows == 1
         assert "location_name = 息烽" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_import_log_records_replaced_entries_for_recovery(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+                notes="old",
+                informations="old-info",
+                source_filename="old.csv",
+            )
+        )
+        session.commit()
+
+        import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=(
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8"),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload["deleted_entries"][0]["standard_word"] == "旧词"
+        assert payload["deleted_entries"][0]["local_expression"] == "旧讲法"
+        assert payload["deleted_entries"][0]["source_filename"] == "old.csv"
+        assert payload["before_location"] is None
+        assert payload["after_location"]["location_name"] == "息烽"
+        assert payload["after_location"]["coordinates"] == "106.73,27.10"
+        assert payload["deleted_entries_omitted"] is False
+        assert payload["deleted_entries_log_limit"] == 500
+        assert payload["rollback_supported"] is False
     finally:
         session.close()
 

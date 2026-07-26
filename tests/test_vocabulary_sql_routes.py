@@ -1,4 +1,5 @@
 import asyncio
+import json
 from inspect import signature
 from pathlib import Path
 
@@ -188,6 +189,11 @@ def test_edit_batch_replace_is_user_scoped_and_logged(tmp_path: Path) -> None:
         assert log.status == "success"
         assert log.affected_rows == 1
         assert "user_id = 7" in log.target_scope
+        payload = json.loads(log.payload_json)
+        assert payload["filters"] == {}
+        assert payload["search_text"] == ""
+        assert payload["search_columns"] == []
+        assert payload["rollback_supported"] is False
     finally:
         session.close()
 
@@ -271,8 +277,11 @@ def test_edit_create_forces_current_user_id(tmp_path: Path) -> None:
         )
 
         row = session.query(VocabularyEntry).one()
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
         assert result["affected_rows"] == 1
         assert row.user_id == 7
+        assert payload["after"] == {"id": row.id}
+        assert payload["rollback_supported"] is True
     finally:
         session.close()
 
@@ -334,6 +343,100 @@ def test_update_rejects_user_id_changes(tmp_path: Path) -> None:
         assert raised.value.status_code == 400
         assert session.get(VocabularyEntry, own_id).user_id == 7
         assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_update_log_records_previous_values_for_changed_columns(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="update",
+                    pk_column="id",
+                    pk_value=own_id,
+                    data={"ipa": "new", "notes": "changed"},
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload["before"] == {
+            "id": own_id,
+            "ipa": "old",
+            "notes": "own",
+        }
+        assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
+def test_delete_log_records_deleted_row_snapshot(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="delete",
+                    pk_column="id",
+                    pk_value=own_id,
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload["before"]["id"] == own_id
+        assert payload["before"]["user_id"] == 7
+        assert payload["before"]["standard_word"] == "太阳"
+        assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
+def test_delete_log_records_rowid_when_used_as_pk(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="delete",
+                    pk_column="rowid",
+                    pk_value=own_id,
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload["before"]["rowid"] == own_id
+        assert payload["rollback_supported"] is True
     finally:
         session.close()
 

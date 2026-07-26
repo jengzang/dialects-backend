@@ -1,4 +1,6 @@
 from inspect import signature
+import json
+from sqlite3 import OperationalError as SqliteOperationalError
 from pathlib import Path
 
 import pytest
@@ -325,6 +327,56 @@ def test_admin_permission_endpoint_writes_vocabulary_log(tmp_path: Path) -> None
         assert log.table_name == "vocabulary_permissions"
         assert log.affected_rows == 1
         assert "target_user_id = 7" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_admin_permission_log_records_previous_permission(tmp_path: Path) -> None:
+    from app.routes.vocabulary import set_vocabulary_permission
+    from app.schemas.vocabulary import VocabularyPermissionUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        set_vocabulary_permission(
+            user_id=7,
+            params=VocabularyPermissionUpdateRequest(permission_level="manage"),
+            current_admin=_User(1, role="admin"),
+            db=session,
+        )
+
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload["before"] == {"permission_level": "edit"}
+        assert payload["after"] == {"permission_level": "manage"}
+        assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
+def test_admin_permission_endpoint_translates_locked_database_to_503(tmp_path: Path, monkeypatch) -> None:
+    from app.routes import vocabulary as vocabulary_routes
+    from app.routes.vocabulary import set_vocabulary_permission
+    from app.schemas.vocabulary import VocabularyPermissionUpdateRequest
+
+    session = _make_session(tmp_path)
+
+    def raise_locked(*args, **kwargs):
+        raise SqliteOperationalError("database is locked")
+
+    monkeypatch.setattr(vocabulary_routes, "record_vocabulary_log", raise_locked)
+    try:
+        with pytest.raises(HTTPException) as raised:
+            set_vocabulary_permission(
+                user_id=7,
+                params=VocabularyPermissionUpdateRequest(permission_level="edit"),
+                current_admin=_User(1, role="admin"),
+                db=session,
+            )
+
+        assert raised.value.status_code == 503
+        assert "正在写入" in raised.value.detail
     finally:
         session.close()
 

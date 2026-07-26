@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from threading import Lock
 from sqlalchemy.orm import Session
 
 from app.service.vocabulary.location import normalize_location_payload
@@ -6,6 +7,9 @@ from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation
 from app.service.vocabulary.parser import parse_uploaded_vocabulary_file
 from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
+
+MAX_LOGGED_DELETED_ENTRIES = 500
 
 
 @dataclass(frozen=True)
@@ -33,33 +37,109 @@ class VocabularyUploadPreviewResult:
     parser_mode: str
 
 
+_import_locks_guard = Lock()
+_import_locks: dict[tuple[int, str], Lock] = {}
+
+
+def _get_import_lock(user_id: int, location_name: str) -> Lock:
+    key = (user_id, location_name)
+    with _import_locks_guard:
+        lock = _import_locks.get(key)
+        if lock is None:
+            lock = Lock()
+            _import_locks[key] = lock
+        return lock
+
+
 def _upsert_location(
     *,
     session: Session,
     user: object,
     normalized_location,
 ) -> VocabularyLocation:
+    session.connection().exec_driver_sql(
+        """
+        INSERT INTO vocabulary_locations (
+            user_id, location_name, coordinates, province, city, county, town,
+            administrative_village, natural_village, yindian_region, atlas_region
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, location_name) DO UPDATE SET
+            coordinates = excluded.coordinates,
+            province = excluded.province,
+            city = excluded.city,
+            county = excluded.county,
+            town = excluded.town,
+            administrative_village = excluded.administrative_village,
+            natural_village = excluded.natural_village,
+            yindian_region = excluded.yindian_region,
+            atlas_region = excluded.atlas_region
+        """,
+        (
+            user.id,
+            normalized_location.location_name,
+            normalized_location.coordinates,
+            normalized_location.province,
+            normalized_location.city,
+            normalized_location.county,
+            normalized_location.town,
+            normalized_location.administrative_village,
+            normalized_location.natural_village,
+            normalized_location.yindian_region,
+            normalized_location.atlas_region,
+        ),
+    )
     location = session.query(VocabularyLocation).filter(
         VocabularyLocation.user_id == user.id,
         VocabularyLocation.location_name == normalized_location.location_name,
-    ).first()
-    if location is None:
-        location = VocabularyLocation(
-            user_id=user.id,
-            location_name=normalized_location.location_name,
-        )
-        session.add(location)
-
-    location.coordinates = normalized_location.coordinates
-    location.province = normalized_location.province
-    location.city = normalized_location.city
-    location.county = normalized_location.county
-    location.town = normalized_location.town
-    location.administrative_village = normalized_location.administrative_village
-    location.natural_village = normalized_location.natural_village
-    location.yindian_region = normalized_location.yindian_region
-    location.atlas_region = normalized_location.atlas_region
+    ).one()
     return location
+
+
+def _entry_mapping(*, user_id: int, location_name: str, filename: str, row) -> dict[str, object]:
+    return {
+        "user_id": user_id,
+        "location_name": location_name,
+        "standard_word": row.standard_word,
+        "local_expression": row.local_expression,
+        "ipa": row.ipa,
+        "notes": row.notes,
+        "informations": "",
+        "source_filename": filename,
+    }
+
+
+def _entry_snapshot(entry: VocabularyEntry) -> dict[str, object]:
+    return {
+        "id": entry.id,
+        "user_id": entry.user_id,
+        "location_name": entry.location_name,
+        "standard_word": entry.standard_word,
+        "local_expression": entry.local_expression,
+        "ipa": entry.ipa,
+        "notes": entry.notes or "",
+        "informations": entry.informations or "",
+        "source_filename": entry.source_filename or "",
+    }
+
+
+def _location_snapshot(location: VocabularyLocation | None) -> dict[str, object] | None:
+    if location is None:
+        return None
+    return {
+        "id": location.id,
+        "user_id": location.user_id,
+        "location_name": location.location_name,
+        "coordinates": location.coordinates,
+        "province": location.province or "",
+        "city": location.city or "",
+        "county": location.county or "",
+        "town": location.town or "",
+        "administrative_village": location.administrative_village or "",
+        "natural_village": location.natural_village or "",
+        "yindian_region": location.yindian_region or "",
+        "atlas_region": location.atlas_region or "",
+    }
 
 
 def preview_vocabulary_upload(
@@ -120,53 +200,75 @@ def import_vocabulary_upload(
     if not parse_result.rows:
         raise ValueError("No valid vocabulary rows found")
 
-    try:
-        location = _upsert_location(
-            session=session,
-            user=user,
-            normalized_location=normalized_location,
-        )
-        deleted_existing_count = session.query(VocabularyEntry).filter(
-            VocabularyEntry.user_id == user.id,
-            VocabularyEntry.location_name == normalized_location.location_name,
-        ).delete(synchronize_session=False)
+    import_lock = _get_import_lock(user.id, normalized_location.location_name)
+    with import_lock:
+        try:
+            before_location = session.query(VocabularyLocation).filter(
+                VocabularyLocation.user_id == user.id,
+                VocabularyLocation.location_name == normalized_location.location_name,
+            ).first()
+            before_location_snapshot = _location_snapshot(before_location)
+            location = _upsert_location(
+                session=session,
+                user=user,
+                normalized_location=normalized_location,
+            )
+            deleted_entries = [
+                _entry_snapshot(entry)
+                for entry in session.query(VocabularyEntry).filter(
+                    VocabularyEntry.user_id == user.id,
+                    VocabularyEntry.location_name == normalized_location.location_name,
+                ).all()
+            ]
+            can_log_deleted_entries = len(deleted_entries) <= MAX_LOGGED_DELETED_ENTRIES
+            deleted_existing_count = session.query(VocabularyEntry).filter(
+                VocabularyEntry.user_id == user.id,
+                VocabularyEntry.location_name == normalized_location.location_name,
+            ).delete(synchronize_session=False)
 
-        for row in parse_result.rows:
-            session.add(
-                VocabularyEntry(
-                    user_id=user.id,
-                    location_name=normalized_location.location_name,
-                    standard_word=row.standard_word,
-                    local_expression=row.local_expression,
-                    ipa=row.ipa,
-                    notes=row.notes,
-                    informations="",
-                    source_filename=filename,
-                )
+            session.bulk_insert_mappings(
+                VocabularyEntry,
+                [
+                    _entry_mapping(
+                        user_id=user.id,
+                        location_name=normalized_location.location_name,
+                        filename=filename,
+                        row=row,
+                    )
+                    for row in parse_result.rows
+                ],
             )
 
-        record_vocabulary_log(
-            session=session,
-            user_id=user.id,
-            permission_level=permission_level,
-            source="upload",
-            action="import",
-            table_name="vocabulary_entries",
-            target_scope=f"user_id = {user.id}; location_name = {normalized_location.location_name}",
-            affected_rows=len(parse_result.rows),
-            payload={
-                "filename": filename,
-                "location_name": normalized_location.location_name,
-                "deleted_existing_count": deleted_existing_count,
-                "imported_count": len(parse_result.rows),
-                "parser_mode": parse_result.parser_mode,
-            },
-        )
-        session.commit()
-        session.refresh(location)
-    except Exception:
-        session.rollback()
-        raise
+            record_vocabulary_log(
+                session=session,
+                user_id=user.id,
+                permission_level=permission_level,
+                source="upload",
+                action="import",
+                table_name="vocabulary_entries",
+                target_scope=f"user_id = {user.id}; location_name = {normalized_location.location_name}",
+                affected_rows=len(parse_result.rows),
+                payload={
+                    "filename": filename,
+                    "location_name": normalized_location.location_name,
+                    "deleted_existing_count": deleted_existing_count,
+                    "imported_count": len(parse_result.rows),
+                    "parser_mode": parse_result.parser_mode,
+                    "deleted_entries": deleted_entries if can_log_deleted_entries else [],
+                    "deleted_entries_omitted": not can_log_deleted_entries,
+                    "deleted_entries_log_limit": MAX_LOGGED_DELETED_ENTRIES,
+                    "before_location": before_location_snapshot,
+                    "after_location": _location_snapshot(location),
+                    "rollback_supported": False,
+                    "rollback_note": "import replaces a location set; logs preserve deleted entries only when under limit, but inserted entry ids are not tracked",
+                },
+            )
+            session.commit()
+            session.refresh(location)
+        except Exception as exc:
+            session.rollback()
+            raise_vocabulary_database_busy_if_locked(exc)
+            raise
 
     return VocabularyImportResult(
         success=True,
