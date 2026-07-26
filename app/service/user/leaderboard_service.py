@@ -57,7 +57,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/compare/chars",
             "/api/compare/tones",
         ],
-        "prefixes": ["/api/yubao/"],
+        "prefixes": [],
         "exclude_prefixes": [],
     },
     "category_音系分析": {
@@ -69,6 +69,27 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/pho_pie_by_status",
         ],
         "prefixes": [],
+        "exclude_prefixes": [],
+    },
+    "category_詞句查詢": {
+        "paths": [
+            "/api/vocabulary/search/entries",
+            "/api/vocabulary/search/map-points",
+            "/api/vocabulary/search/standard-words",
+            "/api/vocabulary/search/map-items",
+            "/api/vocabulary/search/location-options",
+            "/api/vocabulary/me",
+            "/api/vocabulary/logs",
+            "/api/vocabulary/imports",
+            "/api/vocabulary/imports/preview",
+            "/api/vocabulary/sql/query",
+            "/api/vocabulary/sql/distinct-query",
+            "/api/vocabulary/sql/mutate",
+            "/api/vocabulary/sql/batch-mutate",
+            "/api/vocabulary/sql/batch-replace-preview",
+            "/api/vocabulary/sql/batch-replace-execute",
+        ],
+        "prefixes": ["/api/yubao/", "/api/vocabulary/locations/"],
         "exclude_prefixes": [],
     },
     "category_工具使用": {
@@ -84,6 +105,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
     "category_其他查询": {
         "paths": [
             "/sql/query",
+            "/sql/distinct-query",
             "/sql/tree/full",
             "/sql/tree/lazy",
             "/api/get_coordinates",
@@ -104,9 +126,51 @@ SQL_TREE_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+SQL_QUERY_RULE: RuleConfig = {
+    "paths": ["/sql/query", "/sql/distinct-query"],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
 YUBAO_RULE: RuleConfig = {
     "paths": [],
     "prefixes": ["/api/yubao/"],
+    "exclude_prefixes": [],
+}
+
+VOCABULARY_SEARCH_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/search/entries",
+        "/api/vocabulary/search/map-points",
+        "/api/vocabulary/search/standard-words",
+        "/api/vocabulary/search/map-items",
+        "/api/vocabulary/search/location-options",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+VOCABULARY_TABLE_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/sql/query",
+        "/api/vocabulary/sql/distinct-query",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+VOCABULARY_EDIT_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/me",
+        "/api/vocabulary/logs",
+        "/api/vocabulary/imports",
+        "/api/vocabulary/imports/preview",
+        "/api/vocabulary/sql/mutate",
+        "/api/vocabulary/sql/batch-mutate",
+        "/api/vocabulary/sql/batch-replace-preview",
+        "/api/vocabulary/sql/batch-replace-execute",
+    ],
+    "prefixes": ["/api/vocabulary/locations/"],
     "exclude_prefixes": [],
 }
 
@@ -115,7 +179,11 @@ AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_pho_pie": PHO_PIE_RULE,
     "endpoint_group_locations": LOCATIONS_RULE,
     "endpoint_group_sql_tree": SQL_TREE_RULE,
+    "endpoint_group_sql_query": SQL_QUERY_RULE,
     "endpoint_group_yubao": YUBAO_RULE,
+    "endpoint_group_vocabulary_search": VOCABULARY_SEARCH_RULE,
+    "endpoint_group_vocabulary_table": VOCABULARY_TABLE_RULE,
+    "endpoint_group_vocabulary_edit": VOCABULARY_EDIT_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -137,7 +205,6 @@ ENDPOINT_PATHS = [
     "/api/tools/jyut2ipa/upload",
     "/api/tools/merge/execute",
     "/api/tools/praat/jobs",
-    "/sql/query",
     "/api/get_coordinates",
     "/user/custom/batch-create",
     "/user/custom/edit",
