@@ -196,11 +196,12 @@ def _build_exact_path_rule(path: str) -> RuleConfig:
 def _rank_from_totals(db: Session, user_total: int, user_totals, total_users: int) -> RankingDetail:
     """Calculate ranking metrics from a per-user totals subquery."""
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
+    n = db.query(func.count(user_totals.c.user_id)).filter(
+        user_totals.c.total > 0
+    ).scalar()
 
     if user_total == 0:
-        rank = db.query(func.count(user_totals.c.total)).filter(
-            user_totals.c.total > 0
-        ).scalar() + 1
+        rank = n + 1
 
         prev_value = db.query(user_totals.c.total).filter(
             user_totals.c.total > 0
@@ -218,10 +219,12 @@ def _rank_from_totals(db: Session, user_total: int, user_totals, total_users: in
     ).order_by(user_totals.c.total.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_total
-    if total_users <= 1:
+    if n <= 1:
         percentile = 100.0
+    elif rank < n:
+        percentile = round((n - rank) / (n - 1) * 100, 1)
     else:
-        percentile = round((total_users - rank) / (total_users - 1) * 100, 1)
+        percentile = round(100 / (2 * n - 2), 1)
     return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
@@ -253,10 +256,13 @@ def _calculate_online_time_rank(db: Session, user_id: int, total_users: int) -> 
     ).order_by(models.User.total_online_seconds.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_value
-    if total_users <= 1:
+    n = total_users
+    if n <= 1:
         percentile = 100.0
+    elif rank < n:
+        percentile = round((n - rank) / (n - 1) * 100, 1)
     else:
-        percentile = round((total_users - rank) / (total_users - 1) * 100, 1)
+        percentile = round(100 / (2 * n - 2), 1)
     return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
