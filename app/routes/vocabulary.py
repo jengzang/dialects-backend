@@ -15,6 +15,7 @@ from app.schemas.vocabulary import (
     VocabularyPermissionResponse,
     VocabularyPermissionsResponse,
     VocabularyPermissionUpdateRequest,
+    VocabularyUploadPreviewResponse,
     VocabularyUploadResponse,
 )
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
@@ -29,6 +30,7 @@ from app.service.vocabulary.query import (
     query_vocabulary_map_points,
 )
 from app.service.vocabulary.service import import_vocabulary_upload
+from app.service.vocabulary.service import preview_vocabulary_upload
 
 
 router = APIRouter()
@@ -323,6 +325,49 @@ async def upload_vocabulary(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary upload failed: {exc}")
+
+
+@router.post("/upload/preview", response_model=VocabularyUploadPreviewResponse)
+async def preview_vocabulary_upload_endpoint(
+    file: UploadFile = File(...),
+    location: str = Form(...),
+    parser_mode: str = Form("auto"),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    content = await file.read()
+    try:
+        return preview_vocabulary_upload(
+            session=db,
+            user=current_user,
+            filename=file.filename or "upload",
+            content=content,
+            location_payload=location,
+            parser_mode=parser_mode,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vocabulary upload preview failed: {exc}")
+
+
+@router.get("/me/permission", response_model=VocabularyPermissionResponse)
+def get_my_vocabulary_permission(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    if current_user.role == "admin":
+        return VocabularyPermissionResponse(user_id=current_user.id, permission_level="manage")
+
+    permission = db.query(VocabularyPermission).filter(
+        VocabularyPermission.user_id == current_user.id
+    ).first()
+    return VocabularyPermissionResponse(
+        user_id=current_user.id,
+        permission_level=permission.permission_level if permission is not None else None,
+    )
 
 
 @router.get("/admin/permissions", response_model=VocabularyPermissionsResponse)

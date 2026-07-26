@@ -21,6 +21,18 @@ class VocabularyImportResult:
     parser_mode: str
 
 
+@dataclass(frozen=True)
+class VocabularyUploadPreviewResult:
+    success: bool
+    location_name: str
+    permission_level: str
+    parsed_count: int
+    would_delete_existing_count: int
+    skipped_count: int
+    errors: list[str]
+    parser_mode: str
+
+
 def _upsert_location(
     *,
     session: Session,
@@ -48,6 +60,43 @@ def _upsert_location(
     location.yindian_region = normalized_location.yindian_region
     location.atlas_region = normalized_location.atlas_region
     return location
+
+
+def preview_vocabulary_upload(
+    *,
+    session: Session,
+    user: object,
+    filename: str,
+    content: bytes,
+    location_payload,
+    parser_mode: str = "auto",
+) -> VocabularyUploadPreviewResult:
+    permission_level = get_effective_permission_level(session, user)
+    normalized_location = normalize_location_payload(location_payload)
+    parse_result = parse_uploaded_vocabulary_file(
+        filename=filename,
+        content=content,
+        parser_mode=parser_mode,
+    )
+    errors = list(parse_result.errors)
+    parsed_count = len(parse_result.rows) if not errors else 0
+    would_delete_existing_count = 0
+    if parsed_count > 0:
+        would_delete_existing_count = session.query(VocabularyEntry).filter(
+            VocabularyEntry.user_id == user.id,
+            VocabularyEntry.location_name == normalized_location.location_name,
+        ).count()
+
+    return VocabularyUploadPreviewResult(
+        success=not errors and parsed_count > 0,
+        location_name=normalized_location.location_name,
+        permission_level=permission_level,
+        parsed_count=parsed_count,
+        would_delete_existing_count=would_delete_existing_count,
+        skipped_count=parse_result.skipped_count,
+        errors=errors or ([] if parsed_count > 0 else ["No valid vocabulary rows found"]),
+        parser_mode=parse_result.parser_mode,
+    )
 
 
 def import_vocabulary_upload(

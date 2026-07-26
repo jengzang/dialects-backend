@@ -143,6 +143,53 @@ def test_parse_docx_whitespace_treats_paragraphs_as_records(tmp_path: Path) -> N
     ]
 
 
+def test_parse_docx_bracket_extracts_real_document_paragraphs(tmp_path: Path) -> None:
+    docx_path = tmp_path / "vocabulary-bracket.docx"
+    document = Document()
+    document.add_paragraph("太阳（日头）[ȵit2 tʰəu2]{常用}")
+    document.add_paragraph("月亮(月光)[ŋye2 kuaŋ1]")
+    document.save(docx_path)
+
+    result = parse_vocabulary_file(docx_path, parser_mode="doc_bracket")
+
+    assert result.parser_mode == "doc_bracket"
+    assert result.errors == []
+    assert result.rows == [
+        ParsedVocabularyRow(
+            standard_word="太阳",
+            local_expression="日头",
+            ipa="ȵit2 tʰəu2",
+            notes="常用",
+        ),
+        ParsedVocabularyRow(
+            standard_word="月亮",
+            local_expression="月光",
+            ipa="ŋye2 kuaŋ1",
+            notes="",
+        ),
+    ]
+
+
+def test_parse_docx_auto_uses_bracket_mode_for_real_bracket_document(tmp_path: Path) -> None:
+    docx_path = tmp_path / "vocabulary-auto-bracket.docx"
+    document = Document()
+    document.add_paragraph("风（风）[fuŋ1]{天气}")
+    document.save(docx_path)
+
+    result = parse_vocabulary_file(docx_path, parser_mode="auto")
+
+    assert result.parser_mode == "doc_bracket"
+    assert result.errors == []
+    assert result.rows == [
+        ParsedVocabularyRow(
+            standard_word="风",
+            local_expression="风",
+            ipa="fuŋ1",
+            notes="天气",
+        )
+    ]
+
+
 def test_normalize_location_payload_accepts_chinese_aliases() -> None:
     normalized = normalize_location_payload(
         {

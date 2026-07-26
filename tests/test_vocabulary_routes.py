@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.routes.vocabulary import (
+    get_my_vocabulary_permission,
     get_vocabulary_items,
     get_vocabulary_location_options,
     get_vocabulary_logs,
@@ -13,6 +14,7 @@ from app.routes.vocabulary import (
     get_vocabulary_map_points,
     get_vocabulary_permission,
     get_vocabulary_permissions,
+    preview_vocabulary_upload_endpoint,
     update_vocabulary_location,
     upload_vocabulary,
 )
@@ -38,6 +40,16 @@ def test_upload_endpoint_depends_on_current_user() -> None:
     assert dependency is get_current_user
 
 
+def test_upload_preview_endpoint_depends_on_current_user() -> None:
+    dependency = signature(preview_vocabulary_upload_endpoint).parameters["current_user"].default.dependency
+    assert dependency is get_current_user
+
+
+def test_my_permission_endpoint_depends_on_current_user() -> None:
+    dependency = signature(get_my_vocabulary_permission).parameters["current_user"].default.dependency
+    assert dependency is get_current_user
+
+
 def test_main_routes_registers_vocabulary_upload_endpoint() -> None:
     from app.main import app
 
@@ -47,6 +59,18 @@ def test_main_routes_registers_vocabulary_upload_endpoint() -> None:
         if getattr(route, "path", None)
     }
     assert "/api/vocabulary/upload" in paths
+    assert "/api/vocabulary/upload/preview" in paths
+
+
+def test_main_routes_registers_my_vocabulary_permission_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/me/permission" in paths
 
 
 def test_main_routes_registers_vocabulary_items_endpoint() -> None:
@@ -295,6 +319,72 @@ def test_admin_permission_endpoint_writes_vocabulary_log(tmp_path: Path) -> None
         assert log.table_name == "vocabulary_permissions"
         assert log.affected_rows == 1
         assert "target_user_id = 7" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_my_permission_endpoint_returns_effective_permission_or_null(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        edit_result = get_my_vocabulary_permission(
+            current_user=_User(7),
+            db=session,
+        )
+        missing_result = get_my_vocabulary_permission(
+            current_user=_User(8),
+            db=session,
+        )
+        admin_result = get_my_vocabulary_permission(
+            current_user=_User(1, role="admin"),
+            db=session,
+        )
+
+        assert edit_result.user_id == 7
+        assert edit_result.permission_level == "edit"
+        assert missing_result.user_id == 8
+        assert missing_result.permission_level is None
+        assert admin_result.user_id == 1
+        assert admin_result.permission_level == "manage"
+    finally:
+        session.close()
+
+
+def test_upload_preview_endpoint_returns_counts_without_writing_database(tmp_path: Path) -> None:
+    class _UploadFile:
+        filename = "upload.csv"
+
+        async def read(self):
+            return (
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8")
+
+    import asyncio
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        result = asyncio.run(
+            preview_vocabulary_upload_endpoint(
+                file=_UploadFile(),
+                location='{"location_name":"息烽","coordinates":"106.73,27.10"}',
+                parser_mode="table",
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        assert result.success is True
+        assert result.location_name == "息烽"
+        assert result.parsed_count == 1
+        assert result.would_delete_existing_count == 0
+        assert session.query(VocabularyLocation).count() == 0
+        assert session.query(VocabularyLog).count() == 0
     finally:
         session.close()
 

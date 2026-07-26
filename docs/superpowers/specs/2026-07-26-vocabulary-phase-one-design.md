@@ -118,6 +118,66 @@ Only `manage` and admin users can query `vocabulary_logs`, and they do so throug
 
 ## API
 
+### `GET /api/vocabulary/me/permission`
+
+Returns the current authenticated user's effective vocabulary permission. Frontend should call this after login or before rendering vocabulary edit controls.
+
+Rules:
+
+- Admin users always receive `permission_level = "manage"` even when they do not have a row in `vocabulary_permissions`.
+- Users with a vocabulary permission row receive `edit` or `manage`.
+- Authenticated users without vocabulary permissions receive `permission_level = null`; this endpoint does not return `403` for that case.
+- Unauthenticated requests still return `401` through the shared JWT dependency.
+
+Response:
+
+```json
+{
+  "user_id": 7,
+  "permission_level": "edit"
+}
+```
+
+Frontend usage:
+
+- `permission_level = null`: hide upload and table-edit controls.
+- `permission_level = "edit"`: show upload and own-data editing controls.
+- `permission_level = "manage"`: show upload, global entries table management, logs, and permission-admin affordances where the user is also an admin for admin-only routes.
+
+### `POST /api/vocabulary/upload/preview`
+
+Request type: `multipart/form-data`.
+
+Fields are identical to `POST /api/vocabulary/upload`:
+
+- `file`: required uploaded file.
+- `location`: required JSON string from the frontend.
+- `parser_mode`: optional, one of `auto`, `table`, `doc_whitespace`, or `doc_bracket`. Default is `auto`.
+
+This endpoint runs the same permission check, location JSON normalization, and parser as the real upload, then reports what would happen. It does not insert or update `vocabulary_locations`, does not delete or insert `vocabulary_entries`, and does not write `vocabulary_logs`.
+
+Response:
+
+```json
+{
+  "success": true,
+  "location_name": "息烽",
+  "permission_level": "edit",
+  "parsed_count": 100,
+  "would_delete_existing_count": 100,
+  "skipped_count": 0,
+  "errors": [],
+  "parser_mode": "table"
+}
+```
+
+Frontend usage:
+
+- Call preview after the user selects a file, selects parser mode, and provides location JSON.
+- Show `parsed_count`, `would_delete_existing_count`, `skipped_count`, `parser_mode`, and any `errors` before enabling final import.
+- If `would_delete_existing_count > 0`, make clear that final upload will replace the current user's existing entries for that same `location_name`.
+- Call `POST /api/vocabulary/upload` only after the user confirms the preview.
+
 ### `POST /api/vocabulary/upload`
 
 Request type: `multipart/form-data`.

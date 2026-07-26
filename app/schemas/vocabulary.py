@@ -15,6 +15,17 @@ class VocabularyUploadResponse(BaseModel):
     parser_mode: str
 
 
+class VocabularyUploadPreviewResponse(BaseModel):
+    success: bool
+    location_name: str
+    permission_level: str
+    parsed_count: int
+    would_delete_existing_count: int
+    skipped_count: int
+    errors: list[str]
+    parser_mode: str
+
+
 class VocabularyItemResponse(BaseModel):
     standard_word: str
     local_expression: str

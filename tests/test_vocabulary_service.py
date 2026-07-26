@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from docx import Document
 from fastapi import HTTPException
 
 from app.service.vocabulary.database import create_vocabulary_engine_and_session, migrate_vocabulary_database
@@ -19,6 +20,7 @@ from app.service.vocabulary.query import (
     query_vocabulary_map_points,
 )
 from app.service.vocabulary.service import import_vocabulary_upload
+from app.service.vocabulary.service import preview_vocabulary_upload
 
 
 class _User:
@@ -31,6 +33,15 @@ def _make_session(tmp_path: Path):
     engine, session_factory = create_vocabulary_engine_and_session(tmp_path / "vocabulary.db")
     Base.metadata.create_all(bind=engine)
     return session_factory()
+
+
+def _docx_bytes(tmp_path: Path, paragraphs: list[str], filename: str = "upload.docx") -> bytes:
+    docx_path = tmp_path / filename
+    document = Document()
+    for paragraph in paragraphs:
+        document.add_paragraph(paragraph)
+    document.save(docx_path)
+    return docx_path.read_bytes()
 
 
 def test_admin_permission_resolves_to_manage(tmp_path: Path) -> None:
@@ -257,6 +268,171 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         ]
         assert location.coordinates == "106.73,27.10"
         assert location.province == "贵州"
+    finally:
+        session.close()
+
+
+def test_preview_upload_reports_import_counts_without_changing_database(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+                notes="old",
+            )
+        )
+        session.commit()
+
+        csv_content = (
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+            "月亮,月光,ŋye2 kuaŋ1,\n"
+        ).encode("utf-8")
+        result = preview_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=csv_content,
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        assert result.success is True
+        assert result.location_name == "息烽"
+        assert result.permission_level == "edit"
+        assert result.parsed_count == 2
+        assert result.would_delete_existing_count == 1
+        assert result.skipped_count == 0
+        assert result.errors == []
+        assert result.parser_mode == "table"
+        assert session.query(VocabularyEntry).count() == 1
+        assert session.query(VocabularyLocation).count() == 0
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_preview_upload_returns_parse_errors_without_writing_log(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        csv_content = (
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,,缺音标\n"
+        ).encode("utf-8")
+        result = preview_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=csv_content,
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        assert result.success is False
+        assert result.parsed_count == 0
+        assert result.would_delete_existing_count == 0
+        assert result.errors
+        assert "ipa" in result.errors[0]
+        assert session.query(VocabularyEntry).count() == 0
+        assert session.query(VocabularyLocation).count() == 0
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_import_upload_accepts_real_docx_whitespace_mode(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.docx",
+            content=_docx_bytes(
+                tmp_path,
+                [
+                    "太阳\n日头\nȵit2 tʰəu2\n常用",
+                    "月亮\n月光\nŋye2 kuaŋ1",
+                ],
+            ),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="doc_whitespace",
+        )
+
+        rows = session.query(VocabularyEntry).order_by(VocabularyEntry.id.asc()).all()
+        assert result.parser_mode == "doc_whitespace"
+        assert result.imported_count == 2
+        assert [(row.standard_word, row.local_expression, row.ipa, row.notes) for row in rows] == [
+            ("太阳", "日头", "ȵit2 tʰəu2", "常用"),
+            ("月亮", "月光", "ŋye2 kuaŋ1", ""),
+        ]
+    finally:
+        session.close()
+
+
+def test_import_upload_accepts_real_docx_bracket_mode(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.docx",
+            content=_docx_bytes(
+                tmp_path,
+                [
+                    "太阳（日头）[ȵit2 tʰəu2]{常用}",
+                    "月亮(月光)[ŋye2 kuaŋ1]",
+                ],
+                filename="upload-bracket.docx",
+            ),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="doc_bracket",
+        )
+
+        rows = session.query(VocabularyEntry).order_by(VocabularyEntry.id.asc()).all()
+        assert result.parser_mode == "doc_bracket"
+        assert result.imported_count == 2
+        assert [(row.standard_word, row.local_expression, row.ipa, row.notes) for row in rows] == [
+            ("太阳", "日头", "ȵit2 tʰəu2", "常用"),
+            ("月亮", "月光", "ŋye2 kuaŋ1", ""),
+        ]
     finally:
         session.close()
 
