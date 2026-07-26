@@ -13,6 +13,7 @@ from app.schemas.vocabulary import (
     VocabularyLogsResponse,
     VocabularyMapPointsResponse,
     VocabularyPermissionResponse,
+    VocabularyPermissionsResponse,
     VocabularyPermissionUpdateRequest,
     VocabularyUploadResponse,
 )
@@ -322,6 +323,50 @@ async def upload_vocabulary(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary upload failed: {exc}")
+
+
+@router.get("/admin/permissions", response_model=VocabularyPermissionsResponse)
+def get_vocabulary_permissions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    query = db.query(VocabularyPermission)
+    total = query.count()
+    rows = (
+        query.order_by(VocabularyPermission.user_id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return VocabularyPermissionsResponse(
+        permissions=[
+            VocabularyPermissionResponse(
+                user_id=row.user_id,
+                permission_level=row.permission_level,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/admin/permissions/{user_id}", response_model=VocabularyPermissionResponse)
+def get_vocabulary_permission(
+    user_id: int,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission = db.query(VocabularyPermission).filter(
+        VocabularyPermission.user_id == user_id
+    ).first()
+    return VocabularyPermissionResponse(
+        user_id=user_id,
+        permission_level=permission.permission_level if permission is not None else None,
+    )
 
 
 @router.put("/admin/permissions/{user_id}", response_model=VocabularyPermissionResponse)

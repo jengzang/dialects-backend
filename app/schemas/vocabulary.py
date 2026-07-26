@@ -121,4 +121,11 @@ class VocabularyPermissionUpdateRequest(BaseModel):
 
 class VocabularyPermissionResponse(BaseModel):
     user_id: int
-    permission_level: str
+    permission_level: str | None
+
+
+class VocabularyPermissionsResponse(BaseModel):
+    permissions: list[VocabularyPermissionResponse]
+    total: int
+    page: int
+    page_size: int

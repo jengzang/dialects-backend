@@ -11,6 +11,8 @@ from app.routes.vocabulary import (
     get_vocabulary_logs,
     get_vocabulary_locations,
     get_vocabulary_map_points,
+    get_vocabulary_permission,
+    get_vocabulary_permissions,
     update_vocabulary_location,
     upload_vocabulary,
 )
@@ -168,8 +170,13 @@ def test_main_routes_registers_vocabulary_sql_endpoints() -> None:
 def test_admin_permission_endpoint_depends_on_admin_user() -> None:
     from app.routes.vocabulary import set_vocabulary_permission
 
-    dependency = signature(set_vocabulary_permission).parameters["current_admin"].default.dependency
-    assert dependency is get_current_admin_user
+    for endpoint in (
+        get_vocabulary_permission,
+        get_vocabulary_permissions,
+        set_vocabulary_permission,
+    ):
+        dependency = signature(endpoint).parameters["current_admin"].default.dependency
+        assert dependency is get_current_admin_user
 
 
 def test_main_routes_registers_vocabulary_permission_admin_endpoint() -> None:
@@ -180,7 +187,62 @@ def test_main_routes_registers_vocabulary_permission_admin_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/admin/permissions" in paths
     assert "/api/vocabulary/admin/permissions/{user_id}" in paths
+
+
+def test_admin_permissions_endpoint_lists_vocabulary_permissions(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyPermission(user_id=9, permission_level="manage"),
+                VocabularyPermission(user_id=7, permission_level="edit"),
+            ]
+        )
+        session.commit()
+
+        result = get_vocabulary_permissions(
+            page=1,
+            page_size=50,
+            current_admin=_User(1, role="admin"),
+            db=session,
+        )
+
+        assert result.total == 2
+        assert result.page == 1
+        assert result.page_size == 50
+        assert [(row.user_id, row.permission_level) for row in result.permissions] == [
+            (7, "edit"),
+            (9, "manage"),
+        ]
+    finally:
+        session.close()
+
+
+def test_admin_permission_endpoint_gets_user_permission_or_null(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        existing = get_vocabulary_permission(
+            user_id=7,
+            current_admin=_User(1, role="admin"),
+            db=session,
+        )
+        missing = get_vocabulary_permission(
+            user_id=8,
+            current_admin=_User(1, role="admin"),
+            db=session,
+        )
+
+        assert existing.user_id == 7
+        assert existing.permission_level == "edit"
+        assert missing.user_id == 8
+        assert missing.permission_level is None
+    finally:
+        session.close()
 
 
 def test_admin_permission_endpoint_upserts_vocabulary_permission(tmp_path: Path) -> None:
