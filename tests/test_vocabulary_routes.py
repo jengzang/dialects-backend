@@ -50,7 +50,7 @@ def test_my_permission_endpoint_depends_on_current_user() -> None:
     assert dependency is get_current_user
 
 
-def test_main_routes_registers_vocabulary_import_endpoints_and_legacy_upload_aliases() -> None:
+def test_main_routes_registers_only_vocabulary_import_endpoints() -> None:
     from app.main import app
 
     paths = {
@@ -60,11 +60,11 @@ def test_main_routes_registers_vocabulary_import_endpoints_and_legacy_upload_ali
     }
     assert "/api/vocabulary/imports" in paths
     assert "/api/vocabulary/imports/preview" in paths
-    assert "/api/vocabulary/upload" in paths
-    assert "/api/vocabulary/upload/preview" in paths
+    assert "/api/vocabulary/upload" not in paths
+    assert "/api/vocabulary/upload/preview" not in paths
 
 
-def test_main_routes_registers_my_vocabulary_context_endpoint_and_legacy_permission_alias() -> None:
+def test_main_routes_registers_only_my_vocabulary_context_endpoint() -> None:
     from app.main import app
 
     paths = {
@@ -73,10 +73,10 @@ def test_main_routes_registers_my_vocabulary_context_endpoint_and_legacy_permiss
         if getattr(route, "path", None)
     }
     assert "/api/vocabulary/me" in paths
-    assert "/api/vocabulary/me/permission" in paths
+    assert "/api/vocabulary/me/permission" not in paths
 
 
-def test_main_routes_registers_vocabulary_search_entries_endpoint_and_legacy_items_alias() -> None:
+def test_main_routes_registers_only_vocabulary_search_entries_endpoint() -> None:
     from app.main import app
 
     paths = {
@@ -85,7 +85,7 @@ def test_main_routes_registers_vocabulary_search_entries_endpoint_and_legacy_ite
         if getattr(route, "path", None)
     }
     assert "/api/vocabulary/search/entries" in paths
-    assert "/api/vocabulary/items" in paths
+    assert "/api/vocabulary/items" not in paths
 
 
 def test_items_endpoint_accepts_query_parameters() -> None:
@@ -98,7 +98,7 @@ def test_items_endpoint_accepts_query_parameters() -> None:
     assert "page_size" in parameters
 
 
-def test_main_routes_registers_vocabulary_search_map_points_endpoint_and_legacy_alias() -> None:
+def test_main_routes_registers_only_vocabulary_search_map_points_endpoint() -> None:
     from app.main import app
 
     paths = {
@@ -107,7 +107,7 @@ def test_main_routes_registers_vocabulary_search_map_points_endpoint_and_legacy_
         if getattr(route, "path", None)
     }
     assert "/api/vocabulary/search/map-points" in paths
-    assert "/api/vocabulary/map-points" in paths
+    assert "/api/vocabulary/map-points" not in paths
 
 
 def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> None:
@@ -120,7 +120,7 @@ def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> N
     assert "page_size" not in parameters
 
 
-def test_main_routes_registers_vocabulary_search_location_options_endpoint_and_legacy_alias() -> None:
+def test_main_routes_registers_only_vocabulary_search_location_options_endpoint() -> None:
     from app.main import app
 
     paths = {
@@ -129,7 +129,7 @@ def test_main_routes_registers_vocabulary_search_location_options_endpoint_and_l
         if getattr(route, "path", None)
     }
     assert "/api/vocabulary/search/location-options" in paths
-    assert "/api/vocabulary/location-options" in paths
+    assert "/api/vocabulary/location-options" not in paths
 
 
 def test_location_options_endpoint_is_public_read_shape() -> None:

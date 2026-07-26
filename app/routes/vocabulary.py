@@ -94,7 +94,6 @@ def _log_response(log: VocabularyLog) -> VocabularyLogResponse:
     )
 
 
-@router.get("/items", response_model=VocabularyItemsResponse)
 @router.get("/search/entries", response_model=VocabularyItemsResponse)
 def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
@@ -119,7 +118,6 @@ def get_vocabulary_items(
         raise HTTPException(status_code=500, detail=f"Vocabulary query failed: {exc}") from exc
 
 
-@router.get("/map-points", response_model=VocabularyMapPointsResponse)
 @router.get("/search/map-points", response_model=VocabularyMapPointsResponse)
 def get_vocabulary_map_points(
     q: Optional[str] = Query(default=None),
@@ -140,7 +138,6 @@ def get_vocabulary_map_points(
         raise HTTPException(status_code=500, detail=f"Vocabulary map query failed: {exc}") from exc
 
 
-@router.get("/location-options", response_model=VocabularyLocationOptionsResponse)
 @router.get("/search/location-options", response_model=VocabularyLocationOptionsResponse)
 def get_vocabulary_location_options(
     db: Session = Depends(get_vocabulary_db),
@@ -305,7 +302,6 @@ def get_vocabulary_logs(
     )
 
 
-@router.post("/upload", response_model=VocabularyUploadResponse)
 @router.post("/imports", response_model=VocabularyUploadResponse)
 async def upload_vocabulary(
     file: UploadFile = File(...),
@@ -332,7 +328,6 @@ async def upload_vocabulary(
         raise HTTPException(status_code=500, detail=f"Vocabulary upload failed: {exc}")
 
 
-@router.post("/upload/preview", response_model=VocabularyUploadPreviewResponse)
 @router.post("/imports/preview", response_model=VocabularyUploadPreviewResponse)
 async def preview_vocabulary_upload_endpoint(
     file: UploadFile = File(...),
@@ -359,7 +354,6 @@ async def preview_vocabulary_upload_endpoint(
         raise HTTPException(status_code=500, detail=f"Vocabulary upload preview failed: {exc}")
 
 
-@router.get("/me/permission", response_model=VocabularyMeResponse)
 @router.get("/me", response_model=VocabularyMeResponse)
 def get_my_vocabulary_context(
     current_user: User = Depends(get_current_user),
