@@ -11,10 +11,12 @@ from app.schemas.vocabulary import (
     VocabularyLocationUpdateRequest,
     VocabularyLogResponse,
     VocabularyLogsResponse,
+    VocabularyMapItemsResponse,
     VocabularyMapPointsResponse,
     VocabularyMeResponse,
     VocabularyPermissionResponse,
     VocabularyPermissionsResponse,
+    VocabularyStandardWordsResponse,
     VocabularyPermissionUpdateRequest,
     VocabularyUploadPreviewResponse,
     VocabularyUploadResponse,
@@ -29,7 +31,9 @@ from app.service.vocabulary.permissions import get_effective_permission_level
 from app.service.vocabulary.query import (
     query_vocabulary_items,
     query_vocabulary_location_options,
+    query_vocabulary_map_items,
     query_vocabulary_map_points,
+    query_vocabulary_standard_words,
 )
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
@@ -137,6 +141,50 @@ def get_vocabulary_map_points(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary map query failed: {exc}") from exc
+
+
+@router.get("/search/standard-words", response_model=VocabularyStandardWordsResponse)
+def get_vocabulary_standard_words(
+    q: Optional[str] = Query(default=None),
+    search_fields: Optional[list[str]] = Query(default=None),
+    locations: Optional[list[str]] = Query(default=None),
+    limit: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return query_vocabulary_standard_words(
+            session=db,
+            q=q,
+            search_fields=search_fields,
+            locations=locations,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vocabulary standard words query failed: {exc}") from exc
+
+
+@router.get("/search/map-items", response_model=VocabularyMapItemsResponse)
+def get_vocabulary_map_items(
+    standard_words: list[str] = Query(...),
+    q: Optional[str] = Query(default=None),
+    search_fields: Optional[list[str]] = Query(default=None),
+    locations: Optional[list[str]] = Query(default=None),
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return query_vocabulary_map_items(
+            session=db,
+            standard_words=standard_words,
+            q=q,
+            search_fields=search_fields,
+            locations=locations,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Vocabulary map items query failed: {exc}") from exc
 
 
 @router.get("/search/location-options", response_model=VocabularyLocationOptionsResponse)

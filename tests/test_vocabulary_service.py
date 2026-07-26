@@ -15,9 +15,11 @@ from app.service.vocabulary.models import (
 )
 from app.service.vocabulary.permissions import get_effective_permission_level
 from app.service.vocabulary.query import (
+    query_vocabulary_map_items,
     query_vocabulary_items,
     query_vocabulary_location_options,
     query_vocabulary_map_points,
+    query_vocabulary_standard_words,
 )
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
@@ -884,5 +886,226 @@ def test_query_vocabulary_location_options_returns_distinct_public_names(tmp_pat
         ]
         assert not hasattr(result.locations[0], "user_id")
         assert not hasattr(result.locations[0], "coordinates")
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_standard_words_returns_all_distinct_without_filters(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=8,
+                    location_name="广州",
+                    standard_word="太阳",
+                    local_expression="太阳",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="",
+                    local_expression="空",
+                    ipa="ipa4",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_standard_words(session=session)
+
+        assert result.total == 2
+        assert [
+            (row.standard_word, row.entry_count, row.location_count)
+            for row in result.standard_words
+        ] == [
+            ("太阳", 2, 2),
+            ("月亮", 1, 1),
+        ]
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_standard_words_filters_by_q_and_locations(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="太阳",
+                    local_expression="太阳",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_standard_words(
+            session=session,
+            q="日头",
+            search_fields=["headword"],
+            locations=["息烽"],
+        )
+
+        assert result.total == 1
+        assert result.standard_words[0].standard_word == "太阳"
+        assert result.standard_words[0].entry_count == 1
+        assert result.standard_words[0].location_count == 1
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_items_returns_details_for_selected_standard_words(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="无坐标点",
+                    coordinates="unknown",
+                    province="贵州",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ipa1",
+                    notes="常用",
+                    informations="info1",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="太阳",
+                    local_expression="太阳",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="无坐标点",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ipa4",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_map_items(session=session, standard_words=["太阳"])
+
+        assert result.total_entries == 3
+        assert result.total_points == 2
+        assert result.omitted_without_coordinates == 1
+        assert [(point.location_name, point.entry_count) for point in result.points] == [
+            ("息烽", 1),
+            ("天柱竹林", 1),
+        ]
+        assert result.points[0].longitude == 106.74
+        assert result.points[0].latitude == 27.09
+        assert result.points[0].items[0].standard_word == "太阳"
+        assert result.points[0].items[0].local_expression == "日头"
+        assert result.points[0].items[0].ipa == "ipa1"
+        assert result.points[0].items[0].notes == "常用"
+        assert result.points[0].items[0].informations == "info1"
     finally:
         session.close()

@@ -43,6 +43,17 @@ class VocabularyItemsResponse(BaseModel):
     page_size: int
 
 
+class VocabularyStandardWordResponse(BaseModel):
+    standard_word: str
+    entry_count: int
+    location_count: int
+
+
+class VocabularyStandardWordsResponse(BaseModel):
+    standard_words: list[VocabularyStandardWordResponse]
+    total: int
+
+
 class VocabularyMapPointResponse(BaseModel):
     location_name: str
     location_label: str
@@ -53,6 +64,30 @@ class VocabularyMapPointResponse(BaseModel):
 
 class VocabularyMapPointsResponse(BaseModel):
     points: list[VocabularyMapPointResponse]
+    total_entries: int
+    total_points: int
+    omitted_without_coordinates: int
+
+
+class VocabularyMapItemResponse(BaseModel):
+    standard_word: str
+    local_expression: str
+    ipa: str
+    notes: str
+    informations: str
+
+
+class VocabularyMapItemPointResponse(BaseModel):
+    location_name: str
+    location_label: str
+    longitude: float
+    latitude: float
+    entry_count: int
+    items: list[VocabularyMapItemResponse]
+
+
+class VocabularyMapItemsResponse(BaseModel):
+    points: list[VocabularyMapItemPointResponse]
     total_entries: int
     total_points: int
     omitted_without_coordinates: int

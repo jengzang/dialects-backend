@@ -13,9 +13,11 @@ from app.routes.vocabulary import (
     get_vocabulary_location_options,
     get_vocabulary_logs,
     get_vocabulary_locations,
+    get_vocabulary_map_items,
     get_vocabulary_map_points,
     get_vocabulary_permission,
     get_vocabulary_permissions,
+    get_vocabulary_standard_words,
     preview_vocabulary_upload_endpoint,
     update_vocabulary_location,
     upload_vocabulary,
@@ -115,6 +117,50 @@ def test_main_routes_registers_only_vocabulary_search_map_points_endpoint() -> N
 def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> None:
     parameters = signature(get_vocabulary_map_points).parameters
 
+    assert "q" in parameters
+    assert "search_fields" in parameters
+    assert "locations" in parameters
+    assert "page" not in parameters
+    assert "page_size" not in parameters
+
+
+def test_main_routes_registers_vocabulary_search_standard_words_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/search/standard-words" in paths
+
+
+def test_standard_words_endpoint_accepts_optional_filters_without_required_query() -> None:
+    parameters = signature(get_vocabulary_standard_words).parameters
+
+    assert "q" in parameters
+    assert "search_fields" in parameters
+    assert "locations" in parameters
+    assert "limit" in parameters
+    assert parameters["q"].default.default is None
+    assert parameters["limit"].default.default is None
+
+
+def test_main_routes_registers_vocabulary_search_map_items_endpoint() -> None:
+    from app.main import app
+
+    paths = {
+        route.path
+        for route in app.routes
+        if getattr(route, "path", None)
+    }
+    assert "/api/vocabulary/search/map-items" in paths
+
+
+def test_map_items_endpoint_accepts_standard_word_filters_without_pagination() -> None:
+    parameters = signature(get_vocabulary_map_items).parameters
+
+    assert "standard_words" in parameters
     assert "q" in parameters
     assert "search_fields" in parameters
     assert "locations" in parameters
