@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.routes.vocabulary import (
-    get_my_vocabulary_permission,
+    get_my_vocabulary_context,
     get_vocabulary_items,
     get_vocabulary_location_options,
     get_vocabulary_logs,
@@ -46,11 +46,11 @@ def test_upload_preview_endpoint_depends_on_current_user() -> None:
 
 
 def test_my_permission_endpoint_depends_on_current_user() -> None:
-    dependency = signature(get_my_vocabulary_permission).parameters["current_user"].default.dependency
+    dependency = signature(get_my_vocabulary_context).parameters["current_user"].default.dependency
     assert dependency is get_current_user
 
 
-def test_main_routes_registers_vocabulary_upload_endpoint() -> None:
+def test_main_routes_registers_vocabulary_import_endpoints_and_legacy_upload_aliases() -> None:
     from app.main import app
 
     paths = {
@@ -58,11 +58,13 @@ def test_main_routes_registers_vocabulary_upload_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/imports" in paths
+    assert "/api/vocabulary/imports/preview" in paths
     assert "/api/vocabulary/upload" in paths
     assert "/api/vocabulary/upload/preview" in paths
 
 
-def test_main_routes_registers_my_vocabulary_permission_endpoint() -> None:
+def test_main_routes_registers_my_vocabulary_context_endpoint_and_legacy_permission_alias() -> None:
     from app.main import app
 
     paths = {
@@ -70,10 +72,11 @@ def test_main_routes_registers_my_vocabulary_permission_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/me" in paths
     assert "/api/vocabulary/me/permission" in paths
 
 
-def test_main_routes_registers_vocabulary_items_endpoint() -> None:
+def test_main_routes_registers_vocabulary_search_entries_endpoint_and_legacy_items_alias() -> None:
     from app.main import app
 
     paths = {
@@ -81,6 +84,7 @@ def test_main_routes_registers_vocabulary_items_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/search/entries" in paths
     assert "/api/vocabulary/items" in paths
 
 
@@ -94,7 +98,7 @@ def test_items_endpoint_accepts_query_parameters() -> None:
     assert "page_size" in parameters
 
 
-def test_main_routes_registers_vocabulary_map_points_endpoint() -> None:
+def test_main_routes_registers_vocabulary_search_map_points_endpoint_and_legacy_alias() -> None:
     from app.main import app
 
     paths = {
@@ -102,6 +106,7 @@ def test_main_routes_registers_vocabulary_map_points_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/search/map-points" in paths
     assert "/api/vocabulary/map-points" in paths
 
 
@@ -115,7 +120,7 @@ def test_map_points_endpoint_accepts_filter_parameters_without_pagination() -> N
     assert "page_size" not in parameters
 
 
-def test_main_routes_registers_vocabulary_location_options_endpoint() -> None:
+def test_main_routes_registers_vocabulary_search_location_options_endpoint_and_legacy_alias() -> None:
     from app.main import app
 
     paths = {
@@ -123,6 +128,7 @@ def test_main_routes_registers_vocabulary_location_options_endpoint() -> None:
         for route in app.routes
         if getattr(route, "path", None)
     }
+    assert "/api/vocabulary/search/location-options" in paths
     assert "/api/vocabulary/location-options" in paths
 
 
@@ -329,25 +335,34 @@ def test_my_permission_endpoint_returns_effective_permission_or_null(tmp_path: P
         session.add(VocabularyPermission(user_id=7, permission_level="edit"))
         session.commit()
 
-        edit_result = get_my_vocabulary_permission(
+        edit_result = get_my_vocabulary_context(
             current_user=_User(7),
             db=session,
         )
-        missing_result = get_my_vocabulary_permission(
+        missing_result = get_my_vocabulary_context(
             current_user=_User(8),
             db=session,
         )
-        admin_result = get_my_vocabulary_permission(
+        admin_result = get_my_vocabulary_context(
             current_user=_User(1, role="admin"),
             db=session,
         )
 
         assert edit_result.user_id == 7
         assert edit_result.permission_level == "edit"
+        assert edit_result.can_upload is True
+        assert edit_result.can_manage_entries is False
+        assert edit_result.can_view_logs is False
         assert missing_result.user_id == 8
         assert missing_result.permission_level is None
+        assert missing_result.can_upload is False
+        assert missing_result.can_manage_entries is False
+        assert missing_result.can_view_logs is False
         assert admin_result.user_id == 1
         assert admin_result.permission_level == "manage"
+        assert admin_result.can_upload is True
+        assert admin_result.can_manage_entries is True
+        assert admin_result.can_view_logs is True
     finally:
         session.close()
 

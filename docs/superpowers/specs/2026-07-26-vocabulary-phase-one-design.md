@@ -118,23 +118,27 @@ Only `manage` and admin users can query `vocabulary_logs`, and they do so throug
 
 ## API
 
-### `GET /api/vocabulary/me/permission`
+### `GET /api/vocabulary/me`
 
-Returns the current authenticated user's effective vocabulary permission. Frontend should call this after login or before rendering vocabulary edit controls.
+Returns the current authenticated user's vocabulary context. Frontend should call this after login or before rendering vocabulary edit controls.
 
 Rules:
 
 - Admin users always receive `permission_level = "manage"` even when they do not have a row in `vocabulary_permissions`.
 - Users with a vocabulary permission row receive `edit` or `manage`.
-- Authenticated users without vocabulary permissions receive `permission_level = null`; this endpoint does not return `403` for that case.
+- Authenticated users without vocabulary permissions receive `permission_level = null` and all capability booleans set to `false`; this endpoint does not return `403` for that case.
 - Unauthenticated requests still return `401` through the shared JWT dependency.
+- `GET /api/vocabulary/me/permission` is kept as a legacy alias and returns the same response shape.
 
 Response:
 
 ```json
 {
   "user_id": 7,
-  "permission_level": "edit"
+  "permission_level": "edit",
+  "can_upload": true,
+  "can_manage_entries": false,
+  "can_view_logs": false
 }
 ```
 
@@ -144,17 +148,35 @@ Frontend usage:
 - `permission_level = "edit"`: show upload and own-data editing controls.
 - `permission_level = "manage"`: show upload, global entries table management, logs, and permission-admin affordances where the user is also an admin for admin-only routes.
 
-### `POST /api/vocabulary/upload/preview`
+### Search APIs
+
+These endpoints are public read APIs for frontend vocabulary search and display. They do not expose edit/admin behavior.
+
+Recommended paths:
+
+- `GET /api/vocabulary/search/entries`: paginated vocabulary result list. This replaces `/api/vocabulary/items`.
+- `GET /api/vocabulary/search/map-points`: map aggregation result. This replaces `/api/vocabulary/map-points`.
+- `GET /api/vocabulary/search/location-options`: distinct search location options. This replaces `/api/vocabulary/location-options`.
+
+Legacy aliases remain available for compatibility:
+
+- `GET /api/vocabulary/items`
+- `GET /api/vocabulary/map-points`
+- `GET /api/vocabulary/location-options`
+
+### `POST /api/vocabulary/imports/preview`
 
 Request type: `multipart/form-data`.
 
-Fields are identical to `POST /api/vocabulary/upload`:
+Fields are identical to `POST /api/vocabulary/imports`:
 
 - `file`: required uploaded file.
 - `location`: required JSON string from the frontend.
 - `parser_mode`: optional, one of `auto`, `table`, `doc_whitespace`, or `doc_bracket`. Default is `auto`.
 
 This endpoint runs the same permission check, location JSON normalization, and parser as the real upload, then reports what would happen. It does not insert or update `vocabulary_locations`, does not delete or insert `vocabulary_entries`, and does not write `vocabulary_logs`.
+
+`POST /api/vocabulary/upload/preview` is kept as a legacy alias.
 
 Response:
 
@@ -176,9 +198,9 @@ Frontend usage:
 - Call preview after the user selects a file, selects parser mode, and provides location JSON.
 - Show `parsed_count`, `would_delete_existing_count`, `skipped_count`, `parser_mode`, and any `errors` before enabling final import.
 - If `would_delete_existing_count > 0`, make clear that final upload will replace the current user's existing entries for that same `location_name`.
-- Call `POST /api/vocabulary/upload` only after the user confirms the preview.
+- Call `POST /api/vocabulary/imports` only after the user confirms the preview.
 
-### `POST /api/vocabulary/upload`
+### `POST /api/vocabulary/imports`
 
 Request type: `multipart/form-data`.
 
@@ -194,6 +216,8 @@ Required location JSON fields:
 - `coordinates`
 
 The API also accepts common aliases for location keys, including Chinese names such as `簡稱`, `简称`, `地名`, `經緯度`, and `经纬度`.
+
+`POST /api/vocabulary/upload` is kept as a legacy alias.
 
 Response:
 
@@ -406,6 +430,8 @@ Focused tests should cover:
 - Location JSON aliases normalize required location fields.
 - Permission logic treats admin as `manage`, accepts `edit` and `manage`, and rejects missing permissions.
 - Upload workflow replaces existing entries for the same `(user_id, location_name)` while updating location metadata.
-- Route registration exposes `/api/vocabulary/upload`.
+- Preview workflow reports parse/replacement counts without writing locations, entries, or logs.
+- Route registration exposes `/api/vocabulary/search/*`, `/api/vocabulary/imports`, `/api/vocabulary/imports/preview`, and `/api/vocabulary/me`.
+- Legacy route aliases remain registered for `/api/vocabulary/items`, `/api/vocabulary/map-points`, `/api/vocabulary/location-options`, `/api/vocabulary/upload`, `/api/vocabulary/upload/preview`, and `/api/vocabulary/me/permission`.
 
 Tests may use temporary SQLite databases and direct service calls for transaction behavior. Route-level tests can use FastAPI dependency overrides where practical.

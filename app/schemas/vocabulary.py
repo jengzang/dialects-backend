@@ -135,6 +135,14 @@ class VocabularyPermissionResponse(BaseModel):
     permission_level: str | None
 
 
+class VocabularyMeResponse(BaseModel):
+    user_id: int
+    permission_level: str | None
+    can_upload: bool
+    can_manage_entries: bool
+    can_view_logs: bool
+
+
 class VocabularyPermissionsResponse(BaseModel):
     permissions: list[VocabularyPermissionResponse]
     total: int

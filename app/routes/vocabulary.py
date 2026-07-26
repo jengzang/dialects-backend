@@ -12,6 +12,7 @@ from app.schemas.vocabulary import (
     VocabularyLogResponse,
     VocabularyLogsResponse,
     VocabularyMapPointsResponse,
+    VocabularyMeResponse,
     VocabularyPermissionResponse,
     VocabularyPermissionsResponse,
     VocabularyPermissionUpdateRequest,
@@ -94,6 +95,7 @@ def _log_response(log: VocabularyLog) -> VocabularyLogResponse:
 
 
 @router.get("/items", response_model=VocabularyItemsResponse)
+@router.get("/search/entries", response_model=VocabularyItemsResponse)
 def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
@@ -118,6 +120,7 @@ def get_vocabulary_items(
 
 
 @router.get("/map-points", response_model=VocabularyMapPointsResponse)
+@router.get("/search/map-points", response_model=VocabularyMapPointsResponse)
 def get_vocabulary_map_points(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
@@ -138,6 +141,7 @@ def get_vocabulary_map_points(
 
 
 @router.get("/location-options", response_model=VocabularyLocationOptionsResponse)
+@router.get("/search/location-options", response_model=VocabularyLocationOptionsResponse)
 def get_vocabulary_location_options(
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -302,6 +306,7 @@ def get_vocabulary_logs(
 
 
 @router.post("/upload", response_model=VocabularyUploadResponse)
+@router.post("/imports", response_model=VocabularyUploadResponse)
 async def upload_vocabulary(
     file: UploadFile = File(...),
     location: str = Form(...),
@@ -328,6 +333,7 @@ async def upload_vocabulary(
 
 
 @router.post("/upload/preview", response_model=VocabularyUploadPreviewResponse)
+@router.post("/imports/preview", response_model=VocabularyUploadPreviewResponse)
 async def preview_vocabulary_upload_endpoint(
     file: UploadFile = File(...),
     location: str = Form(...),
@@ -353,20 +359,31 @@ async def preview_vocabulary_upload_endpoint(
         raise HTTPException(status_code=500, detail=f"Vocabulary upload preview failed: {exc}")
 
 
-@router.get("/me/permission", response_model=VocabularyPermissionResponse)
-def get_my_vocabulary_permission(
+@router.get("/me/permission", response_model=VocabularyMeResponse)
+@router.get("/me", response_model=VocabularyMeResponse)
+def get_my_vocabulary_context(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     if current_user.role == "admin":
-        return VocabularyPermissionResponse(user_id=current_user.id, permission_level="manage")
+        return VocabularyMeResponse(
+            user_id=current_user.id,
+            permission_level="manage",
+            can_upload=True,
+            can_manage_entries=True,
+            can_view_logs=True,
+        )
 
     permission = db.query(VocabularyPermission).filter(
         VocabularyPermission.user_id == current_user.id
     ).first()
-    return VocabularyPermissionResponse(
+    permission_level = permission.permission_level if permission is not None else None
+    return VocabularyMeResponse(
         user_id=current_user.id,
-        permission_level=permission.permission_level if permission is not None else None,
+        permission_level=permission_level,
+        can_upload=permission_level in {"edit", "manage"},
+        can_manage_entries=permission_level == "manage",
+        can_view_logs=permission_level == "manage",
     )
 
 
