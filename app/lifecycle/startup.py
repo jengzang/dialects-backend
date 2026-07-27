@@ -22,15 +22,19 @@ def initialize_db_pools() -> None:
     print("=" * 60)
     print("[DB] Initializing database pools...")
     try:
-        get_db_pool(QUERY_DB_ADMIN, pool_size=5)
         get_db_pool(QUERY_DB_USER, pool_size=5)
-        get_db_pool(DIALECTS_DB_ADMIN, pool_size=10)
-        get_db_pool(DIALECTS_DB_USER, pool_size=10)
-        get_db_pool(CHARACTERS_DB_PATH, pool_size=5)
-        get_db_pool(LOGS_DATABASE_PATH, pool_size=5)
-        get_db_pool(USER_DATABASE_PATH, pool_size=5)
-        get_db_pool(YUBAO_DB_PATH, pool_size=5)
-        get_db_pool(GD_VILLAGE_DB_PATH, pool_size=5)
+        # QUERY_DB_ADMIN 与 QUERY_DB_USER 同路径，无需重复预初始化
+        # get_db_pool(QUERY_DB_ADMIN, pool_size=5)
+        get_db_pool(DIALECTS_DB_USER, pool_size=8)
+        # DIALECTS_DB_ADMIN 与 DIALECTS_DB_USER 同路径，无需重复预初始化
+        # get_db_pool(DIALECTS_DB_ADMIN, pool_size=8)
+        get_db_pool(CHARACTERS_DB_PATH, pool_size=4)
+        # 仅 admin 统计页低频访问，懒加载足够，无需预初始化
+        # get_db_pool(LOGS_DATABASE_PATH, pool_size=5)
+        # api_stats.py 查的表全有 ORM 模型，raw SQL 可后续改为 ORM 查询
+        # get_db_pool(USER_DATABASE_PATH, pool_size=5)
+        get_db_pool(YUBAO_DB_PATH, pool_size=3)
+        get_db_pool(GD_VILLAGE_DB_PATH, pool_size=3)
         print("[OK] Database pools initialized")
     except Exception as exc:
         print(f"[WARN] Database pool initialization failed: {exc}")
