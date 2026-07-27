@@ -59,5 +59,6 @@ def get_user_stats(query: str, db: Session = Depends(get_db)):
         "last_failed_login": user.last_failed_login,
         # 会话 & 在线
         "active_session_count": user.active_session_count,
+        "total_online_time": user.total_online_time,
         "last_seen": user.last_seen,
     }
