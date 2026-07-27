@@ -5,7 +5,7 @@ import pytest
 from docx import Document
 from fastapi import HTTPException
 
-from app.service.vocabulary.database import create_vocabulary_engine_and_session, migrate_vocabulary_database
+from app.service.vocabulary.database import create_vocabulary_engine_and_session
 from app.service.vocabulary.models import (
     Base,
     VocabularyEntry,
@@ -77,104 +77,6 @@ def test_vocabulary_sqlite_connections_wait_for_busy_writes(tmp_path: Path) -> N
         raw_conn.close()
 
     assert timeout_ms == 10000
-
-
-def test_migration_backfills_and_constrains_vocabulary_log_operation_columns(tmp_path: Path) -> None:
-    engine, _ = create_vocabulary_engine_and_session(tmp_path / "legacy_vocabulary.db")
-    with engine.begin() as conn:
-        conn.exec_driver_sql(
-            """
-            CREATE TABLE vocabulary_logs (
-                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                permission_level VARCHAR(20) NOT NULL,
-                action VARCHAR(50) NOT NULL,
-                table_name VARCHAR(100) NOT NULL,
-                target_scope TEXT,
-                affected_rows INTEGER NOT NULL,
-                payload_json TEXT,
-                created_at DATETIME NOT NULL
-            )
-            """
-        )
-        conn.exec_driver_sql(
-            """
-            INSERT INTO vocabulary_logs (
-                user_id, permission_level, action, table_name,
-                target_scope, affected_rows, payload_json, created_at
-            )
-            VALUES (7, 'edit', 'update', 'vocabulary_entries', 'legacy row', 3, '{}', '2026-07-26 00:00:00')
-            """
-        )
-
-    migrate_vocabulary_database(engine)
-
-    with engine.connect() as conn:
-        column_info = {
-            row[1]: {"notnull": bool(row[3]), "type": row[2]}
-            for row in conn.exec_driver_sql('PRAGMA table_info("vocabulary_logs")').fetchall()
-        }
-        row = conn.exec_driver_sql(
-            "SELECT operation_id, source, status FROM vocabulary_logs WHERE id = 1"
-        ).fetchone()
-
-    assert column_info["operation_id"]["notnull"]
-    assert column_info["source"]["notnull"]
-    assert column_info["status"]["notnull"]
-    assert row == ("legacy-1", "legacy", "success")
-
-
-def test_migration_removes_legacy_location_raw_json_column(tmp_path: Path) -> None:
-    engine, _ = create_vocabulary_engine_and_session(tmp_path / "legacy_locations.db")
-    with engine.begin() as conn:
-        conn.exec_driver_sql(
-            """
-            CREATE TABLE vocabulary_locations (
-                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                location_name VARCHAR(200) NOT NULL,
-                coordinates VARCHAR(200) NOT NULL,
-                province VARCHAR(100),
-                city VARCHAR(100),
-                county VARCHAR(100),
-                town VARCHAR(100),
-                administrative_village VARCHAR(200),
-                natural_village VARCHAR(200),
-                yindian_region VARCHAR(200),
-                atlas_region VARCHAR(200),
-                raw_location_json TEXT
-            )
-            """
-        )
-        conn.exec_driver_sql(
-            """
-            INSERT INTO vocabulary_locations (
-                user_id, location_name, coordinates, province, city,
-                county, town, administrative_village, natural_village,
-                yindian_region, atlas_region, raw_location_json
-            )
-            VALUES (
-                7, '息烽', '106.734862,27.09809', '贵州', '贵阳',
-                '息烽', '', '', '', '中上江-荆益-川黔',
-                '西南官话-川黔片-成渝小片', '{"location_name":"息烽"}'
-            )
-            """
-        )
-
-    migrate_vocabulary_database(engine)
-
-    with engine.connect() as conn:
-        columns = [
-            row[1]
-            for row in conn.exec_driver_sql('PRAGMA table_info("vocabulary_locations")').fetchall()
-        ]
-        row = conn.exec_driver_sql(
-            "SELECT user_id, location_name, coordinates, province, city, county "
-            "FROM vocabulary_locations"
-        ).fetchone()
-
-    assert "raw_location_json" not in columns
-    assert row == (7, "息烽", "106.734862,27.09809", "贵州", "贵阳", "息烽")
 
 
 def test_edit_permission_resolves_to_edit(tmp_path: Path) -> None:

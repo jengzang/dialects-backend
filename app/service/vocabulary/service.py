@@ -57,42 +57,36 @@ def _upsert_location(
     user: object,
     normalized_location,
 ) -> VocabularyLocation:
-    session.connection().exec_driver_sql(
-        """
-        INSERT INTO vocabulary_locations (
-            user_id, location_name, coordinates, province, city, county, town,
-            administrative_village, natural_village, yindian_region, atlas_region
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, location_name) DO UPDATE SET
-            coordinates = excluded.coordinates,
-            province = excluded.province,
-            city = excluded.city,
-            county = excluded.county,
-            town = excluded.town,
-            administrative_village = excluded.administrative_village,
-            natural_village = excluded.natural_village,
-            yindian_region = excluded.yindian_region,
-            atlas_region = excluded.atlas_region
-        """,
-        (
-            user.id,
-            normalized_location.location_name,
-            normalized_location.coordinates,
-            normalized_location.province,
-            normalized_location.city,
-            normalized_location.county,
-            normalized_location.town,
-            normalized_location.administrative_village,
-            normalized_location.natural_village,
-            normalized_location.yindian_region,
-            normalized_location.atlas_region,
-        ),
-    )
     location = session.query(VocabularyLocation).filter(
         VocabularyLocation.user_id == user.id,
         VocabularyLocation.location_name == normalized_location.location_name,
-    ).one()
+    ).first()
+    if location is not None:
+        location.coordinates = normalized_location.coordinates
+        location.province = normalized_location.province
+        location.city = normalized_location.city
+        location.county = normalized_location.county
+        location.town = normalized_location.town
+        location.administrative_village = normalized_location.administrative_village
+        location.natural_village = normalized_location.natural_village
+        location.yindian_region = normalized_location.yindian_region
+        location.atlas_region = normalized_location.atlas_region
+    else:
+        location = VocabularyLocation(
+            user_id=user.id,
+            location_name=normalized_location.location_name,
+            coordinates=normalized_location.coordinates,
+            province=normalized_location.province,
+            city=normalized_location.city,
+            county=normalized_location.county,
+            town=normalized_location.town,
+            administrative_village=normalized_location.administrative_village,
+            natural_village=normalized_location.natural_village,
+            yindian_region=normalized_location.yindian_region,
+            atlas_region=normalized_location.atlas_region,
+        )
+        session.add(location)
+    session.flush()
     return location
 
 

@@ -68,19 +68,6 @@ def migrate_logs_database() -> None:
     print("=" * 60)
 
 
-def migrate_vocabulary_database() -> None:
-    from app.service.vocabulary.database import migrate_vocabulary_database as migrate
-
-    print("=" * 60)
-    print("[DB] Checking vocabulary.db schema...")
-    try:
-        migrate()
-        print("[OK] vocabulary.db schema check completed")
-    except Exception as exc:
-        print(f"[WARN] vocabulary.db migration failed: {exc}")
-    print("=" * 60)
-
-
 def cleanup_old_temp_files() -> None:
     from app.tools.file_manager import file_manager
 
@@ -158,7 +145,6 @@ def run_main_startup() -> None:
     if AUTO_MIGRATE:
         steps.append(migrate_user_region_tables)
         steps.append(migrate_logs_database)
-        steps.append(migrate_vocabulary_database)
     if AUTO_INDEX:
         from app.sql.index_manager import initialize_all_indexes
         steps.append(initialize_all_indexes)

@@ -504,18 +504,15 @@ def set_vocabulary_permission(
                 permission_level=None,
             )
 
-        db.connection().exec_driver_sql(
-            """
-            INSERT INTO vocabulary_permissions (user_id, permission_level)
-            VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                permission_level = excluded.permission_level
-            """,
-            (user_id, params.permission_level),
-        )
         permission = db.query(VocabularyPermission).filter(
             VocabularyPermission.user_id == user_id
-        ).one()
+        ).first()
+        if permission is not None:
+            permission.permission_level = params.permission_level
+        else:
+            permission = VocabularyPermission(user_id=user_id, permission_level=params.permission_level)
+            db.add(permission)
+        db.flush()
 
         record_vocabulary_log(
             session=db,

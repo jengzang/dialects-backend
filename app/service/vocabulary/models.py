@@ -23,7 +23,7 @@ class VocabularyEntry(Base):
     __tablename__ = "vocabulary_entries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False)
     location_name = Column(String(200), nullable=False, index=True)
     standard_word = Column(String(500), nullable=False, index=True)
     local_expression = Column(Text, nullable=False)
@@ -41,7 +41,7 @@ class VocabularyLocation(Base):
     __tablename__ = "vocabulary_locations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False)
     location_name = Column(String(200), nullable=False, index=True)
     coordinates = Column(String(200), nullable=False)
     province = Column(String(100), default="")
@@ -54,7 +54,6 @@ class VocabularyLocation(Base):
     atlas_region = Column(String(200), default="")
     __table_args__ = (
         UniqueConstraint("user_id", "location_name", name="uq_vocabulary_location_user_name"),
-        Index("idx_vocabulary_locations_user_location", "user_id", "location_name"),
     )
 
 
