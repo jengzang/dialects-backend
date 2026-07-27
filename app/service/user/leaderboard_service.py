@@ -83,7 +83,6 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/vocabulary/imports",
             "/api/vocabulary/imports/preview",
             "/api/vocabulary/sql/query",
-            "/api/vocabulary/sql/distinct-query",
             "/api/vocabulary/sql/mutate",
             "/api/vocabulary/sql/batch-mutate",
             "/api/vocabulary/sql/batch-replace-preview",
@@ -105,7 +104,6 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
     "category_其他查询": {
         "paths": [
             "/sql/query",
-            "/sql/distinct-query",
             "/sql/tree/full",
             "/sql/tree/lazy",
             "/api/get_coordinates",
@@ -122,12 +120,6 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
 
 SQL_TREE_RULE: RuleConfig = {
     "paths": ["/sql/tree/full", "/sql/tree/lazy"],
-    "prefixes": [],
-    "exclude_prefixes": [],
-}
-
-SQL_QUERY_RULE: RuleConfig = {
-    "paths": ["/sql/query", "/sql/distinct-query"],
     "prefixes": [],
     "exclude_prefixes": [],
 }
@@ -153,7 +145,6 @@ VOCABULARY_SEARCH_RULE: RuleConfig = {
 VOCABULARY_TABLE_RULE: RuleConfig = {
     "paths": [
         "/api/vocabulary/sql/query",
-        "/api/vocabulary/sql/distinct-query",
     ],
     "prefixes": [],
     "exclude_prefixes": [],
@@ -179,7 +170,6 @@ AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_pho_pie": PHO_PIE_RULE,
     "endpoint_group_locations": LOCATIONS_RULE,
     "endpoint_group_sql_tree": SQL_TREE_RULE,
-    "endpoint_group_sql_query": SQL_QUERY_RULE,
     "endpoint_group_yubao": YUBAO_RULE,
     "endpoint_group_vocabulary_search": VOCABULARY_SEARCH_RULE,
     "endpoint_group_vocabulary_table": VOCABULARY_TABLE_RULE,
@@ -205,6 +195,7 @@ ENDPOINT_PATHS = [
     "/api/tools/jyut2ipa/upload",
     "/api/tools/merge/execute",
     "/api/tools/praat/jobs",
+    "/sql/query",
     "/api/get_coordinates",
     "/user/custom/batch-create",
     "/user/custom/edit",
