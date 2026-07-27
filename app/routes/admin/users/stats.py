@@ -20,8 +20,10 @@ def get_user_login_history(query: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 返回该用户的登录历史
-    return db.query(models.ApiUsageLog).filter(models.ApiUsageLog.user_id == user.id).all()
+    # 返回该用户的登录历史（基于 sessions 表，因为 api_usage_logs 中登录请求的 user_id 为 NULL）
+    return db.query(models.Session).filter(
+        models.Session.user_id == user.id
+    ).order_by(models.Session.created_at.desc()).all()
 
 
 # 获取用户在线时长等统计信息，禁用通过 user_id 查找，改为通过 username 或 email 查找
