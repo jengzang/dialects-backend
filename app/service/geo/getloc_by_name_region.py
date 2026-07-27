@@ -64,7 +64,10 @@ def query_dialect_abbreviations(
     if isinstance(location_sequence, str):
         location_list = [location_sequence.strip()]
     elif isinstance(location_sequence, list):
-        location_list = [item.strip() for item in location_sequence if isinstance(item, str)]
+        location_list = []
+        for item in location_sequence:
+            if isinstance(item, str):
+                location_list.extend(item.split())
     else:
         location_list = []
     location_list = _dedupe_preserving_order(location_list)
@@ -189,7 +192,10 @@ def query_dialect_abbreviations_orm(
     if isinstance(location_sequence, str):
         location_list = [location_sequence.strip()]
     elif isinstance(location_sequence, list):
-        location_list = [item.strip() for item in location_sequence if isinstance(item, str)]
+        location_list = []
+        for item in location_sequence:
+            if isinstance(item, str):
+                location_list.extend(item.split())
     else:
         location_list = []
     location_list = _dedupe_preserving_order(location_list)

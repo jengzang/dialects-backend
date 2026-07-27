@@ -156,6 +156,19 @@ class ZhongGuAnalysis(BaseModel):
         description="字符數據庫表名"
     )
 
+    @field_validator('locations', mode='before')
+    @classmethod
+    def split_locations(cls, v):
+        if not v:
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.extend(item.split())
+            else:
+                result.append(item)
+        return result
+
     @field_validator('table_name')
     @classmethod
     def validate_table_name(cls, v):
