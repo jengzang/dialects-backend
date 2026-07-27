@@ -45,10 +45,19 @@ def get_user_stats(query: str, db: Session = Depends(get_db)):
 
     # 返回该用户的统计信息
     return {
-        "login_count": user.login_count,
-        "failed_attempts": user.failed_attempts,
-        "total_online_seconds": user.total_online_seconds,
-        "last_login": user.last_login,
+        # 基本信息
+        "created_at": user.created_at,
+        # 注册
         "register_ip": user.register_ip,
         "register_ip_location": lookup_ip_location(user.register_ip) if user.register_ip else None,
+        # 登录
+        "login_count": user.login_count,
+        "last_login": user.last_login,
+        "last_login_ip": user.last_login_ip,
+        "last_login_ip_location": lookup_ip_location(user.last_login_ip) if user.last_login_ip else None,
+        "failed_attempts": user.failed_attempts,
+        "last_failed_login": user.last_failed_login,
+        # 会话 & 在线
+        "active_session_count": user.active_session_count,
+        "last_seen": user.last_seen,
     }
