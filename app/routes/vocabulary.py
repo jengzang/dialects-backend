@@ -357,6 +357,7 @@ async def upload_vocabulary(
     file: UploadFile = File(...),
     location: str = Form(...),
     parser_mode: str = Form("auto"),
+    overwrite: bool = Form(False),
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -369,6 +370,7 @@ async def upload_vocabulary(
             content=content,
             location_payload=location,
             parser_mode=parser_mode,
+            overwrite=overwrite,
         )
     except HTTPException:
         raise
@@ -493,6 +495,15 @@ def set_vocabulary_permission(
             if previous_permission is not None
             else None
         )
+        if params.permission_level == "none":
+            if previous_permission is not None:
+                db.delete(previous_permission)
+                db.commit()
+            return VocabularyPermissionResponse(
+                user_id=user_id,
+                permission_level=None,
+            )
+
         db.connection().exec_driver_sql(
             """
             INSERT INTO vocabulary_permissions (user_id, permission_level)

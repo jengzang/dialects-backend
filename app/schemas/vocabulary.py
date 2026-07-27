@@ -162,7 +162,7 @@ class VocabularyLogsResponse(BaseModel):
 
 
 class VocabularyPermissionUpdateRequest(BaseModel):
-    permission_level: Literal["edit", "manage"]
+    permission_level: Literal["none", "edit", "manage"]
 
 
 class VocabularyPermissionResponse(BaseModel):
