@@ -51,14 +51,25 @@ def get_success_login_logs(db: Session, query: str) -> Optional[List[Dict[str, A
         result.append({
             "id": s.id,
             "user_id": s.user_id,
-            "path": "/api/auth/login",
-            "duration": 0,
-            "status_code": 200,
-            "ip": s.first_ip,
-            "ip_location": lookup_ip_location(s.first_ip) if s.first_ip else None,
-            "user_agent": s.first_device_info,
-            "referer": None,
-            "called_at": s.created_at,
+            # 登录时
+            "login_at": s.created_at,
+            "login_ip": s.first_ip,
+            "login_ip_location": lookup_ip_location(s.first_ip) if s.first_ip else None,
+            "login_device": s.first_device_info,
+            # 当前
+            "current_ip": s.current_ip,
+            "current_ip_location": lookup_ip_location(s.current_ip) if s.current_ip else None,
+            "current_device": s.device_info,
+            # 会话状态
+            "revoked": s.revoked,
+            "revoked_reason": s.revoked_reason,
+            "revoked_at": s.revoked_at,
+            "expires_at": s.expires_at,
+            "last_activity_at": s.last_activity_at,
+            # 统计
+            "total_online_seconds": s.total_online_seconds,
+            "ip_change_count": s.ip_change_count,
+            "refresh_count": s.refresh_count,
         })
 
     return result
