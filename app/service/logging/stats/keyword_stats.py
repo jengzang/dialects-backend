@@ -2,12 +2,12 @@
 Keyword statistics business logic.
 """
 
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.common.path import LOGS_DATABASE_PATH
 from app.common.time_utils import now_shanghai, shanghai_to_utc_naive, to_shanghai_iso
+from app.sql.db_pool import get_db_pool
 
 
 def _normalize_query_time(value: Optional[datetime]) -> Optional[datetime]:
@@ -21,9 +21,6 @@ def get_top_keywords(
     end_time: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """Get top keywords."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
     where_clause = ""
     params: list[Any] = []
 
@@ -41,28 +38,28 @@ def get_top_keywords(
         where_clause = "WHERE timestamp <= ?"
         params.append(_normalize_query_time(end_time))
 
-    query = f"""
-        SELECT value, COUNT(*) as count
-        FROM api_keyword_log
-        {where_clause}
-        GROUP BY value
-        ORDER BY count DESC
-        LIMIT ?
-    """
-    params.append(limit)
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
+        query = f"""
+            SELECT value, COUNT(*) as count
+            FROM api_keyword_log
+            {where_clause}
+            GROUP BY value
+            ORDER BY count DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
 
-    total_query = f"""
-        SELECT COUNT(*)
-        FROM api_keyword_log
-        {where_clause}
-    """
-    cursor.execute(total_query, params[:-1])
-    total = cursor.fetchone()[0]
-
-    db.close()
+        total_query = f"""
+            SELECT COUNT(*)
+            FROM api_keyword_log
+            {where_clause}
+        """
+        cursor.execute(total_query, params[:-1])
+        total = cursor.fetchone()[0]
 
     return [
         {
@@ -83,9 +80,6 @@ def search_keyword_logs(
     page_size: int = 50,
 ) -> Dict[str, Any]:
     """Search keyword logs."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
     where_clauses = []
     params: list[Any] = []
 
@@ -108,26 +102,27 @@ def search_keyword_logs(
 
     where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
-    count_query = f"""
-        SELECT COUNT(*)
-        FROM api_keyword_log
-        {where_clause}
-    """
-    cursor.execute(count_query, params)
-    total = cursor.fetchone()[0]
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-    offset = (page - 1) * page_size
-    data_query = f"""
-        SELECT id, value, field, timestamp, path
-        FROM api_keyword_log
-        {where_clause}
-        ORDER BY timestamp DESC
-        LIMIT ? OFFSET ?
-    """
-    cursor.execute(data_query, params + [page_size, offset])
-    rows = cursor.fetchall()
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM api_keyword_log
+            {where_clause}
+        """
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
 
-    db.close()
+        offset = (page - 1) * page_size
+        data_query = f"""
+            SELECT id, value, field, timestamp, path
+            FROM api_keyword_log
+            {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(data_query, params + [page_size, offset])
+        rows = cursor.fetchall()
 
     logs = []
     for row in rows:
@@ -152,4 +147,3 @@ def search_keyword_logs(
         "page": page,
         "page_size": page_size,
     }
-

@@ -1,4 +1,3 @@
-import sqlite3
 from typing import Callable
 
 from app.common.config import AUTO_INDEX, AUTO_MIGRATE
@@ -6,9 +5,12 @@ from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
     DIALECTS_DB_USER,
+    GD_VILLAGE_DB_PATH,
     LOGS_DATABASE_PATH,
     QUERY_DB_ADMIN,
     QUERY_DB_USER,
+    USER_DATABASE_PATH,
+    YUBAO_DB_PATH,
 )
 from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PATH
 from app.geo_query.loader import load_geo_query_engine
@@ -25,6 +27,10 @@ def initialize_db_pools() -> None:
         get_db_pool(DIALECTS_DB_ADMIN, pool_size=10)
         get_db_pool(DIALECTS_DB_USER, pool_size=10)
         get_db_pool(CHARACTERS_DB_PATH, pool_size=5)
+        get_db_pool(LOGS_DATABASE_PATH, pool_size=5)
+        get_db_pool(USER_DATABASE_PATH, pool_size=5)
+        get_db_pool(YUBAO_DB_PATH, pool_size=5)
+        get_db_pool(GD_VILLAGE_DB_PATH, pool_size=5)
         print("[OK] Database pools initialized")
     except Exception as exc:
         print(f"[WARN] Database pool initialization failed: {exc}")
@@ -53,18 +59,14 @@ def migrate_logs_database() -> None:
 
     print("=" * 60)
     print("[DB] Checking logs.db analytics tables...")
-    logs_db = None
     try:
-        logs_db = sqlite3.connect(LOGS_DATABASE_PATH)
-        migrate_hourly_daily_stats(logs_db)
-        merge_static_usage_daily_paths(logs_db)
+        with get_db_pool(LOGS_DATABASE_PATH).get_connection() as logs_db:
+            migrate_hourly_daily_stats(logs_db)
+            merge_static_usage_daily_paths(logs_db)
         migrate_api_diagnostic_events()
         print("[OK] logs.db schema check completed")
     except Exception as exc:
         print(f"[WARN] logs.db migration failed: {exc}")
-    finally:
-        if logs_db is not None:
-            logs_db.close()
     print("=" * 60)
 
 

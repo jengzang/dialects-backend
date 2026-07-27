@@ -1,8 +1,7 @@
-import sqlite3
-from contextlib import closing
 from typing import Any, Iterable, Optional
 
 from app.common.path import DB_MAPPING
+from app.sql.db_pool import get_db_pool
 
 
 YUBAO_DB_PATH = DB_MAPPING['yubao']
@@ -31,11 +30,6 @@ class YubaoRepository:
         'memo', 'lang_cat1', 'lang_cat2', 'lang_cat3'
     ]
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(YUBAO_DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
-
     @staticmethod
     def _normalize_limit(limit: int, all_items: bool) -> Optional[int]:
         if all_items:
@@ -60,7 +54,7 @@ class YubaoRepository:
         if normalized_limit is not None:
             sql += ' LIMIT ?'
             params.append(normalized_limit)
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [row['word'] for row in rows]
 
@@ -71,7 +65,7 @@ class YubaoRepository:
         sql = 'SELECT COUNT(DISTINCT word) AS total FROM vocabulary'
         if where_parts:
             sql += ' WHERE ' + ' AND '.join(where_parts)
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             row = conn.execute(sql, params).fetchone()
         return int(row['total'])
 
@@ -87,7 +81,7 @@ class YubaoRepository:
         if normalized_limit is not None:
             sql += ' LIMIT ?'
             params.append(normalized_limit)
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [row['sentence'] for row in rows]
 
@@ -98,7 +92,7 @@ class YubaoRepository:
         sql = 'SELECT COUNT(DISTINCT sentence) AS total FROM grammar'
         if where_parts:
             sql += ' WHERE ' + ' AND '.join(where_parts)
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             row = conn.execute(sql, params).fetchone()
         return int(row['total'])
 
@@ -117,7 +111,7 @@ class YubaoRepository:
         params = [word]
         data_sql = f'SELECT {columns}{base_where}{order_clause} LIMIT ? OFFSET ?'
         count_sql = 'SELECT COUNT(*) AS total' + base_where
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             rows = conn.execute(data_sql, params + [page_size, offset]).fetchall()
             total_row = conn.execute(count_sql, params).fetchone()
         return [dict(row) for row in rows], int(total_row['total'])
@@ -130,7 +124,7 @@ class YubaoRepository:
         params = [sentence]
         data_sql = f'SELECT {columns}{base_where}{order_clause} LIMIT ? OFFSET ?'
         count_sql = 'SELECT COUNT(*) AS total' + base_where
-        with closing(self._connect()) as conn:
+        with get_db_pool(YUBAO_DB_PATH).get_connection() as conn:
             rows = conn.execute(data_sql, params + [page_size, offset]).fetchall()
             total_row = conn.execute(count_sql, params).fetchone()
         return [dict(row) for row in rows], int(total_row['total'])
