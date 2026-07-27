@@ -261,6 +261,7 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
                 ensure_ascii=False,
             ),
             parser_mode="table",
+            overwrite=True,
         )
 
         rows = session.query(VocabularyEntry).order_by(
@@ -567,6 +568,7 @@ def test_import_log_records_replaced_entries_for_recovery(tmp_path: Path) -> Non
                 ensure_ascii=False,
             ),
             parser_mode="table",
+            overwrite=True,
         )
 
         payload = json.loads(session.query(VocabularyLog).one().payload_json)
@@ -579,6 +581,79 @@ def test_import_log_records_replaced_entries_for_recovery(tmp_path: Path) -> Non
         assert payload["deleted_entries_omitted"] is False
         assert payload["deleted_entries_log_limit"] == 500
         assert payload["rollback_supported"] is False
+    finally:
+        session.close()
+
+
+def test_import_blocks_when_entries_exist_for_same_location(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=8,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+            )
+        )
+        session.commit()
+
+        csv_content = (
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+        ).encode("utf-8")
+        with pytest.raises(ValueError, match="已有数据"):
+            import_vocabulary_upload(
+                session=session,
+                user=_User(7),
+                filename="upload.csv",
+                content=csv_content,
+                location_payload=json.dumps(
+                    {"location_name": "息烽", "coordinates": "106.73,27.10"},
+                    ensure_ascii=False,
+                ),
+                parser_mode="table",
+            )
+    finally:
+        session.close()
+
+
+def test_import_with_overwrite_flag_bypasses_block(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+            )
+        )
+        session.commit()
+
+        csv_content = (
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+        ).encode("utf-8")
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=csv_content,
+            location_payload=json.dumps(
+                {"location_name": "息烽", "coordinates": "106.73,27.10"},
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+            overwrite=True,
+        )
+
+        assert result.imported_count == 1
+        assert result.deleted_existing_count == 1
     finally:
         session.close()
 

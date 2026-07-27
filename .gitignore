@@ -26,6 +26,7 @@ ENV/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+outputs/
 
 # GeoLite2 database files
 data/dependency/*.mmdb

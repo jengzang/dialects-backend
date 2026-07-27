@@ -187,6 +187,7 @@ def import_vocabulary_upload(
     content: bytes,
     location_payload,
     parser_mode: str = "auto",
+    overwrite: bool = False,
 ) -> VocabularyImportResult:
     permission_level = get_effective_permission_level(session, user)
     normalized_location = normalize_location_payload(location_payload)
@@ -199,6 +200,15 @@ def import_vocabulary_upload(
         raise ValueError("; ".join(parse_result.errors))
     if not parse_result.rows:
         raise ValueError("No valid vocabulary rows found")
+
+    if not overwrite:
+        existing_count = session.query(VocabularyEntry).filter(
+            VocabularyEntry.location_name == normalized_location.location_name,
+        ).count()
+        if existing_count > 0:
+            raise ValueError(
+                "该地点已有数据，不能重复上传。如需更新，请联系管理员。"
+            )
 
     import_lock = _get_import_lock(user.id, normalized_location.location_name)
     with import_lock:
