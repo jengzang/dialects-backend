@@ -188,6 +188,51 @@ def test_import_replaces_current_users_location_entries_and_keeps_other_users(tm
         session.close()
 
 
+def test_import_without_overwrite_allows_same_location_from_other_user(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=8,
+                location_name="息烽",
+                standard_word="别人词",
+                local_expression="别人讲法",
+                ipa="other1",
+                notes="other",
+            )
+        )
+        session.commit()
+
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=(
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8"),
+            location_payload=json.dumps(
+                {"location_name": "息烽", "coordinates": "106.73,27.10"},
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        rows = session.query(VocabularyEntry).order_by(
+            VocabularyEntry.user_id.asc(),
+            VocabularyEntry.standard_word.asc(),
+        ).all()
+        assert result.imported_count == 1
+        assert result.deleted_existing_count == 0
+        assert [(row.user_id, row.standard_word) for row in rows] == [
+            (7, "太阳"),
+            (8, "别人词"),
+        ]
+    finally:
+        session.close()
+
+
 def test_import_upserts_existing_location_metadata(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -487,13 +532,13 @@ def test_import_log_records_replaced_entries_for_recovery(tmp_path: Path) -> Non
         session.close()
 
 
-def test_import_blocks_when_entries_exist_for_same_location(tmp_path: Path) -> None:
+def test_import_blocks_when_current_user_entries_exist_for_same_location(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
         session.add(VocabularyPermission(user_id=7, permission_level="edit"))
         session.add(
             VocabularyEntry(
-                user_id=8,
+                user_id=7,
                 location_name="息烽",
                 standard_word="旧词",
                 local_expression="旧讲法",
@@ -621,7 +666,7 @@ def test_query_vocabulary_items_searches_content_fields_and_paginates(tmp_path: 
         assert result.total == 2
         assert result.page == 1
         assert result.page_size == 1
-        assert not hasattr(result.items[0], "id")
+        assert isinstance(result.items[0].id, int)
         assert result.items[0].standard_word == "太阳"
         assert result.items[0].local_expression == "日头"
         assert result.items[0].ipa == "zɿ2 tʰəu2"
@@ -629,6 +674,40 @@ def test_query_vocabulary_items_searches_content_fields_and_paginates(tmp_path: 
         assert result.items[0].informations == ""
         assert result.items[0].location_name == "息烽"
         assert result.items[0].location_label == "贵州 / 贵阳 / 息烽"
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_items_filters_selected_standard_words(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ipa1",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ipa2",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_items(
+            session=session,
+            standard_words=["月亮"],
+        )
+
+        assert result.total == 1
+        assert result.items[0].standard_word == "月亮"
     finally:
         session.close()
 
@@ -926,6 +1005,31 @@ def test_query_vocabulary_standard_words_returns_all_distinct_without_filters(tm
         session.close()
 
 
+def test_query_vocabulary_standard_words_defaults_to_first_100_with_total_count(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word=f"词{i:03d}",
+                    local_expression=f"讲法{i:03d}",
+                    ipa=f"ipa{i:03d}",
+                )
+                for i in range(105)
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_standard_words(session=session)
+
+        assert len(result.standard_words) == 100
+        assert result.total == 105
+    finally:
+        session.close()
+
+
 def test_query_vocabulary_standard_words_filters_by_q_and_locations(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -1080,6 +1184,7 @@ def test_query_vocabulary_map_items_returns_details_for_selected_standard_words(
         assert result.points[0].longitude == 106.74
         assert result.points[0].latitude == 27.09
         assert result.points[0].items[0].standard_word == "太阳"
+        assert isinstance(result.points[0].items[0].id, int)
         assert result.points[0].items[0].local_expression == "日头"
         assert result.points[0].items[0].ipa == "ipa1"
         assert result.points[0].items[0].notes == "常用"

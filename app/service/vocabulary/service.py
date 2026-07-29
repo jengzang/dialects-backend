@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from threading import Lock
+
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.service.vocabulary.location import normalize_location_payload
@@ -10,6 +12,10 @@ from app.service.vocabulary.permissions import get_effective_permission_level
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 
 MAX_LOGGED_DELETED_ENTRIES = 500
+
+
+class VocabularyImportConflictError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -57,36 +63,36 @@ def _upsert_location(
     user: object,
     normalized_location,
 ) -> VocabularyLocation:
+    values = {
+        "user_id": user.id,
+        "location_name": normalized_location.location_name,
+        "coordinates": normalized_location.coordinates,
+        "province": normalized_location.province,
+        "city": normalized_location.city,
+        "county": normalized_location.county,
+        "town": normalized_location.town,
+        "administrative_village": normalized_location.administrative_village,
+        "natural_village": normalized_location.natural_village,
+        "yindian_region": normalized_location.yindian_region,
+        "atlas_region": normalized_location.atlas_region,
+    }
+    statement = sqlite_insert(VocabularyLocation).values(**values)
+    update_values = {
+        column: getattr(statement.excluded, column)
+        for column in values
+        if column not in {"user_id", "location_name"}
+    }
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["user_id", "location_name"],
+            set_=update_values,
+        )
+    )
+    session.flush()
     location = session.query(VocabularyLocation).filter(
         VocabularyLocation.user_id == user.id,
         VocabularyLocation.location_name == normalized_location.location_name,
-    ).first()
-    if location is not None:
-        location.coordinates = normalized_location.coordinates
-        location.province = normalized_location.province
-        location.city = normalized_location.city
-        location.county = normalized_location.county
-        location.town = normalized_location.town
-        location.administrative_village = normalized_location.administrative_village
-        location.natural_village = normalized_location.natural_village
-        location.yindian_region = normalized_location.yindian_region
-        location.atlas_region = normalized_location.atlas_region
-    else:
-        location = VocabularyLocation(
-            user_id=user.id,
-            location_name=normalized_location.location_name,
-            coordinates=normalized_location.coordinates,
-            province=normalized_location.province,
-            city=normalized_location.city,
-            county=normalized_location.county,
-            town=normalized_location.town,
-            administrative_village=normalized_location.administrative_village,
-            natural_village=normalized_location.natural_village,
-            yindian_region=normalized_location.yindian_region,
-            atlas_region=normalized_location.atlas_region,
-        )
-        session.add(location)
-    session.flush()
+    ).one()
     return location
 
 
@@ -197,10 +203,11 @@ def import_vocabulary_upload(
 
     if not overwrite:
         existing_count = session.query(VocabularyEntry).filter(
+            VocabularyEntry.user_id == user.id,
             VocabularyEntry.location_name == normalized_location.location_name,
         ).count()
         if existing_count > 0:
-            raise ValueError(
+            raise VocabularyImportConflictError(
                 "该地点已有数据，不能重复上传。如需更新，请联系管理员。"
             )
 

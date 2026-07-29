@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.schemas.vocabulary import (
@@ -37,6 +38,7 @@ from app.service.vocabulary.query import (
 )
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
+from app.service.vocabulary.service import VocabularyImportConflictError
 
 
 router = APIRouter()
@@ -104,6 +106,7 @@ def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_vocabulary_db),
@@ -114,6 +117,7 @@ def get_vocabulary_items(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            standard_words=standard_words,
             page=page,
             page_size=page_size,
         )
@@ -148,7 +152,7 @@ def get_vocabulary_standard_words(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
-    limit: Optional[int] = Query(default=None, ge=1),
+    limit: Optional[int] = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -324,6 +328,8 @@ def get_vocabulary_logs(
         raise HTTPException(status_code=403, detail="只有 manage 用户可以查看词表编辑日志")
 
     query = db.query(VocabularyLog)
+    if getattr(current_user, "role", None) != "admin":
+        query = query.filter(VocabularyLog.action != "set_permission")
     if user_id is not None:
         query = query.filter(VocabularyLog.user_id == user_id)
     if permission_level:
@@ -374,6 +380,8 @@ async def upload_vocabulary(
         )
     except HTTPException:
         raise
+    except VocabularyImportConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -496,23 +504,47 @@ def set_vocabulary_permission(
             else None
         )
         if params.permission_level == "none":
+            affected_rows = 0
             if previous_permission is not None:
                 db.delete(previous_permission)
-                db.commit()
+                affected_rows = 1
+            record_vocabulary_log(
+                session=db,
+                user_id=current_admin.id,
+                permission_level="manage",
+                source="admin",
+                action="set_permission",
+                table_name="vocabulary_permissions",
+                target_scope=f"target_user_id = {user_id}",
+                affected_rows=affected_rows,
+                payload={
+                    "target_user_id": user_id,
+                    "permission_level": None,
+                    "before": before,
+                    "after": None,
+                    "rollback_supported": before is not None,
+                },
+            )
+            db.commit()
             return VocabularyPermissionResponse(
                 user_id=user_id,
                 permission_level=None,
             )
 
+        statement = sqlite_insert(VocabularyPermission).values(
+            user_id=user_id,
+            permission_level=params.permission_level,
+        )
+        db.execute(
+            statement.on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={"permission_level": statement.excluded.permission_level},
+            )
+        )
+        db.flush()
         permission = db.query(VocabularyPermission).filter(
             VocabularyPermission.user_id == user_id
-        ).first()
-        if permission is not None:
-            permission.permission_level = params.permission_level
-        else:
-            permission = VocabularyPermission(user_id=user_id, permission_level=params.permission_level)
-            db.add(permission)
-        db.flush()
+        ).one()
 
         record_vocabulary_log(
             session=db,

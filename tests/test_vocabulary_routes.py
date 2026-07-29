@@ -24,7 +24,7 @@ from app.routes.vocabulary import (
 )
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
 from app.service.vocabulary.database import create_vocabulary_engine_and_session
-from app.service.vocabulary.models import Base, VocabularyLocation, VocabularyLog, VocabularyPermission
+from app.service.vocabulary.models import Base, VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
 
 
 class _User:
@@ -98,6 +98,7 @@ def test_items_endpoint_accepts_query_parameters() -> None:
     assert "q" in parameters
     assert "search_fields" in parameters
     assert "locations" in parameters
+    assert "standard_words" in parameters
     assert "page" in parameters
     assert "page_size" in parameters
 
@@ -143,7 +144,7 @@ def test_standard_words_endpoint_accepts_optional_filters_without_required_query
     assert "locations" in parameters
     assert "limit" in parameters
     assert parameters["q"].default.default is None
-    assert parameters["limit"].default.default is None
+    assert parameters["limit"].default.default == 100
 
 
 def test_main_routes_registers_vocabulary_search_map_items_endpoint() -> None:
@@ -377,6 +378,39 @@ def test_admin_permission_endpoint_writes_vocabulary_log(tmp_path: Path) -> None
         session.close()
 
 
+def test_admin_permission_endpoint_logs_permission_revocation(tmp_path: Path) -> None:
+    from app.routes.vocabulary import set_vocabulary_permission
+    from app.schemas.vocabulary import VocabularyPermissionUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        result = set_vocabulary_permission(
+            user_id=7,
+            params=VocabularyPermissionUpdateRequest(permission_level="none"),
+            current_admin=_User(1, role="admin"),
+            db=session,
+        )
+
+        log = session.query(VocabularyLog).one()
+        payload = json.loads(log.payload_json)
+        assert result.user_id == 7
+        assert result.permission_level is None
+        assert session.query(VocabularyPermission).filter(VocabularyPermission.user_id == 7).count() == 0
+        assert log.user_id == 1
+        assert log.source == "admin"
+        assert log.action == "set_permission"
+        assert log.table_name == "vocabulary_permissions"
+        assert log.affected_rows == 1
+        assert payload["before"] == {"permission_level": "edit"}
+        assert payload["after"] is None
+        assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
 def test_admin_permission_log_records_previous_permission(tmp_path: Path) -> None:
     from app.routes.vocabulary import set_vocabulary_permission
     from app.schemas.vocabulary import VocabularyPermissionUpdateRequest
@@ -498,6 +532,50 @@ def test_upload_preview_endpoint_returns_counts_without_writing_database(tmp_pat
         assert result.would_delete_existing_count == 0
         assert session.query(VocabularyLocation).count() == 0
         assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_upload_endpoint_returns_409_when_current_user_location_exists_without_overwrite(tmp_path: Path) -> None:
+    class _UploadFile:
+        filename = "upload.csv"
+
+        async def read(self):
+            return (
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8")
+
+    import asyncio
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                upload_vocabulary(
+                    file=_UploadFile(),
+                    location='{"location_name":"息烽","coordinates":"106.73,27.10"}',
+                    parser_mode="table",
+                    overwrite=False,
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 409
+        assert "已有数据" in raised.value.detail
     finally:
         session.close()
 

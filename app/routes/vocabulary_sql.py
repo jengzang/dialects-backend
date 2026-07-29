@@ -25,7 +25,9 @@ router = APIRouter()
 EDITABLE_TABLES = {"vocabulary_entries"}
 ALLOWED_TABLES = EDITABLE_TABLES
 OWNED_TABLES = {"vocabulary_entries"}
-WRITE_PROTECTED_COLUMNS = {"id", "user_id"}
+CREATE_PROTECTED_COLUMNS = frozenset({"id", "user_id"})
+UPDATE_PROTECTED_COLUMNS = frozenset({"id", "user_id", "location_name"})
+EDIT_FORBIDDEN_ACTIONS = {"delete", "batch_delete"}
 
 
 def _quote_identifier(name: str) -> str:
@@ -86,11 +88,18 @@ def _validate_mutable_columns(
     table_name: str,
     columns: Iterable[str],
     field_name: str,
+    *,
+    protected_columns: frozenset[str] = UPDATE_PROTECTED_COLUMNS,
 ) -> None:
     _validate_columns(db, table_name, columns, field_name)
-    protected = [col for col in columns if col in WRITE_PROTECTED_COLUMNS]
+    protected = [col for col in columns if col in protected_columns]
     if protected:
         raise HTTPException(status_code=400, detail=f"不允许修改字段: {', '.join(protected)}")
+
+
+def _require_write_action_access(permission_level: str, action: str) -> None:
+    if permission_level == "edit" and action in EDIT_FORBIDDEN_ACTIONS:
+        raise HTTPException(status_code=403, detail="edit 用户不能通过词表 SQL 接口删除词条")
 
 
 def _scope_clause(table_name: str, permission_level: str, user: User) -> tuple[list[str], list[Any], str]:
@@ -405,6 +414,7 @@ async def mutate_table(
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
+    _require_write_action_access(permission_level, params.action)
     _validate_columns(db, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
     table_q = _quote_identifier(params.table_name)
     pk_q = _quote_identifier(params.pk_column)
@@ -413,7 +423,13 @@ async def mutate_table(
     try:
         if params.action == "create":
             data = _sanitize_create_data(params.data, current_user, permission_level)
-            _validate_mutable_columns(db, params.table_name, [key for key in data if key != "user_id"], "data字段")
+            _validate_mutable_columns(
+                db,
+                params.table_name,
+                [key for key in data if key != "user_id"],
+                "data字段",
+                protected_columns=CREATE_PROTECTED_COLUMNS,
+            )
             _validate_columns(db, params.table_name, data.keys(), "data字段")
             cols = list(data.keys())
             cols_q = ",".join(_quote_identifier(col) for col in cols)
@@ -509,6 +525,7 @@ async def batch_mutate_table(
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
+    _require_write_action_access(permission_level, params.action)
     _validate_columns(db, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
     table_q = _quote_identifier(params.table_name)
     pk_q = _quote_identifier(params.pk_column)
@@ -523,7 +540,13 @@ async def batch_mutate_table(
                 raise HTTPException(status_code=400, detail="create_data 不能为空")
             records = [_sanitize_create_data(record, current_user, permission_level) for record in params.create_data]
             cols = list(records[0].keys())
-            _validate_mutable_columns(db, params.table_name, [key for key in cols if key != "user_id"], "create_data字段")
+            _validate_mutable_columns(
+                db,
+                params.table_name,
+                [key for key in cols if key != "user_id"],
+                "create_data字段",
+                protected_columns=CREATE_PROTECTED_COLUMNS,
+            )
             _validate_columns(db, params.table_name, cols, "create_data字段")
             cols_q = ",".join(_quote_identifier(col) for col in cols)
             placeholders = ",".join(["?"] * len(cols))

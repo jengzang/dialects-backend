@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 @dataclass(frozen=True)
 class VocabularyItem:
+    id: int
     standard_word: str
     local_expression: str
     ipa: str
@@ -55,6 +56,7 @@ class VocabularyMapPointsResult:
 
 @dataclass(frozen=True)
 class VocabularyMapItem:
+    id: int
     standard_word: str
     local_expression: str
     ipa: str
@@ -111,6 +113,7 @@ SEARCH_FIELD_COLUMNS = {
     ),
 }
 DEFAULT_SEARCH_FIELDS = ("definition", "headword", "pronunciation", "detail")
+DEFAULT_STANDARD_WORD_LIMIT = 100
 
 
 def _normalize_multi_value(value: str | Iterable[str] | None) -> list[str]:
@@ -182,6 +185,7 @@ def _parse_coordinates(value: str | None) -> tuple[float, float] | None:
 
 def _row_to_vocabulary_item(row: dict) -> VocabularyItem:
     return VocabularyItem(
+        id=int(row["id"]),
         standard_word=row["standard_word"] or "",
         local_expression=row["local_expression"] or "",
         ipa=row["ipa"] or "",
@@ -194,6 +198,7 @@ def _row_to_vocabulary_item(row: dict) -> VocabularyItem:
 
 def _row_to_map_item(row: dict) -> VocabularyMapItem:
     return VocabularyMapItem(
+        id=int(row["id"]),
         standard_word=row["standard_word"] or "",
         local_expression=row["local_expression"] or "",
         ipa=row["ipa"] or "",
@@ -257,6 +262,7 @@ def query_vocabulary_items(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
+    standard_words: str | Iterable[str] | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> VocabularyItemsResult:
@@ -272,18 +278,25 @@ def query_vocabulary_items(
         search_fields=search_fields,
         locations=locations,
     )
+    clauses = [where_clause]
+    _append_standard_word_filter(
+        clauses=clauses,
+        values=values,
+        standard_words=standard_words,
+    )
+    combined_where_clause = " AND ".join(clauses)
     offset = (page - 1) * page_size
     conn = session.connection().connection
     cursor = conn.cursor()
     select_sql = (
         "SELECT "
-        "e.standard_word, e.local_expression, e.ipa, e.notes, e.informations, "
+        "e.id, e.standard_word, e.local_expression, e.ipa, e.notes, e.informations, "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
         "l.administrative_village, l.natural_village "
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {where_clause} "
+        f"WHERE {combined_where_clause} "
         "ORDER BY e.id ASC LIMIT ? OFFSET ?"
     )
     count_sql = (
@@ -291,7 +304,7 @@ def query_vocabulary_items(
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {where_clause}"
+        f"WHERE {combined_where_clause}"
     )
 
     cursor.execute(select_sql, values + [page_size, offset])
@@ -317,7 +330,7 @@ def query_vocabulary_standard_words(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
-    limit: int | None = None,
+    limit: int | None = DEFAULT_STANDARD_WORD_LIMIT,
 ) -> VocabularyStandardWordsResult:
     if limit is not None and limit < 1:
         raise ValueError("limit must be at least 1")
@@ -340,11 +353,24 @@ def query_vocabulary_standard_words(
         "GROUP BY e.standard_word "
         "ORDER BY entry_count DESC, e.standard_word ASC"
     )
+    count_sql = (
+        "SELECT COUNT(*) FROM ("
+        "SELECT e.standard_word "
+        "FROM vocabulary_entries e "
+        "LEFT JOIN vocabulary_locations l "
+        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
+        f"WHERE {where_clause} AND COALESCE(e.standard_word, '') <> '' "
+        "GROUP BY e.standard_word"
+        ") grouped_standard_words"
+    )
+    cursor.execute(count_sql, values)
+    total = cursor.fetchone()[0]
+    select_values = list(values)
     if limit is not None:
         select_sql += " LIMIT ?"
-        values = values + [limit]
+        select_values.append(limit)
 
-    cursor.execute(select_sql, values)
+    cursor.execute(select_sql, select_values)
     column_names = [description[0] for description in cursor.description]
     rows = [
         {column_names[index]: value for index, value in enumerate(row)}
@@ -359,7 +385,7 @@ def query_vocabulary_standard_words(
             )
             for row in rows
         ],
-        total=len(rows),
+        total=total,
     )
 
 

@@ -27,6 +27,7 @@ class VocabularyUploadPreviewResponse(BaseModel):
 
 
 class VocabularyItemResponse(BaseModel):
+    id: int
     standard_word: str
     local_expression: str
     ipa: str
@@ -70,6 +71,7 @@ class VocabularyMapPointsResponse(BaseModel):
 
 
 class VocabularyMapItemResponse(BaseModel):
+    id: int
     standard_word: str
     local_expression: str
     ipa: str

@@ -347,6 +347,37 @@ def test_update_rejects_user_id_changes(tmp_path: Path) -> None:
         session.close()
 
 
+def test_update_rejects_location_name_changes(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="update",
+                        pk_column="id",
+                        pk_value=own_id,
+                        data={"location_name": "新地点"},
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert session.get(VocabularyEntry, own_id).location_name == "息烽"
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
 def test_update_log_records_previous_values_for_changed_columns(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
@@ -381,13 +412,42 @@ def test_update_log_records_previous_values_for_changed_columns(tmp_path: Path) 
         session.close()
 
 
-def test_delete_log_records_deleted_row_snapshot(tmp_path: Path) -> None:
+def test_edit_user_cannot_delete_entries_through_vocabulary_sql(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
 
     session = _make_session(tmp_path)
     try:
         _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="delete",
+                        pk_column="id",
+                        pk_value=own_id,
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 403
+        assert session.get(VocabularyEntry, own_id) is not None
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_manage_delete_log_records_deleted_row_snapshot(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
         own_id, _ = _seed_entries(session)
 
         asyncio.run(
@@ -398,7 +458,7 @@ def test_delete_log_records_deleted_row_snapshot(tmp_path: Path) -> None:
                     pk_column="id",
                     pk_value=own_id,
                 ),
-                current_user=_User(7),
+                current_user=_User(1, role="admin"),
                 db=session,
             )
         )
@@ -412,13 +472,12 @@ def test_delete_log_records_deleted_row_snapshot(tmp_path: Path) -> None:
         session.close()
 
 
-def test_delete_log_records_rowid_when_used_as_pk(tmp_path: Path) -> None:
+def test_manage_delete_log_records_rowid_when_used_as_pk(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
 
     session = _make_session(tmp_path)
     try:
-        _grant_edit(session, 7)
         own_id, _ = _seed_entries(session)
 
         asyncio.run(
@@ -429,7 +488,7 @@ def test_delete_log_records_rowid_when_used_as_pk(tmp_path: Path) -> None:
                     pk_column="rowid",
                     pk_value=own_id,
                 ),
-                current_user=_User(7),
+                current_user=_User(1, role="admin"),
                 db=session,
             )
         )
@@ -437,6 +496,64 @@ def test_delete_log_records_rowid_when_used_as_pk(tmp_path: Path) -> None:
         payload = json.loads(session.query(VocabularyLog).one().payload_json)
         assert payload["before"]["rowid"] == own_id
         assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
+def test_edit_user_cannot_batch_delete_entries_through_vocabulary_sql(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import batch_mutate_table
+    from app.schemas.vocabulary_sql import BatchMutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                batch_mutate_table(
+                    BatchMutationParams(
+                        table_name="vocabulary_entries",
+                        action="batch_delete",
+                        delete_ids=[own_id],
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 403
+        assert session.get(VocabularyEntry, own_id) is not None
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_batch_replace_rejects_location_name_column(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import batch_replace_execute
+    from app.schemas.vocabulary_sql import BatchReplaceExecuteParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                batch_replace_execute(
+                    BatchReplaceExecuteParams(
+                        table_name="vocabulary_entries",
+                        columns=["location_name"],
+                        find_text="息烽",
+                        replace_text="新地点",
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert session.query(VocabularyLog).count() == 0
     finally:
         session.close()
 
