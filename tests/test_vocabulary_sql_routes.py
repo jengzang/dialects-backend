@@ -412,7 +412,7 @@ def test_update_log_records_previous_values_for_changed_columns(tmp_path: Path) 
         session.close()
 
 
-def test_edit_user_cannot_delete_entries_through_vocabulary_sql(tmp_path: Path) -> None:
+def test_edit_user_can_delete_own_single_entry_and_log_it(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
 
@@ -421,23 +421,67 @@ def test_edit_user_cannot_delete_entries_through_vocabulary_sql(tmp_path: Path) 
         _grant_edit(session, 7)
         own_id, _ = _seed_entries(session)
 
-        with pytest.raises(HTTPException) as raised:
-            asyncio.run(
-                mutate_table(
-                    MutationParams(
-                        table_name="vocabulary_entries",
-                        action="delete",
-                        pk_column="id",
-                        pk_value=own_id,
-                    ),
-                    current_user=_User(7),
-                    db=session,
-                )
+        result = asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="delete",
+                    pk_column="id",
+                    pk_value=own_id,
+                ),
+                current_user=_User(7),
+                db=session,
             )
+        )
+        log = session.query(VocabularyLog).one()
+        payload = json.loads(log.payload_json)
 
-        assert raised.value.status_code == 403
-        assert session.get(VocabularyEntry, own_id) is not None
-        assert session.query(VocabularyLog).count() == 0
+        assert result == {"status": "success", "action": "delete", "affected_rows": 1}
+        assert session.get(VocabularyEntry, own_id) is None
+        assert log.user_id == 7
+        assert log.permission_level == "edit"
+        assert log.action == "delete"
+        assert log.affected_rows == 1
+        assert payload["before"]["id"] == own_id
+        assert payload["before"]["user_id"] == 7
+        assert payload["before"]["standard_word"] == "太阳"
+        assert payload["rollback_supported"] is True
+    finally:
+        session.close()
+
+
+def test_edit_user_cannot_delete_other_users_entry(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _, other_id = _seed_entries(session)
+
+        result = asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="delete",
+                    pk_column="id",
+                    pk_value=other_id,
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+        log = session.query(VocabularyLog).one()
+        payload = json.loads(log.payload_json)
+
+        assert result == {"status": "success", "action": "delete", "affected_rows": 0}
+        assert session.get(VocabularyEntry, other_id) is not None
+        assert log.user_id == 7
+        assert log.permission_level == "edit"
+        assert log.action == "delete"
+        assert log.affected_rows == 0
+        assert payload["before"] is None
+        assert payload["rollback_supported"] is False
     finally:
         session.close()
 

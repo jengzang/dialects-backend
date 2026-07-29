@@ -27,7 +27,7 @@ ALLOWED_TABLES = EDITABLE_TABLES
 OWNED_TABLES = {"vocabulary_entries"}
 CREATE_PROTECTED_COLUMNS = frozenset({"id", "user_id"})
 UPDATE_PROTECTED_COLUMNS = frozenset({"id", "user_id", "location_name"})
-EDIT_FORBIDDEN_ACTIONS = {"delete", "batch_delete"}
+EDIT_FORBIDDEN_ACTIONS = {"batch_delete"}
 
 
 def _quote_identifier(name: str) -> str:
@@ -99,7 +99,7 @@ def _validate_mutable_columns(
 
 def _require_write_action_access(permission_level: str, action: str) -> None:
     if permission_level == "edit" and action in EDIT_FORBIDDEN_ACTIONS:
-        raise HTTPException(status_code=403, detail="edit 用户不能通过词表 SQL 接口删除词条")
+        raise HTTPException(status_code=403, detail="edit 用户不能通过词表 SQL 接口批量删除词条")
 
 
 def _scope_clause(table_name: str, permission_level: str, user: User) -> tuple[list[str], list[Any], str]:

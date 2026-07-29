@@ -1090,7 +1090,7 @@ GET /api/vocabulary/logs?source=batch_replace&table_name=vocabulary_entries&page
 - `vocabulary_permissions` 不开放给 SQL API，请用 `/api/vocabulary/admin/permissions*`。
 - 所有 SQL API 都需要登录，且有效 vocabulary 权限为 `edit`、`manage` 或项目 admin。
 - `edit` 用户所有 query/update/batch update/replace 都自动附加 `user_id = current_user.id`。
-- `edit` 用户不能通过 SQL API 执行 `delete` 或 `batch_delete`。
+- `edit` 用户可以通过 SQL API 单条删除自己的 entry，但不能执行 `batch_delete`。
 - `manage` 和 admin 可以 query/update/delete/batch/replace 全部 `vocabulary_entries`。
 - create 和 batch_create 会忽略前端提交的 `id`，并强制 `user_id = current_user.id`。这对 `manage` 和 admin 也一样。
 - `id`、`user_id` 和 `location_name` 不允许被 update 或 replace。
@@ -1443,9 +1443,9 @@ update 规则：
 
 delete 规则：
 
-- `edit` 用户不能通过 SQL API 删除 entries，返回 `403`。
+- `edit` 用户只能删除自己的目标 id；删除别人数据时服务端 WHERE 会带上当前用户 id，因此 `affected_rows = 0`。
 - `manage`/admin 可以删除任意目标 id。
-- 当前没有“清空自己全部 entries”的专用接口。
+- 当前没有“按地点清空自己全部 entries”的专用接口。
 
 响应体：
 
@@ -1706,7 +1706,7 @@ batch_delete 规则：
 3. 调用 `POST /api/vocabulary/sql/query` 分页加载数据。
 4. 过滤器使用 `GET /api/vocabulary/sql/distinct/vocabulary_entries/{column}` 或 `POST /api/vocabulary/sql/distinct-query`。
 5. 单条编辑调用 `POST /api/vocabulary/sql/mutate`。
-6. 批量编辑调用 `POST /api/vocabulary/sql/batch-mutate`；edit 用户不要展示删除/批量删除入口。
+6. 批量编辑调用 `POST /api/vocabulary/sql/batch-mutate`；edit 用户可以展示单条删除入口，但不要展示批量删除/清空入口。
 7. 批量替换必须先调用 `batch-replace-preview`，用户确认命中数后再调用 `batch-replace-execute`。
 
 ### 日志页面
@@ -1765,7 +1765,7 @@ batch_delete 规则：
 | 查询 `query.db` 自动补地点信息 | 未采用 | 当前按后来确认的方案：只接收 API 的 location JSON，不自动查 `query.db`。 |
 | location id | 内部存在，API 基本不暴露 | locations 表有自增 `id` 用于内部主键。普通 location 读取/编辑接口只用 `location_name + user_id` 定位。 |
 | 失败日志 | 部分完成 | 成功写操作都会记录。解析失败、权限失败、参数失败等大多数失败路径当前不写日志。 |
-| 删除能力 | 已按当前策略收紧 | edit 用户不能通过 SQL API 删除 entries；manage/admin 可以按 id 单条删除和批量删除。 |
+| 删除能力 | 已按当前策略收紧 | edit 用户可以按 id 删除自己的单条 entry，不能批量删除或按地点清空；manage/admin 可以按 id 单条删除和批量删除。 |
 | public search 多用户同名地点歧义 | 需要后续优化 | 搜索展示不返回 `user_id`，location options 对 `location_name` 去重。多用户上传同名地点时，前端无法区分来源。 |
 | 专门的前台词表详情 API | 未实现 | 当前只有列表、地图点、地点选项，没有 entry detail 页面接口。 |
 | 更高级查询能力 | 未实现 | 没有模糊排序、高亮、拼音/IPA 正规化、全文索引等。 |
