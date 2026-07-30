@@ -224,33 +224,22 @@ def parse_whitespace_document_text(text: str) -> tuple[list[ParsedVocabularyRow]
     rows: list[ParsedVocabularyRow] = []
     errors: list[str] = []
 
-    records = re.split(r"\n\s*\n+", text.strip())
-    for record_number, raw_record in enumerate(records, start=1):
-        record = raw_record.strip()
-        if not record:
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
             continue
 
-        lines = [line.strip() for line in record.splitlines() if line.strip()]
-        if len(lines) >= 3:
-            parts = [
-                lines[0],
-                lines[1],
-                lines[2],
-                " ".join(lines[3:]),
-            ]
-        else:
-            parts = re.split(r"\s+", record, maxsplit=3)
-
+        parts = line.split(maxsplit=3)
         if len(parts) < 3:
-            errors.append(f"第 {record_number} 条记录缺少字段: standard_word, local_expression, ipa")
+            errors.append(f"第 {line_number} 行缺少字段: standard_word, local_expression, ipa")
             continue
         notes = parts[3] if len(parts) > 3 else ""
         parsed, error, _ = _validate_row(
-            standard_word=parts[0].strip(),
-            local_expression=parts[1].strip(),
-            ipa=parts[2].strip(),
-            notes=notes.strip(),
-            row_number=record_number,
+            standard_word=parts[0],
+            local_expression=parts[1],
+            ipa=parts[2],
+            notes=notes,
+            row_number=line_number,
         )
         if error:
             errors.append(error)

@@ -69,18 +69,12 @@ def test_parse_bracket_document_text_extracts_fields() -> None:
     ]
 
 
-def test_parse_whitespace_document_text_allows_fields_on_separate_lines() -> None:
+def test_parse_whitespace_document_text() -> None:
     from app.service.vocabulary.parser import parse_whitespace_document_text
 
     rows, errors = parse_whitespace_document_text(
-        "太阳\n"
-        "日头\n"
-        "ȵit2 tʰəu2\n"
-        "常用\n"
-        "\n"
-        "月亮\n"
-        "月光\n"
-        "ŋye2 kuaŋ1"
+        "太阳 日头 ȵit2tʰəu2 常用\n"
+        "月亮 月光 ŋye2kuaŋ1"
     )
 
     assert errors == []
@@ -88,13 +82,13 @@ def test_parse_whitespace_document_text_allows_fields_on_separate_lines() -> Non
         ParsedVocabularyRow(
             standard_word="太阳",
             local_expression="日头",
-            ipa="ȵit2 tʰəu2",
+            ipa="ȵit2tʰəu2",
             notes="常用",
         ),
         ParsedVocabularyRow(
             standard_word="月亮",
             local_expression="月光",
-            ipa="ŋye2 kuaŋ1",
+            ipa="ŋye2kuaŋ1",
             notes="",
         ),
     ]
