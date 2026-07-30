@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.service.auth.core.dependencies import get_current_user
 from app.service.vocabulary.database import create_vocabulary_engine_and_session
@@ -56,11 +57,39 @@ def _seed_entries(session) -> tuple[int, int]:
 
 
 def test_vocabulary_sql_endpoints_use_current_user_dependency() -> None:
-    from app.routes.vocabulary_sql import mutate_table, batch_replace_execute
+    from app.routes.vocabulary_sql import (
+        batch_mutate_table,
+        batch_replace_execute,
+        batch_replace_preview,
+        get_column_info,
+        get_distinct_path_values,
+        get_distinct_query_values,
+        get_table_count,
+        mutate_table,
+        query_table,
+    )
 
-    for endpoint in (mutate_table, batch_replace_execute):
+    for endpoint in (
+        query_table,
+        get_column_info,
+        get_table_count,
+        get_distinct_path_values,
+        get_distinct_query_values,
+        mutate_table,
+        batch_mutate_table,
+        batch_replace_preview,
+        batch_replace_execute,
+    ):
         dependency = signature(endpoint).parameters["current_user"].default.dependency
         assert dependency is get_current_user
+
+
+def test_vocabulary_sql_endpoint_rejects_anonymous_request() -> None:
+    from app.main import app
+
+    response = TestClient(app).get("/api/vocabulary/sql/query/columns")
+
+    assert response.status_code == 401
 
 
 def test_vocabulary_sql_schemas_do_not_accept_db_key() -> None:

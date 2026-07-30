@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.routes.vocabulary import (
@@ -78,6 +79,61 @@ def test_main_routes_registers_only_my_vocabulary_context_endpoint() -> None:
     }
     assert "/api/vocabulary/me" in paths
     assert "/api/vocabulary/me/permission" not in paths
+
+
+def test_my_vocabulary_context_endpoint_rejects_anonymous_request() -> None:
+    from app.main import app
+
+    response = TestClient(app).get("/api/vocabulary/me")
+
+    assert response.status_code == 401
+
+
+def test_vocabulary_api_config_requires_login_for_private_routes() -> None:
+    from app.service.logging.utils.route_matcher import match_route_config
+
+    paths = [
+        "/api/vocabulary/me",
+        "/api/vocabulary/imports",
+        "/api/vocabulary/imports/preview",
+        "/api/vocabulary/locations",
+        "/api/vocabulary/locations/息烽",
+        "/api/vocabulary/logs",
+        "/api/vocabulary/sql/query/columns",
+        "/api/vocabulary/sql/mutate",
+    ]
+
+    for path in paths:
+        config = match_route_config(path)
+        assert config["rate_limit"] is True
+        assert config["require_login"] is True
+
+
+def test_vocabulary_search_api_config_is_public_but_rate_limited() -> None:
+    from app.service.logging.utils.route_matcher import match_route_config
+
+    paths = [
+        "/api/vocabulary/search/entries",
+        "/api/vocabulary/search/map-points",
+        "/api/vocabulary/search/map-items",
+        "/api/vocabulary/search/location-options",
+        "/api/vocabulary/search/standard-words",
+    ]
+
+    for path in paths:
+        config = match_route_config(path)
+        assert config["rate_limit"] is True
+        assert config["require_login"] is False
+
+
+def test_vocabulary_admin_api_config_skips_limiter_for_admin_dependency() -> None:
+    from app.service.logging.utils.route_matcher import match_route_config
+
+    config = match_route_config("/api/vocabulary/admin/permissions/7")
+
+    assert config["is_whitelisted"] is True
+    assert config["rate_limit"] is False
+    assert config["require_login"] is False
 
 
 def test_main_routes_registers_only_vocabulary_search_entries_endpoint() -> None:

@@ -355,6 +355,28 @@ API_ROUTE_CONFIG = {
         "log_params": True,  # 记录参数
         "log_body": True,  # 记录请求体（分析参数配置）
     },
+    # ===== Vocabulary API =====
+    # 前台搜索公开可用，但仍参与限流；更具体的 search 规则会覆盖 /api/vocabulary/*。
+    "/api/vocabulary/search/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    # 上传接口需要登录和限流，但不记录 multipart 文件正文。
+    "/api/vocabulary/imports*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": False,
+    },
+    # 其余 vocabulary 普通接口和 /api/vocabulary/sql/* 默认需要登录并限流。
+    "/api/vocabulary/*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": True,
+    },
     # "/api/villages/admin/*": {
     #     "rate_limit": True,  # 启用限流
     #     "require_login": True,  # 要求登录（管理员功能）
@@ -388,6 +410,7 @@ API_WHITELIST = [
     "/villagesML*",
     "/sitemap",
     "/auth*",
+    "/api/vocabulary/admin/*",  # 已由接口自身 Depends(get_current_admin_user) 控制
 ]
 
 # ===== 黑名单 =====
@@ -463,4 +486,3 @@ API_BLACKLIST = [
 - 个人数据查询：启用（需要权限）
 - 公开查询 API：不启用（方便访问）
 """
-
