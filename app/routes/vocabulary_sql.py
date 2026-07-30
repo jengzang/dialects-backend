@@ -1,9 +1,16 @@
+import asyncio
+import json
+import sqlite3
+import threading
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.common.config import SQL_QUERY_MAX_PAGE
+from app.common.path import VOCABULARY_DB_PATH
+from app.redis_client import redis_client
 from app.schemas.vocabulary_sql import (
     BatchMutationParams,
     BatchReplaceExecuteParams,
@@ -14,6 +21,7 @@ from app.schemas.vocabulary_sql import (
 )
 from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
+from app.service.logging.dependencies import ApiLimiter
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
@@ -29,9 +37,30 @@ CREATE_PROTECTED_COLUMNS = frozenset({"id", "user_id"})
 UPDATE_PROTECTED_COLUMNS = frozenset({"id", "user_id", "location_name"})
 EDIT_FORBIDDEN_ACTIONS = {"batch_delete"}
 
+_SCHEMA_CACHE: dict[str, set[str]] = {}
+_SCHEMA_LOCK = threading.Lock()
+
 
 def _quote_identifier(name: str) -> str:
     return f'"{name}"'
+
+
+def _load_columns(table_name: str, db_path: str) -> set[str]:
+    cache_key = f"{db_path}:{table_name}"
+    with _SCHEMA_LOCK:
+        if cache_key in _SCHEMA_CACHE:
+            return _SCHEMA_CACHE[cache_key]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+        columns = {row[1] for row in rows}
+    finally:
+        conn.close()
+
+    with _SCHEMA_LOCK:
+        _SCHEMA_CACHE[cache_key] = columns
+    return columns
 
 
 def _connection(db: Session):
@@ -40,17 +69,12 @@ def _connection(db: Session):
     return conn
 
 
-def _load_columns(db: Session, table_name: str) -> set[str]:
-    rows = _connection(db).execute(f'PRAGMA table_info("{table_name}")').fetchall()
-    return {row[1] for row in rows}
-
-
 def _require_table_access(
-    db: Session,
     user: User | None,
     table_name: str,
     *,
     write: bool = False,
+    db: Session | None = None,
 ) -> str:
     if table_name not in ALLOWED_TABLES:
         raise HTTPException(status_code=400, detail=f"无效的词表表名: {table_name}")
@@ -62,14 +86,14 @@ def _require_table_access(
 
 
 def _validate_columns(
-    db: Session,
     table_name: str,
     columns: Iterable[str],
     field_name: str,
     *,
+    db_path: str = VOCABULARY_DB_PATH,
     allow_rowid: bool = False,
 ) -> set[str]:
-    allowed = _load_columns(db, table_name)
+    allowed = _load_columns(table_name, db_path)
     invalid = []
     for col in columns:
         if col is None:
@@ -84,14 +108,14 @@ def _validate_columns(
 
 
 def _validate_mutable_columns(
-    db: Session,
     table_name: str,
     columns: Iterable[str],
     field_name: str,
     *,
+    db_path: str = VOCABULARY_DB_PATH,
     protected_columns: frozenset[str] = UPDATE_PROTECTED_COLUMNS,
 ) -> None:
-    _validate_columns(db, table_name, columns, field_name)
+    _validate_columns(table_name, columns, field_name, db_path=db_path)
     protected = [col for col in columns if col in protected_columns]
     if protected:
         raise HTTPException(status_code=400, detail=f"不允许修改字段: {', '.join(protected)}")
@@ -227,7 +251,7 @@ def _select_columns(snapshot: dict[str, Any] | None, columns: Iterable[str], pk_
     return selected
 
 
-def _sanitize_create_data(record: dict[str, Any], user: User, permission_level: str) -> dict[str, Any]:
+def _sanitize_create_data(record: dict[str, Any], user: User, _permission_level: str) -> dict[str, Any]:
     data = dict(record)
     data.pop("id", None)
     data["user_id"] = user.id
@@ -259,22 +283,25 @@ def _log_write(
     )
 
 
-@router.post("/query")
-async def query_table(
-    params: QueryParams,
-    current_user: User | None = Depends(get_current_user),
-    db: Session = Depends(get_vocabulary_db),
-):
-    permission_level = _require_table_access(db, current_user, params.table_name)
-    _validate_columns(db, params.table_name, params.filters.keys(), "filters字段")
-    _validate_columns(db, params.table_name, params.search_columns, "search_columns")
-    if params.sort_by:
-        _validate_columns(db, params.table_name, [params.sort_by], "sort_by")
+# ---------------------------------------------------------------------------
+# Sync helpers for read endpoints (raw sqlite3 connections, thread-safe)
+# ---------------------------------------------------------------------------
 
+
+def _get_db_path(db: Session) -> str:
+    return db.get_bind().url.database
+
+
+def _query_table_sync(
+    params: QueryParams,
+    user: User | None,
+    permission_level: str,
+    db_path: str,
+) -> dict:
     clauses, values, _ = _build_query_where(
         table_name=params.table_name,
         permission_level=permission_level,
-        user=current_user,
+        user=user,
         filters=params.filters,
         search_text=params.search_text,
         search_columns=params.search_columns,
@@ -285,11 +312,11 @@ async def query_table(
     if params.sort_by:
         direction = "DESC" if params.sort_desc else "ASC"
         order_clause = f" ORDER BY {_quote_identifier(params.sort_by)} {direction}"
-
     offset = (params.page - 1) * params.page_size
-    conn = _connection(db)
-    cursor = conn.cursor()
+
+    conn = sqlite3.connect(db_path)
     try:
+        cursor = conn.cursor()
         cursor.execute(
             f"SELECT rowid, * FROM {table_q} WHERE {where_clause}{order_clause} LIMIT ? OFFSET ?",
             values + [params.page_size, offset],
@@ -297,7 +324,137 @@ async def query_table(
         rows = [_row_to_dict(cursor, row) for row in cursor.fetchall()]
         cursor.execute(f"SELECT COUNT(*) FROM {table_q} WHERE {where_clause}", values)
         total = cursor.fetchone()[0]
-        return {"data": rows, "total": total, "page": params.page}
+    finally:
+        conn.close()
+
+    return {"data": rows, "total": total, "page": params.page}
+
+
+def _get_column_info_sync(table_name: str, db_path: str) -> dict:
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+        return {
+            "table": table_name,
+            "columns": [
+                {
+                    "name": row[1],
+                    "type": row[2],
+                    "notnull": bool(row[3]),
+                    "pk": bool(row[5]),
+                    "default_value": row[4],
+                }
+                for row in rows
+            ],
+        }
+    finally:
+        conn.close()
+
+
+def _get_table_count_sync(
+    table_name: str,
+    permission_level: str,
+    user: User | None,
+    filter_column: str | None,
+    filter_value: str | None,
+    db_path: str,
+) -> int:
+    filters = {}
+    if filter_column is not None:
+        filters[filter_column] = [filter_value]
+    clauses, values, _ = _build_query_where(
+        table_name=table_name,
+        permission_level=permission_level,
+        user=user,
+        filters=filters,
+        search_text=None,
+        search_columns=[],
+    )
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.execute(
+            f"SELECT COUNT(*) FROM {_quote_identifier(table_name)} WHERE {_where_sql(clauses)}",
+            values,
+        )
+        return cursor.fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _get_distinct_values_sync(
+    table_name: str, column: str, permission_level: str, user: User | None, db_path: str
+) -> list:
+    clauses, values, _ = _build_query_where(
+        table_name=table_name,
+        permission_level=permission_level,
+        user=user,
+        filters={},
+        search_text=None,
+        search_columns=[],
+    )
+    col_q = _quote_identifier(column)
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.execute(
+            f"SELECT DISTINCT {col_q} FROM {_quote_identifier(table_name)} "
+            f"WHERE {_where_sql(clauses)} ORDER BY {col_q} LIMIT 1000",
+            values,
+        )
+        return [row[0] for row in cursor.fetchall() if row[0] is not None]
+    finally:
+        conn.close()
+
+
+def _get_distinct_query_values_sync(
+    req: DistinctQueryRequest, permission_level: str, user: User | None, db_path: str
+) -> list:
+    context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
+    clauses, values, _ = _build_query_where(
+        table_name=req.table_name,
+        permission_level=permission_level,
+        user=user,
+        filters=context_filters,
+        search_text=req.search_text,
+        search_columns=req.search_columns,
+    )
+    target_col_q = _quote_identifier(req.target_column)
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.execute(
+            f"SELECT DISTINCT {target_col_q} FROM {_quote_identifier(req.table_name)} "
+            f"WHERE {_where_sql(clauses)} ORDER BY {target_col_q} LIMIT 1000",
+            values,
+        )
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Read endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/query")
+async def query_table(
+    params: QueryParams,
+    user: Optional[User] = Depends(ApiLimiter),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = _require_table_access(user, params.table_name)
+    db_path = _get_db_path(db)
+    await asyncio.to_thread(_validate_columns, params.table_name, params.filters.keys(), "filters字段", db_path=db_path)
+    await asyncio.to_thread(_validate_columns, params.table_name, params.search_columns, "search_columns", db_path=db_path)
+    if params.sort_by:
+        await asyncio.to_thread(_validate_columns, params.table_name, [params.sort_by], "sort_by", db_path=db_path)
+
+    if not (user and user.role == "admin") and params.page_size > SQL_QUERY_MAX_PAGE:
+        raise HTTPException(status_code=400, detail=f"page_size cannot exceed {SQL_QUERY_MAX_PAGE}")
+
+    try:
+        return await asyncio.to_thread(_query_table_sync, params, user, permission_level, db_path)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"查询失败: {exc}") from exc
 
@@ -305,24 +462,28 @@ async def query_table(
 @router.get("/query/columns")
 async def get_column_info(
     table_name: str = "vocabulary_entries",
-    current_user: User | None = Depends(get_current_user),
+    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_vocabulary_db),
 ):
-    _require_table_access(db, current_user, table_name)
-    rows = _connection(db).execute(f'PRAGMA table_info("{table_name}")').fetchall()
-    return {
-        "table": table_name,
-        "columns": [
-            {
-                "name": row[1],
-                "type": row[2],
-                "notnull": bool(row[3]),
-                "pk": bool(row[5]),
-                "default_value": row[4],
-            }
-            for row in rows
-        ],
-    }
+    _require_table_access(user, table_name)
+
+    cache_key = f"vocab_sql_columns:{table_name}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached is not None:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    db_path = _get_db_path(db)
+    result = await asyncio.to_thread(_get_column_info_sync, table_name, db_path)
+
+    try:
+        await redis_client.setex(cache_key, 3600, json.dumps(result))
+    except Exception:
+        pass
+
+    return result
 
 
 @router.get("/query/count")
@@ -330,92 +491,86 @@ async def get_table_count(
     table_name: str = "vocabulary_entries",
     filter_column: str | None = None,
     filter_value: str | None = None,
-    current_user: User | None = Depends(get_current_user),
+    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, table_name)
-    filters = {}
+    permission_level = _require_table_access(user, table_name)
+    db_path = _get_db_path(db)
     if filter_column is not None:
-        _validate_columns(db, table_name, [filter_column], "filter_column")
-        filters[filter_column] = [filter_value]
-    clauses, values, _ = _build_query_where(
-        table_name=table_name,
-        permission_level=permission_level,
-        user=current_user,
-        filters=filters,
-        search_text=None,
-        search_columns=[],
+        await asyncio.to_thread(_validate_columns, table_name, [filter_column], "filter_column", db_path=db_path)
+
+    cache_key = f"vocab_sql_count:{table_name}"
+    if filter_column is not None:
+        cache_key += f":{filter_column}:{filter_value}"
+
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached is not None:
+            return {"count": int(cached)}
+    except Exception:
+        pass
+
+    count = await asyncio.to_thread(
+        _get_table_count_sync,
+        table_name,
+        permission_level,
+        user,
+        filter_column,
+        filter_value,
+        db_path,
     )
-    cursor = _connection(db).execute(
-        f"SELECT COUNT(*) FROM {_quote_identifier(table_name)} WHERE {_where_sql(clauses)}",
-        values,
-    )
-    return {"count": cursor.fetchone()[0]}
+
+    try:
+        await redis_client.setex(cache_key, 3600, str(count))
+    except Exception:
+        pass
+
+    return {"count": count}
 
 
 @router.get("/distinct/{table_name}/{column}")
 async def get_distinct_path_values(
     table_name: str,
     column: str,
-    current_user: User | None = Depends(get_current_user),
+    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, table_name)
-    _validate_columns(db, table_name, [column], "column")
-    clauses, values, _ = _build_query_where(
-        table_name=table_name,
-        permission_level=permission_level,
-        user=current_user,
-        filters={},
-        search_text=None,
-        search_columns=[],
-    )
-    col_q = _quote_identifier(column)
-    cursor = _connection(db).execute(
-        f"SELECT DISTINCT {col_q} FROM {_quote_identifier(table_name)} "
-        f"WHERE {_where_sql(clauses)} ORDER BY {col_q} LIMIT 1000",
-        values,
-    )
-    return {"values": [row[0] for row in cursor.fetchall() if row[0] is not None]}
+    permission_level = _require_table_access(user, table_name)
+    db_path = _get_db_path(db)
+    await asyncio.to_thread(_validate_columns, table_name, [column], "column", db_path=db_path)
+    values = await asyncio.to_thread(_get_distinct_values_sync, table_name, column, permission_level, user, db_path)
+    return {"values": values}
 
 
 @router.post("/distinct-query")
 async def get_distinct_query_values(
     req: DistinctQueryRequest,
-    current_user: User | None = Depends(get_current_user),
+    user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, req.table_name)
-    _validate_columns(db, req.table_name, [req.target_column], "target_column")
-    _validate_columns(db, req.table_name, req.current_filters.keys(), "current_filters字段")
-    _validate_columns(db, req.table_name, req.search_columns, "search_columns")
-    context_filters = {k: v for k, v in req.current_filters.items() if k != req.target_column}
-    clauses, values, _ = _build_query_where(
-        table_name=req.table_name,
-        permission_level=permission_level,
-        user=current_user,
-        filters=context_filters,
-        search_text=req.search_text,
-        search_columns=req.search_columns,
-    )
-    target_col_q = _quote_identifier(req.target_column)
-    cursor = _connection(db).execute(
-        f"SELECT DISTINCT {target_col_q} FROM {_quote_identifier(req.table_name)} "
-        f"WHERE {_where_sql(clauses)} ORDER BY {target_col_q} LIMIT 1000",
-        values,
-    )
-    return {"values": [row[0] for row in cursor.fetchall()]}
+    permission_level = _require_table_access(user, req.table_name)
+    db_path = _get_db_path(db)
+    await asyncio.to_thread(_validate_columns, req.table_name, [req.target_column], "target_column", db_path=db_path)
+    await asyncio.to_thread(_validate_columns, req.table_name, req.current_filters.keys(), "current_filters字段", db_path=db_path)
+    await asyncio.to_thread(_validate_columns, req.table_name, req.search_columns, "search_columns", db_path=db_path)
+    values = await asyncio.to_thread(_get_distinct_query_values_sync, req, permission_level, user, db_path)
+    return {"values": values}
+
+
+# ---------------------------------------------------------------------------
+# Write endpoints
+# ---------------------------------------------------------------------------
 
 
 @router.post("/mutate")
 async def mutate_table(
     params: MutationParams,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, params.table_name, write=True)
+    permission_level = _require_table_access(current_user, params.table_name, write=True, db=db)
     _require_write_action_access(permission_level, params.action)
-    _validate_columns(db, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
+    _validate_columns(params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
     table_q = _quote_identifier(params.table_name)
     pk_q = _quote_identifier(params.pk_column)
     conn = _connection(db)
@@ -424,13 +579,12 @@ async def mutate_table(
         if params.action == "create":
             data = _sanitize_create_data(params.data, current_user, permission_level)
             _validate_mutable_columns(
-                db,
                 params.table_name,
                 [key for key in data if key != "user_id"],
                 "data字段",
                 protected_columns=CREATE_PROTECTED_COLUMNS,
             )
-            _validate_columns(db, params.table_name, data.keys(), "data字段")
+            _validate_columns(params.table_name, data.keys(), "data字段")
             cols = list(data.keys())
             cols_q = ",".join(_quote_identifier(col) for col in cols)
             placeholders = ",".join(["?"] * len(cols))
@@ -446,7 +600,7 @@ async def mutate_table(
                 "rollback_supported": True,
             }
         elif params.action == "update":
-            _validate_mutable_columns(db, params.table_name, params.data.keys(), "data字段")
+            _validate_mutable_columns(params.table_name, params.data.keys(), "data字段")
             if not params.data:
                 raise HTTPException(status_code=400, detail="data 不能为空")
             set_clause = ", ".join(f"{_quote_identifier(key)} = ?" for key in params.data)
@@ -521,12 +675,12 @@ async def mutate_table(
 @router.post("/batch-mutate")
 async def batch_mutate_table(
     params: BatchMutationParams,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, params.table_name, write=True)
+    permission_level = _require_table_access(current_user, params.table_name, write=True, db=db)
     _require_write_action_access(permission_level, params.action)
-    _validate_columns(db, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
+    _validate_columns(params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
     table_q = _quote_identifier(params.table_name)
     pk_q = _quote_identifier(params.pk_column)
     conn = _connection(db)
@@ -541,13 +695,12 @@ async def batch_mutate_table(
             records = [_sanitize_create_data(record, current_user, permission_level) for record in params.create_data]
             cols = list(records[0].keys())
             _validate_mutable_columns(
-                db,
                 params.table_name,
                 [key for key in cols if key != "user_id"],
                 "create_data字段",
                 protected_columns=CREATE_PROTECTED_COLUMNS,
             )
-            _validate_columns(db, params.table_name, cols, "create_data字段")
+            _validate_columns(params.table_name, cols, "create_data字段")
             cols_q = ",".join(_quote_identifier(col) for col in cols)
             placeholders = ",".join(["?"] * len(cols))
             sql = f"INSERT INTO {table_q} ({cols_q}) VALUES ({placeholders})"
@@ -576,7 +729,7 @@ async def batch_mutate_table(
                         raise ValueError(f"记录缺少主键字段 '{params.pk_column}'")
                     pk_value = record[params.pk_column]
                     update_fields = {key: value for key, value in record.items() if key != params.pk_column}
-                    _validate_mutable_columns(db, params.table_name, update_fields.keys(), "update_data字段")
+                    _validate_mutable_columns(params.table_name, update_fields.keys(), "update_data字段")
                     if not update_fields:
                         raise ValueError("没有需要更新的字段")
                     clauses, where_values, _ = _scope_clause(params.table_name, permission_level, current_user)
@@ -667,13 +820,13 @@ async def batch_mutate_table(
 @router.post("/batch-replace-preview")
 async def batch_replace_preview(
     params: BatchReplacePreviewParams,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, params.table_name, write=True)
-    _validate_mutable_columns(db, params.table_name, params.columns, "columns")
-    _validate_columns(db, params.table_name, params.filters.keys(), "filters字段")
-    _validate_columns(db, params.table_name, params.search_columns, "search_columns")
+    permission_level = _require_table_access(current_user, params.table_name, write=True, db=db)
+    _validate_mutable_columns(params.table_name, params.columns, "columns")
+    _validate_columns(params.table_name, params.filters.keys(), "filters字段")
+    _validate_columns(params.table_name, params.search_columns, "search_columns")
     clauses, values, _ = _build_batch_replace_where(
         params=params,
         permission_level=permission_level,
@@ -689,13 +842,13 @@ async def batch_replace_preview(
 @router.post("/batch-replace-execute")
 async def batch_replace_execute(
     params: BatchReplaceExecuteParams,
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    permission_level = _require_table_access(db, current_user, params.table_name, write=True)
-    _validate_mutable_columns(db, params.table_name, params.columns, "columns")
-    _validate_columns(db, params.table_name, params.filters.keys(), "filters字段")
-    _validate_columns(db, params.table_name, params.search_columns, "search_columns")
+    permission_level = _require_table_access(current_user, params.table_name, write=True, db=db)
+    _validate_mutable_columns(params.table_name, params.columns, "columns")
+    _validate_columns(params.table_name, params.filters.keys(), "filters字段")
+    _validate_columns(params.table_name, params.search_columns, "search_columns")
     clauses, where_values, scope_description = _build_batch_replace_where(
         params=params,
         permission_level=permission_level,

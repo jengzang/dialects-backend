@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.service.auth.core.dependencies import get_current_user
+from app.service.logging.dependencies import ApiLimiter
 from app.service.vocabulary.database import create_vocabulary_engine_and_session
 from app.service.vocabulary.models import (
     Base,
@@ -69,17 +70,24 @@ def test_vocabulary_sql_endpoints_use_current_user_dependency() -> None:
         query_table,
     )
 
-    for endpoint in (
+    read_endpoints = (
         query_table,
         get_column_info,
         get_table_count,
         get_distinct_path_values,
         get_distinct_query_values,
+    )
+    for endpoint in read_endpoints:
+        dependency = signature(endpoint).parameters["user"].default.dependency
+        assert dependency is ApiLimiter
+
+    write_endpoints = (
         mutate_table,
         batch_mutate_table,
         batch_replace_preview,
         batch_replace_execute,
-    ):
+    )
+    for endpoint in write_endpoints:
         dependency = signature(endpoint).parameters["current_user"].default.dependency
         assert dependency is get_current_user
 
@@ -125,7 +133,7 @@ def test_logged_in_user_without_vocabulary_permission_can_query_public_entries(t
                     page=1,
                     page_size=20,
                 ),
-                current_user=_User(7),
+                user=_User(7),
                 db=session,
             )
         )
@@ -183,7 +191,7 @@ def test_edit_query_can_read_all_public_entries(tmp_path: Path) -> None:
                     page=1,
                     page_size=20,
                 ),
-                current_user=_User(7),
+                user=_User(7),
                 db=session,
             ),
         )
@@ -337,7 +345,7 @@ def test_vocabulary_sql_cannot_query_logs_table(tmp_path: Path) -> None:
             asyncio.run(
                 query_table(
                     QueryParams(table_name="vocabulary_logs"),
-                    current_user=_User(7),
+                    user=_User(7),
                     db=session,
                 )
             )
@@ -709,7 +717,7 @@ def test_vocabulary_sql_only_allows_entries_table(tmp_path: Path) -> None:
             asyncio.run(
                 query_table(
                     QueryParams(table_name="vocabulary_locations"),
-                    current_user=_User(1, role="admin"),
+                    user=_User(1, role="admin"),
                     db=session,
                 )
             )
@@ -806,7 +814,7 @@ def test_permissions_table_is_not_exposed_through_vocabulary_sql(tmp_path: Path)
             asyncio.run(
                 query_table(
                     QueryParams(table_name="vocabulary_permissions"),
-                    current_user=_User(1, role="admin"),
+                    user=_User(1, role="admin"),
                     db=session,
                 )
             )
