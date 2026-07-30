@@ -99,14 +99,36 @@ def test_vocabulary_api_config_requires_login_for_private_routes() -> None:
         "/api/vocabulary/locations",
         "/api/vocabulary/locations/息烽",
         "/api/vocabulary/logs",
-        "/api/vocabulary/sql/query/columns",
-        "/api/vocabulary/sql/mutate",
     ]
 
     for path in paths:
         config = match_route_config(path)
         assert config["rate_limit"] is True
         assert config["require_login"] is True
+
+
+def test_vocabulary_sql_api_config_matches_public_sql_entry_policy() -> None:
+    from app.service.logging.utils.route_matcher import match_route_config
+
+    paths = [
+        "/api/vocabulary/sql/query",
+        "/api/vocabulary/sql/query/columns",
+        "/api/vocabulary/sql/distinct/vocabulary_entries/standard_word",
+        "/api/vocabulary/sql/distinct-query",
+        "/api/vocabulary/sql/mutate",
+        "/api/vocabulary/sql/batch-mutate",
+        "/api/vocabulary/sql/batch-replace-preview",
+        "/api/vocabulary/sql/batch-replace-execute",
+    ]
+
+    for path in paths:
+        config = match_route_config(path)
+        assert config["rate_limit"] is True
+        assert config["require_login"] is False
+
+    count_config = match_route_config("/api/vocabulary/sql/query/count")
+    assert count_config["rate_limit"] is False
+    assert count_config["require_login"] is False
 
 
 def test_vocabulary_search_api_config_is_public_but_rate_limited() -> None:

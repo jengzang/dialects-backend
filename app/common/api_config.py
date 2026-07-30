@@ -370,7 +370,20 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": False,
     },
-    # 其余 vocabulary 普通接口和 /api/vocabulary/sql/* 默认需要登录并限流。
+    # 词表表格接口对齐通用 /sql：入口层不强制登录，读接口可公开读取，写接口在业务层校验 edit/manage/admin。
+    "/api/vocabulary/sql/query/count": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": False,
+        "log_body": False,
+    },
+    "/api/vocabulary/sql/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    # 其余 vocabulary 普通接口默认需要登录并限流。
     "/api/vocabulary/*": {
         "rate_limit": True,
         "require_login": True,

@@ -84,12 +84,12 @@ def test_vocabulary_sql_endpoints_use_current_user_dependency() -> None:
         assert dependency is get_current_user
 
 
-def test_vocabulary_sql_endpoint_rejects_anonymous_request() -> None:
+def test_vocabulary_sql_columns_endpoint_allows_anonymous_request() -> None:
     from app.main import app
 
     response = TestClient(app).get("/api/vocabulary/sql/query/columns")
 
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 def test_vocabulary_sql_schemas_do_not_accept_db_key() -> None:
@@ -99,7 +99,75 @@ def test_vocabulary_sql_schemas_do_not_accept_db_key() -> None:
     assert "db_key" not in MutationParams.model_fields
 
 
-def test_edit_query_only_returns_current_users_entries(tmp_path: Path) -> None:
+def test_vocabulary_sql_query_endpoint_allows_anonymous_request() -> None:
+    from app.main import app
+
+    response = TestClient(app).post(
+        "/api/vocabulary/sql/query",
+        json={"table_name": "vocabulary_entries", "page": 1, "page_size": 20},
+    )
+
+    assert response.status_code == 200
+
+
+def test_logged_in_user_without_vocabulary_permission_can_query_public_entries(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import query_table
+    from app.schemas.vocabulary_sql import QueryParams
+
+    session = _make_session(tmp_path)
+    try:
+        _seed_entries(session)
+
+        result = asyncio.run(
+            query_table(
+                QueryParams(
+                    table_name="vocabulary_entries",
+                    page=1,
+                    page_size=20,
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        assert result["total"] == 2
+        assert sorted(row["user_id"] for row in result["data"]) == [7, 8]
+    finally:
+        session.close()
+
+
+def test_anonymous_mutate_still_requires_vocabulary_write_permission(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "location_name": "息烽",
+                            "standard_word": "太阳",
+                            "local_expression": "日头",
+                            "ipa": "ipa",
+                        },
+                    ),
+                    current_user=None,
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 401
+        assert session.query(VocabularyEntry).count() == 0
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_edit_query_can_read_all_public_entries(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import query_table
     from app.schemas.vocabulary_sql import QueryParams
 
@@ -120,8 +188,8 @@ def test_edit_query_only_returns_current_users_entries(tmp_path: Path) -> None:
             ),
         )
 
-        assert result["total"] == 1
-        assert [row["user_id"] for row in result["data"]] == [7]
+        assert result["total"] == 2
+        assert sorted(row["user_id"] for row in result["data"]) == [7, 8]
     finally:
         session.close()
 

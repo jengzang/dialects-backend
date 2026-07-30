@@ -47,7 +47,7 @@ def _load_columns(db: Session, table_name: str) -> set[str]:
 
 def _require_table_access(
     db: Session,
-    user: User,
+    user: User | None,
     table_name: str,
     *,
     write: bool = False,
@@ -55,7 +55,7 @@ def _require_table_access(
     if table_name not in ALLOWED_TABLES:
         raise HTTPException(status_code=400, detail=f"无效的词表表名: {table_name}")
 
-    permission_level = get_effective_permission_level(db, user)
+    permission_level = get_effective_permission_level(db, user) if write else "public"
     if write and table_name not in EDITABLE_TABLES:
         raise HTTPException(status_code=403, detail="该表不允许通过词表 SQL 接口编辑")
     return permission_level
@@ -102,7 +102,7 @@ def _require_write_action_access(permission_level: str, action: str) -> None:
         raise HTTPException(status_code=403, detail="edit 用户不能通过词表 SQL 接口批量删除词条")
 
 
-def _scope_clause(table_name: str, permission_level: str, user: User) -> tuple[list[str], list[Any], str]:
+def _scope_clause(table_name: str, permission_level: str, user: User | None) -> tuple[list[str], list[Any], str]:
     if table_name in OWNED_TABLES and permission_level == "edit":
         return ["user_id = ?"], [user.id], f"user_id = {user.id}"
     return [], [], "all rows"
@@ -143,7 +143,7 @@ def _build_query_where(
     *,
     table_name: str,
     permission_level: str,
-    user: User,
+    user: User | None,
     filters: dict[str, list[Any]],
     search_text: str | None,
     search_columns: list[str],
@@ -262,7 +262,7 @@ def _log_write(
 @router.post("/query")
 async def query_table(
     params: QueryParams,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name)
@@ -305,7 +305,7 @@ async def query_table(
 @router.get("/query/columns")
 async def get_column_info(
     table_name: str = "vocabulary_entries",
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     _require_table_access(db, current_user, table_name)
@@ -330,7 +330,7 @@ async def get_table_count(
     table_name: str = "vocabulary_entries",
     filter_column: str | None = None,
     filter_value: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, table_name)
@@ -357,7 +357,7 @@ async def get_table_count(
 async def get_distinct_path_values(
     table_name: str,
     column: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, table_name)
@@ -382,7 +382,7 @@ async def get_distinct_path_values(
 @router.post("/distinct-query")
 async def get_distinct_query_values(
     req: DistinctQueryRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, req.table_name)
@@ -410,7 +410,7 @@ async def get_distinct_query_values(
 @router.post("/mutate")
 async def mutate_table(
     params: MutationParams,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
@@ -521,7 +521,7 @@ async def mutate_table(
 @router.post("/batch-mutate")
 async def batch_mutate_table(
     params: BatchMutationParams,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
@@ -667,7 +667,7 @@ async def batch_mutate_table(
 @router.post("/batch-replace-preview")
 async def batch_replace_preview(
     params: BatchReplacePreviewParams,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
@@ -689,7 +689,7 @@ async def batch_replace_preview(
 @router.post("/batch-replace-execute")
 async def batch_replace_execute(
     params: BatchReplaceExecuteParams,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(db, current_user, params.table_name, write=True)
