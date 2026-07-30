@@ -26,6 +26,7 @@ from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.models import VocabularyLocation
 
 
 router = APIRouter()
@@ -256,6 +257,34 @@ def _sanitize_create_data(record: dict[str, Any], user: User, _permission_level:
     data.pop("id", None)
     data["user_id"] = user.id
     return data
+
+
+def _validate_entry_fields(
+    data: dict[str, Any],
+    db: Session,
+    user_id: int,
+    *,
+    existing: dict[str, Any] | None = None,
+) -> None:
+    merged = {**existing, **data} if existing else dict(data)
+
+    if existing is None:
+        loc = db.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == user_id,
+            VocabularyLocation.location_name == merged.get("location_name", ""),
+        ).first()
+        if loc is None:
+            raise HTTPException(status_code=400, detail="地点不存在，请先创建地点")
+
+    if "standard_word" in data:
+        if not str(data["standard_word"]).strip():
+            raise HTTPException(status_code=400, detail="standard_word 不能为空")
+
+    if "ipa" in data or "local_expression" in data:
+        ipa = str(merged.get("ipa", "")).strip()
+        le = str(merged.get("local_expression", "")).strip()
+        if not ipa and not le:
+            raise HTTPException(status_code=400, detail="ipa 和 local_expression 至少需要有一个非空")
 
 
 def _log_write(
@@ -578,6 +607,7 @@ async def mutate_table(
     try:
         if params.action == "create":
             data = _sanitize_create_data(params.data, current_user, permission_level)
+            _validate_entry_fields(data, db, current_user.id)
             _validate_mutable_columns(
                 params.table_name,
                 [key for key in data if key != "user_id"],
@@ -618,6 +648,7 @@ async def mutate_table(
             )
             if before_snapshot is None:
                 raise HTTPException(status_code=404, detail="记录不存在或无权限修改")
+            _validate_entry_fields(params.data, db, current_user.id, existing=before_snapshot)
             sql = f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}"
             cursor.execute(sql, list(params.data.values()) + where_values + [params.pk_value])
             affected_rows = cursor.rowcount
@@ -711,6 +742,7 @@ async def batch_mutate_table(
             created_ids = []
             for i, record in enumerate(records):
                 try:
+                    _validate_entry_fields(record, db, current_user.id)
                     cursor.execute(sql, [record.get(col) for col in cols])
                     success_count += 1
                     created_ids.append(cursor.lastrowid)
@@ -748,6 +780,7 @@ async def batch_mutate_table(
                         error_count += 1
                         errors.append(f"第{i + 1}条记录未找到或无权限 (主键={pk_value})")
                         continue
+                    _validate_entry_fields(update_fields, db, current_user.id, existing=before_snapshot)
                     set_clause = ", ".join(f"{_quote_identifier(key)} = ?" for key in update_fields)
                     cursor.execute(
                         f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
@@ -872,9 +905,34 @@ async def batch_replace_execute(
         for _ in params.columns:
             update_values.extend([params.find_text, params.replace_text])
 
+    conn = _connection(db)
+    table_q = _quote_identifier(params.table_name)
+    cursor = conn.execute(
+        f"SELECT rowid AS __rowid__, * FROM {table_q} WHERE {_where_sql(clauses)}",
+        where_values,
+    )
+    affected_rows_data = [_row_to_dict(cursor, row) for row in cursor.fetchall()]
+    for row in affected_rows_data:
+        simulated = dict(row)
+        changed: dict[str, Any] = {}
+        for col in params.columns:
+            old_val = str(simulated.get(col, ""))
+            if params.is_empty_search:
+                if not old_val.strip():
+                    new_val = params.replace_text
+                else:
+                    new_val = old_val
+            elif params.match_mode == "exact":
+                new_val = params.replace_text if old_val == params.find_text else old_val
+            else:
+                new_val = old_val.replace(params.find_text, params.replace_text)
+            changed[col] = new_val
+            simulated[col] = new_val
+        _validate_entry_fields(changed, db, current_user.id, existing=row)
+
     try:
-        cursor = _connection(db).execute(
-            f"UPDATE {_quote_identifier(params.table_name)} SET {set_clause} WHERE {_where_sql(clauses)}",
+        cursor = conn.execute(
+            f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
             update_values + where_values,
         )
         affected_rows = cursor.rowcount

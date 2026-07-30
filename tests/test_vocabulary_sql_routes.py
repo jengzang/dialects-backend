@@ -13,6 +13,7 @@ from app.service.vocabulary.database import create_vocabulary_engine_and_session
 from app.service.vocabulary.models import (
     Base,
     VocabularyEntry,
+    VocabularyLocation,
     VocabularyLog,
     VocabularyPermission,
 )
@@ -55,6 +56,11 @@ def _seed_entries(session) -> tuple[int, int]:
     session.add_all([own, other])
     session.commit()
     return own.id, other.id
+
+
+def _seed_location(session, user_id: int, location_name: str = "息烽") -> None:
+    session.add(VocabularyLocation(user_id=user_id, location_name=location_name, coordinates="106.7,27.1"))
+    session.commit()
 
 
 def test_vocabulary_sql_endpoints_use_current_user_dependency() -> None:
@@ -354,6 +360,7 @@ def test_edit_create_forces_current_user_id(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
         _grant_edit(session, 7)
+        _seed_location(session, 7)
 
         result = asyncio.run(
             mutate_table(
@@ -389,6 +396,7 @@ def test_manage_create_also_uses_current_user_id(tmp_path: Path) -> None:
 
     session = _make_session(tmp_path)
     try:
+        _seed_location(session, 1)
         asyncio.run(
             mutate_table(
                 MutationParams(
@@ -721,6 +729,7 @@ def test_manage_can_query_logs_through_dedicated_endpoint(tmp_path: Path) -> Non
 
     session = _make_session(tmp_path)
     try:
+        _seed_location(session, 1)
         asyncio.run(
             mutate_table(
                 MutationParams(
@@ -807,5 +816,272 @@ def test_permissions_table_is_not_exposed_through_vocabulary_sql(tmp_path: Path)
             )
 
         assert raised.value.status_code == 400
+    finally:
+        session.close()
+
+
+# —— field validation ———————————————————————————————————————————
+
+
+def test_create_rejects_unknown_location(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "location_name": "不存在的地点",
+                            "standard_word": "月亮",
+                            "local_expression": "月光",
+                            "ipa": "ŋye",
+                        },
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "地点" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_create_rejects_empty_standard_word(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "location_name": "息烽",
+                            "standard_word": "",
+                            "local_expression": "月光",
+                            "ipa": "ŋye",
+                        },
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "standard_word" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_create_rejects_empty_ipa_and_local_expression(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "location_name": "息烽",
+                            "standard_word": "月亮",
+                            "local_expression": "",
+                            "ipa": "",
+                        },
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "ipa" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_update_rejects_empty_standard_word(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="update",
+                        pk_column="id",
+                        pk_value=own_id,
+                        data={"standard_word": "  "},
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "standard_word" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_update_rejects_both_ipa_and_le_empty(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="update",
+                        pk_column="id",
+                        pk_value=own_id,
+                        data={"ipa": "", "local_expression": ""},
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "ipa" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_update_notes_only_skips_ipa_le_check(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        result = asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="update",
+                    pk_column="id",
+                    pk_value=own_id,
+                    data={"notes": "new notes only"},
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        assert result["affected_rows"] == 1
+        assert session.get(VocabularyEntry, own_id).notes == "new notes only"
+    finally:
+        session.close()
+
+
+def test_batch_replace_rejects_clearing_standard_word(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import batch_replace_execute
+    from app.schemas.vocabulary_sql import BatchReplaceExecuteParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+        own_id, _ = _seed_entries(session)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                batch_replace_execute(
+                    BatchReplaceExecuteParams(
+                        table_name="vocabulary_entries",
+                        columns=["standard_word"],
+                        find_text="太阳",
+                        replace_text="",
+                        match_mode="exact",
+                        filters={},
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert "standard_word" in raised.value.detail
+    finally:
+        session.close()
+
+
+def test_batch_create_rejects_empty_standard_word(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import batch_mutate_table
+    from app.schemas.vocabulary_sql import BatchMutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 7)
+
+        result = asyncio.run(
+            batch_mutate_table(
+                BatchMutationParams(
+                    table_name="vocabulary_entries",
+                    action="batch_create",
+                    pk_column="id",
+                    create_data=[
+                        {
+                            "location_name": "息烽",
+                            "standard_word": "好",
+                            "local_expression": "好",
+                            "ipa": "hau",
+                        },
+                        {
+                            "location_name": "息烽",
+                            "standard_word": "",
+                            "local_expression": "坏",
+                            "ipa": "fuai",
+                        },
+                    ],
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        assert result["success_count"] == 1
+        assert result["error_count"] == 1
+        assert any("standard_word" in e for e in result["errors"])
     finally:
         session.close()
