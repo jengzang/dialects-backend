@@ -202,43 +202,35 @@ def test_edit_query_can_read_all_public_entries(tmp_path: Path) -> None:
         session.close()
 
 
-def test_edit_update_cannot_touch_other_users_entry_and_logs_attempt(tmp_path: Path) -> None:
+def test_edit_update_cannot_touch_other_users_entry_and_returns_404(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
+    from fastapi import HTTPException
 
     session = _make_session(tmp_path)
     try:
         _grant_edit(session, 7)
         _, other_id = _seed_entries(session)
 
-        result = asyncio.run(
-            mutate_table(
-                MutationParams(
-                    table_name="vocabulary_entries",
-                    action="update",
-                    pk_column="id",
-                    pk_value=other_id,
-                    data={"ipa": "new"},
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="update",
+                        pk_column="id",
+                        pk_value=other_id,
+                        data={"ipa": "new"},
+                    ),
+                    current_user=_User(7),
+                    db=session,
                 ),
-                current_user=_User(7),
-                db=session,
-            ),
-        )
+            )
+        assert exc_info.value.status_code == 404
+        assert "无权限" in exc_info.value.detail
 
         other = session.get(VocabularyEntry, other_id)
-        log = session.query(VocabularyLog).one()
-
-        assert result["affected_rows"] == 0
         assert other.ipa == "old"
-        assert log.user_id == 7
-        assert log.permission_level == "edit"
-        assert log.operation_id
-        assert log.source == "sql_editor"
-        assert log.action == "update"
-        assert log.status == "success"
-        assert log.table_name == "vocabulary_entries"
-        assert log.affected_rows == 0
-        assert "user_id = 7" in log.target_scope
     finally:
         session.close()
 
@@ -558,35 +550,30 @@ def test_edit_user_can_delete_own_single_entry_and_log_it(tmp_path: Path) -> Non
 def test_edit_user_cannot_delete_other_users_entry(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
+    from fastapi import HTTPException
 
     session = _make_session(tmp_path)
     try:
         _grant_edit(session, 7)
         _, other_id = _seed_entries(session)
 
-        result = asyncio.run(
-            mutate_table(
-                MutationParams(
-                    table_name="vocabulary_entries",
-                    action="delete",
-                    pk_column="id",
-                    pk_value=other_id,
-                ),
-                current_user=_User(7),
-                db=session,
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="delete",
+                        pk_column="id",
+                        pk_value=other_id,
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
             )
-        )
-        log = session.query(VocabularyLog).one()
-        payload = json.loads(log.payload_json)
+        assert exc_info.value.status_code == 404
+        assert "无权限" in exc_info.value.detail
 
-        assert result == {"status": "success", "action": "delete", "affected_rows": 0}
         assert session.get(VocabularyEntry, other_id) is not None
-        assert log.user_id == 7
-        assert log.permission_level == "edit"
-        assert log.action == "delete"
-        assert log.affected_rows == 0
-        assert payload["before"] is None
-        assert payload["rollback_supported"] is False
     finally:
         session.close()
 

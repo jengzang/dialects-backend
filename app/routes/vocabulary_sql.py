@@ -616,6 +616,8 @@ async def mutate_table(
                 clauses=clauses,
                 values=where_values + [params.pk_value],
             )
+            if before_snapshot is None:
+                raise HTTPException(status_code=404, detail="记录不存在或无权限修改")
             sql = f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}"
             cursor.execute(sql, list(params.data.values()) + where_values + [params.pk_value])
             affected_rows = cursor.rowcount
@@ -638,6 +640,8 @@ async def mutate_table(
                 clauses=clauses,
                 values=where_values + [params.pk_value],
             )
+            if before_snapshot is None:
+                raise HTTPException(status_code=404, detail="记录不存在或无权限删除")
             cursor.execute(
                 f"DELETE FROM {table_q} WHERE {_where_sql(clauses)}",
                 where_values + [params.pk_value],
@@ -740,19 +744,19 @@ async def batch_mutate_table(
                         clauses=clauses,
                         values=where_values + [pk_value],
                     )
+                    if before_snapshot is None:
+                        error_count += 1
+                        errors.append(f"第{i + 1}条记录未找到或无权限 (主键={pk_value})")
+                        continue
                     set_clause = ", ".join(f"{_quote_identifier(key)} = ?" for key in update_fields)
                     cursor.execute(
                         f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
                         list(update_fields.values()) + where_values + [pk_value],
                     )
-                    if cursor.rowcount > 0:
-                        success_count += 1
-                        selected = _select_columns(before_snapshot, update_fields.keys(), params.pk_column)
-                        if selected is not None:
-                            before_snapshots.append(selected)
-                    else:
-                        error_count += 1
-                        errors.append(f"第{i + 1}条记录未找到或无权限 (主键={pk_value})")
+                    success_count += 1
+                    selected = _select_columns(before_snapshot, update_fields.keys(), params.pk_column)
+                    if selected is not None:
+                        before_snapshots.append(selected)
                 except Exception as exc:
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
