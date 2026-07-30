@@ -78,6 +78,12 @@ async def mutate_table(
                 cursor.execute(sql, list(params.data.values()))
 
             elif params.action == "update":
+                cursor.execute(
+                    f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                    (params.pk_value,),
+                )
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="记录不存在")
                 set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in params.data.keys()])
                 sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
                 vals = list(params.data.values())
@@ -85,6 +91,12 @@ async def mutate_table(
                 cursor.execute(sql, vals)
 
             elif params.action == "delete":
+                cursor.execute(
+                    f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                    (params.pk_value,),
+                )
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="记录不存在")
                 sql = f"DELETE FROM {table_q} WHERE {pk_q} = ?"
                 cursor.execute(sql, (params.pk_value,))
 
@@ -198,6 +210,15 @@ async def batch_mutate_table(
                         if not update_fields:
                             raise ValueError("没有需要更新的字段")
 
+                        cursor.execute(
+                            f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                            (pk_value,),
+                        )
+                        if cursor.fetchone() is None:
+                            error_count += 1
+                            errors.append(f"第{i+1}条记录未找到 (主键={pk_value})")
+                            continue
+
                         set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in update_fields.keys()])
                         sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
 
@@ -205,12 +226,7 @@ async def batch_mutate_table(
                         values.append(pk_value)
 
                         cursor.execute(sql, values)
-
-                        if cursor.rowcount > 0:
-                            success_count += 1
-                        else:
-                            error_count += 1
-                            errors.append(f"第{i+1}条记录未找到 (主键={pk_value})")
+                        success_count += 1
 
                     except Exception as e:
                         error_count += 1
