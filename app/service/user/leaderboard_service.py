@@ -78,7 +78,6 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/vocabulary/search/standard-words",
             "/api/vocabulary/search/map-items",
             "/api/vocabulary/search/location-options",
-            "/api/vocabulary/me",
             "/api/vocabulary/logs",
             "/api/vocabulary/imports",
             "/api/vocabulary/imports/preview",
@@ -152,7 +151,6 @@ VOCABULARY_TABLE_RULE: RuleConfig = {
 
 VOCABULARY_EDIT_RULE: RuleConfig = {
     "paths": [
-        "/api/vocabulary/me",
         "/api/vocabulary/logs",
         "/api/vocabulary/imports",
         "/api/vocabulary/imports/preview",
@@ -165,6 +163,33 @@ VOCABULARY_EDIT_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+CUSTOM_REGIONS_RULE: RuleConfig = {
+    "paths": ["/api/custom_regions"],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+CUSTOM_DATA_QUERY_RULE: RuleConfig = {
+    "paths": [
+        "/user/custom/points",
+        "/user/custom/features",
+        "/user/custom/data-by-point",
+        "/user/custom/data-by-feature",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+CUSTOM_DATA_EDIT_RULE: RuleConfig = {
+    "paths": [
+        "/user/custom/batch-create",
+        "/user/custom/edit",
+        "/user/custom/batch-delete",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
@@ -174,6 +199,9 @@ AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_vocabulary_search": VOCABULARY_SEARCH_RULE,
     "endpoint_group_vocabulary_table": VOCABULARY_TABLE_RULE,
     "endpoint_group_vocabulary_edit": VOCABULARY_EDIT_RULE,
+    "endpoint_group_custom_regions": CUSTOM_REGIONS_RULE,
+    "endpoint_group_custom_data_query": CUSTOM_DATA_QUERY_RULE,
+    "endpoint_group_custom_data_edit": CUSTOM_DATA_EDIT_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -197,14 +225,6 @@ ENDPOINT_PATHS = [
     "/api/tools/praat/jobs",
     "/sql/query",
     "/api/get_coordinates",
-    "/user/custom/batch-create",
-    "/user/custom/edit",
-    "/user/custom/batch-delete",
-    "/user/custom/points",
-    "/user/custom/features",
-    "/user/custom/data-by-point",
-    "/user/custom/data-by-feature",
-    "/api/custom_regions",
 ]
 
 
