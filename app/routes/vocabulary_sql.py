@@ -811,6 +811,7 @@ async def batch_mutate_table(
             "error_count": error_count,
             "total": success_count + error_count,
             "errors": errors if errors else None,
+            "message": f"批量操作完成: 成功 {success_count} 条, 失败 {error_count} 条",
         }
     except HTTPException:
         db.rollback()
