@@ -220,8 +220,6 @@ class RunIDManager:
         self,
         analysis_type: str,
         run_id: str,
-        updated_by: Optional[str] = None,
-        notes: Optional[str] = None
     ):
         """
         设置活跃 run_id（需要验证 run_id 存在）
@@ -229,8 +227,6 @@ class RunIDManager:
         Args:
             analysis_type: 分析类型标识
             run_id: 新的 run_id
-            updated_by: 更新者（用户/脚本名）
-            notes: 备注说明
 
         Raises:
             ValueError: 如果 run_id 不存在或分析类型无效
@@ -266,11 +262,9 @@ class RunIDManager:
             cursor.execute(f"""
                 UPDATE {self.active_run_ids_table}
                 SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)} = ?
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?
                 WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
-            """, (run_id, time.time(), updated_by, notes, analysis_type))
+            """, (run_id, time.time(), analysis_type))
 
         self._cache[analysis_type] = run_id
 
@@ -337,7 +331,6 @@ class RunIDManager:
         analysis_type: str,
         run_id: str,
         script_name: str,
-        notes: Optional[str] = None
     ):
         """
         从分析脚本自动更新活跃 run_id
@@ -348,8 +341,7 @@ class RunIDManager:
         Args:
             analysis_type: 分析类型标识
             run_id: 新的 run_id
-            script_name: 脚本名称（用于追踪）
-            notes: 备注说明（可选）
+            script_name: 脚本名称（用于日志追踪）
 
         Example:
             >>> manager = RunIDManager("data/villages.db")
@@ -357,7 +349,6 @@ class RunIDManager:
             ...     "spatial_hotspots",
             ...     "final_04_20260222_150000",
             ...     "phase_04_spatial_analysis",
-            ...     "空间分析完成，发现8个热点"
             ... )
         """
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -376,15 +367,13 @@ class RunIDManager:
             cursor.execute(f"""
                 UPDATE {self.active_run_ids_table}
                 SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)} = ?,
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)} = ?
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?
                 WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
-            """, (run_id, time.time(), script_name, notes, analysis_type))
+            """, (run_id, time.time(), analysis_type))
 
         self._cache[analysis_type] = run_id
 
-        print(f"✓ 已自动更新 {analysis_type} 的活跃 run_id 为: {run_id}")
+        print(f"✓ [{script_name}] 已自动更新 {analysis_type} 的活跃 run_id 为: {run_id}")
 
     def refresh_cache(self):
         """刷新内存缓存"""
@@ -405,9 +394,7 @@ class RunIDManager:
                     {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)},
                     {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)},
                     {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)},
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)},
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_BY)},
-                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.NOTES)}
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)}
                 FROM {self.active_run_ids_table}
                 ORDER BY {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)}
             """)
@@ -420,8 +407,6 @@ class RunIDManager:
                     "run_id": row[1],
                     "table_name": row[2],
                     "updated_at": row[3],
-                    "updated_by": row[4],
-                    "notes": row[5]
                 }
 
             return result

@@ -21,7 +21,6 @@ class SetActiveRunIDRequest(BaseModel):
 
     run_id: str
     updated_by: Optional[str] = None
-    notes: Optional[str] = None
 
 
 @router.get("/run-ids/active")
@@ -128,8 +127,6 @@ def set_active_run_id(
         run_id_manager.set_active_run_id(
             analysis_type=analysis_type,
             run_id=request.run_id,
-            updated_by=request.updated_by,
-            notes=request.notes,
         )
 
         return {

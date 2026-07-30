@@ -27,15 +27,22 @@ def table_exists(conn: sqlite3.Connection, dbpath: str, logical_table: str) -> b
 
 
 def is_compact_db(conn: sqlite3.Connection, dbpath: str) -> bool:
-    """Detect compact profile using explicit policy first, then table shape."""
-    if table_exists(conn, dbpath, T.QUERY_POLICY_CONFIG):
-        policy_table = qtable(dbpath, T.QUERY_POLICY_CONFIG)
-        profile_col = qcolumn(dbpath, T.QUERY_POLICY_CONFIG, C.QUERY_POLICY_CONFIG.PROFILE)
-        row = conn.execute(
-            f"SELECT 1 FROM {policy_table} WHERE {profile_col} = 'compact' LIMIT 1"
-        ).fetchone()
-        if row is not None:
-            return True
+    """Detect compact profile by table shape.
+
+    TODO: When compact mode is fully implemented, query_policy_config should
+    provide an explicit 'compact' profile flag. Currently the table uses a
+    key-value schema (key/value/value_type/description/updated_at) without a
+    'profile' column, so we rely on table-shape heuristics instead.
+    """
+    # TODO(compact): re-enable policy check once query_policy_config grows a profile column
+    # if table_exists(conn, dbpath, T.QUERY_POLICY_CONFIG):
+    #     policy_table = qtable(dbpath, T.QUERY_POLICY_CONFIG)
+    #     profile_col = qcolumn(dbpath, T.QUERY_POLICY_CONFIG, C.QUERY_POLICY_CONFIG.PROFILE)
+    #     row = conn.execute(
+    #         f"SELECT 1 FROM {policy_table} WHERE {profile_col} = 'compact' LIMIT 1"
+    #     ).fetchone()
+    #     if row is not None:
+    #         return True
 
     has_villages = table_exists(conn, dbpath, T.VILLAGES)
     has_metadata = table_exists(conn, dbpath, T.METADATA_OVERVIEW_STATS) or table_exists(

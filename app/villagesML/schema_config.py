@@ -100,8 +100,6 @@ VILLAGES_DATABASES = {
                     "run_id": "run_id",
                     "table_name": "table_name",
                     "updated_at": "updated_at",
-                    "updated_by": "updated_by",
-                    "notes": "notes",
                 },
             },
             "analysis_runs": {
