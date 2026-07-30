@@ -69,6 +69,10 @@ def normalize_api_path(path: str) -> str:
         ('/api/villages/spatial/hotspots/', '{hotspot_id}'),
         ('/api/villages/spatial/integration/by-character/', '{character}'),
         ('/api/villages/spatial/integration/by-cluster/', '{cluster_id}'),
+        ('/api/vocabulary/locations/', '{location_name}'),
+        ('/api/vocabulary/admin/permissions/', '{user_id}'),
+        ('/api/vocabulary/sql/distinct/', '{table_name}/{column_name}'),
+        ('/sql/distinct/', '{table_name}/{column_name}'),
     ]
 
     path_templates.sort(key=lambda x: len(x[0]), reverse=True)
@@ -76,10 +80,14 @@ def normalize_api_path(path: str) -> str:
     for prefix, param_name in path_templates:
         if path.startswith(prefix):
             suffix = path[len(prefix):]
-            if '/' in suffix:
-                parts = suffix.split('/', 1)
-                return normalize_content_hash_path(f"{prefix}{param_name}/{parts[1]}")
-            return normalize_content_hash_path(f"{prefix}{param_name}")
+            if not suffix:
+                return normalize_content_hash_path(path)
+            param_segments = param_name.count('/') + 1
+            suffix_parts = suffix.split('/')
+            if len(suffix_parts) <= param_segments:
+                return normalize_content_hash_path(f"{prefix}{param_name}")
+            rest = '/'.join(suffix_parts[param_segments:])
+            return normalize_content_hash_path(f"{prefix}{param_name}/{rest}")
 
     return normalize_content_hash_path(path)
 

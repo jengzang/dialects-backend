@@ -10,6 +10,8 @@ from .auth import router as auth_router
 from .index import router as index_router
 from .toponyms import router as toponyms_router
 from .user import router as user_router
+from .vocabulary import router as vocabulary_router
+from .vocabulary_sql import router as vocabulary_sql_router
 from .yubao import router as yubao_router
 from ..sql import setup_sql_routes
 from app.routes.core.compare import router as compare_router
@@ -56,6 +58,8 @@ def setup_main_routes(app: FastAPI):
     app.include_router(index_router, dependencies=[Depends(ApiLimiter)])
     app.include_router(locs_router, prefix="/api", tags=["geo"], dependencies=[Depends(ApiLimiter)])
     app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(vocabulary_router, prefix="/api/vocabulary", tags=["Vocabulary"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(vocabulary_sql_router, prefix="/api/vocabulary/sql", tags=["Vocabulary SQL"], dependencies=[Depends(ApiLimiter)])
     app.include_router(admin_router, prefix="/admin")
     app.include_router(user_router, prefix="/user", tags=["User"], dependencies=[Depends(ApiLimiter)])
 

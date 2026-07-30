@@ -20,8 +20,10 @@ def get_user_login_history(query: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 返回该用户的登录历史
-    return db.query(models.ApiUsageLog).filter(models.ApiUsageLog.user_id == user.id).all()
+    # 返回该用户的登录历史（基于 sessions 表，因为 api_usage_logs 中登录请求的 user_id 为 NULL）
+    return db.query(models.Session).filter(
+        models.Session.user_id == user.id
+    ).order_by(models.Session.created_at.desc()).all()
 
 
 # 获取用户在线时长等统计信息，禁用通过 user_id 查找，改为通过 username 或 email 查找
@@ -43,10 +45,20 @@ def get_user_stats(query: str, db: Session = Depends(get_db)):
 
     # 返回该用户的统计信息
     return {
-        "login_count": user.login_count,
-        "failed_attempts": user.failed_attempts,
-        "total_online_seconds": user.total_online_seconds,
-        "last_login": user.last_login,
+        # 基本信息
+        "created_at": user.created_at,
+        # 注册
         "register_ip": user.register_ip,
         "register_ip_location": lookup_ip_location(user.register_ip) if user.register_ip else None,
+        # 登录
+        "login_count": user.login_count,
+        "last_login": user.last_login,
+        "last_login_ip": user.last_login_ip,
+        "last_login_ip_location": lookup_ip_location(user.last_login_ip) if user.last_login_ip else None,
+        "failed_attempts": user.failed_attempts,
+        "last_failed_login": user.last_failed_login,
+        # 会话 & 在线
+        "active_session_count": user.active_session_count,
+        "total_online_time": user.total_online_time,
+        "last_seen": user.last_seen,
     }

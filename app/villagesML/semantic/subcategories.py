@@ -166,7 +166,7 @@ def get_regional_subcategory_vtf(
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
     subcategory: Optional[str] = Query(None, description="Subcategory filter"),
     min_tendency: Optional[float] = Query(None, description="Minimum tendency"),
-    min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
+    min_villages: int = Query(0, ge=0, le=500, description="Minimum village count"),
     limit: int = Query(100, ge=1, le=1000, description="Max records"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
@@ -220,8 +220,8 @@ def get_regional_subcategory_vtf(
 def get_top_tendency_subcategories(
     region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
-    min_villages: int = Query(5, ge=0, le=100, description="Minimum village count"),
-    top_n: int = Query(10, ge=1, le=100, description="Top N records"),
+    min_villages: int = Query(5, ge=0, le=500, description="Minimum village count"),
+    top_n: int = Query(10, ge=1, le=500, description="Top N records"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -260,7 +260,7 @@ def compare_subcategories(
     region_name: str = Query(..., description="Region name"),
     region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: str = Query(..., description="Parent category"),
-    min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
+    min_villages: int = Query(0, ge=0, le=500, description="Minimum village count"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):

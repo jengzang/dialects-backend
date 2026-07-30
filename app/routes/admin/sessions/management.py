@@ -144,7 +144,7 @@ def get_online_users(
 
 @router.get("/analytics", response_model=AnalyticsResponse)
 def get_analytics(
-    days: int = Query(30, ge=1, le=365, description="分析天数"),
+    days: int = Query(30, ge=1, le=1000, description="分析天数"),
     db: DBSession = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):

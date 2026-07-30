@@ -24,7 +24,7 @@ router = APIRouter()
 
 @router.get("/keyword/top")
 async def get_top_keywords_route(
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=500),
     days: Optional[int] = Query(None, ge=1)
 ):
     """获取热门关键词"""
@@ -128,8 +128,8 @@ async def get_visit_history_route(
 
 @router.get("/visits/by-path")
 async def get_visits_by_path_route(
-    days: Optional[int] = Query(None, ge=1, le=365),
-    limit: int = Query(20, ge=1, le=100)
+    days: Optional[int] = Query(None, ge=1, le=1000),
+    limit: int = Query(20, ge=1, le=500)
 ):
     """按路径统计访问量"""
     result = visit_stats.get_visits_by_path(days=days, limit=limit)
@@ -145,4 +145,3 @@ async def get_database_size_route(
     """获取数据库大小（仅管理员）"""
     result = database_stats.get_database_size()
     return result
-

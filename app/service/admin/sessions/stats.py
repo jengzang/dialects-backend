@@ -42,17 +42,46 @@ def get_session_stats(
 
     # Count sessions by status.
     total_sessions = query.count()
-    active_sessions = query.filter(
+    valid_sessions = query.filter(
         Session.revoked == False,
         Session.expires_at > now,
         active_refresh_token_exists_clause(now),
     ).count()
     revoked_sessions = query.filter(Session.revoked == True).count()
-    expired_sessions = query.filter(
+    expired_sessions = query.filter(Session.expires_at < now).count()
+    expired_revoked_sessions = query.filter(
         Session.expires_at < now,
-        Session.revoked == False
+        Session.revoked == True,
+    ).count()
+    expired_unrevoked_sessions = query.filter(
+        Session.expires_at < now,
+        Session.revoked == False,
     ).count()
     suspicious_sessions = query.filter(Session.is_suspicious == True).count()
+    active_suspicious_sessions = query.filter(
+        Session.is_suspicious == True,
+        Session.revoked == False,
+        Session.expires_at > now,
+        active_refresh_token_exists_clause(now),
+    ).count()
+    revoked_suspicious_sessions = query.filter(
+        Session.is_suspicious == True,
+        Session.revoked == True,
+    ).count()
+
+    online_threshold = now - timedelta(minutes=30)
+    online_sessions_30m = query.filter(
+        Session.revoked == False,
+        Session.expires_at > now,
+        Session.last_activity_at >= online_threshold,
+        active_refresh_token_exists_clause(now),
+    ).count()
+    online_users_30m = query.filter(
+        Session.revoked == False,
+        Session.expires_at > now,
+        Session.last_activity_at >= online_threshold,
+        active_refresh_token_exists_clause(now),
+    ).with_entities(func.count(func.distinct(Session.user_id))).scalar() or 0
 
     # Count unique users in range.
     unique_users = db.query(func.count(func.distinct(Session.user_id))).filter(
@@ -101,13 +130,19 @@ def get_session_stats(
 
     return {
         "total_sessions": total_sessions,
-        "active_sessions": active_sessions,
+        "valid_sessions": valid_sessions,
+        "online_sessions_30m": online_sessions_30m,
+        "online_users_30m": online_users_30m,
         "revoked_sessions": revoked_sessions,
         "expired_sessions": expired_sessions,
+        "expired_revoked_sessions": expired_revoked_sessions,
+        "expired_unrevoked_sessions": expired_unrevoked_sessions,
         "suspicious_sessions": suspicious_sessions,
+        "active_suspicious_sessions": active_suspicious_sessions,
+        "revoked_suspicious_sessions": revoked_suspicious_sessions,
         "unique_users_with_sessions": unique_users,
         "total_online_hours": total_hours,
-        "avg_session_duration_hours": avg_hours,
+        "avg_online_hours_per_session": avg_hours,
         "top_ip_changes": [
             {"session_id": s[0], "username": s[1], "count": s[2]}
             for s in top_ip

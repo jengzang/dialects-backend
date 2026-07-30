@@ -27,7 +27,7 @@ def get_rankings(
     metric: Optional[Literal["count", "duration", "upload", "download"]] = Query(None),
     api_path: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
     """

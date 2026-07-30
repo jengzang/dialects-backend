@@ -94,7 +94,7 @@ def get_significant_characters_by_region(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     significance_only: bool = Query(True, description="仅返回显著字符"),
-    top_k: int = Query(20, ge=1, le=100, description="返回前K个字符"),
+    top_k: int = Query(20, ge=1, le=500, description="返回前K个字符"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):

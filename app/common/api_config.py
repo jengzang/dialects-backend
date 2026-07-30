@@ -78,12 +78,17 @@ RECORD_API = [
     "/api/custom_regions",
     "/api/villages/*",
     "/api/yubao/*",
+    "/api/vocabulary/*",
 ]
 
 # auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
 IGNORE_API = [
     "/sql/query/columns",
     "/sql/query/count",  # keep hourly/daily aggregate only
+    "/api/vocabulary/sql/query/columns",
+    "/api/vocabulary/sql/query/count",
+    "/api/vocabulary/admin/*",
+    "/api/vocabulary/sql/distinct/*",
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
     "/user/custom/counts",

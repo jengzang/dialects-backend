@@ -2,7 +2,6 @@
 Visit statistics business logic.
 """
 
-import sqlite3
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
@@ -52,45 +51,43 @@ def get_visit_history(
     offset: int = 0,
 ) -> Dict[str, Any]:
     """Get daily visit history."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-    where_clauses = ["date IS NOT NULL"]
-    params: list[Any] = []
+        where_clauses = ["date IS NOT NULL"]
+        params: list[Any] = []
 
-    if path:
-        where_clauses.append("path = ?")
-        params.append(path)
+        if path:
+            where_clauses.append("path = ?")
+            params.append(path)
 
-    if start_date:
-        where_clauses.append("date(date) >= ?")
-        params.append(start_date)
+        if start_date:
+            where_clauses.append("date(date) >= ?")
+            params.append(start_date)
 
-    if end_date:
-        where_clauses.append("date(date) <= ?")
-        params.append(end_date)
+        if end_date:
+            where_clauses.append("date(date) <= ?")
+            params.append(end_date)
 
-    where_clause = " AND ".join(where_clauses)
+        where_clause = " AND ".join(where_clauses)
 
-    count_query = f"""
-        SELECT COUNT(*)
-        FROM api_visit_log
-        WHERE {where_clause}
-    """
-    cursor.execute(count_query, params)
-    total = cursor.fetchone()[0]
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM api_visit_log
+            WHERE {where_clause}
+        """
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
 
-    data_query = f"""
-        SELECT id, path, date, count, updated_at
-        FROM api_visit_log
-        WHERE {where_clause}
-        ORDER BY date DESC
-        LIMIT ? OFFSET ?
-    """
-    cursor.execute(data_query, params + [limit, offset])
-    rows = cursor.fetchall()
-
-    db.close()
+        data_query = f"""
+            SELECT id, path, date, count, updated_at
+            FROM api_visit_log
+            WHERE {where_clause}
+            ORDER BY date DESC
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(data_query, params + [limit, offset])
+        rows = cursor.fetchall()
 
     return {
         "total": total,
@@ -111,49 +108,47 @@ def get_visit_history(
 
 def get_visits_by_path(days: Optional[int] = None, limit: int = 20) -> List[Dict[str, Any]]:
     """Get visit counts grouped by path."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-    start_date = None
-    if days:
-        start_date = (today_shanghai() - timedelta(days=days)).isoformat()
-        query = """
-            SELECT path, SUM(count) as total_visits
-            FROM api_visit_log
-            WHERE date IS NOT NULL AND date >= ?
-            GROUP BY path
-            ORDER BY total_visits DESC
-            LIMIT ?
-        """
-        params = (start_date, limit)
-    else:
-        query = """
-            SELECT path, count as total_visits
-            FROM api_visit_log
-            WHERE date IS NULL
-            ORDER BY total_visits DESC
-            LIMIT ?
-        """
-        params = (limit,)
-
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-
-    if days and start_date is not None:
-        cursor.execute(
+        start_date = None
+        if days:
+            start_date = (today_shanghai() - timedelta(days=days)).isoformat()
+            query = """
+                SELECT path, SUM(count) as total_visits
+                FROM api_visit_log
+                WHERE date IS NOT NULL AND date >= ?
+                GROUP BY path
+                ORDER BY total_visits DESC
+                LIMIT ?
             """
-            SELECT SUM(count)
-            FROM api_visit_log
-            WHERE date IS NOT NULL AND date >= ?
-            """,
-            (start_date,),
-        )
-    else:
-        cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
+            params = (start_date, limit)
+        else:
+            query = """
+                SELECT path, count as total_visits
+                FROM api_visit_log
+                WHERE date IS NULL
+                ORDER BY total_visits DESC
+                LIMIT ?
+            """
+            params = (limit,)
 
-    total = cursor.fetchone()[0] or 0
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
 
-    db.close()
+        if days and start_date is not None:
+            cursor.execute(
+                """
+                SELECT SUM(count)
+                FROM api_visit_log
+                WHERE date IS NOT NULL AND date >= ?
+                """,
+                (start_date,),
+            )
+        else:
+            cursor.execute("SELECT SUM(count) FROM api_visit_log WHERE date IS NULL")
+
+        total = cursor.fetchone()[0] or 0
 
     return [
         {

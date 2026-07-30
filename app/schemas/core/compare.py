@@ -130,6 +130,19 @@ class CompareZhongGuAnalysis(BaseModel):
             raise ValueError("第二組：path_strings2 和 chars2 不能同時為空，至少提供其一")
         return self
 
+    @field_validator('locations', mode='before')
+    @classmethod
+    def split_locations(cls, v):
+        if not v:
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.extend(item.split())
+            else:
+                result.append(item)
+        return result
+
     @field_validator('table_name')
     @classmethod
     def validate_table_name(cls, v):
