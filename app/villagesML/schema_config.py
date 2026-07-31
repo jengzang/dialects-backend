@@ -580,6 +580,8 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "region_level": "region_level",
                     "region_name": "region_name",
+                    "level": "region_level",
+                    "region": "region_name",
                     _RL[0]: _RL[0],
                     _RL[1]: _RL[1],
                     _RL[2]: _RL[2],
@@ -634,6 +636,8 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "region_level": "region_level",
                     "region_name": "region_name",
+                    "level": "region_level",
+                    "region": "region_name",
                     _RL[0]: _RL[0],
                     _RL[1]: _RL[1],
                     _RL[2]: _RL[2],
@@ -668,6 +672,8 @@ VILLAGES_DATABASES = {
                 "columns": {
                     "region_level": "region_level",
                     "region_name": "region_name",
+                    "level": "region_level",
+                    "region": "region_name",
                     _RL[0]: _RL[0],
                     _RL[1]: _RL[1],
                     _RL[2]: _RL[2],
