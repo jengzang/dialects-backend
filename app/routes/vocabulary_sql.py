@@ -387,6 +387,8 @@ def _get_table_count_sync(
     filter_column: str | None,
     filter_value: str | None,
     db_path: str,
+    *,
+    distinct_column: str | None = None,
 ) -> int:
     filters = {}
     if filter_column is not None:
@@ -399,10 +401,12 @@ def _get_table_count_sync(
         search_text=None,
         search_columns=[],
     )
+    table_q = _quote_identifier(table_name)
+    count_expr = f"COUNT(DISTINCT {_quote_identifier(distinct_column)})" if distinct_column else "COUNT(*)"
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.execute(
-            f"SELECT COUNT(*) FROM {_quote_identifier(table_name)} WHERE {_where_sql(clauses)}",
+            f"SELECT {count_expr} FROM {table_q} WHERE {_where_sql(clauses)}",
             values,
         )
         return cursor.fetchone()[0]
@@ -520,6 +524,7 @@ async def get_table_count(
     table_name: str = "vocabulary_entries",
     filter_column: str | None = None,
     filter_value: str | None = None,
+    distinct_column: str | None = None,
     user: Optional[User] = Depends(ApiLimiter),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -527,8 +532,12 @@ async def get_table_count(
     db_path = _get_db_path(db)
     if filter_column is not None:
         await asyncio.to_thread(_validate_columns, table_name, [filter_column], "filter_column", db_path=db_path)
+    if distinct_column is not None:
+        await asyncio.to_thread(_validate_columns, table_name, [distinct_column], "distinct_column", db_path=db_path)
 
     cache_key = f"vocab_sql_count:{table_name}"
+    if distinct_column is not None:
+        cache_key += f":distinct:{distinct_column}"
     if filter_column is not None:
         cache_key += f":{filter_column}:{filter_value}"
 
@@ -547,6 +556,7 @@ async def get_table_count(
         filter_column,
         filter_value,
         db_path,
+        distinct_column=distinct_column,
     )
 
     try:
