@@ -364,6 +364,7 @@ async def upload_vocabulary(
     location: str = Form(...),
     parser_mode: str = Form("auto"),
     overwrite: bool = Form(False),
+    fill_standard_from_local: bool = Form(False),
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -377,6 +378,7 @@ async def upload_vocabulary(
             location_payload=location,
             parser_mode=parser_mode,
             overwrite=overwrite,
+            fill_standard_from_local=fill_standard_from_local,
         )
     except HTTPException:
         raise
@@ -394,6 +396,7 @@ async def preview_vocabulary_upload_endpoint(
     file: UploadFile = File(...),
     location: str = Form(...),
     parser_mode: str = Form("auto"),
+    fill_standard_from_local: bool = Form(False),
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -406,6 +409,7 @@ async def preview_vocabulary_upload_endpoint(
             content=content,
             location_payload=location,
             parser_mode=parser_mode,
+            fill_standard_from_local=fill_standard_from_local,
         )
     except HTTPException:
         raise

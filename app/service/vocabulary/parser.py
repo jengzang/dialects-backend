@@ -109,7 +109,11 @@ def _validate_row(
     ipa: str,
     notes: str,
     row_number: int,
+    fill_standard_from_local: bool = False,
 ) -> tuple[Optional[ParsedVocabularyRow], Optional[str], bool]:
+    if fill_standard_from_local and not standard_word and local_expression:
+        standard_word = local_expression
+
     if not standard_word and not local_expression:
         return None, None, True
 
@@ -129,7 +133,7 @@ def _validate_row(
     ), None, False
 
 
-def parse_table_file(path: Path) -> VocabularyParseResult:
+def parse_table_file(path: Path, fill_standard_from_local: bool = False) -> VocabularyParseResult:
     suffix = path.suffix.lower()
     if suffix == ".csv":
         frame = pd.read_csv(path, dtype=str, keep_default_na=False)
@@ -141,7 +145,9 @@ def parse_table_file(path: Path) -> VocabularyParseResult:
         raise ValueError(f"Unsupported table file type: {suffix}")
 
     column_map = _build_column_map(frame.columns)
-    required = {"standard_word"}
+    required = set()
+    if not fill_standard_from_local:
+        required.add("standard_word")
     missing = sorted(required.difference(column_map))
     if "local_expression" not in column_map and "ipa" not in column_map:
         missing.append("local_expression 或 ipa（至少需要一个）")
@@ -153,11 +159,12 @@ def parse_table_file(path: Path) -> VocabularyParseResult:
     skipped_count = 0
     for index, row in frame.iterrows():
         parsed, error, skipped = _validate_row(
-            standard_word=_clean_cell(row.get(column_map["standard_word"])),
-            local_expression=_clean_cell(row.get(column_map["local_expression"])),
-            ipa=_clean_cell(row.get(column_map["ipa"])),
-            notes=_clean_cell(row.get(column_map.get("notes"))) if "notes" in column_map else "",
+            standard_word=_clean_cell(row.get(column_map.get("standard_word", ""))) if "standard_word" in column_map else "",
+            local_expression=_clean_cell(row.get(column_map.get("local_expression", ""))) if "local_expression" in column_map else "",
+            ipa=_clean_cell(row.get(column_map.get("ipa", ""))) if "ipa" in column_map else "",
+            notes=_clean_cell(row.get(column_map.get("notes", ""))) if "notes" in column_map else "",
             row_number=int(index) + 2,
+            fill_standard_from_local=fill_standard_from_local,
         )
         if skipped:
             skipped_count += 1
@@ -181,7 +188,7 @@ _BRACKET_PATTERNS = {
 }
 
 
-def parse_bracket_document_text(text: str) -> tuple[list[ParsedVocabularyRow], list[str]]:
+def parse_bracket_document_text(text: str, fill_standard_from_local: bool = False) -> tuple[list[ParsedVocabularyRow], list[str]]:
     rows: list[ParsedVocabularyRow] = []
     errors: list[str] = []
 
@@ -211,6 +218,7 @@ def parse_bracket_document_text(text: str) -> tuple[list[ParsedVocabularyRow], l
             ipa=ipa,
             notes=notes,
             row_number=line_number,
+            fill_standard_from_local=fill_standard_from_local,
         )
         if error:
             errors.append(error)
@@ -220,7 +228,7 @@ def parse_bracket_document_text(text: str) -> tuple[list[ParsedVocabularyRow], l
     return rows, errors
 
 
-def parse_whitespace_document_text(text: str) -> tuple[list[ParsedVocabularyRow], list[str]]:
+def parse_whitespace_document_text(text: str, fill_standard_from_local: bool = False) -> tuple[list[ParsedVocabularyRow], list[str]]:
     rows: list[ParsedVocabularyRow] = []
     errors: list[str] = []
 
@@ -230,16 +238,27 @@ def parse_whitespace_document_text(text: str) -> tuple[list[ParsedVocabularyRow]
             continue
 
         parts = line.split(maxsplit=3)
-        if len(parts) < 2:
+        if fill_standard_from_local and len(parts) == 1:
+            parsed, error, _ = _validate_row(
+                standard_word="",
+                local_expression=parts[0],
+                ipa="",
+                notes="",
+                row_number=line_number,
+                fill_standard_from_local=True,
+            )
+        elif len(parts) < 2:
             errors.append(f"第 {line_number} 行缺少字段: standard_word")
             continue
-        parsed, error, _ = _validate_row(
-            standard_word=parts[0],
-            local_expression=parts[1] if len(parts) > 1 else "",
-            ipa=parts[2] if len(parts) > 2 else "",
-            notes=parts[3] if len(parts) > 3 else "",
-            row_number=line_number,
-        )
+        else:
+            parsed, error, _ = _validate_row(
+                standard_word=parts[0],
+                local_expression=parts[1] if len(parts) > 1 else "",
+                ipa=parts[2] if len(parts) > 2 else "",
+                notes=parts[3] if len(parts) > 3 else "",
+                row_number=line_number,
+                fill_standard_from_local=fill_standard_from_local,
+            )
         if error:
             errors.append(error)
         elif parsed is not None:
@@ -299,7 +318,7 @@ def _read_doc_text(path: Path) -> str:
     )
 
 
-def parse_document_file(path: Path, parser_mode: str) -> VocabularyParseResult:
+def parse_document_file(path: Path, parser_mode: str, fill_standard_from_local: bool = False) -> VocabularyParseResult:
     suffix = path.suffix.lower()
     if suffix == ".docx":
         text = _read_docx_text(path)
@@ -309,16 +328,16 @@ def parse_document_file(path: Path, parser_mode: str) -> VocabularyParseResult:
         raise ValueError(f"Unsupported document file type: {suffix}")
 
     if parser_mode == "doc_bracket":
-        rows, errors = parse_bracket_document_text(text)
+        rows, errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local)
     elif parser_mode == "doc_whitespace":
-        rows, errors = parse_whitespace_document_text(text)
+        rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local)
     else:
-        bracket_rows, bracket_errors = parse_bracket_document_text(text)
+        bracket_rows, bracket_errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local)
         if bracket_rows and not bracket_errors:
             rows, errors = bracket_rows, bracket_errors
             parser_mode = "doc_bracket"
         else:
-            rows, errors = parse_whitespace_document_text(text)
+            rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local)
             parser_mode = "doc_whitespace"
 
     return VocabularyParseResult(
@@ -329,7 +348,7 @@ def parse_document_file(path: Path, parser_mode: str) -> VocabularyParseResult:
     )
 
 
-def parse_vocabulary_file(path: Path | str, parser_mode: str = "auto") -> VocabularyParseResult:
+def parse_vocabulary_file(path: Path | str, parser_mode: str = "auto", fill_standard_from_local: bool = False) -> VocabularyParseResult:
     file_path = Path(path)
     mode = parser_mode or "auto"
     if mode not in {"auto", "table", "doc_whitespace", "doc_bracket"}:
@@ -337,9 +356,9 @@ def parse_vocabulary_file(path: Path | str, parser_mode: str = "auto") -> Vocabu
 
     suffix = file_path.suffix.lower()
     if mode == "table" or (mode == "auto" and suffix in _TABLE_SUFFIXES):
-        return parse_table_file(file_path)
+        return parse_table_file(file_path, fill_standard_from_local=fill_standard_from_local)
     if mode in {"doc_whitespace", "doc_bracket"} or (mode == "auto" and suffix in _DOC_SUFFIXES):
-        return parse_document_file(file_path, mode)
+        return parse_document_file(file_path, mode, fill_standard_from_local=fill_standard_from_local)
 
     raise ValueError(f"Unsupported vocabulary file type: {suffix}")
 
@@ -349,6 +368,7 @@ def parse_uploaded_vocabulary_file(
     filename: str,
     content: bytes,
     parser_mode: str = "auto",
+    fill_standard_from_local: bool = False,
 ) -> VocabularyParseResult:
     suffix = Path(filename).suffix.lower()
     fd, temp_name = mkstemp(suffix=suffix)
@@ -356,7 +376,7 @@ def parse_uploaded_vocabulary_file(
     try:
         with open(fd, "wb", closefd=True) as tmp:
             tmp.write(content)
-        return parse_vocabulary_file(temp_path, parser_mode=parser_mode)
+        return parse_vocabulary_file(temp_path, parser_mode=parser_mode, fill_standard_from_local=fill_standard_from_local)
     finally:
         try:
             temp_path.unlink()

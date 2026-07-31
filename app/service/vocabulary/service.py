@@ -150,6 +150,7 @@ def preview_vocabulary_upload(
     content: bytes,
     location_payload,
     parser_mode: str = "auto",
+    fill_standard_from_local: bool = False,
 ) -> VocabularyUploadPreviewResult:
     permission_level = get_effective_permission_level(session, user)
     normalized_location = normalize_location_payload(location_payload)
@@ -157,6 +158,7 @@ def preview_vocabulary_upload(
         filename=filename,
         content=content,
         parser_mode=parser_mode,
+        fill_standard_from_local=fill_standard_from_local,
     )
     errors = list(parse_result.errors)
     parsed_count = len(parse_result.rows) if not errors else 0
@@ -188,6 +190,7 @@ def import_vocabulary_upload(
     location_payload,
     parser_mode: str = "auto",
     overwrite: bool = False,
+    fill_standard_from_local: bool = False,
 ) -> VocabularyImportResult:
     permission_level = get_effective_permission_level(session, user)
     normalized_location = normalize_location_payload(location_payload)
@@ -195,6 +198,7 @@ def import_vocabulary_upload(
         filename=filename,
         content=content,
         parser_mode=parser_mode,
+        fill_standard_from_local=fill_standard_from_local,
     )
     if parse_result.errors:
         raise ValueError("; ".join(parse_result.errors))
