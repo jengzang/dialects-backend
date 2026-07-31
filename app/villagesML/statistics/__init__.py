@@ -28,8 +28,8 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection, dbpath: str) -> Dict[str,
     """
     cursor = db.cursor()
     significance_table = qtable(dbpath, T.NGRAM_SIGNIFICANCE)
-    significance_level = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.LEVEL)
-    significance_region = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.REGION)
+    significance_level = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.REGION_LEVEL)
+    significance_region = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.REGION_NAME)
     significance_p_value = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.P_VALUE)
     significance_total_before = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.TOTAL_BEFORE_FILTER)
     regional_frequency_table = qtable(dbpath, T.REGIONAL_NGRAM_FREQUENCY)
