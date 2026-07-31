@@ -166,11 +166,18 @@ def _apply_common_middlewares(app: FastAPI) -> None:
                     active_requests -= 1
 
 
+class _HTTPOnlyStaticFiles(StaticFiles):
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            return
+        await super().__call__(scope, receive, send)
+
+
 def _mount_static(app: FastAPI, *, enable_static_mounts: bool) -> None:
     if not enable_static_mounts:
         return
 
-    app.mount("", StaticFiles(directory=os.path.abspath("app/statics"), html=True), name="static")
+    app.mount("", _HTTPOnlyStaticFiles(directory=os.path.abspath("app/statics"), html=True), name="static")
 
     if _RUN_TYPE == "EXE":
         app.mount("/data", StaticFiles(directory=ensure_user_data()), name="data")
