@@ -116,10 +116,8 @@ def _validate_row(
     missing = []
     if not standard_word:
         missing.append("standard_word")
-    if not local_expression:
-        missing.append("local_expression")
-    if not ipa:
-        missing.append("ipa")
+    if not ipa and not local_expression:
+        missing.append("ipa 或 local_expression（至少需要一个非空）")
     if missing:
         return None, f"第 {row_number} 行缺少字段: {', '.join(missing)}", False
 
@@ -143,8 +141,10 @@ def parse_table_file(path: Path) -> VocabularyParseResult:
         raise ValueError(f"Unsupported table file type: {suffix}")
 
     column_map = _build_column_map(frame.columns)
-    required = {"standard_word", "local_expression", "ipa"}
+    required = {"standard_word"}
     missing = sorted(required.difference(column_map))
+    if "local_expression" not in column_map and "ipa" not in column_map:
+        missing.append("local_expression 或 ipa（至少需要一个）")
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
@@ -230,15 +230,14 @@ def parse_whitespace_document_text(text: str) -> tuple[list[ParsedVocabularyRow]
             continue
 
         parts = line.split(maxsplit=3)
-        if len(parts) < 3:
-            errors.append(f"第 {line_number} 行缺少字段: standard_word, local_expression, ipa")
+        if len(parts) < 2:
+            errors.append(f"第 {line_number} 行缺少字段: standard_word")
             continue
-        notes = parts[3] if len(parts) > 3 else ""
         parsed, error, _ = _validate_row(
             standard_word=parts[0],
-            local_expression=parts[1],
-            ipa=parts[2],
-            notes=notes,
+            local_expression=parts[1] if len(parts) > 1 else "",
+            ipa=parts[2] if len(parts) > 2 else "",
+            notes=parts[3] if len(parts) > 3 else "",
             row_number=line_number,
         )
         if error:
