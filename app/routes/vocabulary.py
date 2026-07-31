@@ -53,7 +53,7 @@ def _location_label(location: VocabularyLocation) -> str:
         location.administrative_village,
         location.natural_village,
     ]
-    label = " / ".join(part for part in parts if part)
+    label = " · ".join(part for part in parts if part)
     return label or location.location_name
 
 

@@ -69,6 +69,7 @@ route_analysis_report.txt
 temp_*.txt
 temp_*.json
 data/feature_counts_*.json
+data/test_vocab_files/
 
 # Ignore local test work by default; tracked tests remain tracked.
 /test/
