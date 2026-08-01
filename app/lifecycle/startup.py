@@ -42,12 +42,16 @@ def initialize_db_pools() -> None:
 
 
 def migrate_user_region_tables() -> None:
-    from app.service.user.core.database import migrate_user_regions_table
+    from app.service.user.core.database import (
+        migrate_user_regions_table,
+        migrate_user_suggestions_table,
+    )
 
     print("=" * 60)
     print("[DB] Checking supplements.db schema...")
     try:
         migrate_user_regions_table()
+        migrate_user_suggestions_table()
         print("[OK] supplements.db schema check completed")
     except Exception as exc:
         print(f"[WARN] supplements.db migration failed: {exc}")

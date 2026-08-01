@@ -13,6 +13,7 @@ from .sessions.legacy import router as sessions_legacy_router
 # Submissions (原 custom)
 from .submissions.data import router as submissions_data_router
 from .submissions.regions import router as submissions_regions_router
+from .suggestions import router as suggestions_router
 
 # Analytics
 from .analytics.overview import router as analytics_router
@@ -49,6 +50,8 @@ router.include_router(sessions_legacy_router, prefix="/sessions", tags=["admin s
 router.include_router(submissions_data_router, prefix="/custom", tags=["admin submissions"],
                       dependencies=[Depends(get_current_admin_user)])
 router.include_router(submissions_regions_router, prefix="/custom-regions", tags=["admin submissions"],
+                      dependencies=[Depends(get_current_admin_user)])
+router.include_router(suggestions_router, prefix="/suggestions", tags=["admin suggestions"],
                       dependencies=[Depends(get_current_admin_user)])
 
 # ========== Analytics ==========

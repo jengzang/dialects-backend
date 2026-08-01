@@ -103,6 +103,65 @@ def migrate_user_regions_table():
             print("[OK] user_regions 表已存在")
 
 
+def migrate_user_suggestions_table(bind=None):
+    """检查并创建 user_suggestions 表。"""
+    target_engine = bind or engine
+    with target_engine.connect() as conn:
+        result = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_suggestions'"
+        ))
+        table_exists = result.fetchone() is not None
+
+        if not table_exists:
+            print("[!] 检测到缺少 user_suggestions 表，正在创建...")
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_suggestions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username VARCHAR(100),
+                title VARCHAR(200) NOT NULL,
+                content TEXT NOT NULL,
+                category VARCHAR(50) NOT NULL DEFAULT 'general',
+                source_path VARCHAR(300),
+                context_json TEXT,
+                contact VARCHAR(200),
+                submitter_ip VARCHAR(45),
+                user_agent VARCHAR(300),
+                status VARCHAR(30) NOT NULL DEFAULT 'open',
+                priority VARCHAR(20) NOT NULL DEFAULT 'normal',
+                admin_note TEXT,
+                handled_by INTEGER,
+                handled_by_username VARCHAR(100),
+                handled_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_user_suggestions_user_id "
+            "ON user_suggestions (user_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_user_suggestions_status "
+            "ON user_suggestions (status)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_user_suggestions_category "
+            "ON user_suggestions (category)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_user_suggestions_created_at "
+            "ON user_suggestions (created_at)"
+        ))
+        conn.commit()
+
+        if table_exists:
+            print("[OK] user_suggestions 表已存在")
+        else:
+            print("[OK] user_suggestions 表及索引已成功创建")
+
+
 # FastAPI 依賴（保持原样）
 def get_db():
     db = SessionLocal()

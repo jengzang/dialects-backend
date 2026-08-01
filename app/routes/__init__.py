@@ -29,6 +29,7 @@ from app.routes.geo.locations import router as locations_router
 from app.routes.user.custom_query import router as custom_query_router
 from app.routes.user.custom_regions import router as custom_regions_router
 from app.routes.user.form_submit import router as form_router
+from app.routes.user.suggestions import router as suggestions_router
 from app.service.logging import setup_logs_routes
 from app.service.logging.dependencies import ApiLimiter
 from app.tools import (
@@ -51,6 +52,7 @@ def setup_main_routes(app: FastAPI):
     app.include_router(form_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(custom_query_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(custom_regions_router, tags=["User"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(suggestions_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(search_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(yubao_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
