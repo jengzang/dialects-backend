@@ -390,21 +390,93 @@ def test_edit_create_forces_current_user_id(tmp_path: Path) -> None:
         session.close()
 
 
-def test_manage_create_also_uses_current_user_id(tmp_path: Path) -> None:
+def test_edit_create_accepts_exact_luotian_payload_when_own_location_exists(tmp_path: Path) -> None:
     from app.routes.vocabulary_sql import mutate_table
     from app.schemas.vocabulary_sql import MutationParams
 
     session = _make_session(tmp_path)
     try:
-        _seed_location(session, 1)
+        _grant_edit(session, 7)
+        _seed_location(session, 7, location_name="羅田勝利")
+
+        result = asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="create",
+                    data={
+                        "standard_word": "风扇",
+                        "local_expression": "风扇",
+                        "ipa": "foŋ21ʂan25",
+                        "notes": "",
+                        "location_name": "羅田勝利",
+                        "informations": "",
+                        "source_filename": "補充",
+                    },
+                ),
+                current_user=_User(7),
+                db=session,
+            )
+        )
+
+        row = session.query(VocabularyEntry).one()
+        assert result["affected_rows"] == 1
+        assert row.user_id == 7
+        assert row.location_name == "羅田勝利"
+        assert row.standard_word == "风扇"
+    finally:
+        session.close()
+
+
+def test_edit_create_requires_own_location_even_if_location_name_exists_for_other_user(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _grant_edit(session, 7)
+        _seed_location(session, 8)
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "user_id": 8,
+                            "location_name": "息烽",
+                            "standard_word": "风",
+                            "local_expression": "风",
+                            "ipa": "fuŋ",
+                        },
+                    ),
+                    current_user=_User(7),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert raised.value.detail == "地点不存在，请先创建地点"
+        assert session.query(VocabularyEntry).count() == 0
+    finally:
+        session.close()
+
+
+def test_manage_create_derives_user_id_from_unique_location_name(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _seed_location(session, 7, location_name="羅田勝利")
         asyncio.run(
             mutate_table(
                 MutationParams(
                     table_name="vocabulary_entries",
                     action="create",
                     data={
-                        "user_id": 999,
-                        "location_name": "息烽",
+                        "location_name": "羅田勝利",
                         "standard_word": "风",
                         "local_expression": "风",
                         "ipa": "fuŋ",
@@ -416,7 +488,117 @@ def test_manage_create_also_uses_current_user_id(tmp_path: Path) -> None:
         )
 
         row = session.query(VocabularyEntry).one()
-        assert row.user_id == 1
+        assert row.user_id == 7
+        assert row.location_name == "羅田勝利"
+    finally:
+        session.close()
+
+
+def test_manage_create_ignores_payload_user_id_and_uses_location_owner(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _seed_location(session, 7, location_name="羅田勝利")
+
+        asyncio.run(
+            mutate_table(
+                MutationParams(
+                    table_name="vocabulary_entries",
+                    action="create",
+                    data={
+                        "user_id": 999,
+                        "location_name": "羅田勝利",
+                        "standard_word": "风",
+                        "local_expression": "风",
+                        "ipa": "fuŋ",
+                    },
+                ),
+                current_user=_User(1, role="admin"),
+                db=session,
+            )
+        )
+
+        row = session.query(VocabularyEntry).one()
+        assert row.user_id == 7
+    finally:
+        session.close()
+
+
+def test_manage_batch_create_derives_each_user_id_from_location_name(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import batch_mutate_table
+    from app.schemas.vocabulary_sql import BatchMutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _seed_location(session, 7, location_name="羅田勝利")
+        _seed_location(session, 39, location_name="廣州")
+
+        result = asyncio.run(
+            batch_mutate_table(
+                BatchMutationParams(
+                    table_name="vocabulary_entries",
+                    action="batch_create",
+                    create_data=[
+                        {
+                            "location_name": "羅田勝利",
+                            "standard_word": "风",
+                            "local_expression": "风",
+                            "ipa": "fuŋ",
+                        },
+                        {
+                            "user_id": 999,
+                            "location_name": "廣州",
+                            "standard_word": "雨",
+                            "local_expression": "雨",
+                            "ipa": "y",
+                        },
+                    ],
+                ),
+                current_user=_User(1, role="admin"),
+                db=session,
+            )
+        )
+
+        rows = session.query(VocabularyEntry).order_by(VocabularyEntry.user_id.asc()).all()
+        assert result["success_count"] == 2
+        assert result["error_count"] == 0
+        assert [(row.user_id, row.standard_word) for row in rows] == [(7, "风"), (39, "雨")]
+    finally:
+        session.close()
+
+
+def test_manage_create_rejects_ambiguous_location_name(tmp_path: Path) -> None:
+    from app.routes.vocabulary_sql import mutate_table
+    from app.schemas.vocabulary_sql import MutationParams
+
+    session = _make_session(tmp_path)
+    try:
+        _seed_location(session, 7, location_name="息烽")
+        _seed_location(session, 8, location_name="息烽")
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                mutate_table(
+                    MutationParams(
+                        table_name="vocabulary_entries",
+                        action="create",
+                        data={
+                            "location_name": "息烽",
+                            "standard_word": "风",
+                            "local_expression": "风",
+                            "ipa": "fuŋ",
+                        },
+                    ),
+                    current_user=_User(1, role="admin"),
+                    db=session,
+                )
+            )
+
+        assert raised.value.status_code == 400
+        assert raised.value.detail == "同名地点属于多个用户，无法自动确定数据归属"
+        assert session.query(VocabularyEntry).count() == 0
     finally:
         session.close()
 

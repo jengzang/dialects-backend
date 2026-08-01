@@ -252,10 +252,25 @@ def _select_columns(snapshot: dict[str, Any] | None, columns: Iterable[str], pk_
     return selected
 
 
-def _sanitize_create_data(record: dict[str, Any], user: User, _permission_level: str) -> dict[str, Any]:
+def _resolve_location_owner_user_id(data: dict[str, Any], db: Session) -> int:
+    rows = db.query(VocabularyLocation.user_id).filter(
+        VocabularyLocation.location_name == data.get("location_name", ""),
+    ).all()
+    owner_ids = sorted({row[0] for row in rows})
+    if not owner_ids:
+        raise HTTPException(status_code=400, detail="地点不存在，请先创建地点")
+    if len(owner_ids) > 1:
+        raise HTTPException(status_code=400, detail="同名地点属于多个用户，无法自动确定数据归属")
+    return owner_ids[0]
+
+
+def _sanitize_create_data(record: dict[str, Any], user: User, permission_level: str, db: Session) -> dict[str, Any]:
     data = dict(record)
     data.pop("id", None)
-    data["user_id"] = user.id
+    if permission_level == "edit":
+        data["user_id"] = user.id
+    else:
+        data["user_id"] = _resolve_location_owner_user_id(data, db)
     return data
 
 
@@ -616,8 +631,12 @@ async def mutate_table(
     cursor = conn.cursor()
     try:
         if params.action == "create":
-            data = _sanitize_create_data(params.data, current_user, permission_level)
-            _validate_entry_fields(data, db, current_user.id)
+            data = _sanitize_create_data(params.data, current_user, permission_level, db)
+            _validate_entry_fields(
+                data,
+                db,
+                data["user_id"],
+            )
             _validate_mutable_columns(
                 params.table_name,
                 [key for key in data if key != "user_id"],
@@ -737,7 +756,7 @@ async def batch_mutate_table(
         if params.action == "batch_create":
             if not params.create_data:
                 raise HTTPException(status_code=400, detail="create_data 不能为空")
-            records = [_sanitize_create_data(record, current_user, permission_level) for record in params.create_data]
+            records = [_sanitize_create_data(record, current_user, permission_level, db) for record in params.create_data]
             cols = list(records[0].keys())
             _validate_mutable_columns(
                 params.table_name,
@@ -752,7 +771,11 @@ async def batch_mutate_table(
             created_ids = []
             for i, record in enumerate(records):
                 try:
-                    _validate_entry_fields(record, db, current_user.id)
+                    _validate_entry_fields(
+                        record,
+                        db,
+                        record["user_id"],
+                    )
                     cursor.execute(sql, [record.get(col) for col in cols])
                     success_count += 1
                     created_ids.append(cursor.lastrowid)
