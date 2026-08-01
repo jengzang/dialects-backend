@@ -128,16 +128,20 @@ def migrate_user_suggestions_table(bind=None):
                 contact VARCHAR(200),
                 submitter_ip VARCHAR(45),
                 user_agent VARCHAR(300),
+                recent_api TEXT,
                 status VARCHAR(30) NOT NULL DEFAULT 'open',
                 priority VARCHAR(20) NOT NULL DEFAULT 'normal',
                 admin_note TEXT,
-                handled_by INTEGER,
-                handled_by_username VARCHAR(100),
                 handled_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
+        result = conn.execute(text("PRAGMA table_info(user_suggestions)"))
+        columns = [row[1] for row in result]
+        if "recent_api" not in columns:
+            conn.execute(text("ALTER TABLE user_suggestions ADD COLUMN recent_api TEXT"))
+
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_user_suggestions_user_id "
             "ON user_suggestions (user_id)"

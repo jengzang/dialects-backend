@@ -9,6 +9,7 @@ from app.schemas.user.suggestions import (
     SuggestionListResponse,
 )
 from app.service.auth.core.dependencies import get_current_user
+from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
 from app.service.user.core.database import get_db as get_db_custom
 from app.service.user import suggestion as suggestion_service
@@ -30,6 +31,7 @@ async def submit_suggestion(
     payload: SuggestionCreate,
     request: Request,
     db: Session = Depends(get_db_custom),
+    auth_db: Session = Depends(get_auth_db),
     user: Optional[User] = Depends(get_current_user),
 ):
     try:
@@ -37,6 +39,7 @@ async def submit_suggestion(
             db,
             payload,
             user,
+            auth_db=auth_db,
             submitter_ip=_client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )

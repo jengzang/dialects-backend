@@ -9,7 +9,6 @@ from app.service.auth.database.models import User
 from app.service.user.core.models import UserSuggestion
 from app.service.user.suggestion import (
     TERMINAL_STATUSES,
-    _validate_category,
     _validate_status,
     mark_terminal_handler,
     serialize_suggestion,
@@ -27,7 +26,6 @@ def list_suggestions_admin(
     page_size: int = 50,
 ) -> dict:
     _validate_status(status)
-    _validate_category(category)
 
     query = db.query(UserSuggestion)
     if status:

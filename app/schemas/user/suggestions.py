@@ -6,7 +6,6 @@ from pydantic import ConfigDict, Field, field_validator
 from app.schemas.base import ShanghaiBaseModel
 
 
-SuggestionCategory = Literal["general", "bug", "feature", "data_issue", "ui"]
 SuggestionStatus = Literal["open", "reviewing", "accepted", "rejected", "done"]
 SuggestionPriority = Literal["low", "normal", "high"]
 
@@ -14,12 +13,12 @@ SuggestionPriority = Literal["low", "normal", "high"]
 class SuggestionCreate(ShanghaiBaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=1, max_length=5000)
-    category: SuggestionCategory = "general"
+    category: str = Field("general", min_length=1, max_length=50)
     source_path: Optional[str] = Field(None, max_length=300)
     context: Optional[dict[str, Any]] = None
     contact: Optional[str] = Field(None, max_length=200)
 
-    @field_validator("title", "content", "source_path", "contact")
+    @field_validator("title", "content", "category", "source_path", "contact")
     @classmethod
     def strip_optional_text(cls, value):
         if value is None:
@@ -46,11 +45,10 @@ class SuggestionItem(ShanghaiBaseModel):
     source_path: Optional[str] = None
     context: Optional[dict[str, Any]] = None
     contact: Optional[str] = None
+    recent_api: list[dict[str, Any]] = Field(default_factory=list)
     status: str
     priority: str
     admin_note: Optional[str] = None
-    handled_by: Optional[int] = None
-    handled_by_username: Optional[str] = None
     handled_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

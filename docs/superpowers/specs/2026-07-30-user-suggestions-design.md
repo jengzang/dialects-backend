@@ -46,11 +46,10 @@ CREATE TABLE user_suggestions (
     contact VARCHAR(200),
     submitter_ip VARCHAR(45),
     user_agent VARCHAR(300),
+    recent_api TEXT,
     status VARCHAR(30) NOT NULL DEFAULT 'open',
     priority VARCHAR(20) NOT NULL DEFAULT 'normal',
     admin_note TEXT,
-    handled_by INTEGER,
-    handled_by_username VARCHAR(100),
     handled_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -72,6 +71,11 @@ Field notes:
 - `contact` is optional and intended for anonymous visitors who want follow-up.
 - `submitter_ip` and `user_agent` support abuse investigation and debugging.
 - `context_json` stores optional structured client context as JSON text.
+- `recent_api` stores a JSON array snapshot of up to 10 recent API calls, each
+  shaped as `{"name": "/api/path", "time": "2026-08-01T12:30:21", "duration": 0.132}`.
+  It does not store status code, request body, query parameters, or response data.
+- `category` is free text up to 50 characters, defaulting to `general`; the API
+  should not enforce a closed category list.
 - `status` values: `open`, `reviewing`, `accepted`, `rejected`, `done`.
 - `priority` values: `low`, `normal`, `high`.
 
@@ -117,10 +121,22 @@ Validation:
 
 - `title`: 1 to 200 characters after trimming.
 - `content`: 1 to 5000 characters after trimming.
-- `category`: one of `general`, `bug`, `feature`, `data_issue`, `ui`.
+- `category`: optional free text, 1 to 50 characters after trimming; defaults to
+  `general`.
 - `source_path`: optional, max 300 characters.
 - `contact`: optional, max 200 characters.
 - `context`: optional JSON object; serialize to `context_json`.
+
+Recent API snapshot:
+
+- If a logged-in user submits the suggestion, query `auth.db.api_usage_logs` by
+  `user_id` first, newest first, up to 10 rows.
+- If the logged-in user's rows provide fewer than 10 entries, fill the remaining
+  slots by `submitter_ip`, newest first, excluding already selected log ids.
+- If the submitter is anonymous, query by `submitter_ip` only.
+- Store only `name`, `time`, and `duration` for each row.
+- If `auth.db` lookup fails, suggestion submission should still succeed with
+  `recent_api` set to `[]`.
 
 ### My Suggestions
 
@@ -145,6 +161,7 @@ Response:
       "status": "open",
       "priority": "normal",
       "admin_note": null,
+      "recent_api": [],
       "created_at": "2026-07-30T10:00:00",
       "updated_at": "2026-07-30T10:00:00"
     }
@@ -188,8 +205,7 @@ Request:
 Behavior:
 
 - Only admins can update.
-- If `status` is changed to `accepted`, `rejected`, or `done`, set
-  `handled_by`, `handled_by_username`, and `handled_at`.
+- If `status` is changed to `accepted`, `rejected`, or `done`, set `handled_at`.
 - Always update `updated_at`.
 
 ## Components
@@ -208,7 +224,7 @@ Add or update these modules:
 
 ## Error Handling
 
-- `400`: invalid category, status, priority, page, or page size.
+- `400`: invalid status, priority, page, or page size.
 - `401`: unauthenticated access to `/api/suggestions/my`.
 - `403`: non-admin access to admin routes.
 - `404`: updating a suggestion id that does not exist.
@@ -222,11 +238,13 @@ practical:
 
 - Anonymous submit succeeds and stores no `user_id`.
 - Logged-in submit stores `user_id` and `username`.
-- Invalid category is rejected.
+- Custom category strings are accepted.
+- Submitting a suggestion snapshots recent API rows from `auth.db`, using user id
+  first and IP fallback/fill to reach up to 10 rows.
 - Logged-in user can list only their own suggestions.
 - Anonymous visitor cannot call `/api/suggestions/my`.
 - Admin list supports `status` and `category` filters.
-- Admin update changes status, priority, note, handler fields, and `updated_at`.
+- Admin update changes status, priority, note, `handled_at`, and `updated_at`.
 - Startup migration creates the table and indexes idempotently.
 
 ## Open Decisions
