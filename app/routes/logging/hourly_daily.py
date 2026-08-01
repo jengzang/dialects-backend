@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get("/hourly")
 async def get_hourly_trend_route(
-    hours: int = Query(24, ge=1, le=168)
+    hours: int = Query(24, ge=1, le=10000)
 ):
     """
     获取小时级调用趋势

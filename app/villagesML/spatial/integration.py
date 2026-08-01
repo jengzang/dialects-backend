@@ -11,7 +11,7 @@ from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
 from ..schema_keys import C, T
 
-router = APIRouter(prefix="/spatial", tags=["spatial-integration"])
+router = APIRouter(prefix="/spatial")
 
 
 def _integration_schema(dbpath: str):
