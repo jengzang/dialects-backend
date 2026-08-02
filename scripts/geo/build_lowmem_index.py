@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""Build a single-file GIS index (gis.db) from the WGS84 GeoJSON source.
+
+Produces one self-contained SQLite database with:
+  - features       — administrative division metadata (id, name, pid, deep, center, etc.)
+  - subgeometries  — per-polygon-part geometry stored as JSON BLOBs
+  - subgeometry_rtree — RTree spatial index over subgeometry bounding boxes
+  - feature_parts  — mapping from feature_id to its subgeometry ids
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,16 +19,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "data/geo/generated/geojson/wgs84/areacity_full_level0-2.geojson"
-OUT_DIR = ROOT / "data/geo/generated/engine/wgs84"
-INDEX_SQLITE_PATH = OUT_DIR / "areacity.index.sqlite"
-FEATURES_PATH = OUT_DIR / "areacity.features.jsonl"
-GEOM_PATH = OUT_DIR / "areacity.subgeom.bin"
-META_PATH = OUT_DIR / "areacity.meta.json"
-MANIFEST_PATH = OUT_DIR / "areacity.build_manifest.json"
-GRID_FACTOR = 100
-STORAGE_FORMAT = "geojson-bytes"
-SPLIT_MODE = "polygon-parts-rtree-v1"
-SUBGRID_FACTOR = 500
+OUT_DIR = ROOT / "data/gis"
+OUT_DB = OUT_DIR / "gis.db"
 
 
 def geometry_bbox(geometry: dict | None):
@@ -80,7 +81,6 @@ def split_geometry(feature_id: int, deep: int, geometry: dict | None) -> list[di
                 "source_geometry_type": "Polygon",
                 "bbox": bbox,
                 "geometry": polygon,
-                "subgrid_refs": [],
             }
         )
     return parts
@@ -95,6 +95,26 @@ def initialize_sqlite(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA temp_store=MEMORY")
     conn.execute(
         """
+        CREATE TABLE features (
+            id INTEGER PRIMARY KEY,
+            pid INTEGER NOT NULL,
+            deep INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            ext_path TEXT NOT NULL,
+            center_lng REAL,
+            center_lat REAL,
+            source_crs TEXT NOT NULL DEFAULT 'WGS84',
+            target_crs TEXT NOT NULL DEFAULT 'WGS84',
+            source_file TEXT NOT NULL,
+            geometry_type TEXT,
+            geometry_exists INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    conn.execute("CREATE INDEX idx_features_pid ON features(pid)")
+    conn.execute("CREATE INDEX idx_features_deep ON features(deep)")
+    conn.execute(
+        """
         CREATE TABLE subgeometries (
             sub_id INTEGER PRIMARY KEY,
             feature_id INTEGER NOT NULL,
@@ -106,8 +126,7 @@ def initialize_sqlite(path: Path) -> sqlite3.Connection:
             min_lat REAL NOT NULL,
             max_lng REAL NOT NULL,
             max_lat REAL NOT NULL,
-            geom_offset INTEGER NOT NULL,
-            geom_length INTEGER NOT NULL
+            geom_blob BLOB NOT NULL
         )
         """
     )
@@ -141,24 +160,35 @@ def main() -> None:
 
     part_count_histogram: dict[int, int] = defaultdict(int)
     part_kind_histogram: dict[str, int] = defaultdict(int)
-    subgrid_span_histogram: dict[int, int] = defaultdict(int)
-    feature_rows: list[str] = []
-    geom_blobs: list[bytes] = []
 
-    conn = initialize_sqlite(INDEX_SQLITE_PATH)
+    conn = initialize_sqlite(OUT_DB)
     cur = conn.cursor()
 
     sub_id = 1
-    offset = 0
     subgeometry_count = 0
     features_with_geometry = 0
     features_with_multiple_parts = 0
+    total_geom_bytes = 0
 
     for feature in features:
         props = dict(feature["properties"])
         props["geometry_type"] = feature["geometry"]["type"] if feature.get("geometry") else None
         props["geometry_exists"] = feature.get("geometry") is not None
-        feature_rows.append(json.dumps(props, ensure_ascii=False))
+
+        cur.execute(
+            """
+            INSERT INTO features (id, pid, deep, name, ext_path, center_lng, center_lat,
+                                  source_crs, target_crs, source_file, geometry_type, geometry_exists)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                props["id"], props["pid"], props["deep"], props["name"], props["ext_path"],
+                props["center_lng"], props["center_lat"],
+                props.get("source_crs", "WGS84"), props.get("target_crs", "WGS84"),
+                props.get("source_file", ""), props["geometry_type"],
+                1 if props["geometry_exists"] else 0,
+            ),
+        )
 
         parts = split_geometry(props["id"], props["deep"], feature.get("geometry"))
         if parts:
@@ -166,30 +196,23 @@ def main() -> None:
             part_count_histogram[len(parts)] += 1
             if len(parts) > 1:
                 features_with_multiple_parts += 1
+
         for part in parts:
             raw = json.dumps(part["geometry"], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            geom_blobs.append(raw)
+            total_geom_bytes += len(raw)
             min_lng, min_lat, max_lng, max_lat = part["bbox"]
             cur.execute(
                 """
                 INSERT INTO subgeometries (
                     sub_id, feature_id, deep, part_index, part_kind, source_geometry_type,
-                    min_lng, min_lat, max_lng, max_lat, geom_offset, geom_length
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    min_lng, min_lat, max_lng, max_lat, geom_blob
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    sub_id,
-                    part["feature_id"],
-                    part["deep"],
-                    part["part_index"],
-                    part["part_kind"],
-                    part["source_geometry_type"],
-                    min_lng,
-                    min_lat,
-                    max_lng,
-                    max_lat,
-                    offset,
-                    len(raw),
+                    sub_id, part["feature_id"], part["deep"], part["part_index"],
+                    part["part_kind"], part["source_geometry_type"],
+                    min_lng, min_lat, max_lng, max_lat,
+                    raw,
                 ),
             )
             cur.execute(
@@ -201,41 +224,33 @@ def main() -> None:
                 (part["feature_id"], sub_id, part["part_index"]),
             )
             part_kind_histogram[part["part_kind"]] += 1
-            subgrid_span_histogram[len(part["subgrid_refs"])] += 1
-            offset += len(raw)
             sub_id += 1
             subgeometry_count += 1
 
     conn.commit()
-    conn.close()
 
     manifest = {
         "source": str(SOURCE.relative_to(ROOT)),
-        "grid_factor": GRID_FACTOR,
-        "subgrid_factor": SUBGRID_FACTOR,
-        "storage_format": STORAGE_FORMAT,
-        "index_storage": "sqlite",
-        "index_db_path": str(INDEX_SQLITE_PATH.relative_to(ROOT)),
-        "split_mode": SPLIT_MODE,
         "source_crs": "WGS84",
-        "target_crs": "WGS84",
         "feature_count": len(features),
         "subgeometry_count": subgeometry_count,
         "features_with_geometry": features_with_geometry,
         "features_with_multiple_parts": features_with_multiple_parts,
+        "total_geom_bytes": total_geom_bytes,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "part_count_histogram": {str(k): v for k, v in sorted(part_count_histogram.items())},
         "part_kind_histogram": {str(k): v for k, v in sorted(part_kind_histogram.items())},
-        "subgrid_span_histogram": {str(k): v for k, v in sorted(subgrid_span_histogram.items())},
     }
+    conn.execute(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    for k, v in manifest.items():
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)", (k, json.dumps(v, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
 
-    FEATURES_PATH.write_text("\n".join(feature_rows) + "\n", encoding="utf-8")
-    with GEOM_PATH.open("wb") as f_geom:
-        for blob in geom_blobs:
-            f_geom.write(blob)
-    META_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
+    print(f"\nProduced: {OUT_DB} ({OUT_DB.stat().st_size / 1024 / 1024:.1f} MB)")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ def test_gis_routes_status_search_children_boundary_and_point():
     assert status["loaded"] is True
     assert status["feature_count"] > 0
     assert status["subgeometry_count"] > 0
-    assert status["index_path"].endswith("areacity.index.sqlite")
+    assert status["index_path"].endswith("gis.db")
 
     point_resp = client.get("/api/gis/query/point", params={"lng": 116.4074, "lat": 39.9042})
     assert point_resp.status_code == 200
@@ -111,7 +111,7 @@ def test_gis_resolve_reports_not_found_for_missing_path():
     app = create_gis_app()
     client = TestClient(app)
 
-    resp = client.get("/api/gis/resolve", params={"province": "广东省", "city": "东莞市"})
+    resp = client.get("/api/gis/resolve", params={"province": "北京市", "city": "不存在的城市"})
 
     assert resp.status_code == 200
     data = resp.json()

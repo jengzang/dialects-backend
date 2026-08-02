@@ -45,9 +45,6 @@ class SubGeometryIndexRecord:
     part_kind: str
     source_geometry_type: str
     bbox: tuple[float, float, float, float]
-    geom_offset: int
-    geom_length: int
-    subgrid_refs: list[str]
 
 
 @dataclass(slots=True)

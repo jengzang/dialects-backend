@@ -12,7 +12,7 @@ def load_geo_query_engine() -> None:
         return
     with _INIT_LOCK:
         if not ENGINE.loaded:
-            ENGINE.init_store_in_wkb_file()
+            ENGINE.init_store()
 
 
 def get_geo_engine():
