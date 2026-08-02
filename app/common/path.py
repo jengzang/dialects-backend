@@ -31,7 +31,7 @@ GD_VILLAGE_DB_PATH = os.path.join(BASE_DIR, "data", "villages.db")
 VILLAGE_ADMIN_DB_PATH = os.path.join(BASE_DIR, "data", "villages_admin.db")
 YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
 TOPONYMS_DB_PATH = os.path.join(BASE_DIR, "data", "toponyms.db")
-GIS_DATA_DIR = os.path.join(BASE_DIR, "data", "gis")
+GIS_DATA_DIR = os.path.join(BASE_DIR, "data", "dependency")
 VOCABULARY_DB_PATH = os.path.join(BASE_DIR, "data", "vocabulary.db")
 VOCABULARY_DB_URL = f"sqlite:///{VOCABULARY_DB_PATH}"
 

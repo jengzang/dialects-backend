@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "data/geo/generated/geojson/wgs84/areacity_full_level0-2.geojson"
-OUT_DIR = ROOT / "data/gis"
+OUT_DIR = ROOT / "data/dependency"
 OUT_DB = OUT_DIR / "gis.db"
 
 
