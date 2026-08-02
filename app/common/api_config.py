@@ -40,13 +40,14 @@ SIZE_THRESHOLD = 10 * 1024  # 10KB
 # 每20条日志写入一次
 BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
-CLEAR_WEEK = True
+CLEAR_WEEK = False
 
 # auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
     "/api/auth/login",
     "/api/phonology*",
     "/api/get_coordinates",
+    "/api/gis/*",
     "/api/search_tones/",
     "/api/search_chars/",
     "/api/locations/*",
@@ -215,6 +216,11 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
+    }, "/api/gis/*": {
+        "rate_limit": True,       # 启用限流（RTree + 几何计算是计算资源）
+        "require_login": True,   # 公开查询，同 /api/get_coordinates
+        "log_params": True,       # 记录查询参数（分析用户搜的地点）
+        "log_body": False,        # GET 请求无 body
     },
     "/api/get_coordinates": {
         "rate_limit": False,  # 不限流（查询类 API）
