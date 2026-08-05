@@ -122,6 +122,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
             # 更新进度
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=10.0,
                 message=f"找到粤拼列'{yutping_col}'，共{total_rows}行，开始处理...",
                 stage="processing_rows",
@@ -149,8 +150,8 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
             columns = ['声母', '韵母', '音调', '韵腹', '韵尾',
                        '声母IPA', '韵腹IPA', '韵尾IPA', '音调IPA', 'IPA', '注释']
 
-            # 批量处理（每100行更新一次进度）
-            batch_size = 100
+            # 批量处理（每500行更新一次进度，减少写入频率）
+            batch_size = 500
             processed = 0
 
             results = []
@@ -182,6 +183,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
                     progress = round(10.0 + (processed / total_rows) * 80.0, 1)
                     task_manager.update_task(
                         task_id,
+                        status=TaskStatus.PROCESSING,
                         progress=progress,
                         message=f"正在处理第 {processed}/{total_rows} 行",
                         stage="processing_rows",
@@ -191,6 +193,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
 
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=92.0,
                 message="正在整理转换结果...",
                 stage="building_result",
@@ -258,6 +261,7 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
 
             task_manager.update_task(
                 task_id,
+                status=TaskStatus.PROCESSING,
                 progress=97.0,
                 message="正在保存结果文件...",
                 stage="saving_result",
@@ -461,25 +465,26 @@ async def download_result(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    # 👇 修复：字典访问
-    if task['status'] != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="任务尚未完成")
+    if task.get("status") == TaskStatus.PENDING:
+        raise HTTPException(status_code=400, detail="任务尚未开始处理")
+    if task.get("status") == TaskStatus.PROCESSING:
+        raise HTTPException(status_code=400, detail="任务仍在处理中，请等待完成后再下载")
+    if task.get("status") == TaskStatus.FAILED:
+        raise HTTPException(status_code=400, detail=f"任务处理失败: {task.get('error', '未知错误')}")
 
-    # 👇 修复：字典访问
-    output_path_str = task['data'].get("output_path")
+    output_path_str = (task.get("data") or {}).get("output_path")
     if not output_path_str:
-        raise HTTPException(status_code=404, detail="结果文件记录不存在")
+        raise HTTPException(status_code=404, detail="结果文件记录不存在，请等待任务处理完毕")
 
     file_path = Path(output_path_str)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="结果文件已在服务器上被清理")
+        raise HTTPException(status_code=404, detail="结果文件已被清理，请重新上传并处理")
 
-    # 准备下载文件名 (保留原始文件名逻辑)
-    original_filename = task['data'].get('filename', 'result.xlsx')
+    # 准备下载文件名
+    original_filename = (task.get("data") or {}).get('filename', 'result.xlsx')
     filename = f"jyut2ipa_result_{original_filename}"
     encoded_filename = quote(filename)
 
-    # 👇 升级：流式响应
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like

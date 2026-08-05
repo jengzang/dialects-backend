@@ -25,6 +25,8 @@ AUTH_USAGE_RUNTIME_PATH_TEMPLATES: list[tuple[str, str]] = [
     ("/api/villages/spatial/hotspots/", "{hotspot_id}"),
     ("/api/villages/spatial/integration/by-character/", "{character}"),
     ("/api/villages/spatial/integration/by-cluster/", "{cluster_id}"),
+    # API - Vocabulary
+    ("/api/vocabulary/locations/", "{location_name}"),
 ]
 
 

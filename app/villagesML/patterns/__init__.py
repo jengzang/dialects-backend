@@ -7,7 +7,8 @@ from typing import List, Optional
 import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query, execute_single
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import qcolumn, qtable, normalize_region_level
+from ..schema_keys import REGION_LEVELS, T
 
 router = APIRouter(prefix="/patterns")
 
@@ -36,9 +37,9 @@ def get_global_pattern_frequency(
     Returns:
         List[dict]: 模式频率列表
     """
-    table, col = _pattern_schema(dbpath, "pattern_frequency_global")
+    table, col = _pattern_schema(dbpath, T.PATTERN_FREQUENCY_GLOBAL)
     query = f"""
-        SELECT DISTINCT
+        SELECT
             {col("pattern")} as pattern,
             {col("pattern_type")} as pattern_type,
             {col("frequency")} as frequency,
@@ -99,7 +100,7 @@ def get_regional_pattern_frequency(
     Returns:
         List[dict]: 区域模式频率列表
     """
-    table, col = _pattern_schema(dbpath, "pattern_regional_analysis")
+    table, col = _pattern_schema(dbpath, T.PATTERN_REGIONAL_ANALYSIS)
     query = f"""
         SELECT DISTINCT
             {col("region_level")} as region_level,
@@ -114,7 +115,7 @@ def get_regional_pattern_frequency(
         FROM {table}
         WHERE {col("region_level")} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, T.PATTERN_REGIONAL_ANALYSIS, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -123,7 +124,7 @@ def get_regional_pattern_frequency(
     if county is not None:
         query += f" AND {col('county')} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:
@@ -183,7 +184,7 @@ def get_pattern_tendency(
     Returns:
         List[dict]: 模式倾向性列表
     """
-    table, col = _pattern_schema(dbpath, "pattern_regional_analysis")
+    table, col = _pattern_schema(dbpath, T.PATTERN_REGIONAL_ANALYSIS)
     query = f"""
         SELECT DISTINCT
             {col("region_level")} as region_level,
@@ -199,7 +200,7 @@ def get_pattern_tendency(
         FROM {table}
         WHERE {col("region_level")} = ?
     """
-    params = [region_level]
+    params = [normalize_region_level(dbpath, T.PATTERN_REGIONAL_ANALYSIS, region_level)]
 
     # 优先使用层级参数（精确匹配）
     if city is not None:
@@ -208,7 +209,7 @@ def get_pattern_tendency(
     if county is not None:
         query += f" AND {col('county')} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({col('county')} IS NULL OR {col('county')} = '')"
     if township is not None:
@@ -260,7 +261,7 @@ def get_structural_patterns(
     Returns:
         List[dict]: 结构化模式列表
     """
-    table, col = _pattern_schema(dbpath, "structural_patterns")
+    table, col = _pattern_schema(dbpath, T.STRUCTURAL_PATTERNS)
     query = f"""
         SELECT DISTINCT
             {col("pattern")} as pattern,

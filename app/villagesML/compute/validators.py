@@ -8,18 +8,9 @@ from pydantic import BaseModel, Field, validator, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
+from ..schema_keys import REGION_LEVELS, semantic_feature_categories
 
-SUBSET_SEMANTIC_TAG_WHITELIST = {
-    "mountain",
-    "water",
-    "settlement",
-    "direction",
-    "clan",
-    "symbolic",
-    "agriculture",
-    "vegetation",
-    "infrastructure",
-}
+SUBSET_SEMANTIC_TAG_WHITELIST = semantic_feature_categories()
 
 
 class AlgorithmType(str, Enum):
@@ -31,9 +22,9 @@ class AlgorithmType(str, Enum):
 
 class RegionLevel(str, Enum):
     """区域级别"""
-    CITY = "city"
-    COUNTY = "county"
-    TOWNSHIP = "township"
+    CITY = REGION_LEVELS[0]
+    COUNTY = REGION_LEVELS[1]
+    TOWNSHIP = REGION_LEVELS[2]
 
 
 class FeatureConfig(BaseModel):
@@ -114,7 +105,7 @@ class SemanticAnalysisParams(BaseModel):
     min_cooccurrence: int = Field(5, ge=1, le=100)
     alpha: float = Field(0.05, gt=0, lt=1)
     categories: Optional[List[str]] = None
-    detail: bool = Field(False, description="是否使用详细表（76子类别）")
+    detail: bool = Field(False, description="是否使用详细表（53子类别）")
 
     @validator('categories')
     def validate_categories(cls, v):
@@ -133,7 +124,7 @@ class SemanticNetworkParams(BaseModel):
     region_name: Optional[str] = None
     min_edge_weight: float = Field(0.5, ge=0, le=10)
     centrality_metrics: List[str] = Field(["degree", "betweenness"])
-    detail: bool = Field(False, description="是否使用详细表（76子类别）")
+    detail: bool = Field(False, description="是否使用详细表（53子类别）")
 
     @validator('centrality_metrics')
     def validate_centrality_metrics(cls, v):

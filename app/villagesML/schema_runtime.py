@@ -11,6 +11,7 @@ from typing import Any
 from app.common.path import DB_MAPPING
 
 from . import schema_config
+from .schema_keys import REGION_LEVELS
 
 
 _IDENTIFIER_RE = re.compile(r"^[\w\u4e00-\u9fff]+$", re.UNICODE)
@@ -18,7 +19,7 @@ _DEFAULT_LOGICAL_ALIASES = {
     "villages": {
         "rowid": "ROWID",
         "village_id": "village_id",
-        "name": "自然村_规范名",
+        "name": "自然村_去前缀",
         "raw_name": "自然村",
         "committee": "村委会",
         "city": "市级",
@@ -26,15 +27,17 @@ _DEFAULT_LOGICAL_ALIASES = {
         "township": "乡镇级",
         "longitude": "longitude",
         "latitude": "latitude",
+        "dialect": "方言分布",
     },
     "villages_raw": {
         "name": "自然村",
-        "committee": "村委会",
+        "committee": "行政村",
         "city": "市级",
         "county": "区县级",
         "township": "乡镇级",
         "longitude": "longitude",
         "latitude": "latitude",
+        "dialect": "方言分布",
     },
 }
 
@@ -82,6 +85,15 @@ def table_name(dbpath: str | None, logical_table: str) -> str:
     return table_config(dbpath, logical_table)["name"]
 
 
+def logical_table_for_name(dbpath: str | None, physical_table_name: str) -> str:
+    """Return the configured logical table key for a physical table name."""
+    tables = get_database_config(dbpath).get("tables", {})
+    for logical_table, config in tables.items():
+        if config.get("name") == physical_table_name:
+            return logical_table
+    raise ValueError(f"Unknown VillagesML physical table: {physical_table_name}")
+
+
 def qtable(dbpath: str | None, logical_table: str) -> str:
     """Return a safely quoted physical table name."""
     return quote_identifier(table_name(dbpath, logical_table))
@@ -109,6 +121,80 @@ def run_id_analysis_type(dbpath: str | None, logical_table: str) -> str:
     if not analysis_type:
         raise ValueError(f"Logical table does not configure a run_id analysis type: {logical_table}")
     return analysis_type
+
+
+def run_id_column(dbpath: str | None, logical_table: str) -> str:
+    """Return the configured run_id logical column for a logical table."""
+    run_id_config = table_config(dbpath, logical_table).get("run_id", {})
+    column = run_id_config.get("column")
+    if not column:
+        raise ValueError(f"Logical table does not configure a run_id column: {logical_table}")
+    return column
+
+
+def qrun_id_column_for_physical_table(dbpath: str | None, physical_table_name: str) -> str:
+    """Return the quoted run_id column for a configured physical table name."""
+    logical_table = logical_table_for_name(dbpath, physical_table_name)
+    return qcolumn(dbpath, logical_table, run_id_column(dbpath, logical_table))
+
+
+def configured_table_list(dbpath: str | None, list_name: str) -> list[str]:
+    """Return a configured list of logical table names for a database key."""
+    table_lists = get_database_config(dbpath).get("table_lists", {})
+    table_list = table_lists.get(list_name)
+    if table_list is None:
+        raise ValueError(f"Unknown VillagesML configured table list: {list_name}")
+    return list(table_list)
+
+
+def table_variant(dbpath: str | None, variant_name: str, selector: Any) -> str:
+    """Return a logical table selected by a configured variant map."""
+    variants = get_database_config(dbpath).get("table_variants", {})
+    variant = variants.get(variant_name)
+    if variant is None:
+        raise ValueError(f"Unknown VillagesML table variant: {variant_name}")
+    if selector not in variant:
+        raise ValueError(f"Unknown selector for VillagesML table variant {variant_name}: {selector!r}")
+    return variant[selector]
+
+
+def region_level_config(dbpath: str | None, config_name: str, region_level: str) -> dict[str, Any]:
+    """Return configured behavior for a region-level dependent operation."""
+    config_group = get_database_config(dbpath).get("region_levels", {}).get(config_name)
+    if config_group is None:
+        raise ValueError(f"Unknown VillagesML region-level config: {config_name}")
+    if region_level in config_group:
+        return dict(config_group[region_level])
+    fallback = config_group.get("county")
+    if fallback is None:
+        raise ValueError(
+            f"Unknown region level for VillagesML config {config_name}: {region_level}"
+        )
+    return dict(fallback)
+
+
+def column_value_map(dbpath: str | None, logical_table: str, logical_column: str) -> dict[str, str]:
+    """Return a value-level mapping for a column, or empty dict if none configured.
+
+    Used when the same logical API value maps to different physical values across tables.
+    """
+    value_maps = table_config(dbpath, logical_table).get("column_value_maps", {})
+    return value_maps.get(logical_column, {})
+
+
+_REGION_LEVEL_MAP: dict[str, str] = {"市级": REGION_LEVELS[0], "区县级": REGION_LEVELS[1], "乡镇级": REGION_LEVELS[2]}
+
+
+def normalize_region_level(dbpath: str | None, logical_table: str, region_level: str) -> str:
+    """Normalize region_level input (Chinese or English) to the physical DB value.
+
+    Falls back to per-table column_value_map, then a shared Chinese→English map,
+    then passes through the input unchanged.
+    """
+    table_map = column_value_map(dbpath, logical_table, "region_level")
+    if table_map:
+        return table_map.get(region_level, region_level)
+    return _REGION_LEVEL_MAP.get(region_level, region_level)
 
 
 def install_schema_views(conn: sqlite3.Connection, dbpath: str | None = None) -> None:

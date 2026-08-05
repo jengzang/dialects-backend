@@ -1,0 +1,212 @@
+# Toponyms Map API
+
+## Contract
+
+The public toponyms APIs deliberately separate coordinates from place names.
+
+- Coordinate responses return only `id`, `longitude`, and `latitude`.
+- Name responses return only name strings, or division-name tree nodes that
+  contain name strings.
+- The details response is the only `id -> full record` lookup, and it is capped
+  at 10 IDs per request.
+- `data/toponyms.db` is not exposed through the generic `/sql` database mapping.
+
+This is intentional. Do not merge these fields into one response, even for GeoJSON.
+
+## Coordinates
+
+```http
+GET /api/toponyms/points?q=黄&match_mode=prefix&limit=5000
+```
+
+This endpoint returns point coordinates for matching names. It defaults to
+natural-village points (`place_type_code=22200`) and never returns the matched
+names or place type labels.
+
+Query parameters:
+
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `q` | yes | - | Name query text. Blank values are rejected. |
+| `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
+| `limit` | no | `5000` | Maximum returned points. `0` means no limit. Upper bound: `2000000`. |
+| `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat` filter after name match. |
+| `zoom` | no | - | Optional `0..24`; accepted for frontend state, currently only validated. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200` rural residential points, `21610` administrative villages, `27610` village committees. |
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "10007e71a4c2821a4b0f728b41a2abb4",
+      "longitude": 113.7347038,
+      "latitude": 23.0417921
+    }
+  ],
+  "count": 1,
+  "truncated": false,
+  "next": null
+}
+```
+
+The response still does not include names, area codes, or place type labels.
+
+## Names
+
+```http
+GET /api/toponyms/names?q=黄&match_mode=prefix&limit=20
+```
+
+This endpoint returns distinct matched names. It defaults to natural-village
+names (`place_type_code=22200`) and supports the same matching semantics as
+`/api/toponyms/points`.
+
+Query parameters:
+
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `q` | yes | - | Name query text. Blank values are rejected. |
+| `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
+| `limit` | no | `20` | Maximum returned names. `0` means no limit. Upper bound: `2000000`. |
+| `include_division_tree` | no | `false` | When `true`, return nested division-name nodes instead of a flat name array. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200`, `21610`, `27610`. |
+
+Flat response:
+
+```json
+{
+  "items": ["黄村", "黄泥村"]
+}
+```
+
+Tree response:
+
+```http
+GET /api/toponyms/names?q=村&match_mode=suffix&include_division_tree=true&limit=20
+```
+
+```json
+{
+  "items": [
+    {
+      "name": "广东省",
+      "level": 1,
+      "names": [],
+      "children": [
+        {
+          "name": "广州市",
+          "level": 2,
+          "names": [],
+          "children": [
+            {
+              "name": "越秀街道",
+              "level": 4,
+              "names": ["黄村"],
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Tree nodes intentionally expose only division names, division levels, child
+nodes, and matched name strings. They do not expose division codes, toponym IDs,
+coordinates, area codes, or ordering keys.
+
+The response never includes IDs, coordinates, area codes, or ordering keys.
+
+## Details
+
+```http
+GET /api/toponyms/details?ids=10007e71a4c2821a4b0f728b41a2abb4,another-id
+```
+
+This endpoint returns full records for explicit IDs. It is intentionally capped
+at 10 IDs per request.
+
+Query parameters:
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `ids` | yes | Comma-separated IDs or repeated `ids` parameters. Empty values are ignored. At most 10 unique IDs. |
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "10007e71a4c2821a4b0f728b41a2abb4",
+      "name": "黄村",
+      "place_type": "农村居民点",
+      "place_type_code": "22200",
+      "longitude": 113.7347038,
+      "latitude": 23.0417921,
+      "division_path": [
+        {"name": "广东省", "level": 1},
+        {"name": "广州市", "level": 2}
+      ]
+    }
+  ],
+  "count": 1
+}
+```
+
+Missing IDs are skipped. The response does not expose `area_code` or division
+codes.
+
+## Divisions
+
+```http
+GET /api/toponyms/divisions?parent_code=44
+```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "code": "4401",
+      "name": "广州市",
+      "level": 2,
+      "single_count": 35365
+    }
+  ]
+}
+```
+
+This endpoint omits division centroid coordinates.
+
+## Index Maintenance
+
+The runtime API can work without the extra indexes, but name matching and
+optional bbox filtering are much better with indexes. Create the recommended
+indexes during a maintenance window:
+
+```bash
+.venv/bin/python -m scripts.toponyms.ensure_indexes --db data/toponyms.db
+```
+
+The helper creates:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_single_type_id
+ON single(place_type_code, id);
+
+CREATE INDEX IF NOT EXISTS idx_single_type_name_id
+ON single(place_type_code, standard_name, id);
+
+CREATE INDEX IF NOT EXISTS idx_single_type_name_area
+ON single(place_type_code, standard_name, area_code);
+
+CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
+ON single(place_type_code, longitude, latitude, id);
+```
+
+It also runs `ANALYZE`.

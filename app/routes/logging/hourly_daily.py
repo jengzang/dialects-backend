@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.get("/hourly")
 async def get_hourly_trend_route(
-    hours: int = Query(24, ge=1, le=168)
+    hours: int = Query(24, ge=1, le=10000)
 ):
     """
     获取小时级调用趋势
@@ -29,7 +29,7 @@ async def get_hourly_trend_route(
 
 @router.get("/daily")
 async def get_daily_trend_route(
-    days: int = Query(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=1000),
     path: Optional[str] = None
 ):
     """
@@ -46,8 +46,8 @@ async def get_daily_trend_route(
 @router.get("/ranking")
 async def get_api_ranking_route(
     date: Optional[str] = None,
-    days: Optional[int] = Query(None, ge=1, le=365),
-    limit: int = Query(10, ge=1, le=100)
+    days: Optional[int] = Query(None, ge=1, le=1000),
+    limit: int = Query(10, ge=1, le=500)
 ):
     """
     获取 API 排行榜
@@ -71,7 +71,7 @@ async def get_api_ranking_route(
 @router.get("/api-history")
 async def get_api_history_route(
     path: str,
-    days: int = Query(30, ge=1, le=365)
+    days: int = Query(30, ge=1, le=1000)
 ):
     """
     获取指定 API 的历史趋势

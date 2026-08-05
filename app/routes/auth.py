@@ -212,29 +212,29 @@ def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     user, _ = _load_active_user_from_token(
         db,
         token,
-        include_usage_summary=True,
+        # include_usage_summary=True,
     )
     return user
-    try:
-        payload = utils.decode_access_token(token)  # 解码 token
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(status_code=401, detail="Invalid token (no subject)")
-    except JWTError as e:
-        print("JWTError:", e)  # 临时日志
-        # 如果 token 过期了，给出明确的错误信息
-        raise HTTPException(status_code=401, detail="Token 已過期，請重新登錄")
+    # try:
+    #     payload = utils.decode_access_token(token)  # 解码 token
+    #     username = payload.get("sub")
+    #     if not username:
+    #         raise HTTPException(status_code=401, detail="Invalid token (no subject)")
+    # except JWTError as e:
+    #     print("JWTError:", e)  # 临时日志
+    #     # 如果 token 过期了，给出明确的错误信息
+    #     raise HTTPException(status_code=401, detail="Token 已過期，請重新登錄")
 
-    user = db.query(models.User) \
-        .options(joinedload(models.User.usage_summary)) \
-        .filter(models.User.username == username) \
-        .first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # user = db.query(models.User) \
+    #     .options(joinedload(models.User.usage_summary)) \
+    #     .filter(models.User.username == username) \
+    #     .first()
+    # if not user:
+    #     raise HTTPException(status_code=404, detail="User not found")
 
-    # 刷新活跃时间（统计在线时长时有用）
-    # service.touch_activity(user)  # 已废弃，使用 /api/auth/report-activity 代替
-    return user
+    # # 刷新活跃时间（统计在线时长时有用）
+    # # service.touch_activity(user)  # 已废弃，使用 /api/auth/report-activity 代替
+    # return user
 
 
 # ========== Logout ==========

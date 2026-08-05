@@ -8,13 +8,14 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import execute_query, get_db, get_dbpath
-from ..schema_runtime import qcolumn, qtable
+from ..schema_runtime import normalize_region_level, qcolumn, qtable
+from ..schema_keys import T
 
 router = APIRouter(prefix="/semantic/subcategory")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-LEXICON_PATH = PROJECT_ROOT / "data" / "semantic_lexicon_v4_hybrid.json"
-LEGACY_LEXICON_PATH = PROJECT_ROOT.parent / "data" / "semantic_lexicon_v4_hybrid.json"
+LEXICON_PATH = PROJECT_ROOT / "data" / "semantic_lexicon_v4.json"
+LEGACY_LEXICON_PATH = PROJECT_ROOT.parent / "data" / "semantic_lexicon_v4.json"
 
 
 def _subcategory_schema(dbpath: str, logical_table: str):
@@ -39,13 +40,26 @@ def load_lexicon() -> Dict:
     return data
 
 
+def _flatten_subcategories(lexicon: Dict) -> Dict[str, list]:
+    """Flatten v4 nested {parent: {sub: [chars]}} into {parent_sub: [chars]}."""
+    categories = lexicon.get("categories", {})
+    if categories:
+        flat = {}
+        for parent, subs in categories.items():
+            for sub, chars in subs.items():
+                flat[f"{parent}_{sub}"] = chars
+        return flat
+    # backward compat: old v4_hybrid flat format
+    return lexicon.get("subcategories", {})
+
+
 @router.get("/list")
 def get_subcategories(
-    parent_category: Optional[str] = Query(None, description="Parent category filter (mountain/water)"),
+    parent_category: Optional[str] = Query(None, description="Parent category filter (terrain/water)"),
 ):
     """Get all subcategories, optionally filtered by parent category."""
     lexicon = load_lexicon()
-    subcategories = lexicon.get("subcategories", {})
+    subcategories = _flatten_subcategories(lexicon)
 
     if parent_category:
         filtered = {
@@ -65,6 +79,7 @@ def get_subcategories(
         }
 
     return {
+        "parent_categories": sorted(lexicon.get("categories", {}).keys()),
         "subcategories": subcategories,
         "count": len(subcategories),
     }
@@ -72,21 +87,35 @@ def get_subcategories(
 
 @router.get("/chars/{subcategory}")
 def get_subcategory_chars(subcategory: str):
-    """Get characters under a specific semantic subcategory."""
+    """Get characters under a specific semantic subcategory (parent_sub format, e.g. terrain_peak_ridge)."""
     lexicon = load_lexicon()
+
+    # try nested v4 format first: {parent: {sub: [chars]}}
+    categories = lexicon.get("categories", {})
+    if "_" in subcategory:
+        parts = subcategory.split("_", 1)
+        parent, sub = parts[0], parts[1]
+        if parent in categories and sub in categories[parent]:
+            chars = categories[parent][sub]
+            return {
+                "subcategory": subcategory,
+                "parent_category": parent,
+                "characters": chars,
+                "char_count": len(chars),
+            }
+
+    # fallback: old flat format
     subcategories = lexicon.get("subcategories", {})
+    if subcategory in subcategories:
+        parent = subcategory.split("_")[0] if "_" in subcategory else "unknown"
+        return {
+            "subcategory": subcategory,
+            "parent_category": parent,
+            "characters": subcategories[subcategory],
+            "char_count": len(subcategories[subcategory]),
+        }
 
-    if subcategory not in subcategories:
-        raise HTTPException(status_code=404, detail=f"Subcategory not found: {subcategory}")
-
-    parent = subcategory.split("_")[0] if "_" in subcategory else "unknown"
-
-    return {
-        "subcategory": subcategory,
-        "parent_category": parent,
-        "characters": subcategories[subcategory],
-        "char_count": len(subcategories[subcategory]),
-    }
+    raise HTTPException(status_code=404, detail=f"Subcategory not found: {subcategory}")
 
 
 @router.get("/vtf/global")
@@ -132,12 +161,12 @@ def get_global_subcategory_vtf(
 
 @router.get("/vtf/regional")
 def get_regional_subcategory_vtf(
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     region_name: Optional[str] = Query(None, description="Region name"),
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
     subcategory: Optional[str] = Query(None, description="Subcategory filter"),
     min_tendency: Optional[float] = Query(None, description="Minimum tendency"),
-    min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
+    min_villages: int = Query(0, ge=0, le=500, description="Minimum village count"),
     limit: int = Query(100, ge=1, le=1000, description="Max records"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
@@ -159,7 +188,7 @@ def get_regional_subcategory_vtf(
         WHERE {col("region_level")} = ?
           AND {col("village_count")} >= ?
     """
-    params: List[object] = [region_level, min_villages]
+    params: List[object] = [normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), min_villages]
 
     if region_name:
         query += f" AND {col('region_name')} = ?"
@@ -189,10 +218,10 @@ def get_regional_subcategory_vtf(
 
 @router.get("/tendency/top")
 def get_top_tendency_subcategories(
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: Optional[str] = Query(None, description="Parent category filter"),
-    min_villages: int = Query(5, ge=0, le=100, description="Minimum village count"),
-    top_n: int = Query(10, ge=1, le=100, description="Top N records"),
+    min_villages: int = Query(5, ge=0, le=500, description="Minimum village count"),
+    top_n: int = Query(10, ge=1, le=500, description="Top N records"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -210,7 +239,7 @@ def get_top_tendency_subcategories(
         WHERE {col("region_level")} = ?
           AND {col("village_count")} >= ?
     """
-    params: List[object] = [region_level, min_villages]
+    params: List[object] = [normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), min_villages]
 
     if parent_category:
         query += f" AND {col('parent_category')} = ?"
@@ -229,9 +258,9 @@ def get_top_tendency_subcategories(
 @router.get("/comparison")
 def compare_subcategories(
     region_name: str = Query(..., description="Region name"),
-    region_level: str = Query("市级", description="Region level (市级/区县级/乡镇级)"),
+    region_level: str = Query("city", description="Region level (city/county/township)"),
     parent_category: str = Query(..., description="Parent category"),
-    min_villages: int = Query(0, ge=0, le=100, description="Minimum village count"),
+    min_villages: int = Query(0, ge=0, le=500, description="Minimum village count"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -252,7 +281,7 @@ def compare_subcategories(
         ORDER BY {col("vtf")} DESC
     """
 
-    results = execute_query(db, query, (region_level, region_name, parent_category, min_villages))
+    results = execute_query(db, query, (normalize_region_level(dbpath, T.SEMANTIC_SUBCATEGORY_VTF_REGIONAL, region_level), region_name, parent_category, min_villages))
     if not results:
         raise HTTPException(
             status_code=404,

@@ -14,6 +14,7 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.logging.dependencies import ApiLimiter
 from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
+from app.common.config import SQL_QUERY_MAX_PAGE
 from app.common.path import DB_MAPPING
 from app.redis_client import redis_client
 
@@ -279,6 +280,9 @@ async def query_table(
     await asyncio.to_thread(_validate_columns, params.db_key, params.table_name, params.search_columns, "search_columns")
     if params.sort_by:
         await asyncio.to_thread(_validate_columns, params.db_key, params.table_name, [params.sort_by], "sort_by")
+
+    if not (user and user.role == "admin") and params.page_size > SQL_QUERY_MAX_PAGE:
+        raise HTTPException(status_code=400, detail=f"page_size cannot exceed {SQL_QUERY_MAX_PAGE}")
 
     try:
         rows, table_q, count_values, count_cacheable = await asyncio.to_thread(

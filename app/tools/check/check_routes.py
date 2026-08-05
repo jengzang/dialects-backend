@@ -83,8 +83,8 @@ class UploadResponse(BaseModel):
 class ErrorItem(BaseModel):
     """错误项"""
     row: int
-    error_type: str  # nonSingleChar, invalidIpa, missingTone
-    field: str  # char, ipa
+    error_type: str  # nonSingleChar, invalidIpa, missingTone, emptyOnset, emptyRime
+    field: str  # char, ipa, onset, rime
     value: str
     message: str
 
@@ -246,7 +246,9 @@ def analyze_excel_file(
     error_stats = {
         "nonSingleChar": 0,
         "invalidIpa": 0,
-        "missingTone": 0
+        "missingTone": 0,
+        "emptyOnset": 0,
+        "emptyRime": 0
     }
 
     # 解析输出
@@ -286,6 +288,38 @@ def analyze_excel_file(
                     message=get_error_message(current_error_type)
                 ))
 
+    # 檢查空聲母和空韻母
+    col_onset = next((c for c in df.columns if c in ('声母', '聲母', 'onset')), None)
+    col_rime = next((c for c in df.columns if c in ('韵母', '韻母', 'rime')), None)
+    if col_onset:
+        for i, row in df.iterrows():
+            val = str(row.get(col_onset, "")).strip()
+            hanzi = str(row.get(col_hanzi, "")).strip()
+            ipa = str(row.get(col_ipa, "")).strip()
+            if not val and hanzi and ipa:
+                errors.append(ErrorItem(
+                    row=i + 2,
+                    error_type="emptyOnset",
+                    field="onset",
+                    value=hanzi,
+                    message=get_error_message("emptyOnset")
+                ))
+                error_stats["emptyOnset"] += 1
+    if col_rime:
+        for i, row in df.iterrows():
+            val = str(row.get(col_rime, "")).strip()
+            hanzi = str(row.get(col_hanzi, "")).strip()
+            ipa = str(row.get(col_ipa, "")).strip()
+            if not val and hanzi and ipa:
+                errors.append(ErrorItem(
+                    row=i + 2,
+                    error_type="emptyRime",
+                    field="rime",
+                    value=hanzi,
+                    message=get_error_message("emptyRime")
+                ))
+                error_stats["emptyRime"] += 1
+
     return df, errors, error_stats, col_hanzi, col_ipa
 
 
@@ -294,7 +328,9 @@ def get_error_message(error_type: str) -> str:
     messages = {
         "nonSingleChar": "应为单字汉字",
         "invalidIpa": "音标格式异常",
-        "missingTone": "缺少声调"
+        "missingTone": "缺少声调",
+        "emptyOnset": "声母为空",
+        "emptyRime": "韵母为空",
     }
     return messages.get(error_type, "未知错误")
 
@@ -436,9 +472,9 @@ async def upload_file(
                         mapped_cols[std_col] = v
                         break
 
-            # 如果缺少必需列，尝试格式转换
+            # 跳跳老鼠和縣志始終走格式轉換，不走 col_map 捷徑
             required_cols = {"漢字", "音標"}
-            if not (required_cols <= set(mapped_cols.keys())):
+            if format_type in ('跳跳老鼠', '縣志') or not (required_cols <= set(mapped_cols.keys())):
 
                 task_dir = file_manager.get_task_dir(task_id, "check")
                 output_tsv = task_dir / f"{Path(file.filename).stem}.tsv"
@@ -472,27 +508,25 @@ async def upload_file(
         print(f"[INFO] 开始提取声母、韵母、声调...")
         df_extracted = _format_convert()["extract_all_from_files"](str(file_path), preserve_empty_rows=True)
 
-        # 【新增】验证行数一致
-        if len(df_extracted) != len(df):
-            print(f"[WARNING] 提取结果行数不一致: 原始{len(df)}行, 提取{len(df_extracted)}行")
-            # 截断或补齐
-            if len(df_extracted) < len(df):
-                # 补齐空行
-                missing_rows = len(df) - len(df_extracted)
-                empty_rows = pd.DataFrame([{"声母": "", "韵母": "", "声调": ""}] * missing_rows)
-                df_extracted = pd.concat([df_extracted, empty_rows], ignore_index=True)
-            else:
-                # 截断多余行
-                df_extracted = df_extracted.iloc[:len(df)]
+        required_cols = {"声母", "韵母", "声调"}
+        if required_cols.issubset(df_extracted.columns) and len(df_extracted) > 0:
+            if len(df_extracted) != len(df):
+                print(f"[WARNING] 提取结果行数不一致: 原始{len(df)}行, 提取{len(df_extracted)}行")
+                if len(df_extracted) < len(df):
+                    missing_rows = len(df) - len(df_extracted)
+                    empty_rows = pd.DataFrame([{"声母": "", "韵母": "", "声调": ""}] * missing_rows)
+                    df_extracted = pd.concat([df_extracted, empty_rows], ignore_index=True)
+                else:
+                    df_extracted = df_extracted.iloc[:len(df)]
 
-        # 【新增】合并声母、韵母、声调列（覆盖已有列）
-        df['声母'] = df_extracted['声母'].fillna("")
-        df['韵母'] = df_extracted['韵母'].fillna("")
-        df['声调'] = df_extracted['声调'].fillna("")
+            df['声母'] = df_extracted['声母'].fillna("")
+            df['韵母'] = df_extracted['韵母'].fillna("")
+            df['声调'] = df_extracted['声调'].fillna("")
 
-        # 【新增】保存回文件
-        df.to_excel(file_path, index=False)
-        print(f"[INFO] 声韵数据已提取并保存")
+            df.to_excel(file_path, index=False)
+            print(f"[INFO] 声韵数据已提取并保存")
+        else:
+            print(f"[WARN] 声韵提取无结果（文件可能无数据行或列名不匹配），跳过声韵提取")
 
         # 1. 确定最终的文件名
         final_filename = file.filename
@@ -582,7 +616,7 @@ async def analyze_file(task_id: str):
             total_rows=len(df),
             error_count=len(errors),
             errors=errors,
-            error_stats=error_stats
+            error_stats=error_stats,
         )
 
     except HTTPException:

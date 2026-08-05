@@ -88,13 +88,19 @@ class SessionListResponse(ShanghaiBaseModel):
 
 class SessionStatsResponse(ShanghaiBaseModel):
     total_sessions: int
-    active_sessions: int
+    valid_sessions: int
+    online_sessions_30m: int
+    online_users_30m: int
     revoked_sessions: int
     expired_sessions: int
+    expired_revoked_sessions: int
+    expired_unrevoked_sessions: int
     suspicious_sessions: int
+    active_suspicious_sessions: int
+    revoked_suspicious_sessions: int
     unique_users_with_sessions: int
     total_online_hours: float
-    avg_session_duration_hours: float
+    avg_online_hours_per_session: float
     top_ip_changes: List[Dict[str, Any]] = Field(default_factory=list)
     top_device_changes: List[Dict[str, Any]] = Field(default_factory=list)
 
@@ -188,4 +194,3 @@ class OnlineUserItem(ShanghaiBaseModel):
 class OnlineUsersResponse(ShanghaiBaseModel):
     online_count: int
     users: List[OnlineUserItem]
-

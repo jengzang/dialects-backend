@@ -30,7 +30,7 @@ class LeaderboardQueryParams(BaseModel):
     metric: Optional[str] = None  # "count", "duration", "upload", "download"
     api_path: Optional[str] = None
     page: int = Field(1, ge=1)
-    page_size: int = Field(20, ge=1, le=100)
+    page_size: int = Field(20, ge=1, le=500)
 
 
 class UserRankingItem(BaseModel):

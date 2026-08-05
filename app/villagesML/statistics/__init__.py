@@ -9,7 +9,8 @@ from typing import Dict, Any
 
 from ..dependencies import get_db, get_dbpath
 from ..cache_utils import api_cache
-from ..schema_runtime import column_name, qcolumn, qtable, table_name
+from ..schema_runtime import column_name, configured_table_list, qcolumn, qtable, table_name
+from ..schema_keys import C, T, TABLE_LISTS
 
 router = APIRouter(prefix="/statistics")
 
@@ -26,17 +27,17 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection, dbpath: str) -> Dict[str,
         dict: N-gram 统计数据
     """
     cursor = db.cursor()
-    significance_table = qtable(dbpath, "ngram_significance")
-    significance_level = qcolumn(dbpath, "ngram_significance", "level")
-    significance_region = qcolumn(dbpath, "ngram_significance", "region")
-    significance_p_value = qcolumn(dbpath, "ngram_significance", "p_value")
-    significance_total_before = qcolumn(dbpath, "ngram_significance", "total_before_filter")
-    regional_frequency_table = qtable(dbpath, "regional_ngram_frequency")
+    significance_table = qtable(dbpath, T.NGRAM_SIGNIFICANCE)
+    significance_level = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.REGION_LEVEL)
+    significance_region = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.REGION_NAME)
+    significance_p_value = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.P_VALUE)
+    significance_total_before = qcolumn(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.TOTAL_BEFORE_FILTER)
+    regional_frequency_table = qtable(dbpath, T.REGIONAL_NGRAM_FREQUENCY)
 
     # 检查是否有 total_before_filter 字段
     cursor.execute(f"PRAGMA table_info({significance_table})")
     columns = [col[1] for col in cursor.fetchall()]
-    has_total_before_filter = column_name(dbpath, "ngram_significance", "total_before_filter") in columns
+    has_total_before_filter = column_name(dbpath, T.NGRAM_SIGNIFICANCE, C.NGRAM_SIGNIFICANCE.TOTAL_BEFORE_FILTER) in columns
 
     # 按级别统计，同时推导全局计数（避免额外的全表 COUNT 查询）
     by_level = {}
@@ -146,19 +147,10 @@ def get_database_statistics(
     """
     cursor = db.cursor()
 
-    logical_tables = [
-        'regional_ngram_frequency',
-        'ngram_tendency',
-        'ngram_significance',
-        'pattern_regional_analysis',
-        'char_regional_analysis',
-        'semantic_regional_analysis'
-    ]
-
     table_stats = {}
     total_records = 0
 
-    for logical_table in logical_tables:
+    for logical_table in configured_table_list(dbpath, TABLE_LISTS.DATABASE_STATISTICS):
         response_key = table_name(dbpath, logical_table)
         table = qtable(dbpath, logical_table)
         try:

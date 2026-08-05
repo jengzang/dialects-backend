@@ -25,7 +25,7 @@ API 配置文件
 # ========== API 限流配置（基于请求次数）==========
 # 使用 Redis 计数器实现，性能极高（<1ms）
 MAX_USER_REQUESTS_PER_HOUR = 600  # 认证用户：1000次/小时（平均每分钟10次）
-MAX_IP_REQUESTS_PER_HOUR = 50     # 游客：50次/小时（平均每分钟0.8次）
+MAX_IP_REQUESTS_PER_HOUR = 60     # 游客：50次/小时（平均每分钟0.8次）
 
 # 旧的基于耗时的限流配置（已废弃，保留用于数据库日志记录）
 MAX_USER_USAGE_PER_HOUR = 2000  # 秒（已废弃）
@@ -40,13 +40,14 @@ SIZE_THRESHOLD = 10 * 1024  # 10KB
 # 每20条日志写入一次
 BATCH_SIZE = 20
 # 是否刪除一星期前的api記錄
-CLEAR_WEEK = True
+CLEAR_WEEK = False
 
 # auth.db usage 记录规则：带 * 才通配，不带 * 则精确匹配
 RECORD_API = [
     "/api/auth/login",
     "/api/phonology*",
     "/api/get_coordinates",
+    "/api/gis/*",
     "/api/search_tones/",
     "/api/search_chars/",
     "/api/locations/*",
@@ -78,12 +79,17 @@ RECORD_API = [
     "/api/custom_regions",
     "/api/villages/*",
     "/api/yubao/*",
+    "/api/vocabulary/*",
 ]
 
 # auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
 IGNORE_API = [
     "/sql/query/columns",
     "/sql/query/count",  # keep hourly/daily aggregate only
+    "/api/vocabulary/sql/query/columns",
+    "/api/vocabulary/sql/query/count",
+    "/api/vocabulary/admin/*",
+    "/api/vocabulary/sql/distinct/*",
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
     "/user/custom/counts",
@@ -210,6 +216,11 @@ API_ROUTE_CONFIG = {
         "require_login": False,
         "log_params": True,
         "log_body": True,
+    }, "/api/gis/*": {
+        "rate_limit": True,       # 启用限流（RTree + 几何计算是计算资源）
+        "require_login": True,   # 公开查询，同 /api/get_coordinates
+        "log_params": True,       # 记录查询参数（分析用户搜的地点）
+        "log_body": False,        # GET 请求无 body
     },
     "/api/get_coordinates": {
         "rate_limit": False,  # 不限流（查询类 API）
@@ -300,17 +311,35 @@ API_ROUTE_CONFIG = {
     },
 
     # ===== 其他 tools API =====
+    "/api/tools/check/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,  # 不记录参数（避免泄露 task_id）
+        "log_body": False,
+    },
     "/api/tools/check/*": {
         "rate_limit": True,
         "require_login": True,
         "log_params": True,
         "log_body": True,
     },
+    "/api/tools/merge/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,
+        "log_body": False,
+    },
     "/api/tools/merge/*": {
         "rate_limit": True,
         "require_login": True,
         "log_params": True,
         "log_body": True,
+    },
+    "/api/tools/jyut2ipa/progress/*": {
+        "rate_limit": False,  # 允许频繁轮询
+        "require_login": True,
+        "log_params": False,  # 不记录参数（避免泄露 task_id）
+        "log_body": False,
     },
     "/api/tools/jyut2ipa/*": {
         "rate_limit": True,
@@ -331,6 +360,41 @@ API_ROUTE_CONFIG = {
         "require_login": True,  # 要求登录（计算资源消耗大）
         "log_params": True,  # 记录参数
         "log_body": True,  # 记录请求体（分析参数配置）
+    },
+    # ===== Vocabulary API =====
+    # 前台搜索公开可用，但仍参与限流；更具体的 search 规则会覆盖 /api/vocabulary/*。
+    "/api/vocabulary/search/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
+    # 上传接口需要登录和限流，但不记录 multipart 文件正文。
+    "/api/vocabulary/imports*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": False,
+    },
+    # 词表表格接口对齐通用 /sql：入口层不强制登录，读接口可公开读取，写接口在业务层校验 edit/manage/admin。
+    "/api/vocabulary/sql/query/count": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": False,
+        "log_body": False,
+    },
+    "/api/vocabulary/sql/*": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": True,
+    },
+    # 其余 vocabulary 普通接口默认需要登录并限流。
+    "/api/vocabulary/*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": True,
     },
     # "/api/villages/admin/*": {
     #     "rate_limit": True,  # 启用限流
@@ -365,6 +429,7 @@ API_WHITELIST = [
     "/villagesML*",
     "/sitemap",
     "/auth*",
+    "/api/vocabulary/admin/*",  # 已由接口自身 Depends(get_current_admin_user) 控制
 ]
 
 # ===== 黑名单 =====
@@ -440,4 +505,3 @@ API_BLACKLIST = [
 - 个人数据查询：启用（需要权限）
 - 公开查询 API：不启用（方便访问）
 """
-

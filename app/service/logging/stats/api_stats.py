@@ -2,12 +2,12 @@
 API usage stats service.
 """
 
-import sqlite3
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from app.common.path import LOGS_DATABASE_PATH, USER_DATABASE_PATH
 from app.common.time_utils import shanghai_to_utc_naive
+from app.sql.db_pool import get_db_pool
 
 
 def _to_db_time(value: Optional[datetime]) -> Optional[str]:
@@ -19,7 +19,7 @@ def _to_db_time(value: Optional[datetime]) -> Optional[str]:
     return str(value)
 
 
-def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
+def _table_exists(cursor, table_name: str) -> bool:
     cursor.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
         (table_name,),
@@ -27,13 +27,13 @@ def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def _column_exists(cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
     cursor.execute(f"PRAGMA table_info({table_name})")
     return any(row[1] == column_name for row in cursor.fetchall())
 
 
 def _pick_first_existing_column(
-    cursor: sqlite3.Cursor,
+    cursor,
     table_name: str,
     candidates: list[str],
 ) -> Optional[str]:
@@ -43,23 +43,15 @@ def _pick_first_existing_column(
     return None
 
 
-def _safe_count(cursor: sqlite3.Cursor, query: str, params: tuple = ()) -> int:
+def _safe_count(cursor, query: str, params: tuple = ()) -> int:
     try:
         cursor.execute(query, params)
         row = cursor.fetchone()
         if not row or row[0] is None:
             return 0
         return int(row[0])
-    except sqlite3.Error:
+    except Exception:
         return 0
-
-
-def _connect_api_usage_db() -> sqlite3.Connection:
-    return sqlite3.connect(USER_DATABASE_PATH)
-
-
-def _connect_logs_db() -> sqlite3.Connection:
-    return sqlite3.connect(LOGS_DATABASE_PATH)
 
 
 def get_api_usage_stats(
@@ -67,9 +59,8 @@ def get_api_usage_stats(
     end_time: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Get API usage counters with schema fallback."""
-    db = _connect_api_usage_db()
-    try:
-        cursor = db.cursor()
+    with get_db_pool(USER_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
         if not _table_exists(cursor, "api_usage_logs"):
             return {
@@ -134,17 +125,14 @@ def get_api_usage_stats(
             "unique_users": unique_users,
             "unique_ips": unique_ips,
         }
-    finally:
-        db.close()
 
 
 def get_stats_summary() -> Dict[str, Any]:
     """Get summary stats with missing-table fallback."""
-    usage_db = _connect_api_usage_db()
-    logs_db = _connect_logs_db()
-    try:
-        usage_cursor = usage_db.cursor()
-        logs_cursor = logs_db.cursor()
+    with get_db_pool(USER_DATABASE_PATH).get_connection() as usage_conn, \
+         get_db_pool(LOGS_DATABASE_PATH).get_connection() as logs_conn:
+        usage_cursor = usage_conn.cursor()
+        logs_cursor = logs_conn.cursor()
 
         total_api_calls = 0
         unique_users = 0
@@ -195,9 +183,6 @@ def get_stats_summary() -> Dict[str, Any]:
             "unique_users": unique_users,
             "unique_ips": unique_ips,
         }
-    finally:
-        usage_db.close()
-        logs_db.close()
 
 
 def get_field_stats(field: str) -> Dict[str, Any]:
@@ -206,9 +191,8 @@ def get_field_stats(field: str) -> Dict[str, Any]:
     if field not in allowed_fields:
         raise ValueError(f"Invalid field: {field}. Allowed fields: {allowed_fields}")
 
-    db = _connect_api_usage_db()
-    try:
-        cursor = db.cursor()
+    with get_db_pool(USER_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
         if not _table_exists(cursor, "api_usage_logs"):
             return {"field": field, "total": 0, "top_values": []}
@@ -253,5 +237,3 @@ def get_field_stats(field: str) -> Dict[str, Any]:
                 for row in rows
             ],
         }
-    finally:
-        db.close()

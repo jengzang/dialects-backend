@@ -2,33 +2,31 @@
 Hourly and daily API usage statistics.
 """
 
-import sqlite3
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
 from app.common.path import LOGS_DATABASE_PATH
 from app.common.time_utils import now_shanghai, today_shanghai
+from app.sql.db_pool import get_db_pool
 
 
 def get_hourly_trend(hours: int = 24) -> Dict[str, Any]:
     """Get hourly usage trend using Asia/Shanghai buckets."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
     start_time = now_shanghai().replace(tzinfo=None) - timedelta(hours=hours)
     start_hour = start_time.replace(minute=0, second=0, microsecond=0)
 
-    cursor.execute(
-        """
-        SELECT hour, total_calls
-        FROM api_usage_hourly
-        WHERE hour >= ?
-        ORDER BY hour ASC
-        """,
-        (start_hour,),
-    )
-    rows = cursor.fetchall()
-    db.close()
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT hour, total_calls
+            FROM api_usage_hourly
+            WHERE hour >= ?
+            ORDER BY hour ASC
+            """,
+            (start_hour,),
+        )
+        rows = cursor.fetchall()
 
     if not rows:
         return {
@@ -61,47 +59,45 @@ def get_hourly_trend(hours: int = 24) -> Dict[str, Any]:
 
 def get_daily_trend(days: int = 30, path: Optional[str] = None) -> Dict[str, Any]:
     """Get daily usage trend using Asia/Shanghai dates."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
     start_date = today_shanghai() - timedelta(days=days)
 
-    if path:
-        cursor.execute(
-            """
-            SELECT date, call_count
-            FROM api_usage_daily
-            WHERE date >= ? AND path = ?
-            ORDER BY date ASC
-            """,
-            (start_date, path),
-        )
-        rows = cursor.fetchall()
-        unique_apis = 1 if rows else 0
-    else:
-        cursor.execute(
-            """
-            SELECT date, SUM(call_count) as total_calls
-            FROM api_usage_daily
-            WHERE date >= ?
-            GROUP BY date
-            ORDER BY date ASC
-            """,
-            (start_date,),
-        )
-        rows = cursor.fetchall()
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT COUNT(DISTINCT path)
-            FROM api_usage_daily
-            WHERE date >= ?
-            """,
-            (start_date,),
-        )
-        unique_apis = cursor.fetchone()[0]
+        if path:
+            cursor.execute(
+                """
+                SELECT date, call_count
+                FROM api_usage_daily
+                WHERE date >= ? AND path = ?
+                ORDER BY date ASC
+                """,
+                (start_date, path),
+            )
+            rows = cursor.fetchall()
+            unique_apis = 1 if rows else 0
+        else:
+            cursor.execute(
+                """
+                SELECT date, SUM(call_count) as total_calls
+                FROM api_usage_daily
+                WHERE date >= ?
+                GROUP BY date
+                ORDER BY date ASC
+                """,
+                (start_date,),
+            )
+            rows = cursor.fetchall()
 
-    db.close()
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT path)
+                FROM api_usage_daily
+                WHERE date >= ?
+                """,
+                (start_date,),
+            )
+            unique_apis = cursor.fetchone()[0]
 
     if not rows:
         return {
@@ -142,11 +138,8 @@ def get_api_ranking(
     limit: int = 10,
 ) -> Dict[str, Any]:
     """Get API ranking for a date or recent days."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
 
     if date and days:
-        db.close()
         raise ValueError("date and days cannot be used together")
 
     if date:
@@ -155,7 +148,6 @@ def get_api_ranking(
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError as exc:
-            db.close()
             raise ValueError("invalid date format, expected YYYY-MM-DD") from exc
 
         where_clause = "WHERE date = ?"
@@ -171,58 +163,59 @@ def get_api_ranking(
         where_params = ()
         period_label = "all_time"
 
-    if where_clause:
-        cursor.execute(
-            f"""
-            SELECT path, SUM(call_count) as total_calls
-            FROM api_usage_daily
-            {where_clause}
-            GROUP BY path
-            ORDER BY total_calls DESC
-            LIMIT ?
-            """,
-            where_params + (limit,),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT path, SUM(call_count) as total_calls
-            FROM api_usage_daily
-            GROUP BY path
-            ORDER BY total_calls DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-    rows = cursor.fetchall()
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
 
-    if where_clause:
-        cursor.execute(
-            f"""
-            SELECT COUNT(DISTINCT path)
-            FROM api_usage_daily
-            {where_clause}
-            """,
-            where_params,
-        )
-    else:
-        cursor.execute("SELECT COUNT(DISTINCT path) FROM api_usage_daily")
-    unique_apis = cursor.fetchone()[0]
+        if where_clause:
+            cursor.execute(
+                f"""
+                SELECT path, SUM(call_count) as total_calls
+                FROM api_usage_daily
+                {where_clause}
+                GROUP BY path
+                ORDER BY total_calls DESC
+                LIMIT ?
+                """,
+                where_params + (limit,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT path, SUM(call_count) as total_calls
+                FROM api_usage_daily
+                GROUP BY path
+                ORDER BY total_calls DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        rows = cursor.fetchall()
 
-    if where_clause:
-        cursor.execute(
-            f"""
-            SELECT SUM(call_count)
-            FROM api_usage_daily
-            {where_clause}
-            """,
-            where_params,
-        )
-    else:
-        cursor.execute("SELECT SUM(call_count) FROM api_usage_daily")
-    total_calls_all = cursor.fetchone()[0] or 0
+        if where_clause:
+            cursor.execute(
+                f"""
+                SELECT COUNT(DISTINCT path)
+                FROM api_usage_daily
+                {where_clause}
+                """,
+                where_params,
+            )
+        else:
+            cursor.execute("SELECT COUNT(DISTINCT path) FROM api_usage_daily")
+        unique_apis = cursor.fetchone()[0]
 
-    db.close()
+        if where_clause:
+            cursor.execute(
+                f"""
+                SELECT SUM(call_count)
+                FROM api_usage_daily
+                {where_clause}
+                """,
+                where_params,
+            )
+        else:
+            cursor.execute("SELECT SUM(call_count) FROM api_usage_daily")
+        total_calls_all = cursor.fetchone()[0] or 0
 
     if not rows:
         return {
@@ -257,21 +250,20 @@ def get_api_ranking(
 
 def get_api_history(path: str, days: int = 30) -> Dict[str, Any]:
     """Get daily history for one API path."""
-    db = sqlite3.connect(LOGS_DATABASE_PATH)
-    cursor = db.cursor()
-
     start_date = today_shanghai() - timedelta(days=days)
-    cursor.execute(
-        """
-        SELECT date, call_count
-        FROM api_usage_daily
-        WHERE date >= ? AND path = ?
-        ORDER BY date ASC
-        """,
-        (start_date, path),
-    )
-    rows = cursor.fetchall()
-    db.close()
+
+    with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT date, call_count
+            FROM api_usage_daily
+            WHERE date >= ? AND path = ?
+            ORDER BY date ASC
+            """,
+            (start_date, path),
+        )
+        rows = cursor.fetchall()
 
     if not rows:
         return {
@@ -302,4 +294,3 @@ def get_api_history(path: str, days: int = 30) -> Dict[str, Any]:
             "peak_calls": peak_row[1],
         },
     }
-

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from .geometry_utils import (
     bbox_intersects,
     geometry_bbox,
@@ -9,6 +11,7 @@ from .geometry_utils import (
     point_in_geometry,
     point_to_geometry_distance_metres,
 )
+from .index_store import load_feature_by_id
 from .models import QueryResult
 
 
@@ -19,26 +22,26 @@ def _apply_cache_stats(engine, result: QueryResult, base_hits: int, base_misses:
     result.stats.cache_eviction_count = cache_stats["cache_eviction_count"] - base_evictions
 
 
-def filter_candidates(engine, query_bbox):
-    candidates = engine.grid_candidates_for_bbox(query_bbox)
-    if not candidates:
-        candidates = engine.index_records
+def filter_candidates(engine, conn: sqlite3.Connection, query_bbox):
+    candidates = engine.grid_candidates_for_bbox(conn, query_bbox)
     return [record for record in candidates if bbox_intersects(record.bbox, query_bbox)]
 
 
-def point_query(engine, geometry_loader, feature_records, lng: float, lat: float, where=None) -> QueryResult:
+def point_query(engine, geometry_loader, conn: sqlite3.Connection, lng: float, lat: float, where=None) -> QueryResult:
     res = QueryResult()
     res.stats.query_count += 1
     base_cache = engine.cache_stats()
-    candidates = filter_candidates(engine, point_bbox(lng, lat))
+    candidates = filter_candidates(engine, conn, point_bbox(lng, lat))
     res.stats.envelope_hit_count += len(candidates)
     matched = set()
     for record in candidates:
-        feature = feature_records[record.feature_id]
+        feature = load_feature_by_id(conn, record.feature_id)
+        if feature is None:
+            continue
         data = feature.to_dict()
         if where and not where(data):
             continue
-        geom = geometry_loader(record)
+        geom = geometry_loader(conn, record)
         if geom is None:
             continue
         res.stats.io_reads += 1
@@ -50,7 +53,7 @@ def point_query(engine, geometry_loader, feature_records, lng: float, lat: float
     return res
 
 
-def geometry_query(engine, geometry_loader, feature_records, query_geometry: dict, where=None) -> QueryResult:
+def geometry_query(engine, geometry_loader, conn: sqlite3.Connection, query_geometry: dict, where=None) -> QueryResult:
     res = QueryResult()
     res.stats.query_count += 1
     base_cache = engine.cache_stats()
@@ -58,15 +61,17 @@ def geometry_query(engine, geometry_loader, feature_records, query_geometry: dic
     if bbox is None:
         _apply_cache_stats(engine, res, base_cache["cache_hit_count"], base_cache["cache_miss_count"], base_cache["cache_eviction_count"])
         return res
-    candidates = filter_candidates(engine, bbox)
+    candidates = filter_candidates(engine, conn, bbox)
     res.stats.envelope_hit_count += len(candidates)
     matched = set()
     for record in candidates:
-        feature = feature_records[record.feature_id]
+        feature = load_feature_by_id(conn, record.feature_id)
+        if feature is None:
+            continue
         data = feature.to_dict()
         if where and not where(data):
             continue
-        geom = geometry_loader(record)
+        geom = geometry_loader(conn, record)
         if geom is None:
             continue
         res.stats.io_reads += 1
@@ -78,22 +83,24 @@ def geometry_query(engine, geometry_loader, feature_records, query_geometry: dic
     return res
 
 
-def point_query_with_tolerance(engine, geometry_loader, feature_records, lng: float, lat: float, tolerance_metre: int, where=None) -> QueryResult:
-    direct = point_query(engine, geometry_loader, feature_records, lng, lat, where)
+def point_query_with_tolerance(engine, geometry_loader, conn: sqlite3.Connection, lng: float, lat: float, tolerance_metre: int, where=None) -> QueryResult:
+    direct = point_query(engine, geometry_loader, conn, lng, lat, where)
     if direct.result or tolerance_metre == 0:
         return direct
 
     base_cache = engine.cache_stats()
     buffer_deg = metres_to_degree_buffer(tolerance_metre)
     query_bbox = (lng - buffer_deg, lat - buffer_deg, lng + buffer_deg, lat + buffer_deg)
-    candidates = filter_candidates(engine, query_bbox)
+    candidates = filter_candidates(engine, conn, query_bbox)
     best_by_deep: dict[int, tuple[float, dict]] = {}
     for record in candidates:
-        feature = feature_records[record.feature_id]
+        feature = load_feature_by_id(conn, record.feature_id)
+        if feature is None:
+            continue
         data = feature.to_dict()
         if where and not where(data):
             continue
-        geom = geometry_loader(record)
+        geom = geometry_loader(conn, record)
         if geom is None:
             continue
         direct.stats.io_reads += 1

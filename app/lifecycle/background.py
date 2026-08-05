@@ -29,12 +29,14 @@ def start_background_services() -> None:
     from app.service.logging.core.workers import start_api_logger_workers
     from app.service.logging.tasks import start_scheduler
     from app.tools.cluster.executor_runtime import start_cluster_executor
+    from app.service.vocabulary.backup import start_backup_scheduler
 
     global _cleanup_thread, _cleanup_stop_event
 
     start_api_logger_workers()
     start_scheduler()
     start_cluster_executor()
+    start_backup_scheduler()
 
     with _cleanup_lock:
         if _cleanup_thread and _cleanup_thread.is_alive():
@@ -56,6 +58,7 @@ def stop_background_services() -> None:
     from app.service.logging.core.workers import stop_api_logger_workers
     from app.service.logging.tasks import stop_scheduler
     from app.tools.cluster.executor_runtime import stop_cluster_executor
+    from app.service.vocabulary.backup import stop_backup_scheduler
 
     global _cleanup_thread, _cleanup_stop_event
 
@@ -71,6 +74,7 @@ def stop_background_services() -> None:
     if cleanup_thread is not None and cleanup_thread.is_alive():
         cleanup_thread.join(timeout=1.0)
 
+    stop_backup_scheduler()
     stop_api_logger_workers()
     stop_scheduler()
     stop_cluster_executor()

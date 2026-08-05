@@ -4,12 +4,20 @@ Run_ID 管理器 - 从数据库动态加载活跃 run_id
 此模块提供统一的 run_id 管理接口，消除硬编码，实现数据库驱动的配置管理。
 """
 
-import sqlite3
 import time
 from typing import Dict, List, Optional
 
+from app.sql.db_pool import get_db_pool
+
 from .schema_config import DEFAULT_DATABASE_KEY
-from .schema_runtime import column_name, quote_identifier, resolve_db_path, table_name
+from .schema_runtime import (
+    column_name,
+    qrun_id_column_for_physical_table,
+    quote_identifier,
+    resolve_db_path,
+    table_name,
+)
+from .schema_keys import C, T
 
 
 class RunIDManager:
@@ -29,27 +37,23 @@ class RunIDManager:
 
     @property
     def active_run_ids_table(self) -> str:
-        return quote_identifier(table_name(self.dbpath, "active_run_ids"))
+        return quote_identifier(table_name(self.dbpath, T.ACTIVE_RUN_IDS))
 
     def active_run_ids_col(self, logical_column: str) -> str:
-        return quote_identifier(column_name(self.dbpath, "active_run_ids", logical_column))
+        return quote_identifier(column_name(self.dbpath, T.ACTIVE_RUN_IDS, logical_column))
 
     def _load_active_run_ids(self):
         """从数据库加载活跃 run_id 到内存缓存"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            cursor.execute(f"""
-                SELECT {self.active_run_ids_col("analysis_type")}, {self.active_run_ids_col("run_id")}
-                FROM {self.active_run_ids_table}
-            """)
-
-            rows = cursor.fetchall()
-            self._cache = {row[0]: row[1] for row in rows}
-
-            conn.close()
-        except sqlite3.Error as e:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)}, {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)}
+                    FROM {self.active_run_ids_table}
+                """)
+                rows = cursor.fetchall()
+                self._cache = {row[0]: row[1] for row in rows}
+        except Exception as e:
             print(f"警告: 无法加载 active_run_ids: {e}")
             self._cache = {}
 
@@ -67,37 +71,32 @@ class RunIDManager:
         if not run_id:
             return False
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        try:
-            # 获取对应的表名
-            cursor.execute(f"""
-                SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-                WHERE {self.active_run_ids_col("analysis_type")} = ?
-            """, (analysis_type,))
+            try:
+                cursor.execute(f"""
+                    SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                    WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+                """, (analysis_type,))
 
-            result = cursor.fetchone()
-            if not result:
-                conn.close()
+                result = cursor.fetchone()
+                if not result:
+                    return False
+
+                table_name = result[0]
+
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM {quote_identifier(table_name)}
+                    WHERE {qrun_id_column_for_physical_table(self.dbpath, table_name)} = ?
+                    LIMIT 1
+                """, (run_id,))
+
+                count = cursor.fetchone()[0]
+                return count > 0
+
+            except Exception:
                 return False
-
-            table_name = result[0]
-
-            # 检查 run_id 是否存在
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM {quote_identifier(table_name)}
-                WHERE {quote_identifier("run_id")} = ?
-                LIMIT 1
-            """, (run_id,))
-
-            count = cursor.fetchone()[0]
-            conn.close()
-            return count > 0
-
-        except sqlite3.Error:
-            conn.close()
-            return False
 
     def _get_latest_run_id(self, analysis_type: str) -> Optional[str]:
         """
@@ -109,39 +108,34 @@ class RunIDManager:
         Returns:
             最新的 run_id，如果不存在则返回 None
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        try:
-            # 获取对应的表名
-            cursor.execute(f"""
-                SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-                WHERE {self.active_run_ids_col("analysis_type")} = ?
-            """, (analysis_type,))
+            try:
+                cursor.execute(f"""
+                    SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                    WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+                """, (analysis_type,))
 
-            result = cursor.fetchone()
-            if not result:
-                conn.close()
+                result = cursor.fetchone()
+                if not result:
+                    return None
+
+                table_name = result[0]
+
+                cursor.execute(f"""
+                    SELECT DISTINCT {qrun_id_column_for_physical_table(self.dbpath, table_name)}
+                    FROM {quote_identifier(table_name)}
+                    ORDER BY {qrun_id_column_for_physical_table(self.dbpath, table_name)} DESC
+                    LIMIT 1
+                """)
+
+                result = cursor.fetchone()
+
+                return result[0] if result else None
+
+            except Exception:
                 return None
-
-            table_name = result[0]
-
-            # 获取最新的 run_id（按字典序降序）
-            cursor.execute(f"""
-                SELECT DISTINCT {quote_identifier("run_id")}
-                FROM {quote_identifier(table_name)}
-                ORDER BY {quote_identifier("run_id")} DESC
-                LIMIT 1
-            """)
-
-            result = cursor.fetchone()
-            conn.close()
-
-            return result[0] if result else None
-
-        except sqlite3.Error:
-            conn.close()
-            return None
 
     def get_active_run_id(self, analysis_type: str) -> str:
         """
@@ -195,43 +189,37 @@ class RunIDManager:
         Returns:
             可用 run_id 列表，每个元素包含 run_id 和元数据
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        # 获取对应的表名
-        cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
-        """, (analysis_type,))
-
-        result = cursor.fetchone()
-        if not result:
-            conn.close()
-            return []
-
-        table_name = result[0]
-
-        # 查询该表中所有不同的 run_id
-        try:
             cursor.execute(f"""
-                SELECT DISTINCT {quote_identifier("run_id")}
-                FROM {quote_identifier(table_name)}
-                ORDER BY {quote_identifier("run_id")} DESC
-            """)
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+            """, (analysis_type,))
 
-            run_ids = [{"run_id": row[0]} for row in cursor.fetchall()]
-        except sqlite3.Error:
-            run_ids = []
+            result = cursor.fetchone()
+            if not result:
+                return []
 
-        conn.close()
-        return run_ids
+            table_name = result[0]
+
+            try:
+                cursor.execute(f"""
+                    SELECT DISTINCT {qrun_id_column_for_physical_table(self.dbpath, table_name)}
+                    FROM {quote_identifier(table_name)}
+                    ORDER BY {qrun_id_column_for_physical_table(self.dbpath, table_name)} DESC
+                """)
+
+                run_ids = [{"run_id": row[0]} for row in cursor.fetchall()]
+            except Exception:
+                run_ids = []
+
+            return run_ids
 
     def set_active_run_id(
         self,
         analysis_type: str,
         run_id: str,
-        updated_by: Optional[str] = None,
-        notes: Optional[str] = None
     ):
         """
         设置活跃 run_id（需要验证 run_id 存在）
@@ -239,59 +227,45 @@ class RunIDManager:
         Args:
             analysis_type: 分析类型标识
             run_id: 新的 run_id
-            updated_by: 更新者（用户/脚本名）
-            notes: 备注说明
 
         Raises:
             ValueError: 如果 run_id 不存在或分析类型无效
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        # 验证分析类型存在
-        cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
-        """, (analysis_type,))
-
-        result = cursor.fetchone()
-        if not result:
-            conn.close()
-            raise ValueError(f"未找到分析类型: {analysis_type}")
-
-        table_name = result[0]
-
-        # 验证 run_id 存在于对应的表中
-        try:
             cursor.execute(f"""
-                SELECT COUNT(*) FROM {quote_identifier(table_name)}
-                WHERE {quote_identifier("run_id")} = ?
-            """, (run_id,))
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+            """, (analysis_type,))
 
-            count = cursor.fetchone()[0]
-            if count == 0:
-                conn.close()
-                raise ValueError(
-                    f"run_id '{run_id}' 在表 '{table_name}' 中不存在"
-                )
-        except sqlite3.Error as e:
-            conn.close()
-            raise ValueError(f"验证 run_id 失败: {e}")
+            result = cursor.fetchone()
+            if not result:
+                raise ValueError(f"未找到分析类型: {analysis_type}")
 
-        # 更新活跃 run_id
-        cursor.execute(f"""
-            UPDATE {self.active_run_ids_table}
-            SET {self.active_run_ids_col("run_id")} = ?,
-                {self.active_run_ids_col("updated_at")} = ?,
-                {self.active_run_ids_col("updated_by")} = ?,
-                {self.active_run_ids_col("notes")} = ?
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
-        """, (run_id, time.time(), updated_by, notes, analysis_type))
+            table_name = result[0]
 
-        conn.commit()
-        conn.close()
+            try:
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM {quote_identifier(table_name)}
+                    WHERE {qrun_id_column_for_physical_table(self.dbpath, table_name)} = ?
+                """, (run_id,))
 
-        # 更新缓存
+                count = cursor.fetchone()[0]
+                if count == 0:
+                    raise ValueError(
+                        f"run_id '{run_id}' 在表 '{table_name}' 中不存在"
+                    )
+            except Exception as e:
+                raise ValueError(f"验证 run_id 失败: {e}")
+
+            cursor.execute(f"""
+                UPDATE {self.active_run_ids_table}
+                SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+            """, (run_id, time.time(), analysis_type))
+
         self._cache[analysis_type] = run_id
 
     def get_run_id_metadata(self, run_id: str) -> Dict:
@@ -304,64 +278,59 @@ class RunIDManager:
         Returns:
             元数据字典
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        metadata = {"run_id": run_id, "found": False}
+            metadata = {"run_id": run_id, "found": False}
 
-        # 尝试从 analysis_runs 表查询
-        try:
-            cursor.execute(f"""
-                SELECT created_at, status, total_villages, total_chars
-                FROM {quote_identifier(table_name(self.dbpath, "analysis_runs"))}
-                WHERE {quote_identifier(column_name(self.dbpath, "analysis_runs", "run_id"))} = ?
-            """, (run_id,))
+            try:
+                cursor.execute(f"""
+                    SELECT created_at, status, total_villages, total_chars
+                    FROM {quote_identifier(table_name(self.dbpath, T.ANALYSIS_RUNS))}
+                    WHERE {quote_identifier(column_name(self.dbpath, T.ANALYSIS_RUNS, C.ANALYSIS_RUNS.RUN_ID))} = ?
+                """, (run_id,))
 
-            result = cursor.fetchone()
-            if result:
-                metadata.update({
-                    "found": True,
-                    "source": "analysis_runs",
-                    "created_at": result[0],
-                    "status": result[1],
-                    "total_villages": result[2],
-                    "total_chars": result[3]
-                })
-                conn.close()
-                return metadata
-        except sqlite3.Error:
-            pass
+                result = cursor.fetchone()
+                if result:
+                    metadata.update({
+                        "found": True,
+                        "source": T.ANALYSIS_RUNS,
+                        "created_at": result[0],
+                        "status": result[1],
+                        "total_villages": result[2],
+                        "total_chars": result[3]
+                    })
+                    return metadata
+            except Exception:
+                pass
 
-        # 尝试从 embedding_runs 表查询
-        try:
-            cursor.execute(f"""
-                SELECT created_at, vector_size, window_size, min_count
-                FROM {quote_identifier(table_name(self.dbpath, "embedding_runs"))}
-                WHERE {quote_identifier(column_name(self.dbpath, "embedding_runs", "run_id"))} = ?
-            """, (run_id,))
+            try:
+                cursor.execute(f"""
+                    SELECT created_at, vector_size, window_size, min_count
+                    FROM {quote_identifier(table_name(self.dbpath, T.EMBEDDING_RUNS))}
+                    WHERE {quote_identifier(column_name(self.dbpath, T.EMBEDDING_RUNS, C.EMBEDDING_RUNS.RUN_ID))} = ?
+                """, (run_id,))
 
-            result = cursor.fetchone()
-            if result:
-                metadata.update({
-                    "found": True,
-                    "source": "embedding_runs",
-                    "created_at": result[0],
-                    "vector_size": result[1],
-                    "window_size": result[2],
-                    "min_count": result[3]
-                })
-        except sqlite3.Error:
-            pass
+                result = cursor.fetchone()
+                if result:
+                    metadata.update({
+                        "found": True,
+                        "source": T.EMBEDDING_RUNS,
+                        "created_at": result[0],
+                        "vector_size": result[1],
+                        "window_size": result[2],
+                        "min_count": result[3]
+                    })
+            except Exception:
+                pass
 
-        conn.close()
-        return metadata
+            return metadata
 
     def auto_update_from_script(
         self,
         analysis_type: str,
         run_id: str,
         script_name: str,
-        notes: Optional[str] = None
     ):
         """
         从分析脚本自动更新活跃 run_id
@@ -372,8 +341,7 @@ class RunIDManager:
         Args:
             analysis_type: 分析类型标识
             run_id: 新的 run_id
-            script_name: 脚本名称（用于追踪）
-            notes: 备注说明（可选）
+            script_name: 脚本名称（用于日志追踪）
 
         Example:
             >>> manager = RunIDManager("data/villages.db")
@@ -381,41 +349,31 @@ class RunIDManager:
             ...     "spatial_hotspots",
             ...     "final_04_20260222_150000",
             ...     "phase_04_spatial_analysis",
-            ...     "空间分析完成，发现8个热点"
             ... )
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        # 检查分析类型是否存在
-        cursor.execute(f"""
-            SELECT {self.active_run_ids_col("table_name")} FROM {self.active_run_ids_table}
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
-        """, (analysis_type,))
+            cursor.execute(f"""
+                SELECT {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)} FROM {self.active_run_ids_table}
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+            """, (analysis_type,))
 
-        result = cursor.fetchone()
-        if not result:
-            conn.close()
-            print(f"警告: 分析类型 '{analysis_type}' 不存在于 active_run_ids 表中")
-            return
+            result = cursor.fetchone()
+            if not result:
+                print(f"警告: 分析类型 '{analysis_type}' 不存在于 active_run_ids 表中")
+                return
 
-        # 更新活跃 run_id（不验证是否存在）
-        cursor.execute(f"""
-            UPDATE {self.active_run_ids_table}
-            SET {self.active_run_ids_col("run_id")} = ?,
-                {self.active_run_ids_col("updated_at")} = ?,
-                {self.active_run_ids_col("updated_by")} = ?,
-                {self.active_run_ids_col("notes")} = ?
-            WHERE {self.active_run_ids_col("analysis_type")} = ?
-        """, (run_id, time.time(), script_name, notes, analysis_type))
+            cursor.execute(f"""
+                UPDATE {self.active_run_ids_table}
+                SET {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)} = ?,
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)} = ?
+                WHERE {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)} = ?
+            """, (run_id, time.time(), analysis_type))
 
-        conn.commit()
-        conn.close()
-
-        # 更新缓存
         self._cache[analysis_type] = run_id
 
-        print(f"✓ 已自动更新 {analysis_type} 的活跃 run_id 为: {run_id}")
+        print(f"✓ [{script_name}] 已自动更新 {analysis_type} 的活跃 run_id 为: {run_id}")
 
     def refresh_cache(self):
         """刷新内存缓存"""
@@ -428,35 +386,30 @@ class RunIDManager:
         Returns:
             字典，键为 analysis_type，值为包含 run_id 和元数据的字典
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(f"""
-            SELECT
-                {self.active_run_ids_col("analysis_type")},
-                {self.active_run_ids_col("run_id")},
-                {self.active_run_ids_col("table_name")},
-                {self.active_run_ids_col("updated_at")},
-                {self.active_run_ids_col("updated_by")},
-                {self.active_run_ids_col("notes")}
-            FROM {self.active_run_ids_table}
-            ORDER BY {self.active_run_ids_col("analysis_type")}
-        """)
+            cursor.execute(f"""
+                SELECT
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)},
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.RUN_ID)},
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.TABLE_NAME)},
+                    {self.active_run_ids_col(C.ACTIVE_RUN_IDS.UPDATED_AT)}
+                FROM {self.active_run_ids_table}
+                ORDER BY {self.active_run_ids_col(C.ACTIVE_RUN_IDS.ANALYSIS_TYPE)}
+            """)
 
-        rows = cursor.fetchall()
-        result = {}
+            rows = cursor.fetchall()
+            result = {}
 
-        for row in rows:
-            result[row[0]] = {
-                "run_id": row[1],
-                "table_name": row[2],
-                "updated_at": row[3],
-                "updated_by": row[4],
-                "notes": row[5]
-            }
+            for row in rows:
+                result[row[0]] = {
+                    "run_id": row[1],
+                    "table_name": row[2],
+                    "updated_at": row[3],
+                }
 
-        conn.close()
-        return result
+            return result
 
 
 # 全局单例实例

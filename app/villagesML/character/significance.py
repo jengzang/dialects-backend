@@ -11,7 +11,8 @@ import sqlite3
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..run_id_manager import get_run_id_manager
-from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_runtime import qcolumn, qtable, run_id_analysis_type, normalize_region_level
+from ..schema_keys import C, T, REGION_LEVELS, region_level_regex
 
 router = APIRouter(prefix="/character/significance")
 
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/character/significance")
 def get_character_significance(
     char: str = Query(..., description="字符", min_length=1, max_length=1),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     min_zscore: Optional[float] = Query(None, description="最小Z分数阈值"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
@@ -41,18 +42,18 @@ def get_character_significance(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "tendency_significance")
+            run_id_analysis_type(dbpath, T.TENDENCY_SIGNIFICANCE)
         )
 
-    table = qtable(dbpath, "tendency_significance")
-    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
-    char_col = qcolumn(dbpath, "tendency_significance", "char")
-    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
-    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
-    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
-    p_value_col = qcolumn(dbpath, "tendency_significance", "p_value")
-    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
-    effect_size_col = qcolumn(dbpath, "tendency_significance", "effect_size")
+    table = qtable(dbpath, T.TENDENCY_SIGNIFICANCE)
+    run_id_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.RUN_ID)
+    char_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHAR)
+    region_level_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_NAME)
+    chi_square_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHI_SQUARE_STATISTIC)
+    p_value_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.P_VALUE)
+    is_significant_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.IS_SIGNIFICANT)
+    effect_size_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.EFFECT_SIZE)
 
     query = f"""
         SELECT
@@ -64,7 +65,7 @@ def get_character_significance(
         FROM {table}
         WHERE {run_id_col} = ? AND {char_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, char, region_level]
+    params = [run_id, char, normalize_region_level(dbpath, T.TENDENCY_SIGNIFICANCE, region_level)]
 
     # 现场过滤：最小Z分数
     if min_zscore is not None:
@@ -91,9 +92,9 @@ def get_significant_characters_by_region(
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     significance_only: bool = Query(True, description="仅返回显著字符"),
-    top_k: int = Query(20, ge=1, le=100, description="返回前K个字符"),
+    top_k: int = Query(20, ge=1, le=500, description="返回前K个字符"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -117,21 +118,21 @@ def get_significant_characters_by_region(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "tendency_significance")
+            run_id_analysis_type(dbpath, T.TENDENCY_SIGNIFICANCE)
         )
 
-    table = qtable(dbpath, "tendency_significance")
-    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
-    char_col = qcolumn(dbpath, "tendency_significance", "char")
-    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
-    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
-    city_col = qcolumn(dbpath, "tendency_significance", "city")
-    county_col = qcolumn(dbpath, "tendency_significance", "county")
-    township_col = qcolumn(dbpath, "tendency_significance", "township")
-    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
-    p_value_col = qcolumn(dbpath, "tendency_significance", "p_value")
-    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
-    effect_size_col = qcolumn(dbpath, "tendency_significance", "effect_size")
+    table = qtable(dbpath, T.TENDENCY_SIGNIFICANCE)
+    run_id_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.RUN_ID)
+    char_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHAR)
+    region_level_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_NAME)
+    city_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CITY)
+    county_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.COUNTY)
+    township_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.TOWNSHIP)
+    chi_square_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHI_SQUARE_STATISTIC)
+    p_value_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.P_VALUE)
+    is_significant_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.IS_SIGNIFICANT)
+    effect_size_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.EFFECT_SIZE)
 
     query = f"""
         SELECT
@@ -143,7 +144,7 @@ def get_significant_characters_by_region(
         FROM {table}
         WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
-    params = [run_id, region_level]
+    params = [run_id, normalize_region_level(dbpath, T.TENDENCY_SIGNIFICANCE, region_level)]
 
     # Priority 1: Use hierarchy parameters (exact match)
     if city is not None:
@@ -152,7 +153,7 @@ def get_significant_characters_by_region(
     if county is not None:
         query += f" AND {county_col} = ?"
         params.append(county)
-    elif city is not None and region_level == 'township':
+    elif city is not None and region_level == REGION_LEVELS[2]:
         # Handle 东莞市/中山市 (no county level)
         query += f" AND ({county_col} IS NULL OR {county_col} = '')"
     if township is not None:
@@ -185,7 +186,7 @@ def get_significant_characters_by_region(
 @router.get("/summary")
 def get_significance_summary(
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
-    region_level: str = Query("city", description="区域级别", pattern="^(city|county|township)$"),
+    region_level: str = Query("city", description="区域级别", pattern=region_level_regex()),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -203,16 +204,16 @@ def get_significance_summary(
     # 如果未指定run_id，使用活跃版本
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "tendency_significance")
+            run_id_analysis_type(dbpath, T.TENDENCY_SIGNIFICANCE)
         )
 
-    table = qtable(dbpath, "tendency_significance")
-    run_id_col = qcolumn(dbpath, "tendency_significance", "run_id")
-    char_col = qcolumn(dbpath, "tendency_significance", "char")
-    region_level_col = qcolumn(dbpath, "tendency_significance", "region_level")
-    region_name_col = qcolumn(dbpath, "tendency_significance", "region_name")
-    chi_square_col = qcolumn(dbpath, "tendency_significance", "chi_square_statistic")
-    is_significant_col = qcolumn(dbpath, "tendency_significance", "is_significant")
+    table = qtable(dbpath, T.TENDENCY_SIGNIFICANCE)
+    run_id_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.RUN_ID)
+    char_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHAR)
+    region_level_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_LEVEL)
+    region_name_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.REGION_NAME)
+    chi_square_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.CHI_SQUARE_STATISTIC)
+    is_significant_col = qcolumn(dbpath, T.TENDENCY_SIGNIFICANCE, C.TENDENCY_SIGNIFICANCE.IS_SIGNIFICANT)
 
     query = f"""
         SELECT
@@ -225,7 +226,7 @@ def get_significance_summary(
         WHERE {run_id_col} = ? AND {region_level_col} = ?
     """
 
-    result = execute_query(db, query, (run_id, region_level))
+    result = execute_query(db, query, (run_id, normalize_region_level(dbpath, T.TENDENCY_SIGNIFICANCE, region_level)))
 
     if not result or len(result) == 0:
         raise HTTPException(

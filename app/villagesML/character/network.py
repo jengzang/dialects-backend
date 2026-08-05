@@ -10,6 +10,7 @@ import sqlite3
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
 from ..models import (
     CharacterNetworkRequest,
     CharacterNetworkResponse,
@@ -27,14 +28,14 @@ def get_character_network(
     dbpath: str = Depends(get_dbpath),
 ):
     """BFS 扩展字符相似性网络，返回完整图数据（节点 + 边）。"""
-    table = qtable(dbpath, "char_similarity")
-    run_id_col = qcolumn(dbpath, "char_similarity", "run_id")
-    char1_col = qcolumn(dbpath, "char_similarity", "char1")
-    char2_col = qcolumn(dbpath, "char_similarity", "char2")
-    similarity_col = qcolumn(dbpath, "char_similarity", "cosine_similarity")
+    table = qtable(dbpath, T.CHAR_SIMILARITY)
+    run_id_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.RUN_ID)
+    char1_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.CHAR1)
+    char2_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.CHAR2)
+    similarity_col = qcolumn(dbpath, T.CHAR_SIMILARITY, C.CHAR_SIMILARITY.COSINE_SIMILARITY)
 
     run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "char_similarity")
+        run_id_analysis_type(dbpath, T.CHAR_SIMILARITY)
     )
 
     visited: dict[str, tuple[int, float]] = {req.root_char: (0, 1.0)}

@@ -1,4 +1,3 @@
-import sqlite3
 from typing import Callable
 
 from app.common.config import AUTO_INDEX, AUTO_MIGRATE
@@ -6,11 +5,14 @@ from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
     DIALECTS_DB_USER,
+    GD_VILLAGE_DB_PATH,
     LOGS_DATABASE_PATH,
     QUERY_DB_ADMIN,
     QUERY_DB_USER,
+    USER_DATABASE_PATH,
+    YUBAO_DB_PATH,
 )
-from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_JSON_PATH
+from app.geo_query.config import GEO_AUTO_BUILD_ON_STARTUP, GEO_INDEX_SQLITE_PATH
 from app.geo_query.loader import load_geo_query_engine
 from app.redis_client import close_redis
 from app.sql.db_pool import close_all_pools, get_db_pool
@@ -20,11 +22,19 @@ def initialize_db_pools() -> None:
     print("=" * 60)
     print("[DB] Initializing database pools...")
     try:
-        get_db_pool(QUERY_DB_ADMIN, pool_size=5)
         get_db_pool(QUERY_DB_USER, pool_size=5)
-        get_db_pool(DIALECTS_DB_ADMIN, pool_size=10)
-        get_db_pool(DIALECTS_DB_USER, pool_size=10)
-        get_db_pool(CHARACTERS_DB_PATH, pool_size=5)
+        # QUERY_DB_ADMIN 与 QUERY_DB_USER 同路径，无需重复预初始化
+        # get_db_pool(QUERY_DB_ADMIN, pool_size=5)
+        get_db_pool(DIALECTS_DB_USER, pool_size=8)
+        # DIALECTS_DB_ADMIN 与 DIALECTS_DB_USER 同路径，无需重复预初始化
+        # get_db_pool(DIALECTS_DB_ADMIN, pool_size=8)
+        get_db_pool(CHARACTERS_DB_PATH, pool_size=4)
+        # 仅 admin 统计页低频访问，懒加载足够，无需预初始化
+        # get_db_pool(LOGS_DATABASE_PATH, pool_size=5)
+        # api_stats.py 查的表全有 ORM 模型，raw SQL 可后续改为 ORM 查询
+        # get_db_pool(USER_DATABASE_PATH, pool_size=5)
+        get_db_pool(YUBAO_DB_PATH, pool_size=3)
+        get_db_pool(GD_VILLAGE_DB_PATH, pool_size=3)
         print("[OK] Database pools initialized")
     except Exception as exc:
         print(f"[WARN] Database pool initialization failed: {exc}")
@@ -32,12 +42,16 @@ def initialize_db_pools() -> None:
 
 
 def migrate_user_region_tables() -> None:
-    from app.service.user.core.database import migrate_user_regions_table
+    from app.service.user.core.database import (
+        migrate_user_regions_table,
+        migrate_user_suggestions_table,
+    )
 
     print("=" * 60)
     print("[DB] Checking supplements.db schema...")
     try:
         migrate_user_regions_table()
+        migrate_user_suggestions_table()
         print("[OK] supplements.db schema check completed")
     except Exception as exc:
         print(f"[WARN] supplements.db migration failed: {exc}")
@@ -46,23 +60,21 @@ def migrate_user_region_tables() -> None:
 
 def migrate_logs_database() -> None:
     from app.service.logging.core.database import (
+        merge_static_usage_daily_paths,
         migrate_api_diagnostic_events,
         migrate_hourly_daily_stats,
     )
 
     print("=" * 60)
     print("[DB] Checking logs.db analytics tables...")
-    logs_db = None
     try:
-        logs_db = sqlite3.connect(LOGS_DATABASE_PATH)
-        migrate_hourly_daily_stats(logs_db)
+        with get_db_pool(LOGS_DATABASE_PATH).get_connection() as logs_db:
+            migrate_hourly_daily_stats(logs_db)
+            merge_static_usage_daily_paths(logs_db)
         migrate_api_diagnostic_events()
         print("[OK] logs.db schema check completed")
     except Exception as exc:
         print(f"[WARN] logs.db migration failed: {exc}")
-    finally:
-        if logs_db is not None:
-            logs_db.close()
     print("=" * 60)
 
 
@@ -106,7 +118,7 @@ def initialize_geo_query_engine() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine...")
     try:
-        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+        if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
             from scripts.geo.build_lowmem_index import main as build_geo_index
             build_geo_index()
         load_geo_query_engine()
@@ -119,7 +131,7 @@ def initialize_geo_query_engine() -> None:
 def initialize_geo_query_engine_strict() -> None:
     print("=" * 60)
     print("[GEO] Initializing AreaCity Python query engine (strict mode)...")
-    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_JSON_PATH.exists():
+    if GEO_AUTO_BUILD_ON_STARTUP and not GEO_INDEX_SQLITE_PATH.exists():
         from scripts.geo.build_lowmem_index import main as build_geo_index
         build_geo_index()
     load_geo_query_engine()

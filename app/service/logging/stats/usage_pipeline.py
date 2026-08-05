@@ -1,13 +1,46 @@
+import re
 from queue import Empty
 
 from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_shanghai_bucket_hour
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.queues import enqueue_with_backpressure, statistics_queue
 
+# Static file extensions served from the app/statics directory.
+_STATIC_EXTENSIONS = frozenset({
+    ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico",
+    ".gif", ".webp", ".avif", ".woff", ".woff2", ".ttf", ".otf",
+    ".map", ".json", ".xml", ".txt", ".xlsx", ".kmz", ".wasm",
+    ".webmanifest",
+})
+
+# Content-hash pattern: name.[8+ base64url chars with >=1 letter].ext
+# The (?!\d+\.) prevents date stamps (20260624) from being treated as hashes.
+_CONTENT_HASH_RE = re.compile(
+    r"^(.+?)\.(?!\d+\.)[A-Za-z0-9_-]{8,}\.(%s)$"
+    % "|".join(
+        ext.lstrip(".")
+        for ext in sorted(_STATIC_EXTENSIONS, key=len, reverse=True)
+    )
+)
+
+def normalize_content_hash_path(path: str) -> str:
+    """Strip a Vite/Rollup content hash from a static-file path.
+
+    ``/assets/ToolsPage.ozFry4P6.js`` → ``/assets/ToolsPage.{hash}.js``
+    """
+    m = _CONTENT_HASH_RE.match(path)
+    if m is None:
+        return path
+    return f"{m.group(1)}.{{hash}}.{m.group(2)}"
+
 
 def normalize_api_path(path: str) -> str:
     """
-    Normalize dynamic API paths for route-level statistics.
+    Normalize paths for route-level statistics.
+
+    Applies two transforms:
+    1. Replace dynamic API path segments with template placeholders.
+    2. Strip Vite/Rollup content hashes from static file paths.
     """
     path_templates = [
         ('/admin/sessions/user/', '{user_id}'),
@@ -36,6 +69,10 @@ def normalize_api_path(path: str) -> str:
         ('/api/villages/spatial/hotspots/', '{hotspot_id}'),
         ('/api/villages/spatial/integration/by-character/', '{character}'),
         ('/api/villages/spatial/integration/by-cluster/', '{cluster_id}'),
+        ('/api/vocabulary/locations/', '{location_name}'),
+        ('/api/vocabulary/admin/permissions/', '{user_id}'),
+        ('/api/vocabulary/sql/distinct/', '{table_name}/{column_name}'),
+        ('/sql/distinct/', '{table_name}/{column_name}'),
     ]
 
     path_templates.sort(key=lambda x: len(x[0]), reverse=True)
@@ -43,12 +80,16 @@ def normalize_api_path(path: str) -> str:
     for prefix, param_name in path_templates:
         if path.startswith(prefix):
             suffix = path[len(prefix):]
-            if '/' in suffix:
-                parts = suffix.split('/', 1)
-                return f"{prefix}{param_name}/{parts[1]}"
-            return f"{prefix}{param_name}"
+            if not suffix:
+                return normalize_content_hash_path(path)
+            param_segments = param_name.count('/') + 1
+            suffix_parts = suffix.split('/')
+            if len(suffix_parts) <= param_segments:
+                return normalize_content_hash_path(f"{prefix}{param_name}")
+            rest = '/'.join(suffix_parts[param_segments:])
+            return normalize_content_hash_path(f"{prefix}{param_name}/{rest}")
 
-    return path
+    return normalize_content_hash_path(path)
 
 
 def statistics_writer():

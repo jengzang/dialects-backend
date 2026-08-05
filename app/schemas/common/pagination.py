@@ -12,13 +12,13 @@ T = TypeVar('T')
 class PaginationParams(BaseModel):
     """分页查询参数"""
     page: int = Field(1, ge=1, description="页码，从1开始")
-    page_size: int = Field(20, ge=1, le=100, description="每页数量，最大100")
+    page_size: int = Field(20, ge=1, le=500, description="每页数量，最大500")
 
 
 class OffsetPaginationParams(BaseModel):
     """偏移量分页参数"""
     skip: int = Field(0, ge=0, description="跳过的记录数")
-    limit: int = Field(20, ge=1, le=100, description="返回的记录数")
+    limit: int = Field(20, ge=1, le=500, description="返回的记录数")
 
 
 class PaginatedResponse(BaseModel, Generic[T]):

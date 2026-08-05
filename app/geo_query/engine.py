@@ -1,31 +1,25 @@
 from __future__ import annotations
 
 import json
-import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from queue import Empty, Queue
 from threading import Lock
-from typing import Callable
+from typing import Callable, Iterator
+
+import sqlite3
 
 from .cache import LRUCache
-from .config import (
-    GEO_CACHE_MAX_ITEMS,
-    GEO_FEATURES_JSONL_PATH,
-    GEO_GRID_FACTOR,
-    GEO_INDEX_SQLITE_PATH,
-    GEO_INDEX_JSON_PATH,
-    GEO_META_JSON_PATH,
-    GEO_POINT_TOLERANCE_METRE,
-    GEO_SUBGEOM_WKB_PATH,
-)
-from .geometry_store import GeometryStore
+from .config import GEO_CACHE_MAX_ITEMS, GEO_INDEX_SQLITE_PATH, GEO_POINT_TOLERANCE_METRE
 from .index_store import (
-    connect_index_db,
-    count_subgeometries,
-    load_features,
-    load_index,
+    load_feature_by_id,
+    load_geometry_blob,
+    load_meta,
     load_subgeometry_by_ids,
     query_candidate_records_by_bbox,
+    query_children,
     query_feature_part_ids,
+    search_features,
 )
 from .models import EngineStatus, QueryResult, SubGeometryIndexRecord
 from .query_ops import geometry_query, point_query, point_query_with_tolerance
@@ -34,65 +28,97 @@ WhereFn = Callable[[dict], bool] | None
 _CACHE_SENTINEL = object()
 
 
+class _ReadOnlyPool:
+    """Minimal read-only SQLite connection pool for the GIS index."""
+
+    def __init__(self, db_path: Path, pool_size: int = 3):
+        self._uri = f"file:{db_path}?mode=ro"
+        self._pool: Queue[sqlite3.Connection] = Queue(maxsize=pool_size * 2)
+        self._lock = Lock()
+        self._created = 0
+        self._max_conns = pool_size * 2
+
+        for _ in range(pool_size):
+            self._pool.put(self._create())
+            self._created += 1
+
+    def _create(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._uri, uri=True, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @contextmanager
+    def get(self) -> Iterator[sqlite3.Connection]:
+        conn = None
+        try:
+            try:
+                conn = self._pool.get(timeout=5)
+            except Empty:
+                with self._lock:
+                    if self._created < self._max_conns:
+                        conn = self._create()
+                        self._created += 1
+                    else:
+                        raise TimeoutError("GIS connection pool exhausted")
+            yield conn
+        finally:
+            if conn is None:
+                return
+            try:
+                conn.execute("SELECT 1")
+                self._pool.put(conn, block=False)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                try:
+                    self._pool.put(self._create(), block=False)
+                except Exception:
+                    pass
+
+
 class AreaCityQueryPy:
     def __init__(self):
         self.loaded = False
-        self.mode = "lowmem-sqlite"
-        self.features = {}
-        self.index_records: list[SubGeometryIndexRecord] = []
-        self.record_by_sub_id: dict[int, SubGeometryIndexRecord] = {}
-        self.index_db_path: Path | None = None
-        self.geometry_store: GeometryStore | None = None
+        self._db_path: Path | None = None
+        self._pool: _ReadOnlyPool | None = None
         self.meta: dict = {}
         self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
         self._init_lock = Lock()
 
-    def init_store_in_wkb_file(
-        self,
-        index_db_path: Path = GEO_INDEX_SQLITE_PATH,
-        features_path: Path = GEO_FEATURES_JSONL_PATH,
-        geometry_path: Path = GEO_SUBGEOM_WKB_PATH,
-        meta_path: Path = GEO_META_JSON_PATH,
-    ) -> None:
+    def init_store(self, index_db_path: Path = GEO_INDEX_SQLITE_PATH) -> None:
         with self._init_lock:
             if self.loaded:
                 return
-            self.features = load_features(features_path)
-            conn = connect_index_db(index_db_path)
-            try:
-                subgeometry_count = count_subgeometries(conn)
-            finally:
-                conn.close()
-            self.index_records = []
-            self.record_by_sub_id = {}
-            self.index_db_path = index_db_path
-            self.geometry_store = GeometryStore(geometry_path)
-            self.meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
-            if "subgeometry_count" not in self.meta:
-                self.meta["subgeometry_count"] = subgeometry_count
+            pool = _ReadOnlyPool(index_db_path)
+            with pool.get() as conn:
+                self.meta = load_meta(conn)
+            self._db_path = index_db_path
+            self._pool = pool
             self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
             self.loaded = True
 
     def check_init_is_ok(self) -> None:
         if not self.loaded:
             raise RuntimeError("Geo query engine not initialized")
-        if self.geometry_store is None:
-            raise RuntimeError("Geometry store unavailable")
-        if self.index_db_path is None:
-            raise RuntimeError("SQLite index store unavailable")
+        if self._pool is None:
+            raise RuntimeError("SQLite connection pool unavailable")
 
-    def _connect_index_db(self) -> sqlite3.Connection:
-        assert self.index_db_path is not None
-        return connect_index_db(self.index_db_path)
+    def _get_conn(self):
+        assert self._pool is not None
+        return self._pool.get()
 
-    def _load_geometry(self, record: SubGeometryIndexRecord) -> dict | None:
+    def _load_geometry(self, conn: sqlite3.Connection, record: SubGeometryIndexRecord) -> dict | None:
         cached = self._geometry_cache.get(record.sub_id)
         if cached is not None:
             return None if cached is _CACHE_SENTINEL else cached
-        assert self.geometry_store is not None
-        raw = self.geometry_store.read(record.geom_offset, record.geom_length)
-        geometry = json.loads(raw.decode("utf-8")) if raw else None
-        self._geometry_cache.put(record.sub_id, geometry if geometry is not None else _CACHE_SENTINEL)
+        raw = load_geometry_blob(conn, record.sub_id)
+        if raw is None:
+            self._geometry_cache.put(record.sub_id, _CACHE_SENTINEL)
+            return None
+        geometry = json.loads(raw.decode("utf-8"))
+        self._geometry_cache.put(record.sub_id, geometry)
         return geometry
 
     def cache_stats(self) -> dict[str, int]:
@@ -104,118 +130,216 @@ class AreaCityQueryPy:
             "cache_eviction_count": self._geometry_cache.eviction_count,
         }
 
-    def grid_candidates_for_bbox(self, bbox: tuple[float, float, float, float]) -> list[SubGeometryIndexRecord]:
-        self.check_init_is_ok()
-        conn = self._connect_index_db()
-        try:
-            return query_candidate_records_by_bbox(conn, bbox)
-        finally:
-            conn.close()
+    # --- query endpoints ---
+
+    def grid_candidates_for_bbox(self, conn: sqlite3.Connection, bbox: tuple[float, float, float, float]) -> list[SubGeometryIndexRecord]:
+        return query_candidate_records_by_bbox(conn, bbox)
 
     def query_point(self, lng: float, lat: float, where: WhereFn = None) -> QueryResult:
         self.check_init_is_ok()
-        return point_query(self, self._load_geometry, self.features, lng, lat, where)
+        with self._get_conn() as conn:
+            return point_query(self, self._load_geometry, conn, lng, lat, where)
 
     def query_point_with_tolerance(self, lng: float, lat: float, tolerance_metre: int = GEO_POINT_TOLERANCE_METRE, where: WhereFn = None) -> QueryResult:
         self.check_init_is_ok()
-        return point_query_with_tolerance(self, self._load_geometry, self.features, lng, lat, tolerance_metre, where)
+        with self._get_conn() as conn:
+            return point_query_with_tolerance(self, self._load_geometry, conn, lng, lat, tolerance_metre, where)
 
     def query_geometry(self, query_geometry_payload: dict, where: WhereFn = None) -> QueryResult:
         self.check_init_is_ok()
-        return geometry_query(self, self._load_geometry, self.features, query_geometry_payload, where)
+        with self._get_conn() as conn:
+            return geometry_query(self, self._load_geometry, conn, query_geometry_payload, where)
+
+    # --- boundary ---
 
     def rebuild_feature_geometry(self, feature_id: int) -> dict | None:
-        feature = self.features.get(feature_id)
-        if not feature:
-            return None
-        conn = self._connect_index_db()
-        try:
+        self.check_init_is_ok()
+        with self._get_conn() as conn:
+            feature = load_feature_by_id(conn, feature_id)
+            if not feature:
+                return None
             sub_ids = query_feature_part_ids(conn, feature_id)
             records = load_subgeometry_by_ids(conn, sub_ids)
-        finally:
-            conn.close()
-        if not records:
-            return None
-        geometries = []
-        seen_part_keys = set()
-        for record in records:
-            part_key = (record.source_geometry_type, record.part_index)
-            if part_key in seen_part_keys:
-                continue
-            seen_part_keys.add(part_key)
-            geometry = self._load_geometry(record)
-            if geometry:
-                geometries.append(geometry)
+            if not records:
+                return None
+            geometries = []
+            seen_part_keys = set()
+            for record in records:
+                part_key = (record.source_geometry_type, record.part_index)
+                if part_key in seen_part_keys:
+                    continue
+                seen_part_keys.add(part_key)
+                geometry = self._load_geometry(conn, record)
+                if geometry:
+                    geometries.append(geometry)
+
         if not geometries:
             return None
         if feature.geometry_type == "Polygon":
             return geometries[0]
         if feature.geometry_type == "MultiPolygon":
-            polygon_coords = []
-            for geometry in geometries:
-                if geometry.get("type") == "Polygon":
-                    polygon_coords.append(geometry["coordinates"])
-            if polygon_coords:
-                return {"type": "MultiPolygon", "coordinates": polygon_coords}
+            polygon_coords = [g["coordinates"] for g in geometries if g.get("type") == "Polygon"]
+            return {"type": "MultiPolygon", "coordinates": polygon_coords} if polygon_coords else None
         if len(geometries) == 1:
             return geometries[0]
         return {"type": "GeometryCollection", "geometries": geometries}
 
     def read_boundary_by_id(self, feature_id: int) -> dict | None:
         self.check_init_is_ok()
-        feature = self.features.get(feature_id)
+        with self._get_conn() as conn:
+            feature = load_feature_by_id(conn, feature_id)
         if not feature:
             return None
         geometry = self.rebuild_feature_geometry(feature_id)
         return {"feature": feature.to_dict(), "geometry": geometry}
 
+    # --- search / children / resolve ---
+
     def search(self, q: str, deep: int | None = None) -> list[dict]:
         self.check_init_is_ok()
-        q = q.strip().lower()
+        q = q.strip()
         if not q:
             return []
-        results = []
-        for feature in self.features.values():
-            if deep is not None and feature.deep != deep:
-                continue
-            if q in feature.name.lower() or q in feature.ext_path.lower():
-                results.append(feature.to_dict())
-        return results
+        with self._get_conn() as conn:
+            return [f.to_dict() for f in search_features(conn, q, deep)]
+
+    def feature_path(self, feature_id: int) -> list[dict]:
+        self.check_init_is_ok()
+        with self._get_conn() as conn:
+            path = []
+            current = load_feature_by_id(conn, feature_id)
+            seen_ids = set()
+            while current is not None and current.id not in seen_ids:
+                seen_ids.add(current.id)
+                path.append({"id": current.id, "name": current.name, "deep": current.deep})
+                if current.pid == 0:
+                    break
+                current = load_feature_by_id(conn, current.pid)
+        path.reverse()
+        return path
+
+    def feature_to_resolved_dict(self, conn: sqlite3.Connection, feature_id: int) -> dict | None:
+        feature = load_feature_by_id(conn, feature_id)
+        if feature is None:
+            return None
+        item = feature.to_dict()
+        path = self._feature_path_for(conn, feature)
+        item["path"] = path
+        path_by_deep = {part["deep"]: part["name"] for part in path}
+        item["path_names"] = {
+            "province": path_by_deep.get(0),
+            "city": path_by_deep.get(1),
+            "county": path_by_deep.get(2),
+        }
+        return item
+
+    def _feature_path_for(self, conn: sqlite3.Connection, feature: object) -> list[dict]:
+        path = []
+        current = feature
+        seen_ids = set()
+        while current is not None and current.id not in seen_ids:
+            seen_ids.add(current.id)
+            path.append({"id": current.id, "name": current.name, "deep": current.deep})
+            if current.pid == 0:
+                break
+            current = load_feature_by_id(conn, current.pid)
+        path.reverse()
+        return path
+
+    def resolve(
+        self,
+        *,
+        province: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        path: str | None = None,
+    ) -> dict:
+        self.check_init_is_ok()
+        requested_parts = self._resolve_requested_parts(province=province, city=city, county=county, path=path)
+        if not requested_parts:
+            return {"success": True, "matched": False, "ambiguous": False, "feature": None, "candidates": []}
+
+        with self._get_conn() as conn:
+            target_name = requested_parts[-1].lower()
+            rows = conn.execute(
+                "SELECT id FROM features WHERE LOWER(name) = ?",
+                (target_name,),
+            ).fetchall()
+
+            candidates = []
+            for row in rows:
+                feat = load_feature_by_id(conn, int(row["id"]))
+                if feat is None:
+                    continue
+                feat_path = self._feature_path_for(conn, feat)
+                names = [p["name"] for p in feat_path]
+                if self._path_matches_request(requested_parts, names):
+                    resolved = self.feature_to_resolved_dict(conn, feat.id)
+                    if resolved:
+                        candidates.append(resolved)
+
+        if len(candidates) == 1:
+            return {"success": True, "matched": True, "ambiguous": False, "feature": candidates[0], "candidates": []}
+        return {
+            "success": True,
+            "matched": False,
+            "ambiguous": len(candidates) > 1,
+            "feature": None,
+            "candidates": candidates,
+        }
+
+    @staticmethod
+    def _path_matches_request(requested_parts: list[str], names: list[str]) -> bool:
+        if names == requested_parts:
+            return True
+        if len(requested_parts) == 2 and len(names) == 3 and names[0] == names[1] == requested_parts[0] and names[2] == requested_parts[1]:
+            return True
+        if len(requested_parts) == 1:
+            return names[-1] == requested_parts[0]
+        return False
+
+    def _resolve_requested_parts(
+        self,
+        *,
+        province: str | None,
+        city: str | None,
+        county: str | None,
+        path: str | None,
+    ) -> list[str]:
+        if path is not None and path.strip():
+            return [part.strip() for part in path.replace(">", "/").split("/") if part.strip()]
+        return [part.strip() for part in (province, city, county) if part is not None and part.strip()]
 
     def children(self, parent_id: int | None = None, deep: int | None = None) -> list[dict]:
         self.check_init_is_ok()
-        items = []
-        for feature in self.features.values():
-            if parent_id is not None and feature.pid != parent_id:
-                continue
-            if deep is not None and feature.deep != deep:
-                continue
-            items.append(feature.to_dict())
-        items.sort(key=lambda item: (item["deep"], item["id"]))
-        return items
+        with self._get_conn() as conn:
+            return [f.to_dict() for f in query_children(conn, parent_id, deep)]
 
     def get_status(self) -> EngineStatus:
+        self.check_init_is_ok()
         cache_stats = self.cache_stats()
+        with self._get_conn() as conn:
+            feature_count = conn.execute("SELECT COUNT(*) FROM features").fetchone()[0]
         return EngineStatus(
             loaded=self.loaded,
-            mode=self.mode,
-            feature_count=len(self.features),
+            mode="sqlite",
+            feature_count=feature_count,
             subgeometry_count=int(self.meta.get("subgeometry_count", 0)),
             features_with_multiple_parts=int(self.meta.get("features_with_multiple_parts", 0)),
-            split_mode=self.meta.get("split_mode", "unknown"),
-            source_crs=self.meta.get("source_crs", "unknown"),
-            target_crs=self.meta.get("target_crs", "unknown"),
-            storage_format=self.meta.get("storage_format", "unknown"),
-            grid_factor=int(self.meta.get("grid_factor", GEO_GRID_FACTOR)),
-            subgrid_factor=int(self.meta.get("subgrid_factor", self.meta.get("grid_factor", GEO_GRID_FACTOR))),
+            split_mode="polygon-parts-rtree-v1",
+            source_crs="WGS84",
+            target_crs="WGS84",
+            storage_format="geojson-bytes",
+            grid_factor=0,
+            subgrid_factor=0,
             cache_max_items=cache_stats["cache_max_items"],
             cache_current_items=cache_stats["cache_current_items"],
             cache_hit_count=cache_stats["cache_hit_count"],
             cache_miss_count=cache_stats["cache_miss_count"],
             cache_eviction_count=cache_stats["cache_eviction_count"],
-            index_path=str(self.index_db_path) if self.index_db_path else str(GEO_INDEX_SQLITE_PATH),
-            features_path=str(GEO_FEATURES_JSONL_PATH),
-            geometry_path=str(GEO_SUBGEOM_WKB_PATH),
+            index_path=str(self._db_path) if self._db_path else str(GEO_INDEX_SQLITE_PATH),
+            features_path="n/a (in sqlite)",
+            geometry_path="n/a (in sqlite)",
         )
 
 

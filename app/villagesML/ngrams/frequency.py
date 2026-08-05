@@ -3,13 +3,20 @@ N-gram分析API
 N-gram Analysis API endpoints
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.params import Query as QueryParam
 from typing import Optional, Dict, Any
 import sqlite3
+from itertools import groupby
+from collections import OrderedDict
 
 from ..dependencies import get_db, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable
+from ..schema_keys import C, T, REGION_LEVELS, region_level_regex
 
 router = APIRouter(prefix="/ngrams")
+
+# PRAGMA 缓存：避免每次请求都查询 schema
+_pragma_cache: Dict[str, Any] = {}
 
 # 数据优化配置
 DATA_OPTIMIZATION_DATE = None  # 将在数据优化后设置，格式: "2026-02-25"
@@ -49,6 +56,20 @@ def _build_metadata(
     return metadata
 
 
+def _has_specific_region_filter(region_level: str, region_name: Optional[str], city: Optional[str], county: Optional[str], township: Optional[str]) -> bool:
+    if region_name is not None:
+        return True
+    if region_level == REGION_LEVELS[0]:
+        return city is not None
+    if region_level == REGION_LEVELS[1]:
+        return county is not None
+    return township is not None
+
+
+def _query_bool(value: bool) -> bool:
+    return False if isinstance(value, QueryParam) else bool(value)
+
+
 @router.get("/frequency")
 def get_ngram_frequency(
     n: int = Query(..., ge=2, le=4, description="N-gram大小 (2=bigram, 3=trigram)"),
@@ -71,7 +92,7 @@ def get_ngram_frequency(
     Returns:
         List[dict]: N-gram频率列表
     """
-    table, col = _ngram_schema(dbpath, "ngram_frequency")
+    table, col = _ngram_schema(dbpath, T.NGRAM_FREQUENCY)
     query = f"""
         SELECT
             {col("ngram")} as ngram,
@@ -109,13 +130,14 @@ def get_ngram_frequency(
 @router.get("/regional")
 def get_regional_ngram_frequency(
     n: int = Query(..., ge=2, le=4, description="N-gram大小"),
-    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern="^(city|county|township)$"),
+    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     top_k: int = Query(50, ge=1, le=500, description="每个区域返回前K个n-grams"),
     return_metadata: bool = Query(False, description="是否返回元数据（包含数据说明）"),
+    allow_broad_scan: bool = Query(False, description="显式允许跨全部区域的探索型宽查询"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -141,7 +163,7 @@ def get_regional_ngram_frequency(
     Returns:
         List[dict] 或 dict: N-gram频率列表，或包含data和metadata的字典
     """
-    table, col = _ngram_schema(dbpath, "regional_ngram_frequency")
+    table, col = _ngram_schema(dbpath, T.REGIONAL_NGRAM_FREQUENCY)
     level_col = col("level")
     region_col = col("region")
     city_col = col("city")
@@ -152,8 +174,14 @@ def get_regional_ngram_frequency(
     percentage_col = col("percentage")
     n_col = col("n")
 
+    if not _query_bool(allow_broad_scan) and not _has_specific_region_filter(region_level, region_name, city, county, township):
+        raise HTTPException(
+            status_code=422,
+            detail=f"regional n-gram top queries require a specific {region_level} region; pass allow_broad_scan=true for exploratory all-region scans.",
+        )
+
     # 根据 region_level 构建不同的查询
-    if region_level == "township":
+    if region_level == REGION_LEVELS[2]:
         # Township 级别：直接查询原始数据
         query = f"""
             SELECT
@@ -164,8 +192,7 @@ def get_regional_ngram_frequency(
                 {township_col} as township,
                 {ngram_col} as ngram,
                 {frequency_col} as frequency,
-                {percentage_col} as percentage,
-                ROW_NUMBER() OVER (PARTITION BY {region_col} ORDER BY {frequency_col} DESC) as rank
+                {percentage_col} as percentage
             FROM {table}
             WHERE {n_col} = ? AND {level_col} = 'township'
         """
@@ -178,7 +205,7 @@ def get_regional_ngram_frequency(
         if county is not None:
             query += f" AND {county_col} = ?"
             params.append(county)
-        elif city is not None and region_level == 'township':
+        elif city is not None and region_level == REGION_LEVELS[2]:
             # Handle 东莞市/中山市 (no county level)
             query += f" AND ({county_col} IS NULL OR {county_col} = '')"
         if township is not None:
@@ -187,20 +214,22 @@ def get_regional_ngram_frequency(
         if region_name is not None:
             query += f" AND {region_col} = ?"
             params.append(region_name)
+        elif township is not None:
+            query += f" AND {region_col} = ?"
+            params.append(township)
 
-    elif region_level == "county":
+        query += f" ORDER BY {region_col}, {frequency_col} DESC"
+
+    elif region_level == REGION_LEVELS[1]:
         # County 级别：从 township 聚合
         query = f"""
             SELECT
-                'county' as region_level,
                 {county_col} as region_name,
                 {city_col} as city,
                 {county_col} as county,
-                NULL as township,
                 {ngram_col} as ngram,
                 SUM({frequency_col}) as frequency,
-                SUM({frequency_col}) * 100.0 / SUM(SUM({frequency_col})) OVER (PARTITION BY {county_col}) as percentage,
-                ROW_NUMBER() OVER (PARTITION BY {county_col} ORDER BY SUM({frequency_col}) DESC) as rank
+                COUNT(*) as _town_count
             FROM {table}
             WHERE {n_col} = ? AND {level_col} = 'township'
         """
@@ -218,20 +247,17 @@ def get_regional_ngram_frequency(
             params.append(region_name)
 
         query += f" GROUP BY {county_col}, {city_col}, {ngram_col}"
+        query += f" ORDER BY {county_col}, SUM({frequency_col}) DESC"
 
     else:  # region_level == "city"
         # City 级别：从 township 聚合
         query = f"""
             SELECT
-                'city' as region_level,
                 {city_col} as region_name,
                 {city_col} as city,
-                NULL as county,
-                NULL as township,
                 {ngram_col} as ngram,
                 SUM({frequency_col}) as frequency,
-                SUM({frequency_col}) * 100.0 / SUM(SUM({frequency_col})) OVER (PARTITION BY {city_col}) as percentage,
-                ROW_NUMBER() OVER (PARTITION BY {city_col} ORDER BY SUM({frequency_col}) DESC) as rank
+                COUNT(*) as _town_count
             FROM {table}
             WHERE {n_col} = ? AND {level_col} = 'township'
         """
@@ -246,17 +272,34 @@ def get_regional_ngram_frequency(
             params.append(region_name)
 
         query += f" GROUP BY {city_col}, {ngram_col}"
+        query += f" ORDER BY {city_col}, SUM({frequency_col}) DESC"
 
-    # 包装为子查询以应用 rank 过滤
-    query = f"""
-        SELECT * FROM (
-            {query}
-        ) WHERE rank <= ?
-        ORDER BY region_name, rank
-    """
-    params.append(top_k)
+    raw_rows = execute_query(db, query, tuple(params))
 
-    results = execute_query(db, query, tuple(params))
+    # Python 侧 groupby 取每个 region 的 top_k，计算 percentage
+    results = []
+    for region_name_key, group in groupby(raw_rows, key=lambda r: r['region_name']):
+        group_list = list(group)
+        group_total = sum(r['frequency'] for r in group_list)
+        for i, row in enumerate(group_list[:top_k]):
+            entry = OrderedDict()
+            entry['region_level'] = region_level
+            entry['region_name'] = region_name_key
+            entry['city'] = row.get('city')
+            if region_level == REGION_LEVELS[2]:
+                entry['county'] = row.get('county')
+                entry['township'] = row.get('township')
+            elif region_level == REGION_LEVELS[1]:
+                entry['county'] = row.get('county')
+                entry['township'] = None
+            else:
+                entry['county'] = None
+                entry['township'] = None
+            entry['ngram'] = row['ngram']
+            entry['frequency'] = row['frequency']
+            entry['percentage'] = round(row['frequency'] * 100.0 / group_total, 10) if group_total else 0.0
+            entry['rank'] = i + 1
+            results.append(entry)
 
     if not results:
         raise HTTPException(
@@ -267,7 +310,7 @@ def get_regional_ngram_frequency(
     # 如果需要返回元数据
     if return_metadata:
         metadata = _build_metadata(len(results))
-        if region_level in ['city', 'county']:
+        if region_level in REGION_LEVELS[:2]:
             metadata['note'] = f"Data aggregated from township level to {region_level} level"
         return {
             "data": results,
@@ -303,7 +346,7 @@ def get_structural_patterns(
     Returns:
         List[dict]: 结构化模式列表
     """
-    table, col = _ngram_schema(dbpath, "structural_patterns")
+    table, col = _ngram_schema(dbpath, T.STRUCTURAL_PATTERNS)
     query = f"""
         SELECT
             {col("pattern")} as pattern,
@@ -379,13 +422,14 @@ def get_structural_patterns(
 @router.get("/tendency")
 def get_ngram_tendency(
     ngram: Optional[str] = Query(None, description="N-gram（2-4字符，如'新村'、'村村'）"),
-    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern="^(city|county|township)$"),
+    region_level: str = Query("township", description="区域级别（支持动态聚合）", pattern=region_level_regex()),
     region_name: Optional[str] = Query(None, description="区域名称（模糊匹配，向后兼容）"),
     city: Optional[str] = Query(None, description="市级过滤"),
     county: Optional[str] = Query(None, description="区县级过滤"),
     township: Optional[str] = Query(None, description="乡镇级过滤"),
     min_tendency: Optional[float] = Query(None, description="最小倾向值（lift值）"),
     limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    allow_broad_scan: bool = Query(False, description="显式允许跨全部区域的探索型宽查询"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
 ):
@@ -418,16 +462,25 @@ def get_ngram_tendency(
         List[dict]: N-gram倾向性列表（包含区域中心点坐标）
     """
 
-    # 检查 regional_total_raw 字段是否存在
-    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
-    centroids_table, ccol = _ngram_schema(dbpath, "regional_centroids")
-    cursor = db.cursor()
-    cursor.execute(f"PRAGMA table_info({tendency_table})")
-    columns = [col[1] for col in cursor.fetchall()]
-    has_regional_total_raw = qcolumn(dbpath, "ngram_tendency", "regional_total_raw").strip('"') in columns
+    # 检查 regional_total_raw 字段是否存在（缓存 PRAGMA 结果）
+    tendency_table, tcol = _ngram_schema(dbpath, T.NGRAM_TENDENCY)
+    centroids_table, ccol = _ngram_schema(dbpath, T.REGIONAL_CENTROIDS)
+    cache_key = f"has_regional_total_raw:{dbpath}"
+    if cache_key not in _pragma_cache:
+        cursor = db.cursor()
+        cursor.execute(f"PRAGMA table_info({tendency_table})")
+        columns = [col[1] for col in cursor.fetchall()]
+        _pragma_cache[cache_key] = qcolumn(dbpath, T.NGRAM_TENDENCY, C.NGRAM_TENDENCY.REGIONAL_TOTAL_RAW).strip('"') in columns
+    has_regional_total_raw = _pragma_cache[cache_key]
+
+    if ngram is None and not _query_bool(allow_broad_scan) and not _has_specific_region_filter(region_level, region_name, city, county, township):
+        raise HTTPException(
+            status_code=422,
+            detail=f"ngram tendency top queries require a specific {region_level} region; pass allow_broad_scan=true for exploratory all-region scans.",
+        )
 
     # 根据 region_level 构建不同的查询
-    if region_level == "township":
+    if region_level == REGION_LEVELS[2]:
         # Township 级别：直接查询原始数据
         regional_total_raw_field = f"nt.{tcol('regional_total_raw')}" if has_regional_total_raw else "NULL"
 
@@ -473,6 +526,9 @@ def get_ngram_tendency(
         if region_name is not None:
             query += f" AND nt.{tcol('region')} = ?"
             params.append(region_name)
+        elif township is not None:
+            query += f" AND nt.{tcol('region')} = ?"
+            params.append(township)
         if ngram is not None:
             query += f" AND nt.{tcol('ngram')} = ?"
             params.append(ngram)
@@ -486,7 +542,7 @@ def get_ngram_tendency(
         """
         params.append(limit)
 
-    elif region_level == "county":
+    elif region_level == REGION_LEVELS[1]:
         # County 级别：从 township 聚合
         regional_total_raw_sum = f"SUM(nt.{tcol('regional_total_raw')})" if has_regional_total_raw else "NULL"
 
@@ -669,10 +725,10 @@ def get_ngram_significance(
     - county: 从 Township 聚合到 County 级别
     - city: 从 Township 聚合到 City 级别
     """
-    significance_table, scol = _ngram_schema(dbpath, "ngram_significance")
-    tendency_table, tcol = _ngram_schema(dbpath, "ngram_tendency")
+    significance_table, scol = _ngram_schema(dbpath, T.NGRAM_SIGNIFICANCE)
+    tendency_table, tcol = _ngram_schema(dbpath, T.NGRAM_TENDENCY)
 
-    if region_level == "township":
+    if region_level == REGION_LEVELS[2]:
         # Township 级别：直接查询
         query = f"""
             SELECT
@@ -712,7 +768,7 @@ def get_ngram_significance(
         query += f" ORDER BY ABS({scol('chi2')}) DESC LIMIT ?"
         params.append(limit)
 
-    elif region_level == "county":
+    elif region_level == REGION_LEVELS[1]:
         # County 级别：从 Township 聚合
         # 使用 ngram_tendency 表的底层计数数据来重新计算 chi2
         query = f"""

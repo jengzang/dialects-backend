@@ -11,8 +11,28 @@ from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from ..models import VillageDetail, PaginatedResponse
 from ..run_id_manager import get_run_id_manager
 from ..schema_runtime import qcolumn, qtable, run_id_analysis_type
+from ..schema_keys import C, T
+from ..compact import require_non_compact
 
 router = APIRouter(prefix="/village/search")
+
+
+def _table_columns(db: sqlite3.Connection, table: str) -> set[str]:
+    rows = execute_query(db, f"PRAGMA table_info({table})")
+    return {row["name"] for row in rows}
+
+
+def _first_existing_column(
+    dbpath: str,
+    logical_table: str,
+    columns: set[str],
+    *logical_columns: str,
+) -> str | None:
+    for logical_column in logical_columns:
+        physical_column = qcolumn(dbpath, logical_table, logical_column)
+        if physical_column.strip('"') in columns:
+            return physical_column
+    return None
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -41,14 +61,16 @@ def search_villages(
     Returns:
         PaginatedResponse: 分页响应，包含总数和数据列表
     """
+    require_non_compact(db, dbpath)
+
     # 构建 WHERE 条件
-    villages_table = qtable(dbpath, "villages")
-    village_name_col = qcolumn(dbpath, "villages", "name")
-    city_col = qcolumn(dbpath, "villages", "city")
-    county_col = qcolumn(dbpath, "villages", "county")
-    township_col = qcolumn(dbpath, "villages", "township")
-    longitude_col = qcolumn(dbpath, "villages", "longitude")
-    latitude_col = qcolumn(dbpath, "villages", "latitude")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    village_name_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    city_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+    county_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+    township_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)
+    longitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
+    latitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
 
     where_conditions = ["1=1"]
     params = []
@@ -113,9 +135,10 @@ def search_villages(
 
 @router.get("/detail", response_model=VillageDetail)
 def get_village_detail(
-    village_name: str = Query(..., description="村名"),
-    city: str = Query(..., description="城市"),
-    county: str = Query(..., description="区县"),
+    village_id: Optional[int] = Query(None, alias="id", description="村庄ROWID"),
+    village_name: Optional[str] = Query(None, description="村名"),
+    city: Optional[str] = Query(None, description="城市"),
+    county: Optional[str] = Query(None, description="区县"),
     run_id: Optional[str] = Query(None, description="分析运行ID（留空使用活跃版本）"),
     db: sqlite3.Connection = Depends(get_db),
     dbpath: str = Depends(get_dbpath),
@@ -133,53 +156,126 @@ def get_village_detail(
     Returns:
         VillageDetail: 村庄详情
     """
+    require_non_compact(db, dbpath)
+
+    if village_id is None and (village_name is None or city is None or county is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either id or village_name, city and county"
+        )
+
     if run_id is None:
         run_id = get_run_id_manager(dbpath).get_active_run_id(
-            run_id_analysis_type(dbpath, "village_features")
+            run_id_analysis_type(dbpath, T.VILLAGE_FEATURES)
         )
-    villages_table = qtable(dbpath, "villages")
-    village_name_col = qcolumn(dbpath, "villages", "name")
-    city_col = qcolumn(dbpath, "villages", "city")
-    county_col = qcolumn(dbpath, "villages", "county")
-    township_col = qcolumn(dbpath, "villages", "township")
-    longitude_col = qcolumn(dbpath, "villages", "longitude")
-    latitude_col = qcolumn(dbpath, "villages", "latitude")
-    village_features_table = qtable(dbpath, "village_features")
-    village_features_run_id = qcolumn(dbpath, "village_features", "run_id")
-    village_features_name = qcolumn(dbpath, "village_features", "village_name")
-    village_features_city = qcolumn(dbpath, "village_features", "city")
-    village_features_county = qcolumn(dbpath, "village_features", "county")
-    village_features_semantic_tags = qcolumn(dbpath, "village_features", "semantic_tags")
-    village_features_suffix = qcolumn(dbpath, "village_features", "suffix")
-    village_features_cluster_id = qcolumn(dbpath, "village_features", "cluster_id")
-    village_spatial_features_table = qtable(dbpath, "village_spatial_features")
-    village_spatial_features_village_id = qcolumn(dbpath, "village_spatial_features", "village_id")
-    village_spatial_features_name = qcolumn(dbpath, "village_spatial_features", "village_name")
-    village_spatial_features_city = qcolumn(dbpath, "village_spatial_features", "city")
-    village_spatial_features_county = qcolumn(dbpath, "village_spatial_features", "county")
-    village_spatial_features_knn_mean = qcolumn(dbpath, "village_spatial_features", "knn_mean_distance")
-    village_spatial_features_local_density = qcolumn(dbpath, "village_spatial_features", "local_density")
-    village_spatial_features_isolation = qcolumn(dbpath, "village_spatial_features", "isolation_score")
-    village_cluster_assignments_table = qtable(dbpath, "village_cluster_assignments")
-    village_cluster_assignments_village_id = qcolumn(dbpath, "village_cluster_assignments", "village_id")
-    village_cluster_assignments_run_id = qcolumn(dbpath, "village_cluster_assignments", "run_id")
-    village_cluster_assignments_cluster_id = qcolumn(dbpath, "village_cluster_assignments", "cluster_id")
+    villages_table = qtable(dbpath, T.VILLAGES)
+    villages_rowid = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.ROWID)
+    villages_id = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.VILLAGE_ID)
+    village_name_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.NAME)
+    city_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.CITY)
+    county_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.COUNTY)
+    township_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.TOWNSHIP)
+    longitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LONGITUDE)
+    latitude_col = qcolumn(dbpath, T.VILLAGES, C.VILLAGES.LATITUDE)
+    village_features_table = qtable(dbpath, T.VILLAGE_FEATURES)
+    village_features_run_id = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.RUN_ID)
+    village_features_village_id = qcolumn(dbpath, T.VILLAGE_FEATURES, C.VILLAGE_FEATURES.VILLAGE_ID)
+    village_features_columns = _table_columns(db, village_features_table)
+    village_features_suffix = _first_existing_column(
+        dbpath,
+        T.VILLAGE_FEATURES,
+        village_features_columns,
+        C.VILLAGE_FEATURES.SUFFIX,
+        C.VILLAGE_FEATURES.SUFFIX_1,
+    ) or "NULL"
+    village_features_cluster_id = _first_existing_column(
+        dbpath,
+        T.VILLAGE_FEATURES,
+        village_features_columns,
+        C.VILLAGE_FEATURES.CLUSTER_ID,
+        C.VILLAGE_FEATURES.KMEANS_CLUSTER_ID,
+    ) or "NULL"
+    semantic_feature_exprs = []
+    for category in (
+        "agriculture",
+        "clan",
+        "culture",
+        "modifier",
+        "settlement",
+        "spatial",
+        "terrain",
+        "vegetation",
+        "water",
+    ):
+        logical_column = f"sem_{category}"
+        physical_column = qcolumn(dbpath, T.VILLAGE_FEATURES, logical_column)
+        if physical_column.strip('"') in village_features_columns:
+            semantic_feature_exprs.append(
+                f"CASE WHEN {physical_column} = 1 THEN '{category}' END"
+            )
+    if semantic_feature_exprs:
+        village_features_semantic_tags = (
+            "trim("
+            + " || ',' || ".join([f"COALESCE({expr}, '')" for expr in semantic_feature_exprs])
+            + ", ',')"
+        )
+    else:
+        semantic_tags_column = _first_existing_column(
+            dbpath,
+            T.VILLAGE_FEATURES,
+            village_features_columns,
+            C.VILLAGE_FEATURES.SEMANTIC_TAGS,
+        )
+        village_features_semantic_tags = semantic_tags_column or "''"
+    village_spatial_features_table = qtable(dbpath, T.VILLAGE_SPATIAL_FEATURES)
+    village_spatial_features_village_id = qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.VILLAGE_ID)
+    village_spatial_features_columns = _table_columns(db, village_spatial_features_table)
+    village_spatial_features_knn_mean = _first_existing_column(
+        dbpath,
+        T.VILLAGE_SPATIAL_FEATURES,
+        village_spatial_features_columns,
+        C.VILLAGE_SPATIAL_FEATURES.KNN_MEAN_DISTANCE,
+        C.VILLAGE_SPATIAL_FEATURES.NN_DISTANCE_5,
+    ) or "NULL"
+    village_spatial_features_local_density = _first_existing_column(
+        dbpath,
+        T.VILLAGE_SPATIAL_FEATURES,
+        village_spatial_features_columns,
+        C.VILLAGE_SPATIAL_FEATURES.LOCAL_DENSITY,
+        C.VILLAGE_SPATIAL_FEATURES.LOCAL_DENSITY_1KM,
+    ) or "NULL"
+    village_spatial_features_isolation = qcolumn(dbpath, T.VILLAGE_SPATIAL_FEATURES, C.VILLAGE_SPATIAL_FEATURES.ISOLATION_SCORE)
+    village_cluster_assignments_table = qtable(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS)
+    village_cluster_assignments_village_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.VILLAGE_ID)
+    village_cluster_assignments_run_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.RUN_ID)
+    village_cluster_assignments_cluster_id = qcolumn(dbpath, T.VILLAGE_CLUSTER_ASSIGNMENTS, C.VILLAGE_CLUSTER_ASSIGNMENTS.CLUSTER_ID)
+
     # 获取基础信息
+    basic_where = f"{villages_rowid} = ?"
+    basic_params: tuple = (village_id,)
+    if village_id is None:
+        basic_where = f"{village_name_col} = ? AND {city_col} = ? AND {county_col} = ?"
+        basic_params = (village_name, city, county)
+
     basic_query = f"""
         SELECT
+            {villages_rowid} as village_id,
             {village_name_col} as village_name,
             {city_col} as city,
             {county_col} as county,
             {township_col} as township,
             CAST({longitude_col} AS REAL) as longitude,
-            CAST({latitude_col} AS REAL) as latitude
+            CAST({latitude_col} AS REAL) as latitude,
+            {villages_id} as village_id_str
         FROM {villages_table}
-        WHERE {village_name_col} = ? AND {city_col} = ? AND {county_col} = ?
+        WHERE {basic_where}
     """
-    basic_info = execute_single(db, basic_query, (village_name, city, county))
+    basic_info = execute_single(db, basic_query, basic_params)
 
     if not basic_info:
         raise HTTPException(status_code=404, detail="Village not found")
+
+    materialized_village_id = basic_info["village_id_str"]
 
     # 获取物化特征（如果存在）
     features_query = f"""
@@ -188,13 +284,13 @@ def get_village_detail(
             {village_features_suffix} as suffix,
             {village_features_cluster_id} as cluster_id
         FROM {village_features_table}
-        WHERE {village_features_run_id} = ? AND {village_features_name} = ? AND {village_features_city} = ? AND {village_features_county} = ?
+        WHERE {village_features_run_id} = ? AND {village_features_village_id} = ?
     """
-    features = execute_single(db, features_query, (run_id, village_name, city, county))
+    features = execute_single(db, features_query, (run_id, materialized_village_id))
 
     # 获取空间特征（如果存在）
     spatial_cluster_run_id = get_run_id_manager(dbpath).get_active_run_id(
-        run_id_analysis_type(dbpath, "spatial_clusters")
+        run_id_analysis_type(dbpath, T.SPATIAL_CLUSTERS)
     )
     spatial_query = f"""
         SELECT
@@ -205,14 +301,14 @@ def get_village_detail(
         FROM {village_spatial_features_table} vsf
         LEFT JOIN {village_cluster_assignments_table} vca
             ON vsf.{village_spatial_features_village_id} = vca.{village_cluster_assignments_village_id} AND vca.{village_cluster_assignments_run_id} = ?
-        WHERE vsf.{village_spatial_features_name} = ? AND vsf.{village_spatial_features_city} = ? AND vsf.{village_spatial_features_county} = ?
+        WHERE vsf.{village_spatial_features_village_id} = ?
     """
-    spatial = execute_single(db, spatial_query, (spatial_cluster_run_id, village_name, city, county))
+    spatial = execute_single(db, spatial_query, (spatial_cluster_run_id, materialized_village_id))
 
     # 组装详情
     detail = {
         "basic_info": basic_info,
-        "semantic_tags": features.get("semantic_tags", "").split(",") if features else [],
+        "semantic_tags": [tag for tag in features.get("semantic_tags", "").split(",") if tag] if features else [],
         "suffix": features.get("suffix", "") if features else "",
         "cluster_id": features.get("cluster_id") if features else None,
         "spatial_features": spatial if spatial else None

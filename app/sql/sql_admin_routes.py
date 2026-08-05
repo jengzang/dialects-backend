@@ -2,29 +2,63 @@ from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.service.auth.database.connection import get_db as get_auth_db
-from app.service.auth.core.dependencies import get_current_admin_user
-from app.service.auth.database.models import User
+from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
+from app.service.auth.database.models import User, UserDbPermission
+from app.common.path import DB_MAPPING
 from app.sql.choose_db import get_db_connection
 from app.sql.sql_routes import router, _validate_table, _validate_columns, _quote_identifier
 from app.sql.sql_schemas import MutationParams, BatchMutationParams, BatchReplacePreviewParams, \
     BatchReplaceExecuteParams
 
 
+@router.get("/permissions/me")
+async def get_my_sql_permissions(
+    current_user: User = Depends(get_current_user),
+    auth_db: Session = Depends(get_auth_db),
+):
+    """
+    获取当前用户可以编辑的 SQL 数据库。
+
+    权限粒度是 db_key，不是 table_name。
+    """
+    role = current_user.role if current_user else "anonymous"
+
+    if current_user and current_user.role == "admin":
+        editable_db_keys = list(DB_MAPPING.keys())
+    elif current_user:
+        rows = auth_db.query(UserDbPermission).filter(
+            UserDbPermission.user_id == current_user.id
+        ).all()
+        editable_db_keys = [
+            row.db_key
+            for row in rows
+            if row.can_write and row.db_key in DB_MAPPING
+        ]
+    else:
+        editable_db_keys = []
+
+    return {
+        "user_id": current_user.id if current_user else None,
+        "role": role,
+        "editable_db_keys": editable_db_keys,
+    }
+
+
 @router.post("/mutate")
 async def mutate_table(
     params: MutationParams,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
-    单个记录操作（创建/更新/删除）- 需要管理员权限
+    单个记录操作（创建/更新/删除）- 需要数据库写权限
 
     支持的操作：
     - create: 插入单条记录
     - update: 更新单条记录（基于主键）
     - delete: 删除单条记录（基于主键）
 
-    权限要求：管理员
+    权限要求：管理员，或在 user_db_permissions 中拥有对应 db_key 的写权限
     """
     _validate_table(params.db_key, params.table_name)
     _validate_columns(params.db_key, params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
@@ -44,6 +78,12 @@ async def mutate_table(
                 cursor.execute(sql, list(params.data.values()))
 
             elif params.action == "update":
+                cursor.execute(
+                    f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                    (params.pk_value,),
+                )
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="记录不存在")
                 set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in params.data.keys()])
                 sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
                 vals = list(params.data.values())
@@ -51,6 +91,12 @@ async def mutate_table(
                 cursor.execute(sql, vals)
 
             elif params.action == "delete":
+                cursor.execute(
+                    f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                    (params.pk_value,),
+                )
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="记录不存在")
                 sql = f"DELETE FROM {table_q} WHERE {pk_q} = ?"
                 cursor.execute(sql, (params.pk_value,))
 
@@ -64,18 +110,18 @@ async def mutate_table(
 @router.post("/batch-mutate")
 async def batch_mutate_table(
     params: BatchMutationParams,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
-    批量操作（批量创建/更新/删除）- 需要管理员权限
+    批量操作（批量创建/更新/删除）- 需要数据库写权限
 
     支持的操作：
     - batch_create: 批量插入多条记录
     - batch_update: 批量更新多条记录（每条记录必须包含主键）
     - batch_delete: 批量删除多条记录（通过主键列表）
 
-    权限要求：管理员
+    权限要求：管理员，或在 user_db_permissions 中拥有对应 db_key 的写权限
 
     示例请求：
 
@@ -164,6 +210,15 @@ async def batch_mutate_table(
                         if not update_fields:
                             raise ValueError("没有需要更新的字段")
 
+                        cursor.execute(
+                            f"SELECT 1 FROM {table_q} WHERE {pk_q} = ? LIMIT 1",
+                            (pk_value,),
+                        )
+                        if cursor.fetchone() is None:
+                            error_count += 1
+                            errors.append(f"第{i+1}条记录未找到 (主键={pk_value})")
+                            continue
+
                         set_clause = ", ".join([f"{_quote_identifier(k)} = ?" for k in update_fields.keys()])
                         sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
 
@@ -171,12 +226,7 @@ async def batch_mutate_table(
                         values.append(pk_value)
 
                         cursor.execute(sql, values)
-
-                        if cursor.rowcount > 0:
-                            success_count += 1
-                        else:
-                            error_count += 1
-                            errors.append(f"第{i+1}条记录未找到 (主键={pk_value})")
+                        success_count += 1
 
                     except Exception as e:
                         error_count += 1
@@ -339,15 +389,15 @@ async def batch_replace_preview(
 @router.post("/batch-replace-execute")
 async def batch_replace_execute(
     params: BatchReplaceExecuteParams,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
     auth_db: Session = Depends(get_auth_db)
 ):
     """
-    批量替换执行 - 需要管理员权限
+    批量替换执行 - 需要数据库写权限
 
     执行全表批量替换操作，直接在数据库层面更新符合条件的记录。
 
-    权限要求：管理员
+    权限要求：管理员，或在 user_db_permissions 中拥有对应 db_key 的写权限
     """
     _validate_table(params.db_key, params.table_name)
     _validate_columns(params.db_key, params.table_name, params.columns, "columns")

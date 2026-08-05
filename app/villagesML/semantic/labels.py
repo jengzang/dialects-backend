@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import execute_query, execute_single, get_db, get_dbpath
 from ..schema_runtime import qcolumn, qtable
+from ..schema_keys import C, T
 
 router = APIRouter(prefix="/semantic/labels")
 
@@ -19,11 +20,11 @@ def get_semantic_label_by_character(
 ):
     """Get semantic label for one character."""
     try:
-        table = qtable(dbpath, "semantic_labels")
-        char_col = qcolumn(dbpath, "semantic_labels", "char")
-        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
-        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
-        explanation_col = qcolumn(dbpath, "semantic_labels", "llm_explanation")
+        table = qtable(dbpath, T.SEMANTIC_LABELS)
+        char_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.CHAR)
+        category_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.SEMANTIC_CATEGORY)
+        confidence_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.CONFIDENCE)
+        explanation_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.LLM_EXPLANATION)
         query = f"""
             SELECT
                 {char_col} as character,
@@ -53,11 +54,11 @@ def get_characters_by_semantic_category(
 ):
     """Get characters in a semantic category."""
     try:
-        table = qtable(dbpath, "semantic_labels")
-        char_col = qcolumn(dbpath, "semantic_labels", "char")
-        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
-        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
-        explanation_col = qcolumn(dbpath, "semantic_labels", "llm_explanation")
+        table = qtable(dbpath, T.SEMANTIC_LABELS)
+        char_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.CHAR)
+        category_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.SEMANTIC_CATEGORY)
+        confidence_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.CONFIDENCE)
+        explanation_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.LLM_EXPLANATION)
         query = f"""
             SELECT
                 {char_col} as character,
@@ -94,9 +95,9 @@ def list_semantic_categories(
 ):
     """List semantic categories and their counts."""
     try:
-        table = qtable(dbpath, "semantic_labels")
-        category_col = qcolumn(dbpath, "semantic_labels", "semantic_category")
-        confidence_col = qcolumn(dbpath, "semantic_labels", "confidence")
+        table = qtable(dbpath, T.SEMANTIC_LABELS)
+        category_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.SEMANTIC_CATEGORY)
+        confidence_col = qcolumn(dbpath, T.SEMANTIC_LABELS, C.SEMANTIC_LABELS.CONFIDENCE)
         query = f"""
             SELECT
                 {category_col} as semantic_category,

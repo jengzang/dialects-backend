@@ -57,7 +57,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/compare/chars",
             "/api/compare/tones",
         ],
-        "prefixes": ["/api/yubao/"],
+        "prefixes": [],
         "exclude_prefixes": [],
     },
     "category_音系分析": {
@@ -69,6 +69,25 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/pho_pie_by_status",
         ],
         "prefixes": [],
+        "exclude_prefixes": [],
+    },
+    "category_詞句查詢": {
+        "paths": [
+            "/api/vocabulary/search/entries",
+            "/api/vocabulary/search/map-points",
+            "/api/vocabulary/search/standard-words",
+            "/api/vocabulary/search/map-items",
+            "/api/vocabulary/search/location-options",
+            "/api/vocabulary/logs",
+            "/api/vocabulary/imports",
+            "/api/vocabulary/imports/preview",
+            "/api/vocabulary/sql/query",
+            "/api/vocabulary/sql/mutate",
+            "/api/vocabulary/sql/batch-mutate",
+            "/api/vocabulary/sql/batch-replace-preview",
+            "/api/vocabulary/sql/batch-replace-execute",
+        ],
+        "prefixes": ["/api/yubao/", "/api/vocabulary/locations/"],
         "exclude_prefixes": [],
     },
     "category_工具使用": {
@@ -91,6 +110,11 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
         "prefixes": ["/api/villages/","/api/locations/"],
         "exclude_prefixes": ["/api/villages/admin/"],
     },
+    "category_用户自定义": {
+        "paths": ["/api/custom_regions"],
+        "prefixes": ["/user/custom/"],
+        "exclude_prefixes": [],
+    },
 }
 
 SQL_TREE_RULE: RuleConfig = {
@@ -105,12 +129,79 @@ YUBAO_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+VOCABULARY_SEARCH_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/search/entries",
+        "/api/vocabulary/search/map-points",
+        "/api/vocabulary/search/standard-words",
+        "/api/vocabulary/search/map-items",
+        "/api/vocabulary/search/location-options",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+VOCABULARY_TABLE_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/sql/query",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+VOCABULARY_EDIT_RULE: RuleConfig = {
+    "paths": [
+        "/api/vocabulary/logs",
+        "/api/vocabulary/imports",
+        "/api/vocabulary/imports/preview",
+        "/api/vocabulary/sql/mutate",
+        "/api/vocabulary/sql/batch-mutate",
+        "/api/vocabulary/sql/batch-replace-preview",
+        "/api/vocabulary/sql/batch-replace-execute",
+    ],
+    "prefixes": ["/api/vocabulary/locations/"],
+    "exclude_prefixes": [],
+}
+
+CUSTOM_REGIONS_RULE: RuleConfig = {
+    "paths": ["/api/custom_regions"],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+CUSTOM_DATA_QUERY_RULE: RuleConfig = {
+    "paths": [
+        "/user/custom/points",
+        "/user/custom/features",
+        "/user/custom/data-by-point",
+        "/user/custom/data-by-feature",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+CUSTOM_DATA_EDIT_RULE: RuleConfig = {
+    "paths": [
+        "/user/custom/batch-create",
+        "/user/custom/edit",
+        "/user/custom/batch-delete",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
     "endpoint_group_locations": LOCATIONS_RULE,
     "endpoint_group_sql_tree": SQL_TREE_RULE,
     "endpoint_group_yubao": YUBAO_RULE,
+    "endpoint_group_vocabulary_search": VOCABULARY_SEARCH_RULE,
+    "endpoint_group_vocabulary_table": VOCABULARY_TABLE_RULE,
+    "endpoint_group_vocabulary_edit": VOCABULARY_EDIT_RULE,
+    "endpoint_group_custom_regions": CUSTOM_REGIONS_RULE,
+    "endpoint_group_custom_data_query": CUSTOM_DATA_QUERY_RULE,
+    "endpoint_group_custom_data_edit": CUSTOM_DATA_EDIT_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -140,11 +231,12 @@ ENDPOINT_PATHS = [
 class RankingDetail:
     """Individual ranking detail."""
 
-    def __init__(self, rank: Optional[int], value: int, gap_to_prev: Optional[int], first_place_value: int):
+    def __init__(self, rank: Optional[int], value: int, gap_to_prev: Optional[int], first_place_value: int, percentile: float):
         self.rank = rank
         self.value = value
         self.gap_to_prev = gap_to_prev
         self.first_place_value = first_place_value
+        self.percentile = percentile
 
 
 def _build_usage_filter(rule: RuleConfig):
@@ -179,21 +271,22 @@ def _build_exact_path_rule(path: str) -> RuleConfig:
     }
 
 
-def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetail:
+def _rank_from_totals(db: Session, user_total: int, user_totals, total_users: int) -> RankingDetail:
     """Calculate ranking metrics from a per-user totals subquery."""
     first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
+    n = db.query(func.count(user_totals.c.user_id)).filter(
+        user_totals.c.total > 0
+    ).scalar()
 
     if user_total == 0:
-        rank = db.query(func.count(user_totals.c.total)).filter(
-            user_totals.c.total > 0
-        ).scalar() + 1
+        rank = n + 1
 
         prev_value = db.query(user_totals.c.total).filter(
             user_totals.c.total > 0
         ).order_by(user_totals.c.total.asc()).first()
 
         gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
 
     rank = db.query(func.count(user_totals.c.total)).filter(
         user_totals.c.total > user_total
@@ -204,10 +297,16 @@ def _rank_from_totals(db: Session, user_total: int, user_totals) -> RankingDetai
     ).order_by(user_totals.c.total.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_total
-    return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+    if n <= 1:
+        percentile = 100.0
+    elif rank < n:
+        percentile = round((n - rank) / (n - 1) * 100, 1)
+    else:
+        percentile = round(100 / (2 * n - 2), 1)
+    return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
-def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
+def _calculate_online_time_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
     """Calculate ranking based on total online time."""
     user = db.query(models.User).filter(models.User.id == user_id).first()
     user_value = user.total_online_seconds if user else 0
@@ -224,7 +323,7 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
         ).order_by(models.User.total_online_seconds.asc()).first()
 
         gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
 
     rank = db.query(func.count(models.User.id)).filter(
         models.User.total_online_seconds > user_value
@@ -235,10 +334,17 @@ def _calculate_online_time_rank(db: Session, user_id: int) -> RankingDetail:
     ).order_by(models.User.total_online_seconds.asc()).first()
 
     gap_to_prev = None if prev_value is None else prev_value[0] - user_value
-    return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value)
+    n = total_users
+    if n <= 1:
+        percentile = 100.0
+    elif rank < n:
+        percentile = round((n - rank) / (n - 1) * 100, 1)
+    else:
+        percentile = round(100 / (2 * n - 2), 1)
+    return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
 
 
-def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
+def _calculate_total_queries_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
     """Calculate ranking based on total API queries across all endpoints."""
     user_total = db.query(func.sum(models.ApiUsageSummary.count)).filter(
         models.ApiUsageSummary.user_id == user_id
@@ -249,10 +355,10 @@ def _calculate_total_queries_rank(db: Session, user_id: int) -> RankingDetail:
         func.sum(models.ApiUsageSummary.count).label("total"),
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    return _rank_from_totals(db, user_total, user_totals)
+    return _rank_from_totals(db, user_total, user_totals, total_users)
 
 
-def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig) -> RankingDetail:
+def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig, total_users: int) -> RankingDetail:
     """Calculate ranking based on aggregated query count for a rule of endpoints."""
     usage_filter = _build_usage_filter(rule)
 
@@ -270,12 +376,12 @@ def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig) -> Ra
         usage_filter
     ).group_by(models.ApiUsageSummary.user_id).subquery()
 
-    return _rank_from_totals(db, user_total, user_totals)
+    return _rank_from_totals(db, user_total, user_totals, total_users)
 
 
-def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str) -> RankingDetail:
+def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str, total_users: int) -> RankingDetail:
     """Calculate ranking based on query count for one exact endpoint."""
-    return _calculate_aggregate_rank(db, user_id, _build_exact_path_rule(endpoint_path))
+    return _calculate_aggregate_rank(db, user_id, _build_exact_path_rule(endpoint_path), total_users)
 
 
 def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
@@ -285,28 +391,28 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     This function computes:
     - 1 online time ranking
     - 1 total queries ranking
-    - 5 category rankings
+    - 6 category rankings
     - 2 grouped endpoint rankings
     - individual endpoint rankings
     """
-    rankings = {}
-
-    rankings["online_time"] = _calculate_online_time_rank(db, user_id)
-    rankings["total_queries"] = _calculate_total_queries_rank(db, user_id)
-
-    for category_name, rule in CATEGORY_RULES.items():
-        rankings[category_name] = _calculate_aggregate_rank(db, user_id, rule)
-
-    for group_name, rule in AGGREGATED_ENDPOINT_RULES.items():
-        rankings[group_name] = _calculate_aggregate_rank(db, user_id, rule)
-
-    for endpoint_path in ENDPOINT_PATHS:
-        key_name = f"endpoint_{endpoint_path.replace('/', '_').replace(':', '_')}"
-        rankings[key_name] = _calculate_endpoint_rank(db, user_id, endpoint_path)
-
     total_users = db.query(func.count(func.distinct(models.User.id))).filter(
         models.User.total_online_seconds > 0
     ).scalar()
+
+    rankings = {}
+
+    rankings["online_time"] = _calculate_online_time_rank(db, user_id, total_users)
+    rankings["total_queries"] = _calculate_total_queries_rank(db, user_id, total_users)
+
+    for category_name, rule in CATEGORY_RULES.items():
+        rankings[category_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
+
+    for group_name, rule in AGGREGATED_ENDPOINT_RULES.items():
+        rankings[group_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
+
+    for endpoint_path in ENDPOINT_PATHS:
+        key_name = f"endpoint_{endpoint_path.replace('/', '_').replace(':', '_')}"
+        rankings[key_name] = _calculate_endpoint_rank(db, user_id, endpoint_path, total_users)
 
     rankings_dict = {}
     for key, detail in rankings.items():
@@ -315,6 +421,7 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
             "value": detail.value,
             "gap_to_prev": detail.gap_to_prev,
             "first_place_value": detail.first_place_value,
+            "percentile": detail.percentile,
         }
 
     return {
