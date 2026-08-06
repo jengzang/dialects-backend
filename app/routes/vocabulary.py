@@ -120,6 +120,8 @@ def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -131,6 +133,8 @@ def get_vocabulary_items(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
             standard_words=standard_words,
             page=page,
             page_size=page_size,
@@ -146,6 +150,8 @@ def get_vocabulary_map_points(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -154,6 +160,8 @@ def get_vocabulary_map_points(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -166,6 +174,8 @@ def get_vocabulary_standard_words(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     limit: Optional[int] = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -175,6 +185,8 @@ def get_vocabulary_standard_words(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
             limit=limit,
         )
     except ValueError as exc:
@@ -189,6 +201,8 @@ def get_vocabulary_map_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -198,6 +212,8 @@ def get_vocabulary_map_items(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

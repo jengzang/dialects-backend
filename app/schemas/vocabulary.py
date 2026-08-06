@@ -98,6 +98,8 @@ class VocabularyMapItemsResponse(BaseModel):
 class VocabularyLocationOptionResponse(BaseModel):
     location_name: str
     location_label: str
+    province: str = ""
+    city: str = ""
 
 
 class VocabularyLocationOptionsResponse(BaseModel):

@@ -86,6 +86,8 @@ class VocabularyMapItemsResult:
 class VocabularyLocationOption:
     location_name: str
     location_label: str
+    province: str = ""
+    city: str = ""
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,8 @@ def _build_filter_clause(
     q: str | None,
     search_fields: str | Iterable[str] | None,
     locations: str | Iterable[str] | None,
+    province: str | None = None,
+    city: str | None = None,
 ) -> tuple[str, list[str]]:
     fields = _normalize_search_fields(search_fields)
     location_terms = _normalize_multi_value(locations)
@@ -239,6 +243,13 @@ def _build_filter_clause(
             terms=location_terms,
         )
 
+    if province:
+        clauses.append("l.province = ?")
+        values.append(province)
+    if city:
+        clauses.append("l.city = ?")
+        values.append(city)
+
     return " AND ".join(clauses) if clauses else "1=1", values
 
 
@@ -262,6 +273,8 @@ def query_vocabulary_items(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
+    province: str | None = None,
+    city: str | None = None,
     standard_words: str | Iterable[str] | None = None,
     page: int = 1,
     page_size: int = 50,
@@ -277,6 +290,8 @@ def query_vocabulary_items(
         q=q,
         search_fields=search_fields,
         locations=locations,
+        province=province,
+        city=city,
     )
     clauses = [where_clause]
     _append_standard_word_filter(
@@ -330,6 +345,8 @@ def query_vocabulary_standard_words(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
+    province: str | None = None,
+    city: str | None = None,
     limit: int | None = DEFAULT_STANDARD_WORD_LIMIT,
 ) -> VocabularyStandardWordsResult:
     if limit is not None and limit < 1:
@@ -339,6 +356,8 @@ def query_vocabulary_standard_words(
         q=q,
         search_fields=search_fields,
         locations=locations,
+        province=province,
+        city=city,
     )
     conn = session.connection().connection
     cursor = conn.cursor()
@@ -395,11 +414,15 @@ def query_vocabulary_map_points(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
+    province: str | None = None,
+    city: str | None = None,
 ) -> VocabularyMapPointsResult:
     where_clause, values = _build_filter_clause(
         q=q,
         search_fields=search_fields,
         locations=locations,
+        province=province,
+        city=city,
     )
     conn = session.connection().connection
     cursor = conn.cursor()
@@ -462,6 +485,8 @@ def query_vocabulary_map_items(
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
+    province: str | None = None,
+    city: str | None = None,
 ) -> VocabularyMapItemsResult:
     selected_standard_words = _normalize_multi_value(standard_words)
     if not selected_standard_words:
@@ -471,6 +496,8 @@ def query_vocabulary_map_items(
         q=q,
         search_fields=search_fields,
         locations=locations,
+        province=province,
+        city=city,
     )
     clauses = [where_clause]
     _append_standard_word_filter(
@@ -575,6 +602,8 @@ def query_vocabulary_location_options(*, session: Session) -> VocabularyLocation
             VocabularyLocationOption(
                 location_name=location_name,
                 location_label=_format_location(row),
+                province=row.get("province") or "",
+                city=row.get("city") or "",
             )
         )
 
