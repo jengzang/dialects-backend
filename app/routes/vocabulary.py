@@ -29,7 +29,7 @@ from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
-from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.permissions import get_effective_permission_level, SELF_SCOPED_LEVELS
 from app.service.vocabulary.query import (
     query_vocabulary_items,
     query_vocabulary_location_options,
@@ -257,15 +257,15 @@ def get_vocabulary_locations(
             return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
         if user_id is not None and user_id not in resolved_ids:
             return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
-        if permission_level == "edit":
+        if permission_level in SELF_SCOPED_LEVELS:
             if current_user.id not in resolved_ids:
-                raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
+                raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
             query = query.filter(VocabularyLocation.user_id == current_user.id)
         else:
             query = query.filter(VocabularyLocation.user_id.in_(resolved_ids))
-    elif permission_level == "edit":
+    elif permission_level in SELF_SCOPED_LEVELS:
         if user_id is not None and user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
+            raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
         query = query.filter(VocabularyLocation.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(VocabularyLocation.user_id == user_id)
@@ -314,9 +314,9 @@ def update_vocabulary_location(
     query = db.query(VocabularyLocation).filter(
         VocabularyLocation.location_name == location_name,
     )
-    if permission_level == "edit":
+    if permission_level in SELF_SCOPED_LEVELS:
         if user_id is not None and user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="edit 用户只能编辑自己的地点信息")
+            raise HTTPException(status_code=403, detail="只能编辑自己的地点信息")
         query = query.filter(VocabularyLocation.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(VocabularyLocation.user_id == user_id)

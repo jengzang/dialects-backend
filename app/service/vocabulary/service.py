@@ -8,7 +8,7 @@ from app.service.vocabulary.location import normalize_location_payload
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation
 from app.service.vocabulary.parser import parse_uploaded_vocabulary_file
-from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.permissions import get_effective_permission_level, get_location_limit
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 
 MAX_LOGGED_DELETED_ENTRIES = 500
@@ -204,6 +204,22 @@ def import_vocabulary_upload(
         raise ValueError("; ".join(parse_result.errors))
     if not parse_result.rows:
         raise ValueError("No valid vocabulary rows found")
+
+    limit = get_location_limit(permission_level)
+    if limit is not None:
+        existing_location = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == user.id,
+            VocabularyLocation.location_name == normalized_location.location_name,
+        ).first()
+        if existing_location is None:
+            current_count = session.query(VocabularyLocation).filter(
+                VocabularyLocation.user_id == user.id,
+            ).count()
+            if current_count >= limit:
+                raise ValueError(
+                    f"您的權限最多可創建 {limit} 個地點，目前已創建 {current_count} 個。"
+                    f"如需更多地點，請聯繫管理員升級權限。"
+                )
 
     if not overwrite:
         existing_count = session.query(VocabularyEntry).filter(
