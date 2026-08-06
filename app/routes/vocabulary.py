@@ -28,7 +28,7 @@ from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.models import VocabularyLocation, VocabularyLog, VocabularyPermission
+from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
 from app.service.vocabulary.permissions import get_effective_permission_level
 from app.service.vocabulary.query import (
     query_vocabulary_items,
@@ -345,6 +345,68 @@ def update_vocabulary_location(
 
     usernames = _resolve_usernames({target.user_id})
     return _location_response(target, usernames.get(target.user_id, ""))
+
+
+@router.delete("/locations/{location_name}")
+def delete_vocabulary_location(
+    location_name: str,
+    user_id: Optional[int] = Query(default=None),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    if permission_level not in ("manage", "admin"):
+        raise HTTPException(status_code=403, detail="仅 manage/admin 可删除地点")
+
+    query = db.query(VocabularyLocation).filter(
+        VocabularyLocation.location_name == location_name,
+    )
+    if user_id is not None:
+        query = query.filter(VocabularyLocation.user_id == user_id)
+
+    targets = query.all()
+    if not targets:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+    if user_id is None and len(targets) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="同名地点属于多个用户，请通过 user_id 参数指定目标",
+        )
+
+    target = targets[0]
+    entry_count = db.query(VocabularyEntry).filter(
+        VocabularyEntry.user_id == target.user_id,
+        VocabularyEntry.location_name == target.location_name,
+    ).count()
+
+    try:
+        db.query(VocabularyEntry).filter(
+            VocabularyEntry.user_id == target.user_id,
+            VocabularyEntry.location_name == target.location_name,
+        ).delete(synchronize_session=False)
+        db.delete(target)
+        record_vocabulary_log(
+            session=db,
+            user_id=current_user.id,
+            permission_level=permission_level,
+            source="location_editor",
+            action="delete_location",
+            table_name="vocabulary_locations",
+            target_scope=f"user_id = {target.user_id}; location_name = {location_name}",
+            affected_rows=1 + entry_count,
+            payload={
+                "location_name": location_name,
+                "target_user_id": target.user_id,
+                "deleted_entries_count": entry_count,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
+        raise
+
+    return {"status": "deleted", "location_name": location_name, "deleted_entries": entry_count}
 
 
 @router.get("/logs", response_model=VocabularyLogsResponse)
