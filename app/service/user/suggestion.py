@@ -25,7 +25,7 @@ def _validate_priority(priority: Optional[str]) -> None:
         raise ValueError("invalid priority")
 
 
-def serialize_suggestion(row: UserSuggestion) -> dict:
+def serialize_suggestion(row: UserSuggestion, *, include_image: bool = False) -> dict:
     context = None
     if row.context_json:
         try:
@@ -42,7 +42,7 @@ def serialize_suggestion(row: UserSuggestion) -> dict:
         except json.JSONDecodeError:
             recent_api = []
 
-    return {
+    item = {
         "id": row.id,
         "user_id": row.user_id,
         "username": row.username,
@@ -60,6 +60,9 @@ def serialize_suggestion(row: UserSuggestion) -> dict:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+    if include_image:
+        item["image_base64"] = row.image_base64
+    return item
 
 
 def _serialize_api_log(row: ApiUsageLog) -> dict:
@@ -145,6 +148,7 @@ def create_suggestion(
         source_path=data.source_path,
         context_json=context_json,
         contact=data.contact,
+        image_base64=data.image_base64,
         submitter_ip=submitter_ip,
         user_agent=user_agent,
         recent_api=json.dumps(recent_api, ensure_ascii=False),

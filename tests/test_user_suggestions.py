@@ -150,6 +150,56 @@ def test_custom_category_is_accepted(db_session):
     assert row.category == "performance_idea"
 
 
+def test_submit_accepts_supported_image_data_url_without_returning_it(db_session):
+    client = _make_user_client(db_session, current_user=None)
+    image_base64 = "data:image/webp;base64,d2VicC1ieXRlcw=="
+
+    response = client.post(
+        "/api/suggestions",
+        json={
+            "title": "截图反馈",
+            "content": "按钮遮住了文字。",
+            "image_base64": image_base64,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "image_base64" not in response.json()
+    row = db_session.query(UserSuggestion).one()
+    assert row.image_base64 == image_base64
+
+
+def test_submit_rejects_unsupported_image_data_url(db_session):
+    client = _make_user_client(db_session, current_user=None)
+
+    response = client.post(
+        "/api/suggestions",
+        json={
+            "title": "错误图片",
+            "content": "gif 不应被收。",
+            "image_base64": "data:image/gif;base64,Z2lm",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_rejects_image_over_size_limit(db_session):
+    client = _make_user_client(db_session, current_user=None)
+    oversized = "data:image/png;base64," + ("A" * (1024 * 1024 + 4))
+
+    response = client.post(
+        "/api/suggestions",
+        json={
+            "title": "太大的截图",
+            "content": "这张图超过限制。",
+            "image_base64": oversized,
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_my_suggestions_requires_login(db_session):
     client = _make_user_client(db_session, current_user=None)
 
@@ -167,6 +217,7 @@ def test_my_suggestions_only_returns_current_user_rows(db_session):
                 title="mine",
                 content="my suggestion",
                 category="feature",
+                image_base64="data:image/png;base64,bWluZQ==",
             ),
             UserSuggestion(
                 user_id=8,
@@ -195,12 +246,18 @@ def test_my_suggestions_only_returns_current_user_rows(db_session):
     assert body["success"] is True
     assert body["total"] == 1
     assert [item["title"] for item in body["items"]] == ["mine"]
+    assert "image_base64" not in body["items"][0]
 
 
 def test_admin_list_filters_by_status_and_category(db_session):
     db_session.add_all(
         [
-            UserSuggestion(title="open feature", content="a", category="feature"),
+            UserSuggestion(
+                title="open feature",
+                content="a",
+                category="feature",
+                image_base64="data:image/jpeg;base64,anBn",
+            ),
             UserSuggestion(title="open bug", content="b", category="bug"),
             UserSuggestion(
                 title="done feature",
@@ -222,6 +279,7 @@ def test_admin_list_filters_by_status_and_category(db_session):
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["title"] == "open feature"
+    assert body["items"][0]["image_base64"] == "data:image/jpeg;base64,anBn"
 
 
 def test_submit_records_recent_api_from_user_id_then_ip(db_session, auth_db_session):
@@ -376,6 +434,7 @@ def test_migration_creates_user_suggestions_table_idempotently(tmp_path):
         item["name"] for item in inspector.get_columns("user_suggestions")
     }
     assert "recent_api" in column_names
+    assert "image_base64" in column_names
     assert "handled_by" not in column_names
     assert "handled_by_username" not in column_names
     index_names = {

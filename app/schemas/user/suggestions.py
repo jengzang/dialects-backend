@@ -1,3 +1,5 @@
+import base64
+import binascii
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -8,6 +10,12 @@ from app.schemas.base import ShanghaiBaseModel
 
 SuggestionStatus = Literal["open", "reviewing", "accepted", "rejected", "done"]
 SuggestionPriority = Literal["low", "normal", "high"]
+MAX_IMAGE_BASE64_BYTES = 1024 * 1024
+SUPPORTED_IMAGE_DATA_URL_PREFIXES = (
+    "data:image/webp;base64,",
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+)
 
 
 class SuggestionCreate(ShanghaiBaseModel):
@@ -17,6 +25,7 @@ class SuggestionCreate(ShanghaiBaseModel):
     source_path: Optional[str] = Field(None, max_length=300)
     context: Optional[dict[str, Any]] = None
     contact: Optional[str] = Field(None, max_length=200)
+    image_base64: Optional[str] = Field(None, max_length=MAX_IMAGE_BASE64_BYTES)
 
     @field_validator("title", "content", "category", "source_path", "contact")
     @classmethod
@@ -26,6 +35,25 @@ class SuggestionCreate(ShanghaiBaseModel):
         value = value.strip()
         if not value:
             raise ValueError("字段不能为空")
+        return value
+
+    @field_validator("image_base64")
+    @classmethod
+    def validate_image_base64(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("截图不能为空")
+        if len(value.encode("utf-8")) > MAX_IMAGE_BASE64_BYTES:
+            raise ValueError("截图大小不能超过 1MB")
+        if not value.startswith(SUPPORTED_IMAGE_DATA_URL_PREFIXES):
+            raise ValueError("截图格式仅支持 webp、png 或 jpeg data URL")
+        _, encoded = value.split(",", 1)
+        try:
+            base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("截图 base64 内容无效") from exc
         return value
 
 
@@ -56,12 +84,24 @@ class SuggestionItem(ShanghaiBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminSuggestionItem(SuggestionItem):
+    image_base64: Optional[str] = None
+
+
 class SuggestionListResponse(ShanghaiBaseModel):
     success: bool = True
     total: int
     page: int
     page_size: int
     items: list[SuggestionItem]
+
+
+class AdminSuggestionListResponse(ShanghaiBaseModel):
+    success: bool = True
+    total: int
+    page: int
+    page_size: int
+    items: list[AdminSuggestionItem]
 
 
 class AdminSuggestionUpdate(ShanghaiBaseModel):

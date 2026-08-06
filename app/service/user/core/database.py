@@ -126,6 +126,7 @@ def migrate_user_suggestions_table(bind=None):
                 source_path VARCHAR(300),
                 context_json TEXT,
                 contact VARCHAR(200),
+                image_base64 TEXT,
                 submitter_ip VARCHAR(45),
                 user_agent VARCHAR(300),
                 recent_api TEXT,
@@ -141,6 +142,8 @@ def migrate_user_suggestions_table(bind=None):
         columns = [row[1] for row in result]
         if "recent_api" not in columns:
             conn.execute(text("ALTER TABLE user_suggestions ADD COLUMN recent_api TEXT"))
+        if "image_base64" not in columns:
+            conn.execute(text("ALTER TABLE user_suggestions ADD COLUMN image_base64 TEXT"))
 
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_user_suggestions_user_id "
