@@ -128,7 +128,7 @@ def _require_write_action_access(permission_level: str, action: str) -> None:
 
 
 def _scope_clause(table_name: str, permission_level: str, user: User | None) -> tuple[list[str], list[Any], str]:
-    if table_name in OWNED_TABLES and permission_level == "edit":
+    if table_name in OWNED_TABLES and permission_level in SELF_SCOPED_LEVELS:
         return ["user_id = ?"], [user.id], f"user_id = {user.id}"
     return [], [], "all rows"
 

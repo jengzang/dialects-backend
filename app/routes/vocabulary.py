@@ -563,7 +563,7 @@ def get_my_vocabulary_context(
     return VocabularyMeResponse(
         user_id=current_user.id,
         permission_level=permission_level,
-        can_upload=permission_level in {"edit", "manage"},
+        can_upload=permission_level in SELF_SCOPED_LEVELS or permission_level == "manage",
         can_manage_entries=permission_level == "manage",
         can_view_logs=permission_level == "manage",
     )
