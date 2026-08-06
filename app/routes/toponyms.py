@@ -7,6 +7,9 @@ from starlette.concurrency import run_in_threadpool
 from app.schemas.toponyms import (
     ToponymDetailsResponse,
     ToponymDivisionsResponse,
+    ToponymNameTreeLazyChildrenResponse,
+    ToponymNameTreeLazyFallbackResponse,
+    ToponymNameTreeLazyNamesResponse,
     ToponymNameTreeResponse,
     ToponymNamesResponse,
     ToponymPointsResponse,
@@ -18,6 +21,8 @@ from app.service.toponyms.config import (
     MAX_NAME_LIMIT,
     MAX_POINT_LIMIT,
     NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    TOPONYM_NAME_TREE_DEFAULT_PAGE_SIZE,
+    TOPONYM_NAME_TREE_MAX_PAGE_SIZE,
 )
 from app.service.toponyms.repository import (
     list_details_by_ids,
@@ -63,6 +68,18 @@ def _clean_ids(raw_ids: list[str]) -> list[str]:
     if len(ids) > MAX_DETAIL_IDS:
         raise HTTPException(status_code=400, detail=f"ids cannot contain more than {MAX_DETAIL_IDS} values")
     return ids
+
+
+def _clean_parent_path(raw_parent_path: list[str] | None) -> list[str] | None:
+    if raw_parent_path is None:
+        return None
+
+    parent_path = [part.strip() for part in raw_parent_path if part.strip()]
+    if not parent_path:
+        return None
+    if len(parent_path) > 4:
+        raise HTTPException(status_code=400, detail="parent_path cannot contain more than 4 values")
+    return parent_path
 
 
 def _parse_bbox(raw_bbox: str | None) -> tuple[float, float, float, float] | None:
@@ -116,25 +133,55 @@ async def get_toponym_points(
     return ToponymPointsResponse(items=items, count=len(items), truncated=truncated)
 
 
-@router.get("/toponyms/names", response_model=ToponymNamesResponse | ToponymNameTreeResponse)
+ToponymNamesEndpointResponse = (
+    ToponymNamesResponse
+    | ToponymNameTreeResponse
+    | ToponymNameTreeLazyFallbackResponse
+    | ToponymNameTreeLazyChildrenResponse
+    | ToponymNameTreeLazyNamesResponse
+)
+
+
+@router.get("/toponyms/names", response_model=ToponymNamesEndpointResponse)
 async def get_toponym_names(
     q: str = Query(..., min_length=1),
     match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
     limit: int = Query(DEFAULT_NAME_LIMIT, ge=0, le=MAX_NAME_LIMIT),
+    bbox: str | None = Query(None, description="可选: minLng,minLat,maxLng,maxLat"),
     include_division_tree: bool = Query(False, description="true 时返回行政区划层级树"),
+    parent_path: list[str] | None = Query(None, description="懒加载树节点路径，可重复传参"),
+    page: int = Query(1, ge=1, description="懒加载叶子名称页码"),
+    page_size: int = Query(
+        TOPONYM_NAME_TREE_DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=TOPONYM_NAME_TREE_MAX_PAGE_SIZE,
+        description="懒加载叶子名称每页数量",
+    ),
     place_type_code: str = Query(NATURAL_VILLAGE_PLACE_TYPE_CODE, min_length=1, description="默认 22200 自然村/农村居民点"),
-) -> ToponymNamesResponse | ToponymNameTreeResponse:
+) -> ToponymNamesEndpointResponse:
     cleaned_query = _clean_query(q)
     cleaned_place_type_code = _clean_place_type_code(place_type_code)
+    parsed_bbox = _parse_bbox(bbox)
+    cleaned_parent_path = _clean_parent_path(parent_path)
     if include_division_tree:
-        items = await run_in_threadpool(
+        result = await run_in_threadpool(
             list_names_with_division_tree,
             query=cleaned_query,
             match_mode=match_mode,
             limit=limit,
             place_type_code=cleaned_place_type_code,
+            bbox=parsed_bbox,
+            parent_path=cleaned_parent_path,
+            page=page,
+            page_size=page_size,
         )
-        return ToponymNameTreeResponse(items=items)
+        if result["mode"] == "full":
+            return ToponymNameTreeResponse(**result)
+        if result["mode"] == "lazy_fallback":
+            return ToponymNameTreeLazyFallbackResponse(**result)
+        if "names" in result:
+            return ToponymNameTreeLazyNamesResponse(**result)
+        return ToponymNameTreeLazyChildrenResponse(**result)
 
     names = await run_in_threadpool(
         sample_names,
@@ -142,6 +189,7 @@ async def get_toponym_names(
         match_mode=match_mode,
         limit=limit,
         place_type_code=cleaned_place_type_code,
+        bbox=parsed_bbox,
     )
     return ToponymNamesResponse(items=names)
 
