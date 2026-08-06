@@ -20,7 +20,7 @@ from app.service.toponyms.config import (
     MAX_DETAIL_IDS,
     MAX_NAME_LIMIT,
     MAX_POINT_LIMIT,
-    NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    NATURAL_VILLAGE_PLACE_TYPE_CODES,
     TOPONYM_NAME_TREE_DEFAULT_PAGE_SIZE,
     TOPONYM_NAME_TREE_MAX_PAGE_SIZE,
 )
@@ -45,11 +45,18 @@ def _clean_query(query: str | None) -> str:
     return cleaned
 
 
-def _clean_place_type_code(place_type_code: str) -> str:
-    cleaned = place_type_code.strip()
-    if not cleaned or not cleaned.isdigit():
-        raise HTTPException(status_code=400, detail="place_type_code must be a non-empty numeric string")
-    return cleaned
+def _clean_place_type_codes(raw_codes: list[str]) -> list[str]:
+    codes: list[str] = []
+    for raw_value in raw_codes:
+        for part in raw_value.split(","):
+            cleaned = part.strip()
+            if not cleaned or not cleaned.isdigit():
+                raise HTTPException(status_code=400, detail=f"place_type_code must be a non-empty numeric string, got: {cleaned!r}")
+            if cleaned not in codes:
+                codes.append(cleaned)
+    if not codes:
+        raise HTTPException(status_code=400, detail="place_type_code is required")
+    return codes
 
 
 def _clean_ids(raw_ids: list[str]) -> list[str]:
@@ -115,11 +122,11 @@ async def get_toponym_points(
     bbox: str | None = Query(None, description="可选: minLng,minLat,maxLng,maxLat"),
     zoom: int | None = Query(None, ge=0, le=24, description="可选: 前端地图缩放级别，后端仅校验"),
     limit: int = Query(DEFAULT_POINT_LIMIT, ge=0, le=MAX_POINT_LIMIT, description="0 表示不限制"),
-    place_type_code: str = Query(NATURAL_VILLAGE_PLACE_TYPE_CODE, min_length=1, description="默认 22200 自然村/农村居民点"),
+    place_type_code: list[str] = Query(None, description="默认 22200 自然村/农村居民点，可逗号分隔或重复传参"),
 ) -> ToponymPointsResponse:
     del zoom
     cleaned_query = _clean_query(q)
-    cleaned_place_type_code = _clean_place_type_code(place_type_code)
+    cleaned_place_type_codes = _clean_place_type_codes(place_type_code or NATURAL_VILLAGE_PLACE_TYPE_CODES)
     parsed_bbox = _parse_bbox(bbox)
 
     items, truncated = await run_in_threadpool(
@@ -127,7 +134,7 @@ async def get_toponym_points(
         query=cleaned_query,
         match_mode=match_mode,
         limit=limit,
-        place_type_code=cleaned_place_type_code,
+        place_type_codes=cleaned_place_type_codes,
         bbox=parsed_bbox,
     )
     return ToponymPointsResponse(items=items, count=len(items), truncated=truncated)
@@ -157,10 +164,10 @@ async def get_toponym_names(
         le=TOPONYM_NAME_TREE_MAX_PAGE_SIZE,
         description="懒加载叶子名称每页数量",
     ),
-    place_type_code: str = Query(NATURAL_VILLAGE_PLACE_TYPE_CODE, min_length=1, description="默认 22200 自然村/农村居民点"),
+    place_type_code: list[str] = Query(None, description="默认 22200 自然村/农村居民点，可逗号分隔或重复传参"),
 ) -> ToponymNamesEndpointResponse:
     cleaned_query = _clean_query(q)
-    cleaned_place_type_code = _clean_place_type_code(place_type_code)
+    cleaned_place_type_codes = _clean_place_type_codes(place_type_code or NATURAL_VILLAGE_PLACE_TYPE_CODES)
     parsed_bbox = _parse_bbox(bbox)
     cleaned_parent_path = _clean_parent_path(parent_path)
     if include_division_tree:
@@ -169,7 +176,7 @@ async def get_toponym_names(
             query=cleaned_query,
             match_mode=match_mode,
             limit=limit,
-            place_type_code=cleaned_place_type_code,
+            place_type_codes=cleaned_place_type_codes,
             bbox=parsed_bbox,
             parent_path=cleaned_parent_path,
             page=page,
@@ -188,7 +195,7 @@ async def get_toponym_names(
         query=cleaned_query,
         match_mode=match_mode,
         limit=limit,
-        place_type_code=cleaned_place_type_code,
+        place_type_codes=cleaned_place_type_codes,
         bbox=parsed_bbox,
     )
     return ToponymNamesResponse(items=names)

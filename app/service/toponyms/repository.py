@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.service.toponyms.config import (
-    NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    NATURAL_VILLAGE_PLACE_TYPE_CODES,
     TOPONYM_NAME_TREE_FULL_THRESHOLD as CONFIG_TOPONYM_NAME_TREE_FULL_THRESHOLD,
     TOPONYMS_DB_PATH,
 )
@@ -41,21 +41,25 @@ def _name_params(query: str, match_mode: str) -> list[str]:
     return [_like_pattern(query, match_mode)]
 
 
+def _in_clause(values: list[str]) -> str:
+    return f"({','.join('?' for _ in values)})"
+
+
 def _base_name_filters(
     *,
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None = None,
     require_area_code: bool = False,
 ) -> tuple[list[str], list[Any]]:
     where_parts = [
-        "place_type_code = ?",
+        f"place_type_code IN {_in_clause(place_type_codes)}",
         _name_condition(match_mode),
         "TRIM(COALESCE(standard_name, '')) <> ''",
     ]
     params: list[Any] = [
-        place_type_code,
+        *place_type_codes,
         *_name_params(query, match_mode),
     ]
 
@@ -96,16 +100,18 @@ def list_points_by_name(
     query: str,
     match_mode: str,
     limit: int,
-    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    place_type_codes: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
+    if place_type_codes is None:
+        place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     where_parts = [
-        "place_type_code = ?",
+        f"place_type_code IN {_in_clause(place_type_codes)}",
         _name_condition(match_mode),
     ]
     params: list[Any] = [
-        place_type_code,
+        *place_type_codes,
         *_name_params(query, match_mode),
     ]
 
@@ -148,14 +154,16 @@ def sample_names(
     query: str,
     match_mode: str,
     limit: int,
-    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    place_type_codes: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
 ) -> list[str]:
+    if place_type_codes is None:
+        place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     where_parts, params = _base_name_filters(
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
     )
     limit_clause = ""
@@ -181,12 +189,14 @@ def list_names_with_division_tree(
     query: str,
     match_mode: str,
     limit: int,
-    place_type_code: str = NATURAL_VILLAGE_PLACE_TYPE_CODE,
+    place_type_codes: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     parent_path: list[str] | None = None,
     page: int = 1,
     page_size: int = 100,
 ) -> dict[str, Any]:
+    if place_type_codes is None:
+        place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
     del limit
     pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     with pool.get_connection() as conn:
@@ -197,7 +207,7 @@ def list_names_with_division_tree(
                 divisions=divisions,
                 query=query,
                 match_mode=match_mode,
-                place_type_code=place_type_code,
+                place_type_codes=place_type_codes,
                 bbox=bbox,
                 parent_path=parent_path,
                 page=page,
@@ -208,7 +218,7 @@ def list_names_with_division_tree(
             conn=conn,
             query=query,
             match_mode=match_mode,
-            place_type_code=place_type_code,
+            place_type_codes=place_type_codes,
             bbox=bbox,
         )
         if filtered_count > TOPONYM_NAME_TREE_FULL_THRESHOLD:
@@ -223,7 +233,7 @@ def list_names_with_division_tree(
                     divisions=divisions,
                     query=query,
                     match_mode=match_mode,
-                    place_type_code=place_type_code,
+                    place_type_codes=place_type_codes,
                     bbox=bbox,
                 ),
             }
@@ -232,7 +242,7 @@ def list_names_with_division_tree(
             conn=conn,
             query=query,
             match_mode=match_mode,
-            place_type_code=place_type_code,
+            place_type_codes=place_type_codes,
             bbox=bbox,
             limit=0,
         )
@@ -268,14 +278,14 @@ def _count_distinct_name_area(
     conn,
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
     area_codes: list[str] | None = None,
 ) -> int:
     where_parts, params = _base_name_filters(
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
         require_area_code=True,
     )
@@ -298,7 +308,7 @@ def _fetch_distinct_name_area_rows(
     conn,
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
     limit: int = 0,
     area_codes: list[str] | None = None,
@@ -308,7 +318,7 @@ def _fetch_distinct_name_area_rows(
     where_parts, params = _base_name_filters(
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
         require_area_code=True,
     )
@@ -367,14 +377,14 @@ def _build_lazy_bootstrap(
     divisions: dict[str, dict[str, Any]],
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
 ) -> list[dict[str, Any]]:
     rows = _fetch_distinct_area_rows(
         conn=conn,
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
     )
     roots: dict[str, dict[str, Any]] = {}
@@ -401,14 +411,14 @@ def _fetch_distinct_area_rows(
     conn,
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
     area_codes: list[str] | None = None,
 ) -> list[Any]:
     where_parts, params = _base_name_filters(
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
         require_area_code=True,
     )
@@ -429,7 +439,7 @@ def _list_lazy_tree_node(
     divisions: dict[str, dict[str, Any]],
     query: str,
     match_mode: str,
-    place_type_code: str,
+    place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
     parent_path: list[str],
     page: int,
@@ -442,7 +452,7 @@ def _list_lazy_tree_node(
             conn=conn,
             query=query,
             match_mode=match_mode,
-            place_type_code=place_type_code,
+            place_type_codes=place_type_codes,
             bbox=bbox,
             area_codes=parent_codes,
             offset=offset,
@@ -464,7 +474,7 @@ def _list_lazy_tree_node(
         conn=conn,
         query=query,
         match_mode=match_mode,
-        place_type_code=place_type_code,
+        place_type_codes=place_type_codes,
         bbox=bbox,
         area_codes=parent_codes,
     )
