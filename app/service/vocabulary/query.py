@@ -165,7 +165,7 @@ def _format_location(row: dict) -> str:
     ]
     clean_parts = [part for part in parts if part]
     if clean_parts:
-        return " / ".join(clean_parts)
+        return " · ".join(clean_parts)
     return row["location_name"] or ""
 
 
