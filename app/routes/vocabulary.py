@@ -39,6 +39,7 @@ from app.service.vocabulary.query import (
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
+from app.redis_client import redis_client
 
 
 router = APIRouter()
@@ -370,7 +371,7 @@ async def upload_vocabulary(
 ):
     content = await file.read()
     try:
-        return import_vocabulary_upload(
+        result = import_vocabulary_upload(
             session=db,
             user=current_user,
             filename=file.filename or "upload",
@@ -380,6 +381,13 @@ async def upload_vocabulary(
             overwrite=overwrite,
             fill_standard_from_local=fill_standard_from_local,
         )
+        try:
+            keys = await redis_client.keys("vocab_sql_count:vocabulary_entries*")
+            if keys:
+                await redis_client.delete(*keys)
+        except Exception:
+            pass
+        return result
     except HTTPException:
         raise
     except VocabularyImportConflictError as exc:

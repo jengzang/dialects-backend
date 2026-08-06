@@ -336,6 +336,16 @@ def _get_db_path(db: Session) -> str:
     return db.get_bind().url.database
 
 
+async def _invalidate_count_cache(table_name: str) -> None:
+    """Delete all cached count results for the given table after a write."""
+    try:
+        keys = await redis_client.keys(f"vocab_sql_count:{table_name}*")
+        if keys:
+            await redis_client.delete(*keys)
+    except Exception:
+        pass
+
+
 def _query_table_sync(
     params: QueryParams,
     user: User | None,
@@ -726,6 +736,7 @@ async def mutate_table(
             payload=payload,
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {"status": "success", "action": params.action, "affected_rows": affected_rows}
     except HTTPException:
         db.rollback()
@@ -870,6 +881,7 @@ async def batch_mutate_table(
             payload=payload,
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {
             "status": "completed",
             "action": params.action,
@@ -984,6 +996,7 @@ async def batch_replace_execute(
             },
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {"status": "success", "affected_rows": affected_rows}
     except Exception as exc:
         db.rollback()
