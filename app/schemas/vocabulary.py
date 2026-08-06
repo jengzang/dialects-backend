@@ -107,6 +107,7 @@ class VocabularyLocationOptionsResponse(BaseModel):
 
 class VocabularyLocationResponse(BaseModel):
     user_id: int
+    username: str = ""
     location_name: str
     coordinates: str
     province: str

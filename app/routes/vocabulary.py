@@ -23,6 +23,7 @@ from app.schemas.vocabulary import (
     VocabularyUploadResponse,
 )
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
+from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
@@ -58,9 +59,21 @@ def _location_label(location: VocabularyLocation) -> str:
     return label or location.location_name
 
 
-def _location_response(location: VocabularyLocation) -> VocabularyLocationResponse:
+def _resolve_usernames(user_ids: set[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    auth_db = AuthSessionLocal()
+    try:
+        rows = auth_db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
+        return {row.id: row.username for row in rows}
+    finally:
+        auth_db.close()
+
+
+def _location_response(location: VocabularyLocation, username: str = "") -> VocabularyLocationResponse:
     return VocabularyLocationResponse(
         user_id=location.user_id,
+        username=username,
         location_name=location.location_name,
         coordinates=location.coordinates,
         province=location.province or "",
@@ -205,6 +218,7 @@ def get_vocabulary_location_options(
 @router.get("/locations", response_model=VocabularyLocationsResponse)
 def get_vocabulary_locations(
     user_id: Optional[int] = Query(default=None),
+    username: Optional[str] = Query(default=None),
     location_name: Optional[str] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -214,7 +228,26 @@ def get_vocabulary_locations(
     permission_level = get_effective_permission_level(db, current_user)
     query = db.query(VocabularyLocation)
 
-    if permission_level == "edit":
+    if username is not None:
+        auth_db = AuthSessionLocal()
+        try:
+            resolved_ids = [
+                row.id for row in
+                auth_db.query(User.id).filter(User.username == username).all()
+            ]
+        finally:
+            auth_db.close()
+        if not resolved_ids:
+            return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
+        if user_id is not None and user_id not in resolved_ids:
+            return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
+        if permission_level == "edit":
+            if current_user.id not in resolved_ids:
+                raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
+            query = query.filter(VocabularyLocation.user_id == current_user.id)
+        else:
+            query = query.filter(VocabularyLocation.user_id.in_(resolved_ids))
+    elif permission_level == "edit":
         if user_id is not None and user_id != current_user.id:
             raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
         query = query.filter(VocabularyLocation.user_id == current_user.id)
@@ -235,8 +268,10 @@ def get_vocabulary_locations(
         .all()
     )
 
+    usernames = _resolve_usernames({row.user_id for row in rows})
+
     return VocabularyLocationsResponse(
-        locations=[_location_response(row) for row in rows],
+        locations=[_location_response(row, usernames.get(row.user_id, "")) for row in rows],
         total=total,
         page=page,
         page_size=page_size,
@@ -308,7 +343,8 @@ def update_vocabulary_location(
         raise_vocabulary_database_busy_if_locked(exc)
         raise
 
-    return _location_response(target)
+    usernames = _resolve_usernames({target.user_id})
+    return _location_response(target, usernames.get(target.user_id, ""))
 
 
 @router.get("/logs", response_model=VocabularyLogsResponse)
