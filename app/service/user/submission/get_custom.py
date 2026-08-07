@@ -7,6 +7,27 @@ from app.service.auth.database.models import User
 from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
 
+# 聲韻調枚举值简繁双向映射，查询时自动展开匹配
+_PHONOLOGY_VARIANTS = {
+    "漢字": "汉字", "汉字": "漢字",
+    "調值": "调值", "调值": "調值",
+    "聲母": "声母", "声母": "聲母",
+    "韻母": "韵母", "韵母": "韻母",
+    "聲調": "声调", "声调": "聲調",
+}
+
+
+def _expand_phonology_list(phonology_list: Optional[List[str]]) -> Optional[List[str]]:
+    """给 phonology_list 中每个值补上简/繁对映，让简繁输入都能命中。"""
+    if not phonology_list:
+        return phonology_list
+    expanded = list(phonology_list)
+    for item in phonology_list:
+        variant = _PHONOLOGY_VARIANTS.get(item)
+        if variant and variant not in expanded:
+            expanded.append(variant)
+    return expanded
+
 
 def _dedupe_keep_order(items):
     seen = set()
@@ -57,7 +78,7 @@ def get_from_submission(
     all_locations = _dedupe_keep_order(region_custom_locations + direct_custom_locations)
     result = []
     effective_need_features = [feature for feature in (need_features or []) if feature]
-    effective_phonology_list = [item for item in (phonology_list or []) if item]
+    effective_phonology_list = _expand_phonology_list([item for item in (phonology_list or []) if item])
 
     for location in all_locations:
         q = db.query(Information).filter(
