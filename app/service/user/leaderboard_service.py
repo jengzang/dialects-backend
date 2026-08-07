@@ -105,15 +105,31 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/sql/query",
             "/sql/tree/full",
             "/sql/tree/lazy",
-            "/api/get_coordinates",
         ],
-        "prefixes": ["/api/villages/","/api/locations/"],
-        "exclude_prefixes": ["/api/villages/admin/"],
+        "prefixes": [],
+        "exclude_prefixes": [],
     },
     "category_用户自定义": {
-        "paths": ["/api/custom_regions"],
+        "paths": [
+            "/api/custom_regions",
+            "/api/submit_form",
+            "/api/delete_form",
+        ],
         "prefixes": ["/user/custom/"],
         "exclude_prefixes": [],
+    },
+    "category_地理村落": {
+        "paths": [
+            "/api/toponyms/points",
+            "/api/toponyms/names",
+            "/api/toponyms/details",
+            "/api/toponyms/divisions",
+            "/api/locations/detail",
+            "/api/locations/partitions",
+            "/api/get_coordinates",
+        ],
+        "prefixes": ["/api/villages/", "/api/gis/"],
+        "exclude_prefixes": ["/api/villages/admin/"],
     },
 }
 
@@ -185,8 +201,27 @@ CUSTOM_DATA_EDIT_RULE: RuleConfig = {
         "/user/custom/batch-create",
         "/user/custom/edit",
         "/user/custom/batch-delete",
+        "/api/submit_form",
+        "/api/delete_form",
     ],
     "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+TOPONYMS_RULE: RuleConfig = {
+    "paths": [
+        "/api/toponyms/points",
+        "/api/toponyms/names",
+        "/api/toponyms/details",
+        "/api/toponyms/divisions",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
+GIS_RULE: RuleConfig = {
+    "paths": [],
+    "prefixes": ["/api/gis/"],
     "exclude_prefixes": [],
 }
 
@@ -202,6 +237,8 @@ AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_custom_regions": CUSTOM_REGIONS_RULE,
     "endpoint_group_custom_data_query": CUSTOM_DATA_QUERY_RULE,
     "endpoint_group_custom_data_edit": CUSTOM_DATA_EDIT_RULE,
+    "endpoint_group_toponyms": TOPONYMS_RULE,
+    "endpoint_group_gis": GIS_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -391,8 +428,8 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     This function computes:
     - 1 online time ranking
     - 1 total queries ranking
-    - 6 category rankings
-    - 2 grouped endpoint rankings
+    - 8 category rankings
+    - grouped endpoint rankings
     - individual endpoint rankings
     """
     total_users = db.query(func.count(func.distinct(models.User.id))).filter(
