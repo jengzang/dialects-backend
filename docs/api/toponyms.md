@@ -5,6 +5,8 @@
 The public toponyms APIs deliberately separate coordinates from place names.
 
 - Coordinate responses return only `id`, `longitude`, and `latitude`.
+- Search responses return `id` and `name`; `area_code` and
+  `place_type_code` are returned only when explicitly requested.
 - Name responses return only name strings, or division-name tree nodes that
   contain name strings.
 - The details response is the only `id -> full record` lookup, and it is capped
@@ -37,7 +39,7 @@ Query parameters:
 | `limit` | no | `5000` | Maximum returned points. `0` means no limit. Upper bound: `2000000`. Frontend distribution views should pass `0`. |
 | `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat` filter after name match. |
 | `zoom` | no | - | Optional `0..24`; accepted for frontend state, currently only validated. |
-| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200` rural residential points, `21610` administrative villages, `27610` village committees. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Can be repeated or comma-separated. Examples: `22200` rural residential points, `21610` administrative villages, `27610` village committees. |
 
 Response:
 
@@ -57,6 +59,72 @@ Response:
 ```
 
 The response still does not include names, area codes, or place type labels.
+
+## Search
+
+```http
+GET /api/toponyms/search?q=黄&match_mode=prefix&place_type_code=22200,23512&limit=100
+```
+
+This endpoint searches both `single` and `multi` records and returns selectable
+`id + name` pairs. It is intended for dropdown/search-result UI: the frontend
+can show names, then call `/api/toponyms/details` with the selected ID.
+
+By default, this endpoint does not return coordinates, `area_code`,
+`place_type_code`, place type labels, or geometry blobs.
+
+Query parameters:
+
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `q` | yes | - | Name query text. Blank values are rejected. |
+| `match_mode` | no | `prefix` | One of `prefix`, `suffix`, `exact`, `contains`. |
+| `limit` | no | `100` | Maximum returned records. `0` means no limit. Upper bound: `2000000`. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Can be repeated or comma-separated. |
+| `area_code` | no | - | Optional administrative division code filter. |
+| `area_scope` | no | `descendants` | `descendants` matches `area_code` prefix; `exact` matches exactly. |
+| `bbox` | no | - | Optional `minLng,minLat,maxLng,maxLat`. This filters `single` point rows only; `multi` rows are excluded when `bbox` is present because `multi.coordinates` is stored as an encoded geometry blob. |
+| `include_area_code` | no | `false` | When `true`, include `area_code` in each item. |
+| `include_place_type_code` | no | `false` | When `true`, include `place_type_code` in each item. |
+
+Default response:
+
+```json
+{
+  "items": [
+    {
+      "id": "10007e71a4c2821a4b0f728b41a2abb4",
+      "name": "黄村"
+    }
+  ],
+  "count": 1,
+  "truncated": false
+}
+```
+
+Optional code response:
+
+```http
+GET /api/toponyms/search?q=黄村&match_mode=exact&include_area_code=true&include_place_type_code=true
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "10007e71a4c2821a4b0f728b41a2abb4",
+      "name": "黄村",
+      "area_code": "341721205",
+      "place_type_code": "22200"
+    }
+  ],
+  "count": 1,
+  "truncated": false
+}
+```
+
+Even with optional code fields enabled, this endpoint never returns longitude,
+latitude, place type labels, division names, or `multi.coordinates`.
 
 ## Names
 
@@ -80,7 +148,7 @@ Query parameters:
 | `parent_path` | no | - | Lazy tree expansion path. Repeat the parameter once per division name, for example `parent_path=广东省&parent_path=广州市`. |
 | `page` | no | `1` | Lazy leaf-name page number. Used only when `parent_path` points to level 4. |
 | `page_size` | no | `100` | Lazy leaf-name page size. Upper bound: `500`. |
-| `place_type_code` | no | `22200` | Numeric place type filter. Examples: `22200`, `21610`, `27610`. |
+| `place_type_code` | no | `22200` | Numeric place type filter. Can be repeated or comma-separated. Examples: `22200`, `21610`, `27610`. |
 
 Flat response:
 
@@ -208,7 +276,9 @@ GET /api/toponyms/details?ids=10007e71a4c2821a4b0f728b41a2abb4,another-id
 ```
 
 This endpoint returns full records for explicit IDs. It is intentionally capped
-at 10 IDs per request.
+at 10 IDs per request. IDs may come from `single` or `multi`; `multi` records
+return `longitude=null` and `latitude=null` because their geometry is stored as
+an encoded `coordinates` blob that is not exposed by this API.
 
 Query parameters:
 
@@ -288,6 +358,15 @@ ON single(place_type_code, standard_name, area_code);
 
 CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
 ON single(place_type_code, longitude, latitude, id);
+
+CREATE INDEX IF NOT EXISTS idx_multi_type_id
+ON multi(place_type_code, id);
+
+CREATE INDEX IF NOT EXISTS idx_multi_type_name_id
+ON multi(place_type_code, standard_name, id);
+
+CREATE INDEX IF NOT EXISTS idx_multi_type_name_area
+ON multi(place_type_code, standard_name, area_code);
 ```
 
 It also runs `ANALYZE`.

@@ -46,6 +46,15 @@ def create_toponyms_db(path: str) -> None:
             latitude REAL,
             ur_code TEXT
         );
+
+        CREATE TABLE multi (
+            id TEXT PRIMARY KEY,
+            standard_name TEXT,
+            place_type TEXT,
+            place_type_code TEXT,
+            area_code TEXT,
+            coordinates BLOB
+        );
         """
     )
     conn.executemany(
@@ -60,6 +69,17 @@ def create_toponyms_db(path: str) -> None:
             ("village-2", "李村", "农村居民点", "22200", "440100002", 113.2, 23.2),
             ("admin-1", "某行政村", "行政村", "21610", "440100003", 113.3, 23.3),
             ("outside-1", "远村", "农村居民点", "22200", "110100001", 116.3, 39.9),
+        ],
+    )
+    conn.executemany(
+        """
+        INSERT INTO multi (
+            id, standard_name, place_type, place_type_code, area_code, coordinates
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("multi-1", "黄路", "主干路", "23512", "440100002", b"line"),
+            ("multi-2", "广东河", "河流", "25100", "440100001", b"line"),
         ],
     )
     conn.executemany(
@@ -116,6 +136,7 @@ class ToponymsRoutesTest(unittest.TestCase):
         paths = {route.path for route in app.routes}
 
         self.assertIn("/api/toponyms/points", paths)
+        self.assertIn("/api/toponyms/search", paths)
         self.assertIn("/api/toponyms/names", paths)
         self.assertIn("/api/toponyms/details", paths)
         self.assertNotIn("/api/toponyms/names/", paths)
@@ -214,6 +235,103 @@ class ToponymsRoutesTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["count"], 2)
         self.assertEqual({item["id"] for item in body["items"]}, {"village-1", "village-2"})
+
+    def test_search_endpoint_returns_single_and_multi_ids_with_names_only(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/search",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "23512"),
+                ("limit", "0"),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertFalse(body["truncated"])
+        self.assertEqual(
+            body["items"],
+            [
+                {"id": "village-1b", "name": "黄屋"},
+                {"id": "village-1", "name": "黄村"},
+                {"id": "multi-1", "name": "黄路"},
+            ],
+        )
+        serialized = response.text
+        self.assertNotIn("longitude", serialized)
+        self.assertNotIn("latitude", serialized)
+        self.assertNotIn("area_code", serialized)
+        self.assertNotIn("place_type_code", serialized)
+        self.assertNotIn("coordinates", serialized)
+
+    def test_search_endpoint_can_optionally_include_area_and_type_codes(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "黄路",
+                "match_mode": "exact",
+                "place_type_code": "23512",
+                "include_area_code": "true",
+                "include_place_type_code": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "items": [
+                    {
+                        "id": "multi-1",
+                        "name": "黄路",
+                        "area_code": "440100002",
+                        "place_type_code": "23512",
+                    }
+                ],
+                "count": 1,
+                "truncated": False,
+            },
+        )
+        self.assertNotIn("longitude", response.text)
+        self.assertNotIn("coordinates", response.text)
+
+    def test_search_endpoint_can_filter_by_area_code_scope(self) -> None:
+        descendants_response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "村",
+                "match_mode": "suffix",
+                "area_code": "44",
+                "area_scope": "descendants",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(descendants_response.status_code, 200)
+        self.assertEqual(
+            {item["id"] for item in descendants_response.json()["items"]},
+            {"village-1", "village-2"},
+        )
+
+        exact_response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "黄",
+                "match_mode": "prefix",
+                "area_code": "440100001",
+                "area_scope": "exact",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(exact_response.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in exact_response.json()["items"]],
+            ["village-1b", "village-1"],
+        )
 
     def test_names_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
@@ -464,7 +582,7 @@ class ToponymsRoutesTest(unittest.TestCase):
     def test_details_endpoint_returns_full_records_for_limited_ids(self) -> None:
         response = self.client.get(
             "/api/toponyms/details",
-            params={"ids": "village-1,admin-1,missing-id"},
+            params={"ids": "village-1,admin-1,multi-1,missing-id"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -495,11 +613,26 @@ class ToponymsRoutesTest(unittest.TestCase):
                         "latitude": 23.3,
                         "division_path": [],
                     },
+                    {
+                        "id": "multi-1",
+                        "name": "黄路",
+                        "place_type": "主干路",
+                        "place_type_code": "23512",
+                        "longitude": None,
+                        "latitude": None,
+                        "division_path": [
+                            {"name": "广东省", "level": 1},
+                            {"name": "广州市", "level": 2},
+                            {"name": "广州市辖区", "level": 3},
+                            {"name": "荔湾街道", "level": 4},
+                        ],
+                    },
                 ],
-                "count": 2,
+                "count": 3,
             },
         )
         self.assertNotIn("area_code", response.text)
+        self.assertNotIn("coordinates", response.text)
 
     def test_details_endpoint_rejects_more_than_configured_ids(self) -> None:
         ids = ",".join(f"id-{index}" for index in range(MAX_DETAIL_IDS + 1))

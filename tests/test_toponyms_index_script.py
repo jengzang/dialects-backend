@@ -24,6 +24,15 @@ def create_minimal_toponyms_db(path: str) -> None:
             longitude REAL,
             latitude REAL
         );
+
+        CREATE TABLE multi (
+            id TEXT PRIMARY KEY,
+            standard_name TEXT,
+            place_type TEXT,
+            place_type_code TEXT,
+            area_code TEXT,
+            coordinates BLOB
+        );
         """
     )
     conn.commit()
@@ -51,6 +60,9 @@ class ToponymsIndexScriptTest(unittest.TestCase):
         self.assertIn("idx_single_type_name_id", indexes)
         self.assertIn("idx_single_type_name_area", indexes)
         self.assertIn("idx_single_type_lng_lat_id", indexes)
+        self.assertIn("idx_multi_type_id", indexes)
+        self.assertIn("idx_multi_type_name_id", indexes)
+        self.assertIn("idx_multi_type_name_area", indexes)
 
 
 if __name__ == "__main__":

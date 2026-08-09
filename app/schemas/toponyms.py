@@ -18,6 +18,20 @@ class ToponymNamesResponse(BaseModel):
     items: list[str]
 
 
+class ToponymSearchItem(BaseModel):
+    id: str
+    name: str
+    area_code: str | None = None
+    place_type_code: str | None = None
+
+
+class ToponymSearchResponse(BaseModel):
+    items: list[ToponymSearchItem]
+    count: int
+    truncated: bool
+    next: None = None
+
+
 class ToponymNameDivisionNode(BaseModel):
     name: str
     level: int

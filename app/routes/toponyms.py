@@ -13,13 +13,16 @@ from app.schemas.toponyms import (
     ToponymNameTreeResponse,
     ToponymNamesResponse,
     ToponymPointsResponse,
+    ToponymSearchResponse,
 )
 from app.service.toponyms.config import (
     DEFAULT_NAME_LIMIT,
     DEFAULT_POINT_LIMIT,
+    DEFAULT_SEARCH_LIMIT,
     MAX_DETAIL_IDS,
     MAX_NAME_LIMIT,
     MAX_POINT_LIMIT,
+    MAX_SEARCH_LIMIT,
     NATURAL_VILLAGE_PLACE_TYPE_CODES,
     TOPONYM_NAME_TREE_DEFAULT_PAGE_SIZE,
     TOPONYM_NAME_TREE_MAX_PAGE_SIZE,
@@ -30,12 +33,14 @@ from app.service.toponyms.repository import (
     list_names_with_division_tree,
     list_points_by_name,
     sample_names,
+    search_toponyms,
 )
 
 router = APIRouter()
 
 
 MatchMode = Literal["prefix", "suffix", "exact", "contains"]
+AreaScope = Literal["descendants", "exact"]
 
 
 def _clean_query(query: str | None) -> str:
@@ -57,6 +62,15 @@ def _clean_place_type_codes(raw_codes: list[str]) -> list[str]:
     if not codes:
         raise HTTPException(status_code=400, detail="place_type_code is required")
     return codes
+
+
+def _clean_area_code(area_code: str | None) -> str | None:
+    if area_code is None or area_code.strip() == "":
+        return None
+    cleaned = area_code.strip()
+    if not cleaned.isdigit():
+        raise HTTPException(status_code=400, detail="area_code must be a numeric string")
+    return cleaned
 
 
 def _clean_ids(raw_ids: list[str]) -> list[str]:
@@ -138,6 +152,38 @@ async def get_toponym_points(
         bbox=parsed_bbox,
     )
     return ToponymPointsResponse(items=items, count=len(items), truncated=truncated)
+
+
+@router.get("/toponyms/search", response_model=ToponymSearchResponse, response_model_exclude_none=True)
+async def search_toponym_records(
+    q: str | None = Query(None, description="地名查询文本"),
+    match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
+    bbox: str | None = Query(None, description="可选: minLng,minLat,maxLng,maxLat；仅过滤 single 点位"),
+    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=0, le=MAX_SEARCH_LIMIT, description="0 表示不限制"),
+    place_type_code: list[str] = Query(None, description="默认 22200 自然村/农村居民点，可逗号分隔或重复传参"),
+    area_code: str | None = Query(None, description="可选行政区划 code"),
+    area_scope: AreaScope = Query("descendants", description="descendants 匹配下级，exact 仅精确匹配 area_code"),
+    include_area_code: bool = Query(False, description="true 时额外返回 area_code"),
+    include_place_type_code: bool = Query(False, description="true 时额外返回 place_type_code"),
+) -> ToponymSearchResponse:
+    cleaned_query = _clean_query(q)
+    cleaned_place_type_codes = _clean_place_type_codes(place_type_code or NATURAL_VILLAGE_PLACE_TYPE_CODES)
+    cleaned_area_code = _clean_area_code(area_code)
+    parsed_bbox = _parse_bbox(bbox)
+
+    items, truncated = await run_in_threadpool(
+        search_toponyms,
+        query=cleaned_query,
+        match_mode=match_mode,
+        limit=limit,
+        place_type_codes=cleaned_place_type_codes,
+        area_code=cleaned_area_code,
+        area_scope=area_scope,
+        bbox=parsed_bbox,
+        include_area_code=include_area_code,
+        include_place_type_code=include_place_type_code,
+    )
+    return ToponymSearchResponse(items=items, count=len(items), truncated=truncated)
 
 
 ToponymNamesEndpointResponse = (
