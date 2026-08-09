@@ -579,6 +579,94 @@ class ToponymsRoutesTest(unittest.TestCase):
             },
         )
 
+    def test_names_tree_lazy_handles_division_paths_that_skip_level_three(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.executemany(
+            """
+            INSERT INTO divisions (
+                code, name, parent_code, level, single_cnt, multi_cnt, longitude, latitude, ur_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("4419", "东莞市", "44", 2, 2, 0, 113.7, 23.0, None),
+                ("441900114", "黄江镇", "4419", 4, 1, 0, 114.0, 22.9, None),
+                ("441900115", "清溪镇", "4419", 4, 1, 0, 114.1, 22.8, None),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO single (
+                id, standard_name, place_type, place_type_code, area_code, longitude, latitude
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("dongguan-huangjiang-1", "黄江村", "农村居民点", "22200", "441900114", 114.0, 22.9),
+                ("dongguan-qingxi-1", "黄田村", "农村居民点", "22200", "441900115", 114.1, 22.8),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        children_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+                ("parent_path", "东莞市"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "21610"),
+                ("place_type_code", "27610"),
+            ],
+        )
+
+        self.assertEqual(children_response.status_code, 200)
+        self.assertEqual(
+            children_response.json(),
+            {
+                "mode": "lazy",
+                "level": 4,
+                "parent_path": ["广东省", "东莞市"],
+                "children": [
+                    {"name": "黄江镇", "level": 4},
+                    {"name": "清溪镇", "level": 4},
+                ],
+                "has_more": False,
+            },
+        )
+
+        leaf_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+                ("parent_path", "东莞市"),
+                ("parent_path", "黄江镇"),
+                ("page", "1"),
+                ("page_size", "100"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "21610"),
+                ("place_type_code", "27610"),
+            ],
+        )
+
+        self.assertEqual(leaf_response.status_code, 200)
+        self.assertEqual(
+            leaf_response.json(),
+            {
+                "mode": "lazy",
+                "level": 4,
+                "parent_path": ["广东省", "东莞市", "黄江镇"],
+                "names": ["黄江村"],
+                "page": 1,
+                "page_size": 100,
+                "has_more": False,
+            },
+        )
+
     def test_details_endpoint_returns_full_records_for_limited_ids(self) -> None:
         response = self.client.get(
             "/api/toponyms/details",
