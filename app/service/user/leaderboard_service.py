@@ -31,7 +31,7 @@ PHO_PIE_RULE: RuleConfig = {
 }
 
 LOCATIONS_RULE: RuleConfig = {
-    "paths": ["/api/locations/detail", "/api/locations/partitions"],
+    "paths": ["/api/locations/detail", "/api/locations/partitions", "/api/locations/points"],
     "prefixes": [],
     "exclude_prefixes": [],
 }
@@ -126,6 +126,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/toponyms/divisions",
             "/api/locations/detail",
             "/api/locations/partitions",
+            "/api/locations/points",
             "/api/get_coordinates",
         ],
         "prefixes": ["/api/villages/", "/api/gis/"],
