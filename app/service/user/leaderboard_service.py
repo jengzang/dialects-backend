@@ -346,7 +346,7 @@ def _compute_detail(value: int, rank_raw: int, n: int, first: int, next_higher: 
     )
 
 
-def _build_leaderboard_sql() -> tuple[str, list[str]]:
+def _build_leaderboard_sql() -> tuple[str, list[str], dict[str, str]]:
     """Build the single-shot leaderboard query. Returns (sql, dim_key_order)."""
     # Collect every dimension: (key, rule_or_single_path, is_single_path)
     dims: list[tuple[str, object, bool]] = []
@@ -363,6 +363,8 @@ def _build_leaderboard_sql() -> tuple[str, list[str]]:
 
     key_order = ["online_time", "total_queries"] + [d[0] for d in dims]
     base_cols = ["total_online_seconds", "total_queries"] + [d[0] for d in dims]
+    # "online_time" is the ranking key but the SQL column is "total_online_seconds"
+    key_to_col = {"online_time": "total_online_seconds"}
 
     # --- user_totals CTE: one row per user with every dimension total ---
     dim_selects = []
@@ -415,7 +417,7 @@ def _build_leaderboard_sql() -> tuple[str, list[str]]:
         "WHERE r.user_id = :user_id"
     )
 
-    return sql, key_order
+    return sql, key_order, key_to_col
 
 
 def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
@@ -429,7 +431,7 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     - 15 grouped endpoint rankings
     - 16 individual endpoint rankings
     """
-    sql, key_order = _build_leaderboard_sql()
+    sql, key_order, key_to_col = _build_leaderboard_sql()
     row = db.execute(text(sql), {"user_id": user_id}).fetchone()
 
     if row is None:
@@ -440,13 +442,14 @@ def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
 
     rankings_dict = {}
     for key in key_order:
-        value = int(rm.get(key) or 0)
-        rank_raw = int(rm.get(f"{key}_rank") or 0)
-        n = int(rm.get(f"{key}_n") or 0)
-        first = int(rm.get(f"{key}_first") or 0)
-        next_higher = rm.get(f"{key}_next")
+        col = key_to_col.get(key, key)
+        value = int(rm.get(col) or 0)
+        rank_raw = int(rm.get(f"{col}_rank") or 0)
+        n = int(rm.get(f"{col}_n") or 0)
+        first = int(rm.get(f"{col}_first") or 0)
+        next_higher = rm.get(f"{col}_next")
         next_higher = int(next_higher) if next_higher is not None else None
-        min_positive = rm.get(f"{key}_min_positive")
+        min_positive = rm.get(f"{col}_min_positive")
         min_positive = int(min_positive) if min_positive is not None else None
 
         detail = _compute_detail(value, rank_raw, n, first, next_higher, min_positive)
