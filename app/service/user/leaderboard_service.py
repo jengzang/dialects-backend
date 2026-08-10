@@ -92,12 +92,9 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
     },
     "category_工具使用": {
         "paths": [
-            "/api/tools/check/analyze",
-            "/api/tools/jyut2ipa/process",
-            "/api/tools/merge/execute",
             "/api/tools/praat/jobs",
         ],
-        "prefixes": [],
+        "prefixes": ["/api/tools/check/", "/api/tools/jyut2ipa/", "/api/tools/merge/"],
         "exclude_prefixes": [],
     },
     "category_其他查询": {
@@ -226,6 +223,24 @@ GIS_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+TOOLS_CHECK_RULE: RuleConfig = {
+    "paths": [],
+    "prefixes": ["/api/tools/check/"],
+    "exclude_prefixes": [],
+}
+
+TOOLS_JYUT2IPA_RULE: RuleConfig = {
+    "paths": [],
+    "prefixes": ["/api/tools/jyut2ipa/"],
+    "exclude_prefixes": [],
+}
+
+TOOLS_MERGE_RULE: RuleConfig = {
+    "paths": [],
+    "prefixes": ["/api/tools/merge/"],
+    "exclude_prefixes": [],
+}
+
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
@@ -240,6 +255,9 @@ AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_custom_data_edit": CUSTOM_DATA_EDIT_RULE,
     "endpoint_group_toponyms": TOPONYMS_RULE,
     "endpoint_group_gis": GIS_RULE,
+    "endpoint_group_tools_check": TOOLS_CHECK_RULE,
+    "endpoint_group_tools_jyut2ipa": TOOLS_JYUT2IPA_RULE,
+    "endpoint_group_tools_merge": TOOLS_MERGE_RULE,
 }
 
 # Individual endpoint rankings - exact path matching.
@@ -257,9 +275,6 @@ ENDPOINT_PATHS = [
     "/api/phonology_classification_matrix",
     "/api/feature_counts",
     "/api/feature_stats",
-    "/api/tools/check/analyze",
-    "/api/tools/jyut2ipa/upload",
-    "/api/tools/merge/execute",
     "/api/tools/praat/jobs",
     "/sql/query",
     "/api/get_coordinates",
