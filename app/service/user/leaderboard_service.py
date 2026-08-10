@@ -11,10 +11,8 @@ This module provides ranking calculations for:
 
 from typing import Dict, List, Optional
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from app.service.auth.database import models
 
 RuleConfig = Dict[str, List[str]]
 
@@ -292,183 +290,166 @@ class RankingDetail:
         self.percentile = percentile
 
 
-def _build_usage_filter(rule: RuleConfig):
-    """Build a SQLAlchemy filter from exact paths and path prefixes."""
-    include_conditions = []
+def _esc_sql(s: str) -> str:
+    return s.replace("'", "''")
 
-    exact_paths = rule.get("paths", [])
-    if exact_paths:
-        include_conditions.append(models.ApiUsageSummary.path.in_(exact_paths))
 
+def _quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _rule_to_cond(rule: RuleConfig) -> str:
+    """Convert a RuleConfig to a SQL CASE-WHEN condition string for conditional aggregation."""
+    parts = []
+    for path in rule.get("paths", []):
+        parts.append("aus.path = '{}'".format(_esc_sql(path)))
     for prefix in rule.get("prefixes", []):
-        include_conditions.append(models.ApiUsageSummary.path.like(f"{prefix}%"))
+        parts.append("aus.path LIKE '{}%'".format(_esc_sql(prefix)))
 
-    if not include_conditions:
-        return models.ApiUsageSummary.path == "__never_match__"
+    if not parts:
+        return "0"
 
-    include_filter = include_conditions[0] if len(include_conditions) == 1 else or_(*include_conditions)
-    exclude_conditions = [
-        ~models.ApiUsageSummary.path.like(f"{prefix}%")
-        for prefix in rule.get("exclude_prefixes", [])
-    ]
+    include = " OR ".join(f"({p})" for p in parts)
 
-    return and_(include_filter, *exclude_conditions) if exclude_conditions else include_filter
+    for prefix in rule.get("exclude_prefixes", []):
+        include = "({}) AND aus.path NOT LIKE '{}%'".format(include, _esc_sql(prefix))
 
-
-def _build_exact_path_rule(path: str) -> RuleConfig:
-    """Create a rule config for a single exact API path."""
-    return {
-        "paths": [path],
-        "prefixes": [],
-        "exclude_prefixes": [],
-    }
+    return include
 
 
-def _rank_from_totals(db: Session, user_total: int, user_totals, total_users: int) -> RankingDetail:
-    """Calculate ranking metrics from a per-user totals subquery."""
-    first_place_value = db.query(func.max(user_totals.c.total)).scalar() or 0
-    n = db.query(func.count(user_totals.c.user_id)).filter(
-        user_totals.c.total > 0
-    ).scalar()
-
-    if user_total == 0:
-        rank = n + 1
-
-        prev_value = db.query(user_totals.c.total).filter(
-            user_totals.c.total > 0
-        ).order_by(user_totals.c.total.asc()).first()
-
-        gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
-
-    rank = db.query(func.count(user_totals.c.total)).filter(
-        user_totals.c.total > user_total
-    ).scalar() + 1
-
-    prev_value = db.query(user_totals.c.total).filter(
-        user_totals.c.total > user_total
-    ).order_by(user_totals.c.total.asc()).first()
-
-    gap_to_prev = None if prev_value is None else prev_value[0] - user_total
-    if n <= 1:
-        percentile = 100.0
-    elif rank < n:
-        percentile = round((n - rank) / (n - 1) * 100, 1)
-    else:
-        percentile = round(100 / (2 * n - 2), 1)
-    return RankingDetail(rank=rank, value=user_total, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
-
-
-def _calculate_online_time_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
-    """Calculate ranking based on total online time."""
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    user_value = user.total_online_seconds if user else 0
-
-    first_place_value = db.query(func.max(models.User.total_online_seconds)).scalar() or 0
-
-    if user_value == 0:
-        rank = db.query(func.count(models.User.id)).filter(
-            models.User.total_online_seconds > 0
-        ).scalar() + 1
-
-        prev_value = db.query(models.User.total_online_seconds).filter(
-            models.User.total_online_seconds > 0
-        ).order_by(models.User.total_online_seconds.asc()).first()
-
-        gap_to_prev = prev_value[0] if prev_value else None
-        return RankingDetail(rank=rank, value=0, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=0.0)
-
-    rank = db.query(func.count(models.User.id)).filter(
-        models.User.total_online_seconds > user_value
-    ).scalar() + 1
-
-    prev_value = db.query(models.User.total_online_seconds).filter(
-        models.User.total_online_seconds > user_value
-    ).order_by(models.User.total_online_seconds.asc()).first()
-
-    gap_to_prev = None if prev_value is None else prev_value[0] - user_value
-    n = total_users
-    if n <= 1:
-        percentile = 100.0
-    elif rank < n:
-        percentile = round((n - rank) / (n - 1) * 100, 1)
-    else:
-        percentile = round(100 / (2 * n - 2), 1)
-    return RankingDetail(rank=rank, value=user_value, gap_to_prev=gap_to_prev, first_place_value=first_place_value, percentile=percentile)
-
-
-def _calculate_total_queries_rank(db: Session, user_id: int, total_users: int) -> RankingDetail:
-    """Calculate ranking based on total API queries across all endpoints."""
-    user_total = db.query(func.sum(models.ApiUsageSummary.count)).filter(
-        models.ApiUsageSummary.user_id == user_id
-    ).scalar() or 0
-
-    user_totals = db.query(
-        models.ApiUsageSummary.user_id,
-        func.sum(models.ApiUsageSummary.count).label("total"),
-    ).group_by(models.ApiUsageSummary.user_id).subquery()
-
-    return _rank_from_totals(db, user_total, user_totals, total_users)
-
-
-def _calculate_aggregate_rank(db: Session, user_id: int, rule: RuleConfig, total_users: int) -> RankingDetail:
-    """Calculate ranking based on aggregated query count for a rule of endpoints."""
-    usage_filter = _build_usage_filter(rule)
-
-    user_total = db.query(func.sum(models.ApiUsageSummary.count)).filter(
-        and_(
-            models.ApiUsageSummary.user_id == user_id,
-            usage_filter,
+def _compute_detail(value: int, rank_raw: int, n: int, first: int, next_higher: Optional[int], min_positive: Optional[int]) -> RankingDetail:
+    """Compute RankingDetail from SQL result columns, replicating the original _rank_from_totals logic exactly."""
+    if value == 0:
+        return RankingDetail(
+            rank=n + 1,
+            value=0,
+            gap_to_prev=min_positive,
+            first_place_value=first or 0,
+            percentile=0.0,
         )
-    ).scalar() or 0
 
-    user_totals = db.query(
-        models.ApiUsageSummary.user_id,
-        func.sum(models.ApiUsageSummary.count).label("total"),
-    ).filter(
-        usage_filter
-    ).group_by(models.ApiUsageSummary.user_id).subquery()
+    gap = None if next_higher is None else next_higher - value
 
-    return _rank_from_totals(db, user_total, user_totals, total_users)
+    if n <= 1:
+        percentile = 100.0
+    elif rank_raw < n:
+        percentile = round((n - rank_raw) / (n - 1) * 100, 1)
+    else:
+        percentile = round(100 / (2 * n - 2), 1)
+
+    return RankingDetail(
+        rank=rank_raw,
+        value=value,
+        gap_to_prev=gap,
+        first_place_value=first or 0,
+        percentile=percentile,
+    )
 
 
-def _calculate_endpoint_rank(db: Session, user_id: int, endpoint_path: str, total_users: int) -> RankingDetail:
-    """Calculate ranking based on query count for one exact endpoint."""
-    return _calculate_aggregate_rank(db, user_id, _build_exact_path_rule(endpoint_path), total_users)
+def _build_leaderboard_sql() -> tuple[str, list[str]]:
+    """Build the single-shot leaderboard query. Returns (sql, dim_key_order)."""
+    # Collect every dimension: (key, rule_or_single_path, is_single_path)
+    dims: list[tuple[str, object, bool]] = []
+
+    for cat_name, rule in CATEGORY_RULES.items():
+        dims.append((cat_name, rule, False))
+
+    for grp_name, rule in AGGREGATED_ENDPOINT_RULES.items():
+        dims.append((grp_name, rule, False))
+
+    for ep_path in ENDPOINT_PATHS:
+        key = f"endpoint_{ep_path.replace('/', '_').replace(':', '_')}"
+        dims.append((key, ep_path, True))
+
+    key_order = ["online_time", "total_queries"] + [d[0] for d in dims]
+    base_cols = ["total_online_seconds", "total_queries"] + [d[0] for d in dims]
+
+    # --- user_totals CTE: one row per user with every dimension total ---
+    dim_selects = []
+    for alias, rule_or_path, is_single in dims:
+        if is_single:
+            cond = "aus.path = '{}'".format(_esc_sql(rule_or_path))
+        else:
+            cond = _rule_to_cond(rule_or_path)
+        dim_selects.append(f'COALESCE(SUM(CASE WHEN {cond} THEN aus.count ELSE 0 END), 0) AS {_quote_ident(alias)}')
+
+    # --- ranked CTE: attach window-function stats for every dimension ---
+    ranked_exprs = []
+    for col in base_cols:
+        q = _quote_ident(col)
+        ranked_exprs.append(f'RANK() OVER (ORDER BY {q} DESC) AS {_quote_ident(col + "_rank")}')
+        ranked_exprs.append(f'MAX({q}) OVER () AS {_quote_ident(col + "_first")}')
+        ranked_exprs.append(f'COUNT(*) FILTER (WHERE {q} > 0) OVER () AS {_quote_ident(col + "_n")}')
+        ranked_exprs.append(f'MIN({q}) FILTER (WHERE {q} > 0) OVER () AS {_quote_ident(col + "_min_positive")}')
+
+    # --- next-higher subqueries (user-specific, cannot be windowed because of tie-skipping) ---
+    next_exprs = []
+    for col in base_cols:
+        q = _quote_ident(col)
+        next_exprs.append(
+            f'(SELECT MIN({q}) FROM user_totals WHERE {q} > r.{q}) AS {_quote_ident(col + "_next")}'
+        )
+
+    sql = (
+        "WITH user_totals AS (\n"
+        "    SELECT u.id AS user_id, COALESCE(u.total_online_seconds, 0) AS total_online_seconds,\n"
+        "        COALESCE(SUM(aus.count), 0) AS total_queries"
+        + (",\n        " + ",\n        ".join(dim_selects) if dim_selects else "")
+        + "\n    FROM users u\n"
+        "    LEFT JOIN api_usage_summary aus ON u.id = aus.user_id\n"
+        "    GROUP BY u.id\n"
+        "),\n"
+        "ranked AS (\n"
+        "    SELECT *,\n        "
+        + ",\n        ".join(ranked_exprs)
+        + "\n    FROM user_totals\n"
+        "),\n"
+        "total_stats AS (\n"
+        "    SELECT COUNT(*) FILTER (WHERE total_online_seconds > 0) AS total_users\n"
+        "    FROM user_totals\n"
+        ")\n"
+        "SELECT r.*, ts.total_users"
+        + (",\n    " + ",\n    ".join(next_exprs) if next_exprs else "")
+        + "\nFROM ranked r\n"
+        "CROSS JOIN total_stats ts\n"
+        "WHERE r.user_id = :user_id"
+    )
+
+    return sql, key_order
 
 
 def get_user_leaderboard(db: Session, user_id: int) -> Dict[str, Dict]:
     """
-    Calculate all rankings for a user in a single call.
+    Calculate all rankings for a user in a single SQL round-trip.
 
-    This function computes:
+    Computes:
     - 1 online time ranking
     - 1 total queries ranking
     - 8 category rankings
-    - grouped endpoint rankings
-    - individual endpoint rankings
+    - 15 grouped endpoint rankings
+    - 16 individual endpoint rankings
     """
-    total_users = db.query(func.count(func.distinct(models.User.id))).filter(
-        models.User.total_online_seconds > 0
-    ).scalar()
+    sql, key_order = _build_leaderboard_sql()
+    row = db.execute(text(sql), {"user_id": user_id}).fetchone()
 
-    rankings = {}
+    if row is None:
+        return {"rankings": {}, "total_users": 0}
 
-    rankings["online_time"] = _calculate_online_time_rank(db, user_id, total_users)
-    rankings["total_queries"] = _calculate_total_queries_rank(db, user_id, total_users)
-
-    for category_name, rule in CATEGORY_RULES.items():
-        rankings[category_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
-
-    for group_name, rule in AGGREGATED_ENDPOINT_RULES.items():
-        rankings[group_name] = _calculate_aggregate_rank(db, user_id, rule, total_users)
-
-    for endpoint_path in ENDPOINT_PATHS:
-        key_name = f"endpoint_{endpoint_path.replace('/', '_').replace(':', '_')}"
-        rankings[key_name] = _calculate_endpoint_rank(db, user_id, endpoint_path, total_users)
+    rm = dict(row._mapping)
+    total_users = int(rm.get("total_users") or 0)
 
     rankings_dict = {}
-    for key, detail in rankings.items():
+    for key in key_order:
+        value = int(rm.get(key) or 0)
+        rank_raw = int(rm.get(f"{key}_rank") or 0)
+        n = int(rm.get(f"{key}_n") or 0)
+        first = int(rm.get(f"{key}_first") or 0)
+        next_higher = rm.get(f"{key}_next")
+        next_higher = int(next_higher) if next_higher is not None else None
+        min_positive = rm.get(f"{key}_min_positive")
+        min_positive = int(min_positive) if min_positive is not None else None
+
+        detail = _compute_detail(value, rank_raw, n, first, next_higher, min_positive)
         rankings_dict[key] = {
             "rank": detail.rank,
             "value": detail.value,
