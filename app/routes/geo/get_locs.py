@@ -45,8 +45,8 @@ async def get_all_locs(
             region_mode=region_mode
         )
 
-        # 回填匹配地點的雙分區（內存查詢）
-        partitions = get_partitions_for_abbrs(locations_processed, query_db)
+        # 回填所有返回地點的雙分區（內存查詢，覆蓋 regions + locations）
+        partitions = get_partitions_for_abbrs(result, query_db)
         locations_partitions = {
             abbr: {"地圖集二分區": parts[0], "音典分區": parts[1]}
             for abbr, parts in partitions.items()
