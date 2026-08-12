@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Query, Depends
 from typing import List, Optional
 
-from app.service.geo.match_input_tip import match_locations_batch_exact
+from app.service.geo.match_input_tip import match_locations_batch_exact, get_partitions_for_abbrs
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.sql.db_selector import get_query_db
 # from app.auth.dependencies import get_current_user
@@ -44,7 +44,17 @@ async def get_all_locs(
             db_path=query_db,
             region_mode=region_mode
         )
-        return {"locations_result": result}
+
+        # 回填匹配地點的雙分區（內存查詢）
+        partitions = get_partitions_for_abbrs(locations_processed, query_db)
+        locations_partitions = {
+            abbr: {"地圖集二分區": parts[0], "音典分區": parts[1]}
+            for abbr, parts in partitions.items()
+        }
+        return {
+            "locations_result": result,
+            "locations_partitions": locations_partitions,
+        }
     finally:
         print("get_all_loc")
 
