@@ -96,7 +96,7 @@ def resolve_feature_locations(
     return _dedupe_preserving_order(resolved)
 
 
-def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 500):
+def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 300):
     """
     优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
     显著提升查询性能（3次扫描 → 1次扫描）

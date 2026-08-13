@@ -174,6 +174,16 @@ class SyllableCountsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["toned"]["aggregated"]["syllables"]["a1"]["totalCount"], 1100)
         self.assertEqual(len(result["points"]), 1100)
 
+    def test_feature_counts_chunks_under_sqlite_parameter_limit(self) -> None:
+        locations = [f"批量{i}" for i in range(400)]
+
+        result = get_feature_counts(locations, self.dialects_db)
+
+        self.assertEqual(len(result), 400)
+        self.assertEqual(result["批量0"]["聲母"][""], 1)
+        self.assertEqual(result["批量399"]["韻母"]["a"], 1)
+        self.assertEqual(result["批量399"]["聲調"]["1"], 1)
+
     async def test_syllable_counts_rejects_empty_locations_and_regions(self) -> None:
         with self.assertRaises(ValueError):
             SyllableCountsRequest(locations=[], regions=[])
