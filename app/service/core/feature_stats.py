@@ -11,12 +11,14 @@ Created: 2026-02-14
 """
 
 from collections import defaultdict
-from typing import List, Dict, Optional, Set
+import re
+from typing import List, Dict, Optional, Set, Iterable
 import hashlib
 
 from app.sql.db_pool import get_db_pool
 from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
 from app.service.core.matrix import custom_phonology_sort
+from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 
 
 def _mark_to_text(value) -> str:
@@ -55,7 +57,46 @@ def _read_stats_from_sets(read_bucket: Dict, char_to_index: Dict[str, int]) -> D
     }
 
 
-def get_feature_counts(locations, db_path, table="dialects"):
+def _chunked(items: List[str], chunk_size: int = 500) -> Iterable[List[str]]:
+    for i in range(0, len(items), chunk_size):
+        yield items[i:i + chunk_size]
+
+
+def _clean_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _dedupe_preserving_order(items: Iterable[str]) -> List[str]:
+    result = []
+    seen = set()
+    for item in items or []:
+        text = _clean_text(item)
+        if text and text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result
+
+
+def resolve_feature_locations(
+    locations: Optional[List[str]],
+    regions: Optional[List[str]],
+    query_db_path: str,
+    region_mode: str = "yindian",
+) -> List[str]:
+    """Resolve regions and locations using the same ordering as ZhongGu."""
+    if not regions:
+        return _dedupe_preserving_order(locations or [])
+
+    resolved = query_dialect_abbreviations(
+        region_input=regions,
+        location_sequence=locations or [],
+        db_path=query_db_path,
+        region_mode=region_mode,
+    )
+    return _dedupe_preserving_order(resolved)
+
+
+def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 500):
     """
     优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
     显著提升查询性能（3次扫描 → 1次扫描）
@@ -78,51 +119,272 @@ def get_feature_counts(locations, db_path, table="dialects"):
             ...
         }
     """
+    locations = _dedupe_preserving_order(locations)
     result = defaultdict(lambda: defaultdict(dict))
+    if not locations:
+        return result
 
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
-        placeholders = ','.join(['?' for _ in locations])
+        for chunk in _chunked(locations, chunk_size):
+            # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
+            placeholders = ','.join(['?' for _ in chunk])
 
-        query_combined = f"""
-            SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
-            FROM {table}
-            WHERE 簡稱 IN ({placeholders})
-            GROUP BY 簡稱, 聲母
+            query_combined = f"""
+                SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                GROUP BY 簡稱, 聲母
 
-            UNION ALL
+                UNION ALL
 
-            SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
-            FROM {table}
-            WHERE 簡稱 IN ({placeholders})
-            GROUP BY 簡稱, 韻母
+                SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                GROUP BY 簡稱, 韻母
 
-            UNION ALL
+                UNION ALL
 
-            SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
-            FROM {table}
-            WHERE 簡稱 IN ({placeholders})
-            GROUP BY 簡稱, 聲調
-        """
+                SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                GROUP BY 簡稱, 聲調
+            """
 
-        # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
-        cursor.execute(query_combined, locations * 3)
+            # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
+            cursor.execute(query_combined, chunk * 3)
 
-        # 处理所有结果，按特征类型分离
-        all_rows = cursor.fetchall()
-        for row in all_rows:
-            loc = row[0]
-            feature_type = row[1]
-            value = row[2]
-            count = row[3]
+            # 处理所有结果，按特征类型分离
+            all_rows = cursor.fetchall()
+            for row in all_rows:
+                loc = row[0]
+                feature_type = row[1]
+                value = row[2]
+                count = row[3]
 
-            # 根据特征类型填充结果字典
-            result[loc][feature_type][value] = count
+                # 根据特征类型填充结果字典
+                result[loc][feature_type][value] = count
 
-    return result
+    ordered_result = defaultdict(lambda: defaultdict(dict))
+    for location in locations:
+        if location in result:
+            ordered_result[location] = result[location]
+
+    return ordered_result
+
+
+def get_feature_counts_for_request(
+    locations: Optional[List[str]],
+    regions: Optional[List[str]],
+    new_format: bool,
+    dialects_db: str,
+    query_db: str,
+    region_mode: str = "yindian",
+):
+    """Resolve feature-count request inputs while preserving the legacy output format."""
+    clean_locations = _dedupe_preserving_order(locations or [])
+    clean_regions = _dedupe_preserving_order(regions or [])
+    if not clean_locations and not clean_regions:
+        raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+
+    resolved_locations = resolve_feature_locations(
+        locations=clean_locations,
+        regions=clean_regions,
+        query_db_path=query_db,
+        region_mode=region_mode,
+    )
+    result = get_feature_counts(resolved_locations, dialects_db)
+
+    if not new_format:
+        return result
+
+    return {
+        "locations": result,
+        "aggregated": calculate_aggregated_feature_counts(result),
+    }
+
+
+def _parse_coordinate(value) -> Optional[List[float]]:
+    text = _clean_text(value)
+    if not text:
+        return None
+    parts = [part for part in re.split(r"[,，;；\s]+", text) if part]
+    if len(parts) < 2:
+        return None
+    try:
+        latitude = float(parts[0])
+        longitude = float(parts[1])
+    except ValueError:
+        return None
+    return [longitude, latitude]
+
+
+def _fetch_location_coordinates(
+    locations: List[str],
+    db_path: str,
+    table: str = "dialects",
+    chunk_size: int = 500,
+) -> Dict[str, Optional[List[float]]]:
+    coordinates = {}
+    if not locations:
+        return coordinates
+
+    pool = get_db_pool(db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        for chunk in _chunked(locations, chunk_size):
+            placeholders = ",".join(["?"] * len(chunk))
+            cursor.execute(
+                f"SELECT 簡稱, 經緯度 FROM {table} WHERE 簡稱 IN ({placeholders})",
+                chunk,
+            )
+            for row in cursor.fetchall():
+                if row[0] not in coordinates:
+                    coordinates[row[0]] = _parse_coordinate(row[1])
+
+    return coordinates
+
+
+def _build_syllable_section(location_counts: Dict[str, Dict[str, int]], locations: List[str]) -> Dict:
+    location_payload = {}
+    aggregated_syllables = defaultdict(
+        lambda: {"totalCount": 0, "locationCount": 0, "locations": []}
+    )
+    total_tokens = 0
+    all_syllables = set()
+
+    for location in locations:
+        syllables = dict(location_counts.get(location, {}))
+        location_total = sum(int(count or 0) for count in syllables.values())
+        location_unique = len(syllables)
+        location_payload[location] = {
+            "total_tokens": location_total,
+            "unique_syllables": location_unique,
+            "syllables": syllables,
+        }
+        total_tokens += location_total
+        all_syllables.update(syllables.keys())
+
+        for syllable, count in syllables.items():
+            count = int(count or 0)
+            if count <= 0:
+                continue
+            item = aggregated_syllables[syllable]
+            item["totalCount"] += count
+            item["locationCount"] += 1
+            item["locations"].append(location)
+
+    return {
+        "locations": location_payload,
+        "aggregated": {
+            "total_tokens": total_tokens,
+            "unique_syllables": len(all_syllables),
+            "syllables": dict(aggregated_syllables),
+        },
+    }
+
+
+def get_syllable_counts(
+    locations: List[str],
+    dialects_db_path: str,
+    query_db_path: str,
+    table: str = "dialects",
+    chunk_size: int = 500,
+) -> Dict:
+    """
+    Count toned and toneless syllables for many locations in batched SQL queries.
+
+    Counts use COUNT(DISTINCT 漢字), matching feature_counts semantics and avoiding duplicate
+    rows for the same character/pronunciation from inflating token counts.
+    """
+    requested_locations = _dedupe_preserving_order(locations)
+    toneless_counts = defaultdict(dict)
+    toned_counts = defaultdict(dict)
+
+    pool = get_db_pool(dialects_db_path)
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        for chunk in _chunked(requested_locations, chunk_size):
+            placeholders = ",".join(["?"] * len(chunk))
+
+            toneless_sql = f"""
+                SELECT 簡稱,
+                       COALESCE(聲母, '') || COALESCE(韻母, '') AS syllable,
+                       COUNT(DISTINCT 漢字) AS count
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                  AND 簡稱 IS NOT NULL AND TRIM(簡稱) != ''
+                  AND 漢字 IS NOT NULL AND TRIM(漢字) != ''
+                  AND 音節 IS NOT NULL AND TRIM(音節) != ''
+                  AND TRIM(COALESCE(聲母, '') || COALESCE(韻母, '')) != ''
+                GROUP BY 簡稱, syllable
+            """
+            cursor.execute(toneless_sql, chunk)
+            for row in cursor.fetchall():
+                toneless_counts[row[0]][row[1]] = int(row[2] or 0)
+
+            toned_sql = f"""
+                SELECT 簡稱, 音節 AS syllable, COUNT(DISTINCT 漢字) AS count
+                FROM {table}
+                WHERE 簡稱 IN ({placeholders})
+                  AND 簡稱 IS NOT NULL AND TRIM(簡稱) != ''
+                  AND 漢字 IS NOT NULL AND TRIM(漢字) != ''
+                  AND 音節 IS NOT NULL AND TRIM(音節) != ''
+                GROUP BY 簡稱, 音節
+            """
+            cursor.execute(toned_sql, chunk)
+            for row in cursor.fetchall():
+                toned_counts[row[0]][row[1]] = int(row[2] or 0)
+
+    locations_with_data = [
+        location
+        for location in requested_locations
+        if location in toneless_counts or location in toned_counts
+    ]
+    coordinates = _fetch_location_coordinates(locations_with_data, query_db_path, chunk_size=chunk_size)
+    locations_without_coordinates = [
+        location for location in locations_with_data if not coordinates.get(location)
+    ]
+
+    toneless = _build_syllable_section(toneless_counts, locations_with_data)
+    toned = _build_syllable_section(toned_counts, locations_with_data)
+
+    points = []
+    for location in locations_with_data:
+        coordinate = coordinates.get(location)
+        if not coordinate:
+            continue
+        toneless_location = toneless["locations"][location]
+        toned_location = toned["locations"][location]
+        points.append(
+            {
+                "location": location,
+                "coordinate": coordinate,
+                "toneless": toneless_location["syllables"],
+                "toned": toned_location["syllables"],
+                "total_tokens": {
+                    "toneless": toneless_location["total_tokens"],
+                    "toned": toned_location["total_tokens"],
+                },
+                "unique_syllables": {
+                    "toneless": toneless_location["unique_syllables"],
+                    "toned": toned_location["unique_syllables"],
+                },
+            }
+        )
+
+    return {
+        "toneless": toneless,
+        "toned": toned,
+        "points": points,
+        "meta": {
+            "requested_locations_count": len(requested_locations),
+            "locations_count": len(locations_with_data),
+            "locations_without_coordinates": locations_without_coordinates,
+        },
+    }
 
 def calculate_aggregated_feature_counts(location_data):
     """
