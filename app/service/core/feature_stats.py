@@ -175,9 +175,12 @@ def get_feature_counts_for_request(
     if not new_format:
         return result
 
+    ordered = list(result.keys())
+    id_to_info, abbr_to_id = _build_location_id_map(ordered, query_db)
     return {
         "locations": result,
-        "aggregated": calculate_aggregated_feature_counts(result),
+        "aggregated": calculate_aggregated_feature_counts(result, abbr_to_id),
+        "points": list(id_to_info.values()),
     }
 
 
@@ -193,7 +196,7 @@ def _parse_coordinate(value) -> Optional[List[float]]:
         longitude = float(parts[1])
     except ValueError:
         return None
-    return [longitude, latitude]
+    return [latitude, longitude]
 
 
 def _fetch_location_coordinates(
@@ -222,7 +225,22 @@ def _fetch_location_coordinates(
     return coordinates
 
 
-def _build_syllable_section(location_counts: Dict[str, Dict[str, int]], locations: List[str]) -> Dict:
+def _build_location_id_map(locations: List[str], query_db_path: str, chunk_size: int = 500) -> tuple:
+    """id = locations 顺序下标；返回 (id_to_info, abbr_to_id)。"""
+    coordinates = _fetch_location_coordinates(locations, query_db_path, chunk_size=chunk_size)
+    id_to_info = {}
+    abbr_to_id = {}
+    for i, abbr in enumerate(locations):
+        id_to_info[i] = {"id": i, "location": abbr, "coordinate": coordinates.get(abbr)}
+        abbr_to_id[abbr] = i
+    return id_to_info, abbr_to_id
+
+
+def _build_syllable_section(
+    location_counts: Dict[str, Dict[str, int]],
+    locations: List[str],
+    abbr_to_id: Optional[Dict[str, int]] = None,
+) -> Dict:
     location_payload = {}
     aggregated_syllables = defaultdict(
         lambda: {"totalCount": 0, "locationCount": 0, "locations": []}
@@ -249,7 +267,9 @@ def _build_syllable_section(location_counts: Dict[str, Dict[str, int]], location
             item = aggregated_syllables[syllable]
             item["totalCount"] += count
             item["locationCount"] += 1
-            item["locations"].append(location)
+            item["locations"].append(
+                abbr_to_id[location] if abbr_to_id is not None else location
+            )
 
     return {
         "locations": location_payload,
@@ -315,42 +335,18 @@ def get_syllable_counts(
         for location in requested_locations
         if location in toneless_counts or location in toned_counts
     ]
-    coordinates = _fetch_location_coordinates(locations_with_data, query_db_path, chunk_size=chunk_size)
+    id_to_info, abbr_to_id = _build_location_id_map(locations_with_data, query_db_path, chunk_size=chunk_size)
     locations_without_coordinates = [
-        location for location in locations_with_data if not coordinates.get(location)
+        info["location"] for info in id_to_info.values() if info["coordinate"] is None
     ]
 
-    toneless = _build_syllable_section(toneless_counts, locations_with_data)
-    toned = _build_syllable_section(toned_counts, locations_with_data)
-
-    points = []
-    for location in locations_with_data:
-        coordinate = coordinates.get(location)
-        if not coordinate:
-            continue
-        toneless_location = toneless["locations"][location]
-        toned_location = toned["locations"][location]
-        points.append(
-            {
-                "location": location,
-                "coordinate": coordinate,
-                "toneless": toneless_location["syllables"],
-                "toned": toned_location["syllables"],
-                "total_tokens": {
-                    "toneless": toneless_location["total_tokens"],
-                    "toned": toned_location["total_tokens"],
-                },
-                "unique_syllables": {
-                    "toneless": toneless_location["unique_syllables"],
-                    "toned": toned_location["unique_syllables"],
-                },
-            }
-        )
+    toneless = _build_syllable_section(toneless_counts, locations_with_data, abbr_to_id)
+    toned = _build_syllable_section(toned_counts, locations_with_data, abbr_to_id)
 
     return {
         "toneless": toneless,
         "toned": toned,
-        "points": points,
+        "points": list(id_to_info.values()),
         "meta": {
             "requested_locations_count": len(requested_locations),
             "locations_count": len(locations_with_data),
@@ -358,7 +354,7 @@ def get_syllable_counts(
         },
     }
 
-def calculate_aggregated_feature_counts(location_data):
+def calculate_aggregated_feature_counts(location_data, abbr_to_id: Optional[Dict[str, int]] = None):
     """
     根据地点维度的原始统计数据，计算汇总数据。
 
@@ -374,18 +370,18 @@ def calculate_aggregated_feature_counts(location_data):
         }
     }
 
-    输出：
+    输出（abbr_to_id 提供时 locations 为地点 id，否则为地点全称）：
     {
         "聲母": {
             "p": {
                 "totalCount": 17,
                 "locationCount": 2,
-                "locations": ["广州", "香港"]
+                "locations": [0, 1]
             },
             "t": {
                 "totalCount": 8,
                 "locationCount": 1,
-                "locations": ["广州"]
+                "locations": [0]
             }
         }
     }
@@ -406,7 +402,9 @@ def calculate_aggregated_feature_counts(location_data):
                 item = aggregated[feature_type][syllable]
                 item["totalCount"] += count
                 item["locationCount"] += 1
-                item["locations"].append(location_name)
+                item["locations"].append(
+                    abbr_to_id[location_name] if abbr_to_id is not None else location_name
+                )
 
     # 转成普通 dict，避免 defaultdict 返回到前端
     return {
