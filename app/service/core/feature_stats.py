@@ -19,6 +19,7 @@ from app.sql.db_pool import get_db_pool
 from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
 from app.service.core.matrix import custom_phonology_sort
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
+from app.service.geo.match_input_tip import match_locations_batch_exact
 
 
 def _mark_to_text(value) -> str:
@@ -83,23 +84,21 @@ def resolve_feature_locations(
     query_db_path: str,
     region_mode: str = "yindian",
 ) -> List[str]:
-    """Resolve regions and locations using the same ordering as ZhongGu."""
-    if not regions:
-        return _dedupe_preserving_order(locations or [])
-
+    """Resolve regions and locations to valid dialect abbrs, matching ZhongGu."""
     resolved = query_dialect_abbreviations(
         region_input=regions,
         location_sequence=locations or [],
         db_path=query_db_path,
         region_mode=region_mode,
     )
-    return _dedupe_preserving_order(resolved)
+    match_results = match_locations_batch_exact(" ".join(resolved), query_db=query_db_path)
+    abbrs = [abbr for res in match_results for abbr in res[0]]
+    return _dedupe_preserving_order(abbrs)
 
 
-def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 300):
+def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 500):
     """
-    优化版本：使用 UNION ALL 将三次表扫描合并为一次查询
-    显著提升查询性能（3次扫描 → 1次扫描）
+    按特征各跑一条 GROUP BY COUNT(DISTINCT 漢字)，命中覆盖索引，参数=地点数（不乘 3）。
 
     [MIGRATED FROM] app.service.phonology2status.py
     此函数已从 phonology2status.py 迁移到此处，用于集中管理特征统计功能。
@@ -129,43 +128,19 @@ def get_feature_counts(locations, db_path, table="dialects", chunk_size: int = 3
         cursor = conn.cursor()
 
         for chunk in _chunked(locations, chunk_size):
-            # [OK] 优化：使用 UNION ALL 合并三个查询为一次表扫描
-            placeholders = ','.join(['?' for _ in chunk])
-
-            query_combined = f"""
-                SELECT 簡稱, '聲母' as feature_type, 聲母 as value, COUNT(DISTINCT 漢字) AS 字數
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                GROUP BY 簡稱, 聲母
-
-                UNION ALL
-
-                SELECT 簡稱, '韻母' as feature_type, 韻母 as value, COUNT(DISTINCT 漢字) AS 字數
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                GROUP BY 簡稱, 韻母
-
-                UNION ALL
-
-                SELECT 簡稱, '聲調' as feature_type, 聲調 as value, COUNT(DISTINCT 漢字) AS 字數
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                GROUP BY 簡稱, 聲調
-            """
-
-            # 执行合并后的查询（参数需要重复3次，对应3个WHERE子句）
-            cursor.execute(query_combined, chunk * 3)
-
-            # 处理所有结果，按特征类型分离
-            all_rows = cursor.fetchall()
-            for row in all_rows:
-                loc = row[0]
-                feature_type = row[1]
-                value = row[2]
-                count = row[3]
-
-                # 根据特征类型填充结果字典
-                result[loc][feature_type][value] = count
+            placeholders = ",".join(["?"] * len(chunk))
+            for feature in ("聲母", "韻母", "聲調"):
+                cursor.execute(
+                    f"SELECT 簡稱, {feature}, COUNT(DISTINCT 漢字) FROM {table} "
+                    f"WHERE 簡稱 IN ({placeholders}) GROUP BY 簡稱, {feature}",
+                    chunk,
+                )
+                for loc, value, count in cursor.fetchall():
+                    loc = _clean_text(loc)
+                    value = _clean_text(value)
+                    if not loc or not value:
+                        continue
+                    result[loc][feature][value] = int(count or 0)
 
     ordered_result = defaultdict(lambda: defaultdict(dict))
     for location in locations:
@@ -294,49 +269,46 @@ def get_syllable_counts(
     chunk_size: int = 500,
 ) -> Dict:
     """
-    Count toned and toneless syllables for many locations in batched SQL queries.
+    Count toned and toneless syllables for many locations from raw rows fetched in batches.
 
-    Counts use COUNT(DISTINCT 漢字), matching feature_counts semantics and avoiding duplicate
-    rows for the same character/pronunciation from inflating token counts.
+    Counts use COUNT(DISTINCT 漢字) semantics (a per-location per-syllable set of 漢字),
+    matching feature_counts semantics and avoiding duplicate rows for the same
+    character/pronunciation from inflating token counts.
     """
     requested_locations = _dedupe_preserving_order(locations)
-    toneless_counts = defaultdict(dict)
-    toned_counts = defaultdict(dict)
+    toneless_sets = defaultdict(lambda: defaultdict(set))
+    toned_sets = defaultdict(lambda: defaultdict(set))
 
     pool = get_db_pool(dialects_db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
         for chunk in _chunked(requested_locations, chunk_size):
             placeholders = ",".join(["?"] * len(chunk))
+            cursor.execute(
+                f"SELECT 簡稱, 漢字, 聲母, 韻母, 音節 FROM {table} WHERE 簡稱 IN ({placeholders})",
+                chunk,
+            )
+            for loc, char, shengmu, yunmu, syllable in cursor.fetchall():
+                loc = _clean_text(loc)
+                char = _clean_text(char)
+                if not loc or not char:
+                    continue
+                syllable = _clean_text(syllable)
+                shengmu = _clean_text(shengmu)
+                yunmu = _clean_text(yunmu)
+                if syllable:
+                    toned_sets[loc][syllable].add(char)
+                    if shengmu or yunmu:
+                        toneless_sets[loc][shengmu + yunmu].add(char)
 
-            toneless_sql = f"""
-                SELECT 簡稱,
-                       COALESCE(聲母, '') || COALESCE(韻母, '') AS syllable,
-                       COUNT(DISTINCT 漢字) AS count
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                  AND 簡稱 IS NOT NULL AND TRIM(簡稱) != ''
-                  AND 漢字 IS NOT NULL AND TRIM(漢字) != ''
-                  AND 音節 IS NOT NULL AND TRIM(音節) != ''
-                  AND TRIM(COALESCE(聲母, '') || COALESCE(韻母, '')) != ''
-                GROUP BY 簡稱, syllable
-            """
-            cursor.execute(toneless_sql, chunk)
-            for row in cursor.fetchall():
-                toneless_counts[row[0]][row[1]] = int(row[2] or 0)
-
-            toned_sql = f"""
-                SELECT 簡稱, 音節 AS syllable, COUNT(DISTINCT 漢字) AS count
-                FROM {table}
-                WHERE 簡稱 IN ({placeholders})
-                  AND 簡稱 IS NOT NULL AND TRIM(簡稱) != ''
-                  AND 漢字 IS NOT NULL AND TRIM(漢字) != ''
-                  AND 音節 IS NOT NULL AND TRIM(音節) != ''
-                GROUP BY 簡稱, 音節
-            """
-            cursor.execute(toned_sql, chunk)
-            for row in cursor.fetchall():
-                toned_counts[row[0]][row[1]] = int(row[2] or 0)
+    toneless_counts = {
+        loc: {syllable: len(chars) for syllable, chars in sets.items()}
+        for loc, sets in toneless_sets.items()
+    }
+    toned_counts = {
+        loc: {syllable: len(chars) for syllable, chars in sets.items()}
+        for loc, sets in toned_sets.items()
+    }
 
     locations_with_data = [
         location
