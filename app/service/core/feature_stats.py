@@ -176,11 +176,10 @@ def get_feature_counts_for_request(
         return result
 
     ordered = list(result.keys())
-    id_to_info, abbr_to_id = _build_location_id_map(ordered, query_db)
+    abbr_to_id = {abbr: i for i, abbr in enumerate(ordered)}
     return {
         "locations": result,
         "aggregated": calculate_aggregated_feature_counts(result, abbr_to_id),
-        "points": list(id_to_info.values()),
     }
 
 
