@@ -109,7 +109,20 @@ def export_feature_counts(aggregated, n_locations, out_dir, date):
     return path
 
 
-def export_points(points, n_locations, out_dir, date):
+def export_points(result, n_locations, out_dir, date):
+    points = []
+    for p in result["points"]:
+        loc = p["location"]
+        item = dict(p)
+        item["unique_syllables"] = {
+            "toneless": result["toneless"]["locations"].get(loc, {}).get("unique_syllables", 0),
+            "toned": result["toned"]["locations"].get(loc, {}).get("unique_syllables", 0),
+        }
+        item["total_tokens"] = {
+            "toneless": result["toneless"]["locations"].get(loc, {}).get("total_tokens", 0),
+            "toned": result["toned"]["locations"].get(loc, {}).get("total_tokens", 0),
+        }
+        points.append(item)
     data = {
         "points": points,
         "locations_count": n_locations,
@@ -144,7 +157,7 @@ def main():
 
     path_sc = export_syllable_counts(result, args.top, args.out_dir, args.date)
     path_fc = export_feature_counts(fc["aggregated"], len(sc_order), args.out_dir, args.date)
-    path_pts = export_points(result["points"], len(sc_order), args.out_dir, args.date)
+    path_pts = export_points(result, len(sc_order), args.out_dir, args.date)
 
     # 抽查解码一致性：写出的位图还原后应与原始 id 列表一致
     data = json.load(open(path_sc, encoding="utf-8"))
