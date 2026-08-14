@@ -286,48 +286,68 @@ def get_syllable_counts(
     query_db_path: str,
     table: str = "dialects",
     chunk_size: int = 500,
+    variant: str = "both",
 ) -> Dict:
     """
-    Count toned and toneless syllables for many locations from raw rows fetched in batches.
+    Count toned and/or toneless syllables across locations, aggregated in SQL.
 
-    Counts use COUNT(DISTINCT 漢字) semantics (a per-location per-syllable set of 漢字),
-    matching feature_counts semantics and avoiding duplicate rows for the same
-    character/pronunciation from inflating token counts.
+    ``variant`` selects which payload(s) to return: ``"both"`` (default),
+    ``"toneless"``, or ``"toned"``. Toned and toneless are computed by fully
+    separate queries: toned reads only 簡稱/音節/漢字, toneless only
+    簡稱/聲母/韻母/漢字, so requesting a single variant avoids the other's I/O.
+
+    Counts use COUNT(DISTINCT 漢字) semantics (a per-location per-syllable set of
+    漢字), matching feature_counts semantics and avoiding duplicate rows for the
+    same character/pronunciation from inflating token counts.
     """
+    if variant not in ("both", "toneless", "toned"):
+        raise ValueError(f"invalid variant: {variant!r}")
+
     requested_locations = _dedupe_preserving_order(locations)
-    toneless_sets = defaultdict(lambda: defaultdict(set))
-    toned_sets = defaultdict(lambda: defaultdict(set))
+    want_toneless = variant in ("both", "toneless")
+    want_toned = variant in ("both", "toned")
+
+    toneless_counts = defaultdict(dict)
+    toned_counts = defaultdict(dict)
 
     pool = get_db_pool(dialects_db_path)
     with pool.get_connection() as conn:
         cursor = conn.cursor()
         for chunk in _chunked(requested_locations, chunk_size):
             placeholders = ",".join(["?"] * len(chunk))
-            cursor.execute(
-                f"SELECT 簡稱, 漢字, 聲母, 韻母, 音節 FROM {table} WHERE 簡稱 IN ({placeholders})",
-                chunk,
-            )
-            for loc, char, shengmu, yunmu, syllable in cursor.fetchall():
-                loc = _clean_text(loc)
-                char = _clean_text(char)
-                if not loc or not char:
-                    continue
-                syllable = _clean_text(syllable)
-                shengmu = _clean_text(shengmu)
-                yunmu = _clean_text(yunmu)
-                if syllable:
-                    toned_sets[loc][syllable].add(char)
-                    if shengmu or yunmu:
-                        toneless_sets[loc][shengmu + yunmu].add(char)
+            if want_toned:
+                cursor.execute(
+                    f"SELECT 簡稱, 音節, COUNT(DISTINCT 漢字) FROM {table} "
+                    f"WHERE 簡稱 IN ({placeholders}) "
+                    f"AND 漢字 IS NOT NULL AND 漢字 <> '' "
+                    f"AND 音節 IS NOT NULL AND 音節 <> '' "
+                    f"GROUP BY 簡稱, 音節",
+                    chunk,
+                )
+                for loc, syllable, count in cursor.fetchall():
+                    loc = _clean_text(loc)
+                    syllable = _clean_text(syllable)
+                    if not loc or not syllable:
+                        continue
+                    toned_counts[loc][syllable] = int(count or 0)
 
-    toneless_counts = {
-        loc: {syllable: len(chars) for syllable, chars in sets.items()}
-        for loc, sets in toneless_sets.items()
-    }
-    toned_counts = {
-        loc: {syllable: len(chars) for syllable, chars in sets.items()}
-        for loc, sets in toned_sets.items()
-    }
+            if want_toneless:
+                cursor.execute(
+                    f"SELECT 簡稱, "
+                    f"COALESCE(TRIM(聲母), '') || COALESCE(TRIM(韻母), '') AS k, "
+                    f"COUNT(DISTINCT 漢字) FROM {table} "
+                    f"WHERE 簡稱 IN ({placeholders}) "
+                    f"AND 漢字 IS NOT NULL AND 漢字 <> '' "
+                    f"AND (COALESCE(TRIM(聲母), '') <> '' OR COALESCE(TRIM(韻母), '') <> '') "
+                    f"GROUP BY 簡稱, k",
+                    chunk,
+                )
+                for loc, key, count in cursor.fetchall():
+                    loc = _clean_text(loc)
+                    key = _clean_text(key)
+                    if not loc or not key:
+                        continue
+                    toneless_counts[loc][key] = int(count or 0)
 
     locations_with_data = [
         location
@@ -339,19 +359,18 @@ def get_syllable_counts(
         info["location"] for info in id_to_info.values() if info["coordinate"] is None
     ]
 
-    toneless = _build_syllable_section(toneless_counts, locations_with_data, abbr_to_id)
-    toned = _build_syllable_section(toned_counts, locations_with_data, abbr_to_id)
-
-    return {
-        "toneless": toneless,
-        "toned": toned,
-        "points": list(id_to_info.values()),
-        "meta": {
-            "requested_locations_count": len(requested_locations),
-            "locations_count": len(locations_with_data),
-            "locations_without_coordinates": locations_without_coordinates,
-        },
+    result = {}
+    if want_toneless:
+        result["toneless"] = _build_syllable_section(toneless_counts, locations_with_data, abbr_to_id)
+    if want_toned:
+        result["toned"] = _build_syllable_section(toned_counts, locations_with_data, abbr_to_id)
+    result["points"] = list(id_to_info.values())
+    result["meta"] = {
+        "requested_locations_count": len(requested_locations),
+        "locations_count": len(locations_with_data),
+        "locations_without_coordinates": locations_without_coordinates,
     }
+    return result
 
 def calculate_aggregated_feature_counts(location_data, abbr_to_id: Optional[Dict[str, int]] = None):
     """

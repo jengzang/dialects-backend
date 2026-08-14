@@ -166,8 +166,14 @@ async def syllable_counts(
             locations,
             dialects_db,
             query_db,
+            variant=payload.variant,
         )
-        if not result["toneless"]["locations"] and not result["toned"]["locations"]:
+        has_data = any(
+            bool(result[key]["locations"])
+            for key in ("toneless", "toned")
+            if key in result
+        )
+        if not has_data:
             raise HTTPException(status_code=404, detail="No data found for the given locations.")
         return result
     except HTTPException:

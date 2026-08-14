@@ -368,6 +368,18 @@ class SyllableCountsRequest(BaseModel):
     locations: List[str] = Field(default_factory=list, description="地點簡稱列表")
     regions: List[str] = Field(default_factory=list, description="分區名稱列表")
     region_mode: str = Field(default="yindian", description="地區匹配模式")
+    variant: str = Field(
+        default="both",
+        description="返回哪一檔：both（帶調+不帶調）、toneless（不帶調）、toned（帶調）",
+    )
+
+    @field_validator("variant")
+    @classmethod
+    def validate_variant(cls, v):
+        valid = {"both", "toneless", "toned"}
+        if v not in valid:
+            raise ValueError(f"invalid variant: {v}; allowed: {valid}")
+        return v
 
     @model_validator(mode="after")
     def check_locations_or_regions(self):
