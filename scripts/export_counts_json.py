@@ -147,7 +147,7 @@ def main():
         all_abbrs = [r[0] for r in cursor.fetchall()]
     resolved = resolve_feature_locations(all_abbrs, [], QUERY_DB_USER, region_mode="yindian")
 
-    result = get_syllable_counts(resolved, DIALECTS_DB_USER, QUERY_DB_USER)
+    result = get_syllable_counts(resolved, DIALECTS_DB_USER, QUERY_DB_USER, normalize_onset=True)
     fc = get_feature_counts_for_request(all_abbrs, [], True, DIALECTS_DB_USER, QUERY_DB_USER)
 
     sc_order = [p["location"] for p in result["points"]]

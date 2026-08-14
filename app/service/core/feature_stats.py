@@ -287,14 +287,24 @@ def get_syllable_counts(
     table: str = "dialects",
     chunk_size: int = 500,
     variant: str = "both",
+    normalize_onset: bool = False,
 ) -> Dict:
     """
     Count toned and/or toneless syllables across locations, aggregated in SQL.
 
     ``variant`` selects which payload(s) to return: ``"both"`` (default),
     ``"toneless"``, or ``"toned"``. Toned and toneless are computed by fully
-    separate queries: toned reads only 簡稱/音節/漢字, toneless only
-    簡稱/聲母/韻母/漢字, so requesting a single variant avoids the other's I/O.
+    separate queries, so requesting a single variant avoids the other's I/O.
+
+    ``normalize_onset`` is off by default (the raw 音節 / 聲母+韻母 keys the
+    frontend expects). When enabled, the onset (聲母) is normalized so the
+    various zero/glottal notations collapse onto one canonical initial, leaving
+    the 韻母 untouched: ``ʔw``→``w``; ``ʔj``→``j``; the zero/glottal initials
+    ``/``, ``ʔ``, ``ˀ`` (and 音節 spellings ``∅``) become ``w`` before ``u``,
+    ``j`` before ``i``/``y``, else ``ʔ``. Toned keys strip the onset from 音節 by
+    its known width (0 for ``/``, 1 for ``ʔ``/``ˀ``, 2 for ``ʔw``/``ʔj``) and
+    re-prepend the canonical initial, so the 音節's own vowel/tone encoding is
+    preserved verbatim.
 
     Counts use COUNT(DISTINCT 漢字) semantics (a per-location per-syllable set of
     漢字), matching feature_counts semantics and avoiding duplicate rows for the
@@ -307,6 +317,31 @@ def get_syllable_counts(
     want_toneless = variant in ("both", "toneless")
     want_toned = variant in ("both", "toned")
 
+    if normalize_onset:
+        toned_key = (
+            "CASE "
+            "WHEN TRIM(聲母) = 'ʔw' THEN 'w' || substr(音節, 3) "
+            "WHEN TRIM(聲母) = 'ʔj' THEN 'j' || substr(音節, 3) "
+            "WHEN TRIM(聲母) IN ('/', 'ʔ', 'ˀ') THEN "
+            "CASE substr(COALESCE(TRIM(韻母), ''), 1, 1) "
+            "WHEN 'u' THEN 'w' WHEN 'i' THEN 'j' WHEN 'y' THEN 'j' ELSE 'ʔ' END "
+            "|| substr(音節, CASE WHEN TRIM(聲母) = '/' THEN 1 ELSE 2 END) "
+            "ELSE 音節 END"
+        )
+        toneless_key = (
+            "CASE "
+            "WHEN TRIM(聲母) = 'ʔw' THEN 'w' || COALESCE(TRIM(韻母), '') "
+            "WHEN TRIM(聲母) = 'ʔj' THEN 'j' || COALESCE(TRIM(韻母), '') "
+            "WHEN TRIM(聲母) IN ('/', 'ʔ', 'ˀ') THEN "
+            "CASE substr(COALESCE(TRIM(韻母), ''), 1, 1) "
+            "WHEN 'u' THEN 'w' WHEN 'i' THEN 'j' WHEN 'y' THEN 'j' ELSE 'ʔ' END "
+            "|| COALESCE(TRIM(韻母), '') "
+            "ELSE COALESCE(TRIM(聲母), '') || COALESCE(TRIM(韻母), '') END"
+        )
+    else:
+        toned_key = "音節"
+        toneless_key = "COALESCE(TRIM(聲母), '') || COALESCE(TRIM(韻母), '')"
+
     toneless_counts = defaultdict(dict)
     toned_counts = defaultdict(dict)
 
@@ -317,11 +352,11 @@ def get_syllable_counts(
             placeholders = ",".join(["?"] * len(chunk))
             if want_toned:
                 cursor.execute(
-                    f"SELECT 簡稱, 音節, COUNT(DISTINCT 漢字) FROM {table} "
+                    f"SELECT 簡稱, {toned_key} AS k, COUNT(DISTINCT 漢字) FROM {table} "
                     f"WHERE 簡稱 IN ({placeholders}) "
                     f"AND 漢字 IS NOT NULL AND 漢字 <> '' "
                     f"AND 音節 IS NOT NULL AND 音節 <> '' "
-                    f"GROUP BY 簡稱, 音節",
+                    f"GROUP BY 簡稱, k",
                     chunk,
                 )
                 for loc, syllable, count in cursor.fetchall():
@@ -333,9 +368,7 @@ def get_syllable_counts(
 
             if want_toneless:
                 cursor.execute(
-                    f"SELECT 簡稱, "
-                    f"COALESCE(TRIM(聲母), '') || COALESCE(TRIM(韻母), '') AS k, "
-                    f"COUNT(DISTINCT 漢字) FROM {table} "
+                    f"SELECT 簡稱, {toneless_key} AS k, COUNT(DISTINCT 漢字) FROM {table} "
                     f"WHERE 簡稱 IN ({placeholders}) "
                     f"AND 漢字 IS NOT NULL AND 漢字 <> '' "
                     f"AND (COALESCE(TRIM(聲母), '') <> '' OR COALESCE(TRIM(韻母), '') <> '') "
