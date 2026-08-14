@@ -16,10 +16,15 @@ from typing import List, Dict, Optional, Set, Iterable
 import hashlib
 
 from app.sql.db_pool import get_db_pool
-from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS
+from app.common.constants import POLYPHONIC_MARKS, WENDU_MARKS, BAIDU_MARKS, vowel_pattern
 from app.service.core.matrix import custom_phonology_sort
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations
 from app.service.geo.match_input_tip import match_locations_batch_exact
+
+
+# 介音判定：韵母首字符 i/u/y 后若接「非高元音」则为介音（滑音），否则为韵腹（零声母归 ʔ）。
+# 排除 i/u/y 本身，避免把 iu/ui/yu 这类韵尾滑音（如「有」[iu]）误判成介音。
+_NON_HIGH_VOWELS = "".join(dict.fromkeys(c for c in vowel_pattern[1:-1] if c not in "iuy"))
 
 
 def _mark_to_text(value) -> str:
@@ -297,14 +302,13 @@ def get_syllable_counts(
     separate queries, so requesting a single variant avoids the other's I/O.
 
     ``normalize_onset`` is off by default (the raw 音節 / 聲母+韻母 keys the
-    frontend expects). When enabled, the onset (聲母) is normalized so the
-    various zero/glottal notations collapse onto one canonical initial, leaving
-    the 韻母 untouched: ``ʔw``→``w``; ``ʔj``→``j``; the zero/glottal initials
-    ``/``, ``ʔ``, ``ˀ`` (and 音節 spellings ``∅``) become ``w`` before ``u``,
-    ``j`` before ``i``/``y``, else ``ʔ``. Toned keys strip the onset from 音節 by
-    its known width (0 for ``/``, 1 for ``ʔ``/``ˀ``, 2 for ``ʔw``/``ʔj``) and
-    re-prepend the canonical initial, so the 音節's own vowel/tone encoding is
-    preserved verbatim.
+    frontend expects). When enabled, the onset (聲母) is normalized: ``ʔw``→``w``;
+    ``ʔj``→``j``; ``ʔ`` stays ``ʔ`` (音節 spelling ``∅`` and ``ˀ`` also collapse
+    to ``ʔ``). The zero initial ``/`` becomes ``j``/``w`` before a medial
+    ``i``/``u``/``y`` (i.e. followed by a non-high vowel), else ``ʔ``. Toned keys
+    strip the onset from 音節 by its known width (0 for ``/``, 1 for
+    ``ʔ``/``ˀ``/``∅``, 2 for ``ʔw``/``ʔj``) and re-prepend the canonical initial,
+    so the 音節's own vowel/tone encoding is preserved verbatim.
 
     Counts use COUNT(DISTINCT 漢字) semantics (a per-location per-syllable set of
     漢字), matching feature_counts semantics and avoiding duplicate rows for the
@@ -318,25 +322,31 @@ def get_syllable_counts(
     want_toned = variant in ("both", "toned")
 
     if normalize_onset:
+        _ym = "COALESCE(TRIM(韻母), '')"
+        _med_i = f"substr({_ym}, 1, 1) = 'i' AND length({_ym}) >= 2 AND instr('{_NON_HIGH_VOWELS}', substr({_ym}, 2, 1)) > 0"
+        _med_u = f"substr({_ym}, 1, 1) = 'u' AND length({_ym}) >= 2 AND instr('{_NON_HIGH_VOWELS}', substr({_ym}, 2, 1)) > 0"
+        _med_y = f"substr({_ym}, 1, 1) = 'y' AND length({_ym}) >= 2 AND instr('{_NON_HIGH_VOWELS}', substr({_ym}, 2, 1)) > 0"
         toned_key = (
             "CASE "
             "WHEN TRIM(聲母) = 'ʔw' THEN 'w' || substr(音節, 3) "
             "WHEN TRIM(聲母) = 'ʔj' THEN 'j' || substr(音節, 3) "
-            "WHEN TRIM(聲母) IN ('/', 'ʔ', 'ˀ') THEN "
-            "CASE substr(COALESCE(TRIM(韻母), ''), 1, 1) "
-            "WHEN 'u' THEN 'w' WHEN 'i' THEN 'j' WHEN 'y' THEN 'j' ELSE 'ʔ' END "
-            "|| substr(音節, CASE WHEN TRIM(聲母) = '/' THEN 1 ELSE 2 END) "
+            "WHEN TRIM(聲母) IN ('ʔ', 'ˀ') THEN 'ʔ' || substr(音節, 2) "
+            f"WHEN TRIM(聲母) = '/' AND {_med_i} THEN 'j' || 音節 "
+            f"WHEN TRIM(聲母) = '/' AND {_med_u} THEN 'w' || 音節 "
+            f"WHEN TRIM(聲母) = '/' AND {_med_y} THEN 'j' || 音節 "
+            "WHEN TRIM(聲母) = '/' THEN 'ʔ' || 音節 "
             "ELSE 音節 END"
         )
         toneless_key = (
             "CASE "
-            "WHEN TRIM(聲母) = 'ʔw' THEN 'w' || COALESCE(TRIM(韻母), '') "
-            "WHEN TRIM(聲母) = 'ʔj' THEN 'j' || COALESCE(TRIM(韻母), '') "
-            "WHEN TRIM(聲母) IN ('/', 'ʔ', 'ˀ') THEN "
-            "CASE substr(COALESCE(TRIM(韻母), ''), 1, 1) "
-            "WHEN 'u' THEN 'w' WHEN 'i' THEN 'j' WHEN 'y' THEN 'j' ELSE 'ʔ' END "
-            "|| COALESCE(TRIM(韻母), '') "
-            "ELSE COALESCE(TRIM(聲母), '') || COALESCE(TRIM(韻母), '') END"
+            "WHEN TRIM(聲母) = 'ʔw' THEN 'w' || " + _ym + " "
+            "WHEN TRIM(聲母) = 'ʔj' THEN 'j' || " + _ym + " "
+            "WHEN TRIM(聲母) IN ('ʔ', 'ˀ') THEN 'ʔ' || " + _ym + " "
+            f"WHEN TRIM(聲母) = '/' AND {_med_i} THEN 'j' || {_ym} "
+            f"WHEN TRIM(聲母) = '/' AND {_med_u} THEN 'w' || {_ym} "
+            f"WHEN TRIM(聲母) = '/' AND {_med_y} THEN 'j' || {_ym} "
+            "WHEN TRIM(聲母) = '/' THEN 'ʔ' || " + _ym + " "
+            "ELSE COALESCE(TRIM(聲母), '') || " + _ym + " END"
         )
     else:
         toned_key = "音節"
