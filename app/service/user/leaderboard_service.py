@@ -63,6 +63,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/phonology_matrix",
             "/api/phonology_classification_matrix",
             "/api/feature_counts",
+            "/api/syllable_counts",
             "/api/pho_pie_by_value",
             "/api/pho_pie_by_status",
         ],
@@ -239,10 +240,20 @@ TOOLS_MERGE_RULE: RuleConfig = {
     "exclude_prefixes": [],
 }
 
+FEATURE_COUNTS_RULE: RuleConfig = {
+    "paths": [
+        "/api/feature_counts",
+        "/api/syllable_counts",
+    ],
+    "prefixes": [],
+    "exclude_prefixes": [],
+}
+
 AGGREGATED_ENDPOINT_RULES: Dict[str, RuleConfig] = {
     "endpoint_group_villages_ml": VILLAGES_ML_RULE,
     "endpoint_group_pho_pie": PHO_PIE_RULE,
     "endpoint_group_locations": LOCATIONS_RULE,
+    "endpoint_group_feature_counts": FEATURE_COUNTS_RULE,
     "endpoint_group_sql_tree": SQL_TREE_RULE,
     "endpoint_group_yubao": YUBAO_RULE,
     "endpoint_group_vocabulary_search": VOCABULARY_SEARCH_RULE,
@@ -271,7 +282,6 @@ ENDPOINT_PATHS = [
     "/api/compare/tones",
     "/api/phonology_matrix",
     "/api/phonology_classification_matrix",
-    "/api/feature_counts",
     "/api/feature_stats",
     "/api/tools/praat/jobs",
     "/sql/query",

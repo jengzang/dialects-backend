@@ -67,6 +67,7 @@ RECORD_API = [
     "/sql/tree/lazy",
     "/api/tools/*",
     "/api/feature_counts",
+    "/api/syllable_counts",
     "/api/feature_stats",
     "/api/pho_pie*",
     "/user/custom/batch-create",
