@@ -46,6 +46,33 @@ def test_parse_table_accepts_chinese_column_aliases(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "标准词,方言词,音标,详细释义",
+        "標準詞,方言詞,音標,詳細釋義",
+    ],
+)
+def test_parse_table_accepts_requested_column_aliases(tmp_path: Path, header: str) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        f"{header}\n太阳,日头,ȵit2 tʰəu2,常用\n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.errors == []
+    assert result.rows == [
+        ParsedVocabularyRow(
+            standard_word="太阳",
+            local_expression="日头",
+            ipa="ȵit2 tʰəu2",
+            notes="常用",
+        )
+    ]
+
+
 def test_parse_bracket_document_text_extracts_fields() -> None:
     rows, errors = parse_bracket_document_text(
         "太阳（日头）[ȵit2 tʰəu2]{常用}\n"
