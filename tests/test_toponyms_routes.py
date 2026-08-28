@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.common.path import DB_MAPPING
+from app.common.path import ADMIN_ONLY_DBS, DB_MAPPING
 from app.routes.toponyms import router
 from app.service.toponyms.config import MAX_DETAIL_IDS, MAX_QUERY_LIMIT
 
@@ -126,8 +126,9 @@ class ToponymsRoutesTest(unittest.TestCase):
         repository.TOPONYMS_DB_PATH = self.original_db_path
         self.tmpdir.cleanup()
 
-    def test_toponyms_db_is_not_exposed_through_generic_sql_mapping(self) -> None:
-        self.assertNotIn("toponyms", DB_MAPPING)
+    def test_toponyms_db_is_admin_only_in_generic_sql_mapping(self) -> None:
+        self.assertIn("toponyms", DB_MAPPING)
+        self.assertIn("toponyms", ADMIN_ONLY_DBS)
 
     def test_main_app_registers_toponyms_routes(self) -> None:
         from app.main import create_main_app

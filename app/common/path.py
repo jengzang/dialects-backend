@@ -32,6 +32,7 @@ VILLAGE_ADMIN_DB_PATH = os.path.join(BASE_DIR, "data", "villages_admin.db")
 YUBAO_DB_PATH = os.path.join(BASE_DIR, "data", "yubao.db")
 TOPONYMS_DB_PATH = os.path.join(BASE_DIR, "data", "toponyms.db")
 GIS_DATA_DIR = os.path.join(BASE_DIR, "data", "dependency")
+GIS_DB_PATH = os.path.join(GIS_DATA_DIR, "gis.db")
 VOCABULARY_DB_PATH = os.path.join(BASE_DIR, "data", "vocabulary.db")
 VOCABULARY_DB_URL = f"sqlite:///{VOCABULARY_DB_PATH}"
 
@@ -87,6 +88,9 @@ DB_MAPPING = {
     "dialects_admin": DIALECTS_DB_ADMIN,
     "yubao": YUBAO_DB_PATH,
     "logs": LOGS_DATABASE_PATH,
+    "toponyms": TOPONYMS_DB_PATH,
+    "vocabulary": VOCABULARY_DB_PATH,
+    "gis": GIS_DB_PATH,
     # "supple": SUPPLE_DB_PATH,
     # "auth": USER_DATABASE_PATH
 }
@@ -96,6 +100,9 @@ ADMIN_ONLY_DBS = {
     "dialects_admin",
     "village_admin",
     "logs",
+    "vocabulary",
+    "toponyms",
+    "gis",
     # "supple", 
     # "auth"
 }
