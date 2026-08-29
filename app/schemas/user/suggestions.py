@@ -25,7 +25,7 @@ class SuggestionCreate(ShanghaiBaseModel):
     source_path: Optional[str] = Field(None, max_length=300)
     context: Optional[dict[str, Any]] = None
     contact: Optional[str] = Field(None, max_length=200)
-    image_base64: Optional[str] = Field(None, max_length=MAX_IMAGE_BASE64_BYTES)
+    image_base64: Optional[str] = None
 
     @field_validator("title", "content", "category", "source_path", "contact")
     @classmethod
@@ -45,15 +45,15 @@ class SuggestionCreate(ShanghaiBaseModel):
         value = value.strip()
         if not value:
             raise ValueError("截图不能为空")
-        if len(value.encode("utf-8")) > MAX_IMAGE_BASE64_BYTES:
-            raise ValueError("截图大小不能超过 1MB")
         if not value.startswith(SUPPORTED_IMAGE_DATA_URL_PREFIXES):
             raise ValueError("截图格式仅支持 webp、png 或 jpeg data URL")
         _, encoded = value.split(",", 1)
         try:
-            base64.b64decode(encoded, validate=True)
+            image_bytes = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("截图 base64 内容无效") from exc
+        if len(image_bytes) > MAX_IMAGE_BASE64_BYTES:
+            raise ValueError("截图大小不能超过 1MB")
         return value
 
 

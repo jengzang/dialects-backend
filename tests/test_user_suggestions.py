@@ -1,3 +1,4 @@
+import base64
 import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -169,6 +170,27 @@ def test_submit_accepts_supported_image_data_url_without_returning_it(db_session
     assert row.image_base64 == image_base64
 
 
+def test_submit_accepts_image_when_decoded_bytes_fit_limit(db_session):
+    client = _make_user_client(db_session, current_user=None)
+    image_base64 = (
+        "data:image/webp;base64,"
+        + base64.b64encode(b"a" * (900 * 1024)).decode()
+    )
+
+    response = client.post(
+        "/api/suggestions",
+        json={
+            "title": "压缩截图",
+            "content": "截图原始字节数未超过 1MB。",
+            "image_base64": image_base64,
+        },
+    )
+
+    assert response.status_code == 200
+    row = db_session.query(UserSuggestion).one()
+    assert row.image_base64 == image_base64
+
+
 def test_submit_rejects_unsupported_image_data_url(db_session):
     client = _make_user_client(db_session, current_user=None)
 
@@ -186,7 +208,10 @@ def test_submit_rejects_unsupported_image_data_url(db_session):
 
 def test_submit_rejects_image_over_size_limit(db_session):
     client = _make_user_client(db_session, current_user=None)
-    oversized = "data:image/png;base64," + ("A" * (1024 * 1024 + 4))
+    oversized = (
+        "data:image/png;base64,"
+        + base64.b64encode(b"a" * (1024 * 1024 + 1)).decode()
+    )
 
     response = client.post(
         "/api/suggestions",
