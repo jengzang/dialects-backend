@@ -62,6 +62,8 @@ def serialize_suggestion(row: UserSuggestion, *, include_image: bool = False) ->
     }
     if include_image:
         item["image_base64"] = row.image_base64
+        item["submitter_ip"] = row.submitter_ip
+        item["user_agent"] = row.user_agent
     return item
 
 

@@ -86,6 +86,8 @@ class SuggestionItem(ShanghaiBaseModel):
 
 class AdminSuggestionItem(SuggestionItem):
     image_base64: Optional[str] = None
+    submitter_ip: Optional[str] = None
+    user_agent: Optional[str] = None
 
 
 class SuggestionListResponse(ShanghaiBaseModel):

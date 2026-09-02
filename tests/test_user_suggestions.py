@@ -307,6 +307,30 @@ def test_admin_list_filters_by_status_and_category(db_session):
     assert body["items"][0]["image_base64"] == "data:image/jpeg;base64,anBn"
 
 
+def test_admin_list_includes_submitter_metadata(db_session):
+    db_session.add(
+        UserSuggestion(
+            title="metadata",
+            content="please inspect metadata",
+            category="bug",
+            submitter_ip="203.0.113.9",
+            user_agent="Mozilla/5.0 Test Browser",
+        )
+    )
+    db_session.commit()
+    client = _make_admin_client(
+        db_session,
+        current_admin=SimpleNamespace(id=1, username="admin", role="admin"),
+    )
+
+    response = client.get("/admin/suggestions")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["submitter_ip"] == "203.0.113.9"
+    assert item["user_agent"] == "Mozilla/5.0 Test Browser"
+
+
 def test_submit_records_recent_api_from_user_id_then_ip(db_session, auth_db_session):
     now = datetime(2026, 8, 1, 12, 0, 0)
     auth_db_session.add_all(
