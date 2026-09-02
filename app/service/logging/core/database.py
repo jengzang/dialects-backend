@@ -5,7 +5,7 @@
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker
 from app.common.path import LOGS_DATABASE_URL
-from app.service.logging.core.models import ApiDiagnosticEvent
+from app.service.logging.core.models import ApiDiagnosticEvent, Base
 
 engine = create_engine(
     LOGS_DATABASE_URL,
@@ -187,12 +187,24 @@ def migrate_api_diagnostic_events():
     print("[Migration] api_diagnostic_events table ready")
 
 
-# 先迁移表结构
-# migrate_api_visit_log_table()
+# 创建所有 ORM 表（api_visit_log / api_keyword_log / api_statistics / api_diagnostic_events）
+# 不再依赖 AUTO_MIGRATE：表缺失时会在导入阶段自动建表，避免 /logs/* 接口报 no such table
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as exc:
+    if "already exists" not in str(exc).lower():
+        raise
 
-# 创建所有表
-# Base.metadata.create_all(bind=engine)
-# print("[OK] logs.db 数据库表已创建")
+# 创建 raw-SQL 统计表（api_usage_hourly / api_usage_daily），同样避免依赖 AUTO_MIGRATE
+try:
+    raw_conn = engine.raw_connection()
+    try:
+        migrate_hourly_daily_stats(raw_conn)
+    finally:
+        raw_conn.close()
+except Exception as exc:
+    if "already exists" not in str(exc).lower():
+        print(f"[WARN] logs.db analytics tables ensure failed: {exc}")
 
 
 

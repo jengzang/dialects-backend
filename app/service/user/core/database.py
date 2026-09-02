@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
-from app.service.auth.database.models import Base
+from app.service.user.core.models import Base
 from app.common.path import SUPPLE_DB_URL
 
 engine = create_engine(
