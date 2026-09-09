@@ -9,6 +9,8 @@ from app.schemas.vocabulary import (
     VocabularyLocationOptionsResponse,
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
+    VocabularyLocationTransferRequest,
+    VocabularyLocationTransferResponse,
     VocabularyLocationUpdateRequest,
     VocabularyLogResponse,
     VocabularyLogsResponse,
@@ -66,6 +68,36 @@ def _resolve_usernames(user_ids: set[int]) -> dict[int, str]:
     try:
         rows = auth_db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
         return {row.id: row.username for row in rows}
+    finally:
+        auth_db.close()
+
+
+def _resolve_user_reference(
+    *,
+    user_id: Optional[int],
+    username: Optional[str],
+    role_label: str,
+) -> tuple[int, str]:
+    cleaned_username = username.strip() if username is not None else None
+    if user_id is None and not cleaned_username:
+        raise HTTPException(status_code=400, detail=f"{role_label} 需要提供 user_id 或 username")
+
+    auth_db = AuthSessionLocal()
+    try:
+        user_by_id = None
+        user_by_name = None
+        if user_id is not None:
+            user_by_id = auth_db.query(User).filter(User.id == user_id).first()
+            if user_by_id is None:
+                raise HTTPException(status_code=404, detail=f"{role_label} user_id 不存在")
+        if cleaned_username:
+            user_by_name = auth_db.query(User).filter(User.username == cleaned_username).first()
+            if user_by_name is None:
+                raise HTTPException(status_code=404, detail=f"{role_label} username 不存在")
+        if user_by_id is not None and user_by_name is not None and user_by_id.id != user_by_name.id:
+            raise HTTPException(status_code=400, detail=f"{role_label} user_id 与 username 不匹配")
+        resolved = user_by_id or user_by_name
+        return resolved.id, resolved.username
     finally:
         auth_db.close()
 
@@ -176,7 +208,7 @@ def get_vocabulary_standard_words(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
-    limit: Optional[int] = Query(default=100, ge=1, le=1000),
+    limit: Optional[int] = Query(default=100, ge=1, le=10000),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -361,6 +393,101 @@ def update_vocabulary_location(
 
     usernames = _resolve_usernames({target.user_id})
     return _location_response(target, usernames.get(target.user_id, ""))
+
+
+@router.post("/locations/transfer", response_model=VocabularyLocationTransferResponse)
+def transfer_vocabulary_location(
+    params: VocabularyLocationTransferRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    if permission_level != "manage":
+        raise HTTPException(status_code=403, detail="仅 manage 可转移地点权限")
+
+    location_name = _string_value(params.location_name)
+    if not location_name:
+        raise HTTPException(status_code=400, detail="location_name 不能为空")
+
+    source_user_id, source_username = _resolve_user_reference(
+        user_id=params.user_id,
+        username=params.username,
+        role_label="源用户",
+    )
+    target_user_id, target_username = _resolve_user_reference(
+        user_id=params.target_user_id,
+        username=params.target_username,
+        role_label="目标用户",
+    )
+    if source_user_id == target_user_id:
+        raise HTTPException(status_code=400, detail="源用户和目标用户不能相同")
+
+    target_exists = db.query(VocabularyLocation).filter(
+        VocabularyLocation.user_id == target_user_id,
+        VocabularyLocation.location_name == location_name,
+    ).first()
+    if target_exists is not None:
+        raise HTTPException(status_code=409, detail="目标用户已有同名地点，不能转移")
+
+    target = db.query(VocabularyLocation).filter(
+        VocabularyLocation.user_id == source_user_id,
+        VocabularyLocation.location_name == location_name,
+    ).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+
+    entry_query = db.query(VocabularyEntry).filter(
+        VocabularyEntry.user_id == source_user_id,
+        VocabularyEntry.location_name == location_name,
+    )
+    transferred_entries_count = entry_query.count()
+
+    try:
+        target.user_id = target_user_id
+        entry_query.update(
+            {VocabularyEntry.user_id: target_user_id},
+            synchronize_session=False,
+        )
+        record_vocabulary_log(
+            session=db,
+            user_id=current_user.id,
+            permission_level=permission_level,
+            source="location_editor",
+            action="transfer_location",
+            table_name="vocabulary_locations",
+            target_scope=(
+                f"source_user_id = {source_user_id}; "
+                f"target_user_id = {target_user_id}; "
+                f"location_name = {location_name}"
+            ),
+            affected_rows=1 + transferred_entries_count,
+            payload={
+                "location_name": location_name,
+                "source_user_id": source_user_id,
+                "source_username": source_username,
+                "target_user_id": target_user_id,
+                "target_username": target_username,
+                "transferred_entries_count": transferred_entries_count,
+                "rollback_supported": True,
+            },
+        )
+        db.commit()
+        db.refresh(target)
+    except Exception as exc:
+        db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
+        raise
+
+    return VocabularyLocationTransferResponse(
+        success=True,
+        location_name=target.location_name,
+        permission_level=permission_level,
+        source_user_id=source_user_id,
+        source_username=source_username,
+        target_user_id=target_user_id,
+        target_username=target_username,
+        transferred_entries_count=transferred_entries_count,
+    )
 
 
 @router.delete("/locations/{location_name}")

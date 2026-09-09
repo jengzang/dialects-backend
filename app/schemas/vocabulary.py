@@ -144,6 +144,27 @@ class VocabularyLocationUpdateRequest(BaseModel):
     atlas_region: str | None = None
 
 
+class VocabularyLocationTransferRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location_name: str
+    user_id: int | None = None
+    username: str | None = None
+    target_user_id: int | None = None
+    target_username: str | None = None
+
+
+class VocabularyLocationTransferResponse(BaseModel):
+    success: bool
+    location_name: str
+    permission_level: str
+    source_user_id: int
+    source_username: str = ""
+    target_user_id: int
+    target_username: str = ""
+    transferred_entries_count: int
+
+
 class VocabularyLogResponse(BaseModel):
     id: int
     operation_id: str
