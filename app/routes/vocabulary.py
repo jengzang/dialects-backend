@@ -336,8 +336,12 @@ def update_vocabulary_location(
 ):
     permission_level = get_effective_permission_level(db, current_user)
     raw_updates = params.model_dump(exclude_unset=True)
-    if not raw_updates:
+    rename_requested = "new_location_name" in raw_updates
+    new_location_name = str(raw_updates.pop("new_location_name", None) or "").strip()
+    if not raw_updates and not rename_requested:
         raise HTTPException(status_code=400, detail="至少需要提供一个可更新字段")
+    if rename_requested and not new_location_name:
+        raise HTTPException(status_code=400, detail="地点简称不能为空")
 
     updates: dict[str, str] = {}
     for field, value in raw_updates.items():
@@ -360,14 +364,40 @@ def update_vocabulary_location(
         raise HTTPException(status_code=400, detail="同名地点属于多个用户，请通过 user_id 指定目标")
 
     target = matches[0]
+    rename_to = new_location_name if rename_requested and new_location_name != target.location_name else ""
+    if rename_to:
+        conflict = (
+            db.query(VocabularyLocation.user_id)
+            .filter(
+                VocabularyLocation.user_id == target.user_id,
+                VocabularyLocation.location_name == rename_to,
+            )
+            .first()
+        )
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail=f"地点「{rename_to}」已存在")
+
     changes = {}
     for field, value in updates.items():
         old_value = getattr(target, field) or ""
         if old_value != value:
             changes[field] = {"old": old_value, "new": value}
         setattr(target, field, value)
+    if rename_to:
+        changes["location_name"] = {"old": target.location_name, "new": rename_to}
 
     try:
+        renamed_entries = 0
+        if rename_to:
+            renamed_entries = (
+                db.query(VocabularyEntry)
+                .filter(
+                    VocabularyEntry.user_id == target.user_id,
+                    VocabularyEntry.location_name == target.location_name,
+                )
+                .update({VocabularyEntry.location_name: rename_to}, synchronize_session=False)
+            )
+            target.location_name = rename_to
         record_vocabulary_log(
             session=db,
             user_id=current_user.id,
@@ -376,12 +406,14 @@ def update_vocabulary_location(
             action="update_location",
             table_name="vocabulary_locations",
             target_scope=f"user_id = {target.user_id}; location_name = {location_name}",
-            affected_rows=1,
+            affected_rows=1 + renamed_entries,
             payload={
                 "location_name": location_name,
                 "target_user_id": target.user_id,
-                "updated_fields": sorted(updates),
+                "updated_fields": sorted(updates) + (["location_name"] if rename_to else []),
                 "changes": changes,
+                "new_location_name": rename_to or None,
+                "renamed_entries": renamed_entries,
             },
         )
         db.commit()

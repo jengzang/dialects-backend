@@ -147,6 +147,7 @@ class VocabularyLocationsResponse(BaseModel):
 class VocabularyLocationUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    new_location_name: str | None = None
     coordinates: str | None = None
     province: str | None = None
     city: str | None = None

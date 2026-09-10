@@ -978,6 +978,204 @@ def test_manage_location_patch_can_update_target_user_location(tmp_path: Path) -
         session.close()
 
 
+def test_location_patch_renames_location_and_its_entries(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all(
+            [
+                VocabularyLocation(user_id=7, location_name="息烽", coordinates="106.73,27.10"),
+                VocabularyLocation(user_id=8, location_name="息烽", coordinates="106.74,27.11"),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ȵit2",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="月亮",
+                    local_expression="月光",
+                    ipa="ȵy5",
+                ),
+                VocabularyEntry(
+                    user_id=8,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="other",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(new_location_name="息烽县城", city="贵阳"),
+            user_id=None,
+            current_user=_User(7),
+            db=session,
+        )
+
+        renamed = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 7,
+            VocabularyLocation.location_name == "息烽县城",
+        ).all()
+        old_name_rows = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 7,
+            VocabularyLocation.location_name == "息烽",
+        ).all()
+        entry_names = {
+            row.location_name
+            for row in session.query(VocabularyEntry).filter(VocabularyEntry.user_id == 7).all()
+        }
+        other_user_names = {
+            row.location_name
+            for row in session.query(VocabularyEntry).filter(VocabularyEntry.user_id == 8).all()
+        }
+        log = session.query(VocabularyLog).one()
+        payload = json.loads(log.payload_json)
+
+        assert result.location_name == "息烽县城"
+        assert result.city == "贵阳"
+        assert len(renamed) == 1 and renamed[0].city == "贵阳"
+        assert old_name_rows == []
+        assert entry_names == {"息烽县城"}
+        assert other_user_names == {"息烽"}
+        assert log.action == "update_location"
+        assert log.affected_rows == 3
+        assert "user_id = 7" in log.target_scope
+        assert "location_name = 息烽" in log.target_scope
+        assert payload["new_location_name"] == "息烽县城"
+        assert payload["renamed_entries"] == 2
+        assert "location_name" in payload["updated_fields"]
+    finally:
+        session.close()
+
+
+def test_location_patch_allows_rename_without_other_fields(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(VocabularyLocation(user_id=7, location_name="息烽", coordinates="106.73,27.10"))
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(new_location_name="息烽县城"),
+            user_id=None,
+            current_user=_User(7),
+            db=session,
+        )
+
+        assert result.location_name == "息烽县城"
+        assert result.coordinates == "106.73,27.10"
+    finally:
+        session.close()
+
+
+def test_location_patch_rename_conflict_returns_409(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all(
+            [
+                VocabularyLocation(user_id=7, location_name="息烽", coordinates="106.73,27.10"),
+                VocabularyLocation(user_id=7, location_name="罗田胜利", coordinates="115.46,31.13"),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="太阳",
+                    local_expression="日头",
+                    ipa="ȵit2",
+                ),
+            ]
+        )
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            update_vocabulary_location(
+                location_name="息烽",
+                params=VocabularyLocationUpdateRequest(new_location_name="罗田胜利"),
+                user_id=None,
+                current_user=_User(7),
+                db=session,
+            )
+
+        assert raised.value.status_code == 409
+        assert session.query(VocabularyLog).count() == 0
+        assert session.query(VocabularyEntry).one().location_name == "息烽"
+        assert {
+            row.location_name
+            for row in session.query(VocabularyLocation).filter(VocabularyLocation.user_id == 7).all()
+        } == {"息烽", "罗田胜利"}
+    finally:
+        session.close()
+
+
+def test_location_patch_rejects_blank_rename(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(VocabularyLocation(user_id=7, location_name="息烽", coordinates="106.73,27.10"))
+        session.commit()
+
+        with pytest.raises(HTTPException) as raised:
+            update_vocabulary_location(
+                location_name="息烽",
+                params=VocabularyLocationUpdateRequest(new_location_name="   "),
+                user_id=None,
+                current_user=_User(7),
+                db=session,
+            )
+
+        assert raised.value.status_code == 400
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_manage_location_patch_rename_scopes_to_target_user_id(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(user_id=7, location_name="息烽", coordinates="106.73,27.10"),
+                VocabularyLocation(user_id=8, location_name="息烽", coordinates="106.74,27.11"),
+            ]
+        )
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(new_location_name="息烽县城"),
+            user_id=8,
+            current_user=_User(1, role="admin"),
+            db=session,
+        )
+
+        assert result.user_id == 8
+        assert result.location_name == "息烽县城"
+        assert session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == 7,
+            VocabularyLocation.location_name == "息烽",
+        ).count() == 1
+    finally:
+        session.close()
+
+
 def test_manage_user_can_transfer_location_and_entries_by_user_id(tmp_path: Path, monkeypatch) -> None:
     from app.routes import vocabulary as vocabulary_routes
 

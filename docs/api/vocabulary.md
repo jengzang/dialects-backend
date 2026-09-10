@@ -849,7 +849,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 ### `PATCH /api/vocabulary/locations/{location_name}`
 
-用途：编辑已有地点元数据。不能改地点简称。
+用途：编辑已有地点元数据，并可通过 `new_location_name` 修改地点简称。
 
 权限：需要登录，且有效 vocabulary 权限为 `edit`、`manage` 或项目 admin。
 
@@ -857,7 +857,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `location_name` | string | 要编辑的地点简称。 |
+| `location_name` | string | 要编辑的地点**当前**简称。改名时这里仍传旧名。 |
 
 查询参数：
 
@@ -871,6 +871,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 ```json
 {
+  "new_location_name": "息烽县城",
   "coordinates": "106.7401,27.0902",
   "province": "贵州",
   "city": "贵阳",
@@ -885,12 +886,20 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 请求体规则：
 
-- 至少提供一个字段。
+- 至少提供一个字段（`new_location_name` 也算）。
 - 不允许额外字段。
-- 不允许传 `location_name`。
+- 改名通过 `new_location_name` 提供，不允许传 `location_name`（路径参数即旧名）。
 - 不允许传 `id`。
+- `new_location_name` 如果提供，trim 后不能为空字符串。
 - `coordinates` 如果提供，不能为空字符串。
 - 其他字段可以更新为空字符串。
+
+改名语义：
+
+- 只改 `(user_id, location_name)` 这个目标自身的名字，同事务内一并更新该用户下所有 `vocabulary_entries.location_name`，词条不会丢失。
+- 目标用户下已存在同名地点时返回 `409`，不做合并。
+- `new_location_name` 与当前同名时视为未改名。
+- 改名会写进 log payload 的 `new_location_name`、`renamed_entries`，`target_scope` 仍记录旧名。
 
 响应体：
 
