@@ -387,7 +387,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
   "points": [
     {
       "location_name": "息烽",
-      "location_label": "贵州 / 贵阳 / 息烽",
+      "province": "贵州",
+      "city": "贵阳",
+      "county": "息烽",
+      "town": "",
+      "administrative_village": "",
+      "natural_village": "",
+      "yindian_region": "",
+      "atlas_region": "",
       "longitude": 106.7401,
       "latitude": 27.0902,
       "entry_count": 12
@@ -404,6 +411,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `points` | array | 可绘制地图点。 |
+| `points[].province` | string | 省；取自 `vocabulary_locations`，未匹配时为空串。 |
+| `points[].city` | string | 市；同上。 |
+| `points[].county` | string | 县/区；同上。 |
+| `points[].town` | string | 乡镇；同上。 |
+| `points[].administrative_village` | string | 行政村；同上。 |
+| `points[].natural_village` | string | 自然村；同上。 |
+| `points[].yindian_region` | string | 音典分区；同上。 |
+| `points[].atlas_region` | string | 地图集分区；同上。 |
 | `points[].longitude` | number | 经度。由 `coordinates` 第一个数字解析。 |
 | `points[].latitude` | number | 纬度。由 `coordinates` 第二个数字解析。 |
 | `points[].entry_count` | number | 该地点匹配 entries 数。 |
@@ -437,7 +452,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
   "points": [
     {
       "location_name": "息烽",
-      "location_label": "贵州 / 贵阳 / 息烽",
+      "province": "贵州",
+      "city": "贵阳",
+      "county": "息烽",
+      "town": "",
+      "administrative_village": "",
+      "natural_village": "",
+      "yindian_region": "",
+      "atlas_region": "",
       "longitude": 106.7401,
       "latitude": 27.0902,
       "entry_count": 1,

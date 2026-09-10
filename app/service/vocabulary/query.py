@@ -40,7 +40,14 @@ class VocabularyStandardWordsResult:
 @dataclass(frozen=True)
 class VocabularyMapPoint:
     location_name: str
-    location_label: str
+    province: str
+    city: str
+    county: str
+    town: str
+    administrative_village: str
+    natural_village: str
+    yindian_region: str
+    atlas_region: str
     longitude: float
     latitude: float
     entry_count: int
@@ -67,7 +74,14 @@ class VocabularyMapItem:
 @dataclass(frozen=True)
 class VocabularyMapItemPoint:
     location_name: str
-    location_label: str
+    province: str
+    city: str
+    county: str
+    town: str
+    administrative_village: str
+    natural_village: str
+    yindian_region: str
+    atlas_region: str
     longitude: float
     latitude: float
     entry_count: int
@@ -169,6 +183,19 @@ def _format_location(row: dict) -> str:
     if clean_parts:
         return " · ".join(clean_parts)
     return row["location_name"] or ""
+
+
+def _location_meta_fields(row: dict) -> dict:
+    return {
+        "province": row.get("province") or "",
+        "city": row.get("city") or "",
+        "county": row.get("county") or "",
+        "town": row.get("town") or "",
+        "administrative_village": row.get("administrative_village") or "",
+        "natural_village": row.get("natural_village") or "",
+        "yindian_region": row.get("yindian_region") or "",
+        "atlas_region": row.get("atlas_region") or "",
+    }
 
 
 def _parse_coordinates(value: str | None) -> tuple[float, float] | None:
@@ -429,7 +456,8 @@ def query_vocabulary_map_points(
     select_sql = (
         "SELECT "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village, COUNT(*) AS entry_count, "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
+        "COUNT(*) AS entry_count, "
         "MIN(e.id) AS first_entry_id "
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
@@ -437,7 +465,7 @@ def query_vocabulary_map_points(
         f"WHERE {where_clause} "
         "GROUP BY "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
         "ORDER BY first_entry_id ASC"
     )
 
@@ -463,7 +491,7 @@ def query_vocabulary_map_points(
         points.append(
             VocabularyMapPoint(
                 location_name=row["location_name"] or "",
-                location_label=_format_location(row),
+                **_location_meta_fields(row),
                 longitude=longitude,
                 latitude=latitude,
                 entry_count=entry_count,
@@ -512,7 +540,7 @@ def query_vocabulary_map_items(
         "SELECT "
         "e.id, e.standard_word, e.local_expression, e.ipa, e.notes, e.informations, "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
@@ -539,6 +567,8 @@ def query_vocabulary_map_items(
             row["town"],
             row["administrative_village"],
             row["natural_village"],
+            row["yindian_region"],
+            row["atlas_region"],
         )
         grouped_rows.setdefault(key, []).append(row)
 
@@ -554,7 +584,7 @@ def query_vocabulary_map_items(
         points.append(
             VocabularyMapItemPoint(
                 location_name=first_row["location_name"] or "",
-                location_label=_format_location(first_row),
+                **_location_meta_fields(first_row),
                 longitude=longitude,
                 latitude=latitude,
                 entry_count=len(group),

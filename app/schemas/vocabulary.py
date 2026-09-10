@@ -57,7 +57,14 @@ class VocabularyStandardWordsResponse(BaseModel):
 
 class VocabularyMapPointResponse(BaseModel):
     location_name: str
-    location_label: str
+    province: str = ""
+    city: str = ""
+    county: str = ""
+    town: str = ""
+    administrative_village: str = ""
+    natural_village: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
     longitude: float
     latitude: float
     entry_count: int
@@ -81,7 +88,14 @@ class VocabularyMapItemResponse(BaseModel):
 
 class VocabularyMapItemPointResponse(BaseModel):
     location_name: str
-    location_label: str
+    province: str = ""
+    city: str = ""
+    county: str = ""
+    town: str = ""
+    administrative_village: str = ""
+    natural_village: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
     longitude: float
     latitude: float
     entry_count: int
