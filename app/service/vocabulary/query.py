@@ -397,7 +397,7 @@ def query_vocabulary_standard_words(
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
         f"WHERE {where_clause} AND COALESCE(e.standard_word, '') <> '' "
         "GROUP BY e.standard_word "
-        "ORDER BY entry_count DESC, e.standard_word ASC"
+        "ORDER BY location_count DESC, entry_count DESC, e.standard_word ASC"
     )
     count_sql = (
         "SELECT COUNT(*) FROM ("
