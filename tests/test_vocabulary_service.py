@@ -277,6 +277,90 @@ def test_import_upserts_existing_location_metadata(tmp_path: Path) -> None:
         session.close()
 
 
+def test_import_upserts_location_tone_values(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=(
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8"),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                    "t1": "55",
+                    "T2": "21",
+                    "t10": "3",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        location = session.query(VocabularyLocation).one()
+        assert location.t1 == "55"
+        assert location.t2 == "21"
+        assert location.t10 == "3"
+        assert location.t3 == ""
+    finally:
+        session.close()
+
+
+def test_reimport_without_tones_clears_them_like_other_metadata(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+        content = (
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+        ).encode("utf-8")
+
+        import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="first.csv",
+            content=content,
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                    "t1": "55",
+                    "省": "贵州",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+            overwrite=True,
+        )
+        location = session.query(VocabularyLocation).one()
+        assert (location.t1, location.province) == ("55", "贵州")
+
+        import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="second.csv",
+            content=content,
+            location_payload=json.dumps(
+                {"location_name": "息烽", "coordinates": "106.73,27.10"},
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+            overwrite=True,
+        )
+        location = session.query(VocabularyLocation).one()
+        assert (location.t1, location.province) == ("", "")
+    finally:
+        session.close()
+
+
 def test_preview_upload_reports_import_counts_without_changing_database(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:

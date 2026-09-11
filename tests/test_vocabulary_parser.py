@@ -233,6 +233,23 @@ def test_normalize_location_payload_accepts_chinese_aliases() -> None:
     assert normalized.atlas_region == "黔中"
 
 
+def test_normalize_location_payload_accepts_tone_values() -> None:
+    normalized = normalize_location_payload(
+        {
+            "location_name": "息烽",
+            "coordinates": "106.73,27.10",
+            "t1": "55",
+            "T2": "21",
+            "t10": "3",
+        }
+    )
+
+    assert normalized.t1 == "55"
+    assert normalized.t2 == "21"
+    assert normalized.t10 == "3"
+    assert normalized.t3 == ""
+
+
 def test_normalize_location_payload_requires_location_name_and_coordinates() -> None:
     with pytest.raises(ValueError, match="location_name"):
         normalize_location_payload({"coordinates": "106.73,27.10"})

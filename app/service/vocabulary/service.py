@@ -75,6 +75,16 @@ def _upsert_location(
         "natural_village": normalized_location.natural_village,
         "yindian_region": normalized_location.yindian_region,
         "atlas_region": normalized_location.atlas_region,
+        "t1": normalized_location.t1,
+        "t2": normalized_location.t2,
+        "t3": normalized_location.t3,
+        "t4": normalized_location.t4,
+        "t5": normalized_location.t5,
+        "t6": normalized_location.t6,
+        "t7": normalized_location.t7,
+        "t8": normalized_location.t8,
+        "t9": normalized_location.t9,
+        "t10": normalized_location.t10,
     }
     statement = sqlite_insert(VocabularyLocation).values(**values)
     update_values = {
@@ -139,6 +149,16 @@ def _location_snapshot(location: VocabularyLocation | None) -> dict[str, object]
         "natural_village": location.natural_village or "",
         "yindian_region": location.yindian_region or "",
         "atlas_region": location.atlas_region or "",
+        "t1": location.t1 or "",
+        "t2": location.t2 or "",
+        "t3": location.t3 or "",
+        "t4": location.t4 or "",
+        "t5": location.t5 or "",
+        "t6": location.t6 or "",
+        "t7": location.t7 or "",
+        "t8": location.t8 or "",
+        "t9": location.t9 or "",
+        "t10": location.t10 or "",
     }
 
 
