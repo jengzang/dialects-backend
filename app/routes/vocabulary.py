@@ -30,7 +30,7 @@ from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
+from app.service.vocabulary.models import TONE_COLUMNS, VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
 from app.service.vocabulary.permissions import get_effective_permission_level, SELF_SCOPED_LEVELS
 from app.service.vocabulary.query import (
     query_vocabulary_items,
@@ -117,6 +117,7 @@ def _location_response(location: VocabularyLocation, username: str = "") -> Voca
         yindian_region=location.yindian_region or "",
         atlas_region=location.atlas_region or "",
         location_label=_location_label(location),
+        **{column: getattr(location, column) or "" for column in TONE_COLUMNS},
     )
 
 

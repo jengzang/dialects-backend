@@ -145,6 +145,16 @@ class VocabularyLocationResponse(BaseModel):
     yindian_region: str
     atlas_region: str
     location_label: str
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 class VocabularyLocationsResponse(BaseModel):
@@ -167,6 +177,16 @@ class VocabularyLocationUpdateRequest(BaseModel):
     natural_village: str | None = None
     yindian_region: str | None = None
     atlas_region: str | None = None
+    t1: str | None = None
+    t2: str | None = None
+    t3: str | None = None
+    t4: str | None = None
+    t5: str | None = None
+    t6: str | None = None
+    t7: str | None = None
+    t8: str | None = None
+    t9: str | None = None
+    t10: str | None = None
 
 
 class VocabularyLocationTransferRequest(BaseModel):
