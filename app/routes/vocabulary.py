@@ -1,6 +1,12 @@
-from typing import Any, Optional
+import io
+from typing import Any, Iterable, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Font
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -583,6 +589,91 @@ def delete_vocabulary_location(
         raise
 
     return {"status": "deleted", "location_name": location_name, "deleted_entries": entry_count}
+
+
+_EXPORT_HEADERS = ("标准词", "方言词", "音标", "详细释义")
+
+
+def _iter_location_export_rows(db: Session, location: VocabularyLocation):
+    query = (
+        db.query(
+            VocabularyEntry.standard_word,
+            VocabularyEntry.local_expression,
+            VocabularyEntry.ipa,
+            VocabularyEntry.notes,
+        )
+        .filter(
+            VocabularyEntry.user_id == location.user_id,
+            VocabularyEntry.location_name == location.location_name,
+        )
+        .order_by(VocabularyEntry.id.asc())
+        .yield_per(2000)
+    )
+    for standard_word, local_expression, ipa, notes in query:
+        yield (standard_word or "", local_expression or "", ipa or "", notes or "")
+
+
+def _build_location_export_response(
+    location_name: str,
+    rows: Iterable[tuple[str, str, str, str]],
+) -> StreamingResponse:
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet(title="词表")
+
+    header_cells = [WriteOnlyCell(sheet, value=value) for value in _EXPORT_HEADERS]
+    for cell in header_cells:
+        cell.font = Font(bold=True)
+    sheet.append(header_cells)
+
+    for row in rows:
+        sheet.append(list(row))
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"{location_name}词表.xlsx"
+    disposition = (
+        'attachment; filename="vocabulary_export.xlsx"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.get("/locations/{location_name}/export")
+def export_vocabulary_location(
+    location_name: str,
+    user_id: Optional[int] = Query(default=None),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+
+    query = db.query(VocabularyLocation).filter(
+        VocabularyLocation.location_name == location_name,
+    )
+    if permission_level in SELF_SCOPED_LEVELS:
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="只能导出自己的地点信息")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif user_id is not None:
+        query = query.filter(VocabularyLocation.user_id == user_id)
+
+    matches = query.order_by(VocabularyLocation.user_id.asc()).all()
+    if not matches:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+    if permission_level == "manage" and user_id is None and len(matches) > 1:
+        raise HTTPException(status_code=400, detail="同名地点属于多个用户，请通过 user_id 指定目标")
+
+    target = matches[0]
+    return _build_location_export_response(
+        target.location_name,
+        _iter_location_export_rows(db, target),
+    )
 
 
 @router.get("/logs", response_model=VocabularyLogsResponse)
