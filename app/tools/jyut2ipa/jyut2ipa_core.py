@@ -14,6 +14,23 @@ RE_SYMBOLS = re.compile(r'[？?＊*]')
 RE_CHINESE = re.compile(r'[\u4e00-\u9fa5]')
 RE_SPLIT_PINYIN = re.compile(r'(或|/|\||\\)')
 
+# 变调记号：X-Y / X*N 取变调后的调，末尾撇号 ' 保留（1' 由声调规则映射为 53）
+RE_SANDHI = re.compile(r"([a-z]+)([1-8])'?[-*]([1-8])('?)")
+# 音节（含变调/撇号记号），多音节模式下用于就地替换；前导重音字母不算音节起点
+RE_SYLLABLE = re.compile(r"(?<![A-Za-zÀ-ÿ])[a-z]+[1-8](?:'?[-*][1-8])?'?")
+
+
+def normalize_sandhi(text):
+    """
+    规范化变调记号：X-Y 与 X*N 均取变调后的调（丢弃原调）；撇号 ' 保留。
+
+    例：seoi4-2 → seoi2；tau4*2 → tau2；lau4*1' → lau1'；baa1' 不变
+    """
+    if not text:
+        return text
+    return RE_SANDHI.sub(lambda m: m.group(1) + m.group(3) + m.group(4), text)
+
+
 # 替换规则DataFrame（全局变量，需要在使用前初始化）
 replace_df = None
 
@@ -63,7 +80,7 @@ def split_pinyin(pinyin):
     """
     initial = final = tone = medial = coda = ''
     for ch in pinyin:
-        if ch.isdigit():
+        if ch.isdigit() or (ch == "'" and tone):
             tone += ch
         else:
             if tone:
@@ -185,6 +202,8 @@ def process_yutping(text, custom_replace_data=None):
     if not text:
         return pd.Series([""] * 11)
 
+    # 变调规范化必须早于清理：清理会剥掉 * 等记号
+    text = normalize_sandhi(str(text))
     text_cleaned, notes = clean_and_extract_notes_fixed(text)
     # print(f"\n🎯 粤拼原始: {text} → 清理: {text_cleaned} | 注释: {notes}")
 
@@ -267,5 +286,53 @@ def process_yutping(text, custom_replace_data=None):
     
     result_series = pd.Series(row_result)
     # print(f"[DEBUG] 最终返回结果: {result_series.tolist()}")
-    
+
     return result_series
+
+
+# 11 列输出，与 process_yutping 保持一致
+_OUTPUT_KEYS = [
+    '声母', '韵母', '音调', '韵腹', '韵尾',
+    '声母IPA', '韵腹IPA', '韵尾IPA', '音调IPA', 'IPA',
+]
+
+
+def process_yutping_multisyllable(text, custom_replace_data=None):
+    """
+    多音节模式：以空格分隔音节，逐音节就地替换为 IPA，非音节字符（括号、斜杠、
+    ⋯、或、逗号等）原样保留。
+
+    与 process_yutping 的区别：后者把整串当一个音节处理，多音节串会被拆坏；
+    本函数先做变调规范化，再按音节子串逐个转换。
+
+    Args:
+        text: 粤拼文本（可含多个空格分隔的音节）
+        custom_replace_data: 自定义替换规则（可选），格式 [["aa", "a", "wf"], ...]
+
+    Returns:
+        pd.Series: [声母, 韵母, 音调, 韵腹, 韵尾, 声母IPA, 韵腹IPA, 韵尾IPA, 音调IPA, IPA, 注释]
+    """
+    if text is None:
+        text = ''
+    text = str(text)
+    if not text.strip():
+        return pd.Series([""] * 11)
+
+    text = normalize_sandhi(text)
+
+    per_syllable = {key: [] for key in _OUTPUT_KEYS}
+    notes = []
+
+    def _convert(match):
+        result = process_yutping(match.group(0), custom_replace_data)
+        for i, key in enumerate(_OUTPUT_KEYS):
+            per_syllable[key].append(str(result.iloc[i]))
+        notes.append(str(result.iloc[10]))
+        return str(result.iloc[9])  # 就地替换为该音节的 IPA
+
+    ipa = RE_SYLLABLE.sub(_convert, text)
+
+    row = [" ".join(per_syllable[key]) for key in _OUTPUT_KEYS]
+    row[9] = ipa  # IPA 列用就地替换结果，保留括号/斜杠等非音节字符
+    row.append(" ".join(n for n in notes if n.strip()))
+    return pd.Series(row)

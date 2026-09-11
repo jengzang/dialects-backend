@@ -35,7 +35,7 @@ from app.tools.config import (
     CLEANUP_POLICY_JYUT2IPA_RESULT,
     TASK_CLEANUP_30M_SECONDS,
 )
-from .jyut2ipa_core import process_yutping, init_replace_df
+from .jyut2ipa_core import process_yutping, process_yutping_multisyllable, init_replace_df
 
 # 初始化替换规则DataFrame
 init_replace_df(replace_data)
@@ -48,7 +48,9 @@ router = APIRouter()
 class ProcessRequest(BaseModel):
     """处理请求"""
     task_id: str
-    custom_rules: Optional[list[dict]] = None  # 新增：自定义规则数组
+    custom_rules: Optional[list[dict]] = None  # 自定义规则数组
+    mode: Optional[str] = "single"  # single=单音节(默认)，multi=多音节(空格分隔)
+    column: Optional[str] = None    # 指定粤拼列名，不传则自动识别
 
 
 class ProcessResponse(BaseModel):
@@ -79,17 +81,25 @@ def _touch_jyut2ipa_cleanup(task_id: str, reason: str) -> None:
         reason=reason,
     )
 
-def find_yutping_column(df: pd.DataFrame) -> Optional[str]:
-    """查找粤拼列"""
-    # 使用col_map查找，如果没有就直接匹配"粤拼"或"粵拼"
-    for col in df.columns:
-        col_str = str(col)
-        if "粤拼" in col_str or "粵拼" in col_str or "jyutping" in col_str.lower():
-            return col
+def find_yutping_column(df: pd.DataFrame, column: Optional[str] = None) -> Optional[str]:
+    """查找粤拼列：优先「粤拼/粵拼/jyutping」，其次「音标/音標」"""
+    if column:
+        return column if column in df.columns else None
+    for keyword in ("粤拼", "粵拼", "jyutping", "音标", "音標"):
+        for col in df.columns:
+            col_str = str(col)
+            if keyword in col_str or keyword in col_str.lower():
+                return col
     return None
 
 
-async def process_file_async(task_id: str, file_path: Path, custom_rules: Optional[list[dict]] = None):
+async def process_file_async(
+    task_id: str,
+    file_path: Path,
+    custom_rules: Optional[list[dict]] = None,
+    mode: str = "single",
+    column: Optional[str] = None,
+):
     """
     异步处理文件（后台任务）
 
@@ -97,7 +107,10 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
         task_id: 任务ID
         file_path: 文件路径
         custom_rules: 自定义规则，格式 [{"to_replace":"aa", "replacement":"a", "category":"wf", "enabled":true}, ...]
+        mode: "single" 单音节（整串当一个音节）；"multi" 多音节（按空格分隔逐音节转换）
+        column: 指定的粤拼列名，None 则自动识别
     """
+    converter = process_yutping_multisyllable if mode == "multi" else process_yutping
     try:
         with ProgressHeartbeat(JYUT2IPA_HEARTBEAT_SECONDS, lambda: task_manager.update_task(task_id)):
             # 更新状态为处理中
@@ -114,10 +127,10 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
             total_rows = len(df)
 
             # 查找粤拼列
-            yutping_col = find_yutping_column(df)
+            yutping_col = find_yutping_column(df, column)
 
             if not yutping_col:
-                raise ValueError("未找到'粤拼'或'粵拼'列")
+                raise ValueError("未找到粤拼列（支持'粤拼/粵拼/jyutping/音标/音標'，或通过 column 指定）")
 
             # 更新进度
             task_manager.update_task(
@@ -159,8 +172,8 @@ async def process_file_async(task_id: str, file_path: Path, custom_rules: Option
                 try:
                     yutping_value = row[yutping_col]
 
-                    # 传递自定义规则
-                    result = process_yutping(yutping_value, custom_replace_data)
+                    # 传递自定义规则；按 mode 选择单音节/多音节转换
+                    result = converter(yutping_value, custom_replace_data)
 
                     # 验证返回结果
                     if not isinstance(result, pd.Series):
@@ -406,6 +419,10 @@ async def process_file(request: ProcessRequest, background_tasks: BackgroundTask
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件在服务器上不存在")
 
+    mode = request.mode or "single"
+    if mode not in ("single", "multi"):
+        raise HTTPException(status_code=400, detail="mode 仅支持 'single' 或 'multi'")
+
     task_manager.update_task(
         request.task_id,
         status=TaskStatus.PROCESSING,
@@ -414,12 +431,14 @@ async def process_file(request: ProcessRequest, background_tasks: BackgroundTask
         stage="queued",
     )
 
-    # 启动后台处理任务，传递自定义规则
+    # 启动后台处理任务，传递自定义规则、模式与列名
     background_tasks.add_task(
         process_file_async,
         request.task_id,
         file_path,
-        request.custom_rules  # 直接传递前端发来的规则
+        request.custom_rules,  # 直接传递前端发来的规则
+        mode,
+        request.column,
     )
 
     return ProcessResponse(
