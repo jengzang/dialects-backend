@@ -7,7 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from app.common.path import VOCABULARY_DB_PATH
-from app.service.vocabulary.models import Base
+from app.service.vocabulary.models import TONE_COLUMNS, Base
 
 VOCABULARY_SQLITE_BUSY_TIMEOUT_MS = 10000
 
@@ -46,6 +46,30 @@ try:
 except Exception as exc:
     if "already exists" not in str(exc).lower():
         raise
+
+
+def _ensure_tone_columns() -> None:
+    """create_all 不会给已存在的表补列，这里手动补齐調值列（T1-T10）。"""
+    try:
+        with engine.connect() as conn:
+            existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(vocabulary_locations)")}
+            missing = [column for column in TONE_COLUMNS if column not in existing]
+        for column in missing:
+            try:
+                with engine.begin() as conn:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE vocabulary_locations ADD COLUMN {column} VARCHAR(50) DEFAULT ''"
+                    )
+            except Exception as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+        if missing:
+            print(f"[vocabulary] 已补充調值列: {', '.join(missing)}")
+    except Exception as exc:
+        print(f"[!] vocabulary_locations 調值列迁移失败: {exc}")
+
+
+_ensure_tone_columns()
 
 
 def get_db():

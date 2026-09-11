@@ -3,6 +3,8 @@ from typing import Iterable
 
 from sqlalchemy.orm import Session
 
+from app.service.vocabulary.models import TONE_COLUMNS
+
 
 @dataclass(frozen=True)
 class VocabularyItem:
@@ -51,6 +53,16 @@ class VocabularyMapPoint:
     longitude: float
     latitude: float
     entry_count: int
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 @dataclass(frozen=True)
@@ -196,6 +208,10 @@ def _location_meta_fields(row: dict) -> dict:
         "yindian_region": row.get("yindian_region") or "",
         "atlas_region": row.get("atlas_region") or "",
     }
+
+
+def _tone_fields(row: dict) -> dict:
+    return {column: row.get(column) or "" for column in TONE_COLUMNS}
 
 
 def _parse_coordinates(value: str | None) -> tuple[float, float] | None:
@@ -457,6 +473,7 @@ def query_vocabulary_map_points(
         "SELECT "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
         "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
+        + ", ".join(f"l.{column}" for column in TONE_COLUMNS) + ", "
         "COUNT(*) AS entry_count, "
         "MIN(e.id) AS first_entry_id "
         "FROM vocabulary_entries e "
@@ -465,7 +482,8 @@ def query_vocabulary_map_points(
         f"WHERE {where_clause} "
         "GROUP BY "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
+        + ", ".join(f"l.{column}" for column in TONE_COLUMNS) + " "
         "ORDER BY first_entry_id ASC"
     )
 
@@ -492,6 +510,7 @@ def query_vocabulary_map_points(
             VocabularyMapPoint(
                 location_name=row["location_name"] or "",
                 **_location_meta_fields(row),
+                **_tone_fields(row),
                 longitude=longitude,
                 latitude=latitude,
                 entry_count=entry_count,

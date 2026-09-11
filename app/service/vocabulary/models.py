@@ -14,6 +14,8 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+TONE_COLUMNS = tuple(f"t{index}" for index in range(1, 11))
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -52,6 +54,16 @@ class VocabularyLocation(Base):
     natural_village = Column(String(200), default="")
     yindian_region = Column(String(200), default="")
     atlas_region = Column(String(200), default="")
+    t1 = Column(String(50), default="")
+    t2 = Column(String(50), default="")
+    t3 = Column(String(50), default="")
+    t4 = Column(String(50), default="")
+    t5 = Column(String(50), default="")
+    t6 = Column(String(50), default="")
+    t7 = Column(String(50), default="")
+    t8 = Column(String(50), default="")
+    t9 = Column(String(50), default="")
+    t10 = Column(String(50), default="")
     __table_args__ = (
         UniqueConstraint("user_id", "location_name", name="uq_vocabulary_location_user_name"),
     )

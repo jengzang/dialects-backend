@@ -68,6 +68,16 @@ class VocabularyMapPointResponse(BaseModel):
     longitude: float
     latitude: float
     entry_count: int
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 class VocabularyMapPointsResponse(BaseModel):
