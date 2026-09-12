@@ -4,6 +4,10 @@ from typing import Iterable
 from sqlalchemy.orm import Session
 
 from app.service.vocabulary.models import TONE_COLUMNS
+from app.service.vocabulary.script_variants import (
+    build_script_variants,
+    standard_word_key,
+)
 
 
 @dataclass(frozen=True)
@@ -28,7 +32,9 @@ class VocabularyItemsResult:
 
 @dataclass(frozen=True)
 class VocabularyStandardWord:
+    key: str
     standard_word: str
+    variants: list[str]
     entry_count: int
     location_count: int
 
@@ -275,7 +281,7 @@ def _build_filter_clause(
             clauses=clauses,
             values=values,
             columns=search_columns,
-            terms=[q.strip()],
+            terms=build_script_variants(q),
         )
 
     if location_terms:
@@ -296,18 +302,27 @@ def _build_filter_clause(
     return " AND ".join(clauses) if clauses else "1=1", values
 
 
-def _append_standard_word_filter(
+def _append_script_variant_standard_word_filter(
     *,
     clauses: list[str],
     values: list[str],
     standard_words: str | Iterable[str] | None,
+    standard_word_key_value: str | None = None,
 ) -> None:
     words = _normalize_multi_value(standard_words)
-    if not words:
+    if standard_word_key_value and standard_word_key_value.strip():
+        words.append(standard_word_key_value.strip())
+    expanded_words = [
+        variant
+        for word in words
+        for variant in build_script_variants(word)
+    ]
+    unique_words = list(dict.fromkeys(expanded_words))
+    if not unique_words:
         return
-    placeholders = ",".join(["?"] * len(words))
+    placeholders = ",".join(["?"] * len(unique_words))
     clauses.append(f"e.standard_word IN ({placeholders})")
-    values.extend(words)
+    values.extend(unique_words)
 
 
 def query_vocabulary_items(
@@ -337,7 +352,7 @@ def query_vocabulary_items(
         city=city,
     )
     clauses = [where_clause]
-    _append_standard_word_filter(
+    _append_script_variant_standard_word_filter(
         clauses=clauses,
         values=values,
         standard_words=standard_words,
@@ -406,47 +421,71 @@ def query_vocabulary_standard_words(
     cursor = conn.cursor()
     select_sql = (
         "SELECT "
-        "e.standard_word, COUNT(*) AS entry_count, "
-        "COUNT(DISTINCT e.location_name) AS location_count "
+        "e.standard_word, e.location_name, COUNT(*) AS entry_count "
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
         f"WHERE {where_clause} AND COALESCE(e.standard_word, '') <> '' "
-        "GROUP BY e.standard_word "
-        "ORDER BY location_count DESC, entry_count DESC, e.standard_word ASC"
+        "GROUP BY e.standard_word, e.location_name "
+        "ORDER BY e.standard_word ASC, e.location_name ASC"
     )
-    count_sql = (
-        "SELECT COUNT(*) FROM ("
-        "SELECT e.standard_word "
-        "FROM vocabulary_entries e "
-        "LEFT JOIN vocabulary_locations l "
-        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {where_clause} AND COALESCE(e.standard_word, '') <> '' "
-        "GROUP BY e.standard_word"
-        ") grouped_standard_words"
-    )
-    cursor.execute(count_sql, values)
-    total = cursor.fetchone()[0]
-    select_values = list(values)
-    if limit is not None:
-        select_sql += " LIMIT ?"
-        select_values.append(limit)
 
-    cursor.execute(select_sql, select_values)
+    cursor.execute(select_sql, values)
     column_names = [description[0] for description in cursor.description]
     rows = [
         {column_names[index]: value for index, value in enumerate(row)}
         for row in cursor.fetchall()
     ]
-    return VocabularyStandardWordsResult(
-        standard_words=[
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        word = row["standard_word"] or ""
+        key = standard_word_key(word)
+        group = grouped.setdefault(
+            key,
+            {
+                "key": key,
+                "entry_count": 0,
+                "locations": set(),
+                "variant_counts": {},
+            },
+        )
+        entry_count = int(row["entry_count"] or 0)
+        group["entry_count"] += entry_count
+        if row["location_name"]:
+            group["locations"].add(row["location_name"])
+        group["variant_counts"][word] = (
+            group["variant_counts"].get(word, 0) + entry_count
+        )
+
+    standard_word_groups = []
+    for group in grouped.values():
+        variant_counts = group["variant_counts"]
+        variants = sorted(
+            variant_counts,
+            key=lambda variant: (-variant_counts[variant], variant),
+        )
+        standard_word_groups.append(
             VocabularyStandardWord(
-                standard_word=row["standard_word"] or "",
-                entry_count=int(row["entry_count"] or 0),
-                location_count=int(row["location_count"] or 0),
+                key=group["key"],
+                standard_word=variants[0],
+                variants=variants,
+                entry_count=group["entry_count"],
+                location_count=len(group["locations"]),
             )
-            for row in rows
-        ],
+        )
+    standard_word_groups.sort(
+        key=lambda group: (
+            -group.location_count,
+            -group.entry_count,
+            group.standard_word,
+        )
+    )
+    total = len(standard_word_groups)
+    if limit is not None:
+        standard_word_groups = standard_word_groups[:limit]
+
+    return VocabularyStandardWordsResult(
+        standard_words=standard_word_groups,
         total=total,
     )
 
@@ -528,15 +567,18 @@ def query_vocabulary_map_points(
 def query_vocabulary_map_items(
     *,
     session: Session,
-    standard_words: str | Iterable[str],
+    standard_words: str | Iterable[str] | None = None,
     q: str | None = None,
     search_fields: str | Iterable[str] | None = None,
     locations: str | Iterable[str] | None = None,
     province: str | None = None,
     city: str | None = None,
+    standard_word_key: str | None = None,
 ) -> VocabularyMapItemsResult:
     selected_standard_words = _normalize_multi_value(standard_words)
-    if not selected_standard_words:
+    if not selected_standard_words and not (
+        standard_word_key and standard_word_key.strip()
+    ):
         raise ValueError("standard_words is required")
 
     where_clause, values = _build_filter_clause(
@@ -547,10 +589,11 @@ def query_vocabulary_map_items(
         city=city,
     )
     clauses = [where_clause]
-    _append_standard_word_filter(
+    _append_script_variant_standard_word_filter(
         clauses=clauses,
         values=values,
         standard_words=selected_standard_words,
+        standard_word_key_value=standard_word_key,
     )
     combined_where_clause = " AND ".join(clauses)
     conn = session.connection().connection

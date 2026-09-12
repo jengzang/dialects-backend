@@ -21,6 +21,7 @@ from app.service.vocabulary.query import (
     query_vocabulary_map_points,
     query_vocabulary_standard_words,
 )
+from app.service.vocabulary.script_variants import build_script_variants
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 
@@ -77,6 +78,12 @@ def test_vocabulary_sqlite_connections_wait_for_busy_writes(tmp_path: Path) -> N
         raw_conn.close()
 
     assert timeout_ms == 10000
+
+
+def test_build_script_variants_keeps_non_chinese_terms_unchanged() -> None:
+    assert build_script_variants("IPA") == ("IPA",)
+    assert build_script_variants("55") == ("55",)
+    assert build_script_variants("abc") == ("abc",)
 
 
 def test_edit_permission_resolves_to_edit(tmp_path: Path) -> None:
@@ -885,6 +892,53 @@ def test_query_vocabulary_items_filters_locations_independently(tmp_path: Path) 
         session.close()
 
 
+def test_query_vocabulary_items_searches_simplified_and_traditional_variants(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="儿童",
+                    local_expression="娃娃",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="老人",
+                    local_expression="老人",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        simplified_result = query_vocabulary_items(session=session, q="儿童")
+        traditional_result = query_vocabulary_items(session=session, q="兒童")
+
+        assert simplified_result.total == 2
+        assert [item.standard_word for item in simplified_result.items] == ["儿童", "兒童"]
+        assert traditional_result.total == 2
+        assert [item.standard_word for item in traditional_result.items] == ["儿童", "兒童"]
+    finally:
+        session.close()
+
+
 def test_query_vocabulary_map_points_aggregates_locations_without_pagination(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -981,6 +1035,74 @@ def test_query_vocabulary_map_points_aggregates_locations_without_pagination(tmp
         session.close()
 
 
+def test_query_vocabulary_map_points_counts_script_variant_matches_once(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="儿童",
+                    local_expression="兒童",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="兒童",
+                    local_expression="儿童",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_map_points(session=session, q="儿童")
+
+        assert result.total_entries == 3
+        assert result.total_points == 2
+        assert [(point.location_name, point.entry_count) for point in result.points] == [
+            ("息烽", 2),
+            ("天柱竹林", 1),
+        ]
+    finally:
+        session.close()
+
+
 def test_query_vocabulary_location_options_returns_distinct_public_names(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -1026,6 +1148,64 @@ def test_query_vocabulary_location_options_returns_distinct_public_names(tmp_pat
         ]
         assert not hasattr(result.locations[0], "user_id")
         assert not hasattr(result.locations[0], "coordinates")
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_standard_words_merges_script_variants(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="儿童",
+                    local_expression="娃娃",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=8,
+                    location_name="广州",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="老人",
+                    local_expression="老人",
+                    ipa="ipa4",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_standard_words(session=session, q="儿童")
+
+        assert result.total == 1
+        assert len(result.standard_words) == 1
+        assert result.standard_words[0].key == "儿童"
+        assert result.standard_words[0].standard_word == "兒童"
+        assert result.standard_words[0].variants == ["兒童", "儿童"]
+        assert result.standard_words[0].entry_count == 3
+        assert result.standard_words[0].location_count == 3
     finally:
         session.close()
 
@@ -1273,5 +1453,135 @@ def test_query_vocabulary_map_items_returns_details_for_selected_standard_words(
         assert result.points[0].items[0].ipa == "ipa1"
         assert result.points[0].items[0].notes == "常用"
         assert result.points[0].items[0].informations == "info1"
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_items_expands_selected_standard_words_to_script_variants(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                    city="贵阳",
+                    county="息烽",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                    city="黔东南",
+                    county="天柱",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="儿童",
+                    local_expression="娃娃",
+                    ipa="ipa1",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa2",
+                    notes="",
+                    informations="",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="老人",
+                    local_expression="老人",
+                    ipa="ipa3",
+                    notes="",
+                    informations="",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_map_items(session=session, standard_words=["兒童"])
+
+        assert result.total_entries == 2
+        assert result.total_points == 2
+        assert [
+            (point.location_name, point.items[0].standard_word)
+            for point in result.points
+        ] == [
+            ("息烽", "儿童"),
+            ("天柱竹林", "兒童"),
+        ]
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_items_accepts_standard_word_key(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add_all(
+            [
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="息烽",
+                    coordinates="106.7400,27.0900",
+                    province="贵州",
+                ),
+                VocabularyLocation(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    coordinates="109.2070,26.9090",
+                    province="贵州",
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="息烽",
+                    standard_word="儿童",
+                    local_expression="娃娃",
+                    ipa="ipa1",
+                ),
+                VocabularyEntry(
+                    user_id=7,
+                    location_name="天柱竹林",
+                    standard_word="兒童",
+                    local_expression="細路",
+                    ipa="ipa2",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = query_vocabulary_map_items(session=session, standard_word_key="儿童")
+
+        assert result.total_entries == 2
+        assert [
+            point.items[0].standard_word
+            for point in result.points
+        ] == ["儿童", "兒童"]
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_items_rejects_blank_standard_word_key(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="standard_words is required"):
+            query_vocabulary_map_items(session=session, standard_word_key="  ")
     finally:
         session.close()

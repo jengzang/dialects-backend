@@ -269,10 +269,10 @@ FastAPI 默认错误响应格式：
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `q` | string | null | 可选 | 搜索关键词。 |
+| `q` | string | null | 可选 | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见上面的搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词，会匹配地点简称和地点元数据。 |
-| `standard_words` | string[] | null | 可选 | 精确过滤一个或多个 `standard_word`，适合从标准词列表跳回 entries。 |
+| `standard_words` | string[] | null | 可选 | 过滤一个或多个 `standard_word`，后端会自动扩展简繁候选，适合从标准词列表跳回 entries。 |
 | `page` | number | `1` | `>= 1` | 页码。 |
 | `page_size` | number | `50` | `1..200` | 每页条数。 |
 
@@ -333,7 +333,7 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `q` | string | null | 可选 | 搜索关键词。 |
+| `q` | string | null | 可选 | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词。 |
 | `limit` | number | `100` | `1..1000` | 最多返回多少个标准词。 |
@@ -344,7 +344,9 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 {
   "standard_words": [
     {
+      "key": "太阳",
       "standard_word": "太阳",
+      "variants": ["太阳"],
       "entry_count": 12,
       "location_count": 3
     }
@@ -356,7 +358,8 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 说明：
 
 - `standard_words.length` 最多等于 `limit`。
-- `total` 是过滤条件下的标准词总数，不是当前返回数组长度。
+- `total` 是过滤条件下按繁简 key 合并后的标准词总数，不是当前返回数组长度。
+- `key` 是后端用简体规范化得到的稳定筛选 key；`standard_word` 是展示用代表写法；`variants` 是该组中数据库真实存在的原始写法。
 
 ### `GET /api/vocabulary/search/map-points`
 
@@ -370,7 +373,7 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `q` | string | null | 搜索关键词。 |
+| `q` | string | null | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 地点过滤词。 |
 
@@ -440,8 +443,9 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `standard_words` | string[] | 无 | 必填 | 一个或多个标准词。 |
-| `q` | string | null | 可选 | 额外搜索关键词。 |
+| `standard_words` | string[] | null | 与 `standard_word_key` 二选一 | 一个或多个标准词；后端会自动扩展简繁候选。 |
+| `standard_word_key` | string | null | 与 `standard_words` 二选一 | `/search/standard-words` 返回的稳定 key，会匹配同一繁简组内所有原始标准词写法。 |
+| `q` | string | null | 可选 | 额外搜索关键词。中文关键词会在后端自动扩展简繁候选。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词。 |
 

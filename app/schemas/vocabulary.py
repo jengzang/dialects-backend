@@ -45,7 +45,9 @@ class VocabularyItemsResponse(BaseModel):
 
 
 class VocabularyStandardWordResponse(BaseModel):
+    key: str
     standard_word: str
+    variants: list[str]
     entry_count: int
     location_count: int
 

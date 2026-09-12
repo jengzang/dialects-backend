@@ -236,7 +236,8 @@ def get_vocabulary_standard_words(
 
 @router.get("/search/map-items", response_model=VocabularyMapItemsResponse)
 def get_vocabulary_map_items(
-    standard_words: list[str] = Query(...),
+    standard_words: Optional[list[str]] = Query(default=None),
+    standard_word_key: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
@@ -248,6 +249,7 @@ def get_vocabulary_map_items(
         return query_vocabulary_map_items(
             session=db,
             standard_words=standard_words,
+            standard_word_key=standard_word_key,
             q=q,
             search_fields=search_fields,
             locations=locations,

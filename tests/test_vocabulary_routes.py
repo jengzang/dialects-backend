@@ -297,6 +297,7 @@ def test_map_items_endpoint_accepts_standard_word_filters_without_pagination() -
     parameters = signature(get_vocabulary_map_items).parameters
 
     assert "standard_words" in parameters
+    assert "standard_word_key" in parameters
     assert "q" in parameters
     assert "search_fields" in parameters
     assert "locations" in parameters
