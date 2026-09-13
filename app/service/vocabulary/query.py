@@ -522,6 +522,9 @@ def query_vocabulary_map_points(
     )
     conn = session.connection().connection
     cursor = conn.cursor()
+    # 分组键只用 e 的两列：地点表的字段由 (user_id, location_name) 唯一确定，
+    # 按全部 l.* 列分组会引入 temp b-tree；按这两列分组可复用
+    # idx_vocabulary_entries_user_location 的有序扫描，结果等价。
     select_sql = (
         "SELECT "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
@@ -533,10 +536,7 @@ def query_vocabulary_map_points(
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
         f"WHERE {where_clause} "
-        "GROUP BY "
-        "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
-        + ", ".join(f"l.{column}" for column in TONE_COLUMNS) + " "
+        "GROUP BY e.user_id, e.location_name "
         "ORDER BY first_entry_id ASC"
     )
 
