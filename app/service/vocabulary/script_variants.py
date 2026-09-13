@@ -2,16 +2,12 @@ from functools import lru_cache
 
 from opencc import OpenCC
 
-from app.common.s2t import s2t_pro
-
-
-MAX_SCRIPT_VARIANTS = 16
 
 _S2T = OpenCC("s2t.json")
 _T2S = OpenCC("t2s.json")
 
 
-def _dedupe(values: list[str], *, limit: int = MAX_SCRIPT_VARIANTS) -> list[str]:
+def _dedupe(values: list[str]) -> list[str]:
     seen = set()
     result = []
     for value in values:
@@ -20,8 +16,6 @@ def _dedupe(values: list[str], *, limit: int = MAX_SCRIPT_VARIANTS) -> list[str]
             continue
         seen.add(normalized)
         result.append(normalized)
-        if len(result) >= limit:
-            break
     return result
 
 
@@ -33,42 +27,14 @@ def standard_word_key(value: str) -> str:
     return _T2S.convert(text)
 
 
-def _mapping_phrases(text: str, *, limit: int) -> list[str]:
-    try:
-        _, mapping = s2t_pro(text, level=2, keep_all_layers=True)
-    except Exception:
-        return []
-
-    phrases = [""]
-    for original_char, char_candidates in mapping:
-        ordered_candidates = _dedupe(
-            [original_char, *sorted(char_candidates)],
-            limit=limit,
-        )
-        next_phrases = []
-        for prefix in phrases:
-            for candidate in ordered_candidates:
-                next_phrases.append(prefix + candidate)
-                if len(next_phrases) >= limit:
-                    break
-            if len(next_phrases) >= limit:
-                break
-        phrases = next_phrases
-        if len(phrases) >= limit:
-            break
-    return phrases
-
-
 @lru_cache(maxsize=4096)
 def build_script_variants(value: str) -> tuple[str, ...]:
+    """原样、全简、全繁三种写法。
+
+    只做整词的简繁转换，不做逐字笛卡尔积：逐字组合会产生「头發」这类
+    并不存在的写法，既白跑全表扫描又污染召回。
+    """
     text = value.strip()
     if not text:
         return ()
-
-    candidates = [
-        text,
-        _T2S.convert(text),
-        _S2T.convert(text),
-        *_mapping_phrases(text, limit=MAX_SCRIPT_VARIANTS),
-    ]
-    return tuple(_dedupe(candidates))
+    return tuple(_dedupe([text, _T2S.convert(text), _S2T.convert(text)]))
