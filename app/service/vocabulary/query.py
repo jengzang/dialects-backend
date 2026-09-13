@@ -302,6 +302,14 @@ def _build_filter_clause(
     return " AND ".join(clauses) if clauses else "1=1", values
 
 
+def _filter_uses_locations(where_clause: str) -> bool:
+    """过滤条件是否引用了 vocabulary_locations（别名 l.）。
+
+    参数值都以占位符传入，SQL 片段里出现 "l." 只可能来自地点表的列引用。
+    """
+    return "l." in where_clause
+
+
 def _append_script_variant_standard_word_filter(
     *,
     clauses: list[str],
@@ -419,15 +427,21 @@ def query_vocabulary_standard_words(
     )
     conn = session.connection().connection
     cursor = conn.cursor()
+    # 只有过滤条件引用地点表时才需要 JOIN：LEFT JOIN 在 (user_id, location_name)
+    # 唯一约束下不会放大行数，结果与省略 JOIN 一致。省略后分组可走覆盖索引有序扫描。
+    join_clause = (
+        "LEFT JOIN vocabulary_locations l "
+        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
+        if _filter_uses_locations(where_clause)
+        else ""
+    )
     select_sql = (
         "SELECT "
         "e.standard_word, e.location_name, COUNT(*) AS entry_count "
         "FROM vocabulary_entries e "
-        "LEFT JOIN vocabulary_locations l "
-        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {where_clause} AND COALESCE(e.standard_word, '') <> '' "
-        "GROUP BY e.standard_word, e.location_name "
-        "ORDER BY e.standard_word ASC, e.location_name ASC"
+        f"{join_clause}"
+        f"WHERE {where_clause} AND e.standard_word <> '' "
+        "GROUP BY e.standard_word, e.location_name"
     )
 
     cursor.execute(select_sql, values)

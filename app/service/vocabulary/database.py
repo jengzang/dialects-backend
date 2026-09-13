@@ -69,7 +69,23 @@ def _ensure_tone_columns() -> None:
         print(f"[!] vocabulary_locations 調值列迁移失败: {exc}")
 
 
+def _ensure_entry_indexes() -> None:
+    """create_all 不会给已存在的表补索引，这里手动补齐复合索引。
+
+    该复合索引让 standard-words 的分组聚合走覆盖索引有序扫描，避免 temp b-tree 排序。
+    """
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS idx_vocabulary_entries_standard_word_location "
+                "ON vocabulary_entries(standard_word, location_name)"
+            )
+    except Exception as exc:
+        print(f"[!] vocabulary_entries 复合索引迁移失败: {exc}")
+
+
 _ensure_tone_columns()
+_ensure_entry_indexes()
 
 
 def get_db():

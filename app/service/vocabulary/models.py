@@ -36,6 +36,11 @@ class VocabularyEntry(Base):
 
     __table_args__ = (
         Index("idx_vocabulary_entries_user_location", "user_id", "location_name"),
+        Index(
+            "idx_vocabulary_entries_standard_word_location",
+            "standard_word",
+            "location_name",
+        ),
     )
 
 

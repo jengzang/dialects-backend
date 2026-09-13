@@ -25,6 +25,7 @@ def _dedupe(values: list[str], *, limit: int = MAX_SCRIPT_VARIANTS) -> list[str]
     return result
 
 
+@lru_cache(maxsize=None)
 def standard_word_key(value: str) -> str:
     text = value.strip()
     if not text:
