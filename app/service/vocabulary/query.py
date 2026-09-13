@@ -445,46 +445,36 @@ def query_vocabulary_standard_words(
     )
 
     cursor.execute(select_sql, values)
-    column_names = [description[0] for description in cursor.description]
-    rows = [
-        {column_names[index]: value for index, value in enumerate(row)}
-        for row in cursor.fetchall()
-    ]
-    grouped: dict[str, dict] = {}
-    for row in rows:
-        word = row["standard_word"] or ""
-        key = standard_word_key(word)
-        group = grouped.setdefault(
-            key,
-            {
-                "key": key,
-                "entry_count": 0,
-                "locations": set(),
-                "variant_counts": {},
-            },
-        )
-        entry_count = int(row["entry_count"] or 0)
-        group["entry_count"] += entry_count
-        if row["location_name"]:
-            group["locations"].add(row["location_name"])
-        group["variant_counts"][word] = (
-            group["variant_counts"].get(word, 0) + entry_count
-        )
+    # 直接按位置解包元组，避免为 5.9 万行各建一个 dict；word_keys 让同一标准词
+    # 在一个请求内只换算一次 key。
+    word_keys: dict[str, str] = {}
+    grouped: dict[str, list] = {}
+    for word, location_name, entry_count in cursor.fetchall():
+        key = word_keys.get(word)
+        if key is None:
+            key = word_keys[word] = standard_word_key(word)
+        group = grouped.get(key)
+        if group is None:
+            group = grouped[key] = [0, set(), {}]
+        group[0] += entry_count
+        if location_name:
+            group[1].add(location_name)
+        variant_counts = group[2]
+        variant_counts[word] = variant_counts.get(word, 0) + entry_count
 
     standard_word_groups = []
-    for group in grouped.values():
-        variant_counts = group["variant_counts"]
+    for key, (entry_count, locations, variant_counts) in grouped.items():
         variants = sorted(
             variant_counts,
             key=lambda variant: (-variant_counts[variant], variant),
         )
         standard_word_groups.append(
             VocabularyStandardWord(
-                key=group["key"],
+                key=key,
                 standard_word=variants[0],
                 variants=variants,
-                entry_count=group["entry_count"],
-                location_count=len(group["locations"]),
+                entry_count=entry_count,
+                location_count=len(locations),
             )
         )
     standard_word_groups.sort(
