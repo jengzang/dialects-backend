@@ -363,6 +363,12 @@ API_ROUTE_CONFIG = {
         "log_body": True,  # 记录请求体（分析参数配置）
     },
     # ===== Vocabulary API =====
+    "/api/vocabulary/search/location-options": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
     # 前台搜索公开可用，但仍参与限流；更具体的 search 规则会覆盖 /api/vocabulary/*。
     "/api/vocabulary/search/*": {
         "rate_limit": True,

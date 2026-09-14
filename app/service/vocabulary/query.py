@@ -462,8 +462,24 @@ def query_vocabulary_standard_words(
         variant_counts = group[2]
         variant_counts[word] = variant_counts.get(word, 0) + entry_count
 
+    def sort_key(key: str) -> tuple:
+        entry_count, locations, variant_counts = grouped[key]
+        representative = min(
+            variant_counts,
+            key=lambda variant: (-variant_counts[variant], variant),
+        )
+        return (-len(locations), -entry_count, representative)
+
+    # 先按轻量元组排序再切片：全库有近 4 万个分组，而 limit 通常只有 100，
+    # 给最终会被丢弃的分组建 dataclass 是白做功。
+    ordered_keys = sorted(grouped, key=sort_key)
+    total = len(ordered_keys)
+    if limit is not None:
+        ordered_keys = ordered_keys[:limit]
+
     standard_word_groups = []
-    for key, (entry_count, locations, variant_counts) in grouped.items():
+    for key in ordered_keys:
+        entry_count, locations, variant_counts = grouped[key]
         variants = sorted(
             variant_counts,
             key=lambda variant: (-variant_counts[variant], variant),
@@ -477,16 +493,6 @@ def query_vocabulary_standard_words(
                 location_count=len(locations),
             )
         )
-    standard_word_groups.sort(
-        key=lambda group: (
-            -group.location_count,
-            -group.entry_count,
-            group.standard_word,
-        )
-    )
-    total = len(standard_word_groups)
-    if limit is not None:
-        standard_word_groups = standard_word_groups[:limit]
 
     return VocabularyStandardWordsResult(
         standard_words=standard_word_groups,
