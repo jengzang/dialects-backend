@@ -10,6 +10,11 @@ from app.common.path import VOCABULARY_DB_PATH
 from app.service.vocabulary.models import TONE_COLUMNS, Base
 
 VOCABULARY_SQLITE_BUSY_TIMEOUT_MS = 10000
+LOCATION_METADATA_COLUMNS = {
+    "vocabulary_source": "TEXT DEFAULT ''",
+    "description": "TEXT DEFAULT ''",
+    "other": "TEXT DEFAULT ''",
+}
 
 
 def _sqlite_pragmas(dbapi_conn, _) -> None:
@@ -48,25 +53,47 @@ except Exception as exc:
         raise
 
 
-def _ensure_tone_columns() -> None:
-    """create_all 不会给已存在的表补列，这里手动补齐調值列（T1-T10）。"""
+def _ensure_location_columns(
+    target_engine: Engine,
+    columns: dict[str, str],
+    *,
+    label: str,
+) -> None:
     try:
-        with engine.connect() as conn:
+        with target_engine.connect() as conn:
             existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(vocabulary_locations)")}
-            missing = [column for column in TONE_COLUMNS if column not in existing]
+            missing = [column for column in columns if column not in existing]
         for column in missing:
             try:
-                with engine.begin() as conn:
+                with target_engine.begin() as conn:
                     conn.exec_driver_sql(
-                        f"ALTER TABLE vocabulary_locations ADD COLUMN {column} VARCHAR(50) DEFAULT ''"
+                        f"ALTER TABLE vocabulary_locations ADD COLUMN {column} {columns[column]}"
                     )
             except Exception as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
         if missing:
-            print(f"[vocabulary] 已补充調值列: {', '.join(missing)}")
+            print(f"[vocabulary] 已补充{label}: {', '.join(missing)}")
     except Exception as exc:
-        print(f"[!] vocabulary_locations 調值列迁移失败: {exc}")
+        print(f"[!] vocabulary_locations {label}迁移失败: {exc}")
+
+
+def _ensure_tone_columns(target_engine: Engine = engine) -> None:
+    """create_all 不会给已存在的表补列，这里手动补齐調值列（T1-T10）。"""
+    _ensure_location_columns(
+        target_engine,
+        {column: "VARCHAR(50) DEFAULT ''" for column in TONE_COLUMNS},
+        label="調值列",
+    )
+
+
+def _ensure_location_metadata_columns(target_engine: Engine = engine) -> None:
+    """create_all 不会给已存在的表补列，这里手动补齐地点元数据列。"""
+    _ensure_location_columns(
+        target_engine,
+        LOCATION_METADATA_COLUMNS,
+        label="地点元数据列",
+    )
 
 
 def _ensure_entry_indexes() -> None:
@@ -85,6 +112,7 @@ def _ensure_entry_indexes() -> None:
 
 
 _ensure_tone_columns()
+_ensure_location_metadata_columns()
 _ensure_entry_indexes()
 
 

@@ -56,6 +56,9 @@ class VocabularyMapPoint:
     natural_village: str
     yindian_region: str
     atlas_region: str
+    vocabulary_source: str
+    description: str
+    other: str
     longitude: float
     latitude: float
     entry_count: int
@@ -213,6 +216,15 @@ def _location_meta_fields(row: dict) -> dict:
         "natural_village": row.get("natural_village") or "",
         "yindian_region": row.get("yindian_region") or "",
         "atlas_region": row.get("atlas_region") or "",
+    }
+
+
+def _location_meta_fields_with_vocabulary_metadata(row: dict) -> dict:
+    return {
+        **_location_meta_fields(row),
+        "vocabulary_source": row.get("vocabulary_source") or "",
+        "description": row.get("description") or "",
+        "other": row.get("other") or "",
     }
 
 
@@ -525,6 +537,7 @@ def query_vocabulary_map_points(
         "SELECT "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
         "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
+        "l.vocabulary_source, l.description, l.other, "
         + ", ".join(f"l.{column}" for column in TONE_COLUMNS) + ", "
         "COUNT(*) AS entry_count, "
         "MIN(e.id) AS first_entry_id "
@@ -558,7 +571,7 @@ def query_vocabulary_map_points(
         points.append(
             VocabularyMapPoint(
                 location_name=row["location_name"] or "",
-                **_location_meta_fields(row),
+                **_location_meta_fields_with_vocabulary_metadata(row),
                 **_tone_fields(row),
                 longitude=longitude,
                 latitude=latitude,

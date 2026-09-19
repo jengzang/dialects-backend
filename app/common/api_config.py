@@ -94,6 +94,7 @@ IGNORE_API = [
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
     "/user/custom/counts",
+    "/api/vocabulary/me",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============

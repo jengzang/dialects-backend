@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,38 @@ def test_vocabulary_sqlite_connections_wait_for_busy_writes(tmp_path: Path) -> N
         raw_conn.close()
 
     assert timeout_ms == 10000
+
+
+def test_vocabulary_location_metadata_migration_adds_missing_columns(tmp_path: Path) -> None:
+    from app.service.vocabulary.database import _ensure_location_metadata_columns
+
+    db_path = tmp_path / "old_vocabulary.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE vocabulary_locations (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                location_name VARCHAR(200) NOT NULL,
+                coordinates VARCHAR(200) NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    engine, _ = create_vocabulary_engine_and_session(db_path)
+    _ensure_location_metadata_columns(engine)
+
+    raw_conn = engine.raw_connection()
+    try:
+        columns = {row[1] for row in raw_conn.execute("PRAGMA table_info(vocabulary_locations)").fetchall()}
+    finally:
+        raw_conn.close()
+
+    assert {"vocabulary_source", "description", "other"}.issubset(columns)
 
 
 def test_build_script_variants_keeps_non_chinese_terms_unchanged() -> None:
@@ -316,6 +349,41 @@ def test_import_upserts_location_tone_values(tmp_path: Path) -> None:
         assert location.t2 == "21"
         assert location.t10 == "3"
         assert location.t3 == ""
+    finally:
+        session.close()
+
+
+def test_import_upserts_location_source_description_and_other(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=(
+                "written,vocabulary,ipa,notes\n"
+                "太阳,日头,ȵit2 tʰəu2,常用\n"
+            ).encode("utf-8"),
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                    "词表来源": "田野调查",
+                    "说明": "老派材料",
+                    "其他": "待复核",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        location = session.query(VocabularyLocation).one()
+        assert location.vocabulary_source == "田野调查"
+        assert location.description == "老派材料"
+        assert location.other == "待复核"
     finally:
         session.close()
 
@@ -1031,6 +1099,39 @@ def test_query_vocabulary_map_points_aggregates_locations_without_pagination(tmp
         assert result.points[0].location_label == "贵州 / 贵阳 / 息烽"
         assert result.points[0].longitude == 106.74
         assert result.points[0].latitude == 27.09
+    finally:
+        session.close()
+
+
+def test_query_vocabulary_map_points_returns_location_source_description_and_other(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(
+            VocabularyLocation(
+                user_id=7,
+                location_name="息烽",
+                coordinates="106.7400,27.0900",
+                vocabulary_source="田野调查",
+                description="老派材料",
+                other="待复核",
+            )
+        )
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="太阳",
+                local_expression="日头",
+                ipa="zɿ2 tʰəu2",
+            )
+        )
+        session.commit()
+
+        result = query_vocabulary_map_points(session=session)
+
+        assert result.points[0].vocabulary_source == "田野调查"
+        assert result.points[0].description == "老派材料"
+        assert result.points[0].other == "待复核"
     finally:
         session.close()
 

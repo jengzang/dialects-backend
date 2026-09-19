@@ -67,6 +67,9 @@ class VocabularyMapPointResponse(BaseModel):
     natural_village: str = ""
     yindian_region: str = ""
     atlas_region: str = ""
+    vocabulary_source: str = ""
+    description: str = ""
+    other: str = ""
     longitude: float
     latitude: float
     entry_count: int
@@ -146,6 +149,9 @@ class VocabularyLocationResponse(BaseModel):
     natural_village: str
     yindian_region: str
     atlas_region: str
+    vocabulary_source: str = ""
+    description: str = ""
+    other: str = ""
     location_label: str
     t1: str = ""
     t2: str = ""
@@ -179,6 +185,9 @@ class VocabularyLocationUpdateRequest(BaseModel):
     natural_village: str | None = None
     yindian_region: str | None = None
     atlas_region: str | None = None
+    vocabulary_source: str | None = None
+    description: str | None = None
+    other: str | None = None
     t1: str | None = None
     t2: str | None = None
     t3: str | None = None

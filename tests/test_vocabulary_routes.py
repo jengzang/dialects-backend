@@ -755,6 +755,39 @@ def test_edit_locations_list_only_returns_current_users_rows(tmp_path: Path) -> 
         session.close()
 
 
+def test_locations_list_returns_source_description_and_other(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyLocation(
+                user_id=7,
+                location_name="息烽",
+                coordinates="106.73,27.10",
+                vocabulary_source="田野调查",
+                description="老派材料",
+                other="待复核",
+            )
+        )
+        session.commit()
+
+        result = get_vocabulary_locations(
+            user_id=None,
+            username=None,
+            location_name=None,
+            page=1,
+            page_size=20,
+            current_user=_User(7),
+            db=session,
+        )
+
+        assert result.locations[0].vocabulary_source == "田野调查"
+        assert result.locations[0].description == "老派材料"
+        assert result.locations[0].other == "待复核"
+    finally:
+        session.close()
+
+
 def test_manage_locations_list_can_filter_by_user_id_and_location_name(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
@@ -858,6 +891,45 @@ def test_edit_location_patch_updates_own_location_and_logs(tmp_path: Path) -> No
         assert log.affected_rows == 1
         assert "user_id = 7" in log.target_scope
         assert "location_name = 息烽" in log.target_scope
+    finally:
+        session.close()
+
+
+def test_edit_location_patch_updates_source_description_and_other(tmp_path: Path) -> None:
+    from app.schemas.vocabulary import VocabularyLocationUpdateRequest
+
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyLocation(
+                user_id=7,
+                location_name="息烽",
+                coordinates="106.73,27.10",
+            )
+        )
+        session.commit()
+
+        result = update_vocabulary_location(
+            location_name="息烽",
+            params=VocabularyLocationUpdateRequest(
+                vocabulary_source="田野调查",
+                description="老派材料",
+                other="待复核",
+            ),
+            user_id=None,
+            current_user=_User(7),
+            db=session,
+        )
+
+        location = session.query(VocabularyLocation).one()
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+
+        assert result.vocabulary_source == "田野调查"
+        assert result.description == "老派材料"
+        assert result.other == "待复核"
+        assert location.vocabulary_source == "田野调查"
+        assert payload["updated_fields"] == ["description", "other", "vocabulary_source"]
     finally:
         session.close()
 

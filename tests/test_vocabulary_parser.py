@@ -250,6 +250,22 @@ def test_normalize_location_payload_accepts_tone_values() -> None:
     assert normalized.t3 == ""
 
 
+def test_normalize_location_payload_accepts_source_description_and_other_aliases() -> None:
+    normalized = normalize_location_payload(
+        {
+            "location_name": "息烽",
+            "coordinates": "106.73,27.10",
+            "词表来源": "田野调查",
+            "说明": "老派材料",
+            "其他": "待复核",
+        }
+    )
+
+    assert normalized.vocabulary_source == "田野调查"
+    assert normalized.description == "老派材料"
+    assert normalized.other == "待复核"
+
+
 def test_normalize_location_payload_requires_location_name_and_coordinates() -> None:
     with pytest.raises(ValueError, match="location_name"):
         normalize_location_payload({"coordinates": "106.73,27.10"})

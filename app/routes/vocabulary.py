@@ -122,6 +122,9 @@ def _location_response(location: VocabularyLocation, username: str = "") -> Voca
         natural_village=location.natural_village or "",
         yindian_region=location.yindian_region or "",
         atlas_region=location.atlas_region or "",
+        vocabulary_source=location.vocabulary_source or "",
+        description=location.description or "",
+        other=location.other or "",
         location_label=_location_label(location),
         **{column: getattr(location, column) or "" for column in TONE_COLUMNS},
     )
