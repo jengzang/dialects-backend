@@ -73,6 +73,46 @@ def test_parse_table_accepts_requested_column_aliases(tmp_path: Path, header: st
     ]
 
 
+@pytest.mark.parametrize(
+    "row",
+    [
+        ",,[ȵit2]",  # 只有音标
+        ",日头,",  # 只有方言词
+    ],
+)
+def test_parse_table_reports_missing_standard_word_for_non_blank_rows(
+    tmp_path: Path, row: str
+) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        f"标准词,方言词,音标,备注\n{row}\n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.rows == []
+    assert result.skipped_count == 0
+    assert len(result.errors) == 1
+    assert "standard_word" in result.errors[0]
+
+
+def test_parse_table_skips_only_fully_blank_rows(tmp_path: Path) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        "标准词,方言词,音标,备注\n"
+        ",,,\n"
+        "  ,  ,  ,  \n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.rows == []
+    assert result.errors == []
+    assert result.skipped_count == 2
+
+
 def test_parse_bracket_document_text_extracts_fields() -> None:
     rows, errors = parse_bracket_document_text(
         "太阳（日头）[ȵit2 tʰəu2]{常用}\n"

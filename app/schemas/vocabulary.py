@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VocabularyUploadResponse(BaseModel):
@@ -10,19 +10,23 @@ class VocabularyUploadResponse(BaseModel):
     permission_level: str
     imported_count: int
     deleted_existing_count: int
-    skipped_count: int
-    errors: list[str]
+    skipped_count: int = Field(description="空行数（标准词、方言词、音标均为空），未导入")
+    errors: list[str] = Field(
+        description="错误行明细（行号 + 原因），这些行已被跳过、未导入",
+    )
     parser_mode: str
 
 
 class VocabularyUploadPreviewResponse(BaseModel):
-    success: bool
+    success: bool = Field(description="是否存在可导入的行")
     location_name: str
     permission_level: str
-    parsed_count: int
+    parsed_count: int = Field(description="可成功解析、将被导入的行数")
     would_delete_existing_count: int
-    skipped_count: int
-    errors: list[str]
+    skipped_count: int = Field(description="空行数（标准词、方言词、音标均为空），未导入")
+    errors: list[str] = Field(
+        description="错误行明细（行号 + 原因），这些行在导入时会被跳过",
+    )
     parser_mode: str
 
 

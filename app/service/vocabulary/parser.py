@@ -118,7 +118,7 @@ def _validate_row(
     if fill_standard_from_local and not standard_word and local_expression:
         standard_word = local_expression
 
-    if not standard_word and not local_expression:
+    if not standard_word and not local_expression and not ipa:
         return None, None, True
 
     missing = []

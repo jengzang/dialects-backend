@@ -495,7 +495,7 @@ def test_preview_upload_returns_parse_errors_without_writing_log(tmp_path: Path)
 
         csv_content = (
             "written,vocabulary,ipa,notes\n"
-            "太阳,日头,,缺音标\n"
+            "太阳,,,缺方言词和音标\n"
         ).encode("utf-8")
         result = preview_vocabulary_upload(
             session=session,
@@ -520,6 +520,103 @@ def test_preview_upload_returns_parse_errors_without_writing_log(tmp_path: Path)
         assert session.query(VocabularyEntry).count() == 0
         assert session.query(VocabularyLocation).count() == 0
         assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_preview_upload_reports_valid_count_alongside_error_rows(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add(
+            VocabularyEntry(
+                user_id=7,
+                location_name="息烽",
+                standard_word="旧词",
+                local_expression="旧讲法",
+                ipa="old1",
+                notes="",
+            )
+        )
+        session.commit()
+
+        csv_content = (
+            "standard_word,local_expression,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+            "月亮,,,漏了方言词和音标\n"
+            ",,,\n"
+            "星空,星辰,ɕin1,\n"
+        ).encode("utf-8")
+        result = preview_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=csv_content,
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        assert result.success is True
+        assert result.parsed_count == 2
+        assert result.skipped_count == 1
+        assert len(result.errors) == 1
+        assert "第 3 行" in result.errors[0]
+        assert result.would_delete_existing_count == 1
+        assert session.query(VocabularyEntry).count() == 1
+        assert session.query(VocabularyLog).count() == 0
+    finally:
+        session.close()
+
+
+def test_import_skips_error_rows_and_imports_the_rest(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.commit()
+
+        csv_content = (
+            "standard_word,local_expression,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+            "月亮,,,漏了方言词和音标\n"
+            ",,,\n"
+            "星空,星辰,ɕin1,\n"
+        ).encode("utf-8")
+        result = import_vocabulary_upload(
+            session=session,
+            user=_User(7),
+            filename="upload.csv",
+            content=csv_content,
+            location_payload=json.dumps(
+                {
+                    "location_name": "息烽",
+                    "coordinates": "106.73,27.10",
+                },
+                ensure_ascii=False,
+            ),
+            parser_mode="table",
+        )
+
+        rows = session.query(VocabularyEntry).order_by(VocabularyEntry.id.asc()).all()
+        assert result.imported_count == 2
+        assert result.skipped_count == 1
+        assert len(result.errors) == 1
+        assert "第 3 行" in result.errors[0]
+        assert [(row.standard_word, row.local_expression, row.ipa) for row in rows] == [
+            ("太阳", "日头", "ȵit2 tʰəu2"),
+            ("星空", "星辰", "ɕin1"),
+        ]
+
+        log = session.query(VocabularyLog).one()
+        payload = json.loads(log.payload_json)
+        assert payload["imported_count"] == 2
+        assert payload["blank_row_count"] == 1
+        assert payload["error_row_count"] == 1
     finally:
         session.close()
 

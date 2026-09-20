@@ -551,15 +551,16 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 | 内部字段 | 必填 | 可接受列名 |
 | --- | --- | --- |
-| `standard_word` | 是 | `standard_word`、`written`、`释义`、`釋義`、`书面`、`書面`、`书面词条`、`書面詞條`、`词条`、`詞條`、`meaning` |
-| `local_expression` | 是 | `local_expression`、`vocabulary`、`当地讲法`、`當地講法`、`方言词`、`方言詞`、`方言讲法`、`方言講法`、`local` |
-| `ipa` | 是 | `ipa`、`IPA`、`音标`、`音標`、`国际音标`、`國際音標` |
+| `standard_word` | 是（`fill_standard_from_local=true` 时可省略） | `standard_word`、`written`、`释义`、`釋義`、`书面`、`書面`、`书面词条`、`書面詞條`、`词条`、`詞條`、`meaning` |
+| `local_expression` | 否（与 `ipa` 至少有一个） | `local_expression`、`vocabulary`、`当地讲法`、`當地講法`、`方言词`、`方言詞`、`方言讲法`、`方言講法`、`local` |
+| `ipa` | 否（与 `local_expression` 至少有一个） | `ipa`、`IPA`、`音标`、`音標`、`国际音标`、`國際音標` |
 | `notes` | 否 | `notes`、`note`、`注释`、`註釋`、`备注`、`備註`、`说明`、`說明` |
 
-行级规则：
+行级规则（表格与文档通用）：
 
-- `standard_word` 和 `local_expression` 都为空的行会被跳过，计入 `skipped_count`。
-- `standard_word`、`local_expression`、`ipa` 任一缺失会产生错误。
+- `standard_word`、`local_expression`、`ipa` 三者都为空的行会被跳过，计入 `skipped_count`。
+- 有内容但缺少 `standard_word` 的行会产生错误。
+- `local_expression` 和 `ipa` 同时为空的行会产生错误。
 - `notes` 缺失时写空字符串。
 
 ### 文档空白分隔模式

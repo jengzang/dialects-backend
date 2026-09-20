@@ -187,7 +187,7 @@ def preview_vocabulary_upload(
         fill_standard_from_local=fill_standard_from_local,
     )
     errors = list(parse_result.errors)
-    parsed_count = len(parse_result.rows) if not errors else 0
+    parsed_count = len(parse_result.rows)
     would_delete_existing_count = 0
     if parsed_count > 0:
         would_delete_existing_count = session.query(VocabularyEntry).filter(
@@ -196,7 +196,7 @@ def preview_vocabulary_upload(
         ).count()
 
     return VocabularyUploadPreviewResult(
-        success=not errors and parsed_count > 0,
+        success=parsed_count > 0,
         location_name=normalized_location.location_name,
         permission_level=permission_level,
         parsed_count=parsed_count,
@@ -226,8 +226,6 @@ def import_vocabulary_upload(
         parser_mode=parser_mode,
         fill_standard_from_local=fill_standard_from_local,
     )
-    if parse_result.errors:
-        raise ValueError("; ".join(parse_result.errors))
     if not parse_result.rows:
         raise ValueError("No valid vocabulary rows found")
 
@@ -310,6 +308,8 @@ def import_vocabulary_upload(
                     "location_name": normalized_location.location_name,
                     "deleted_existing_count": deleted_existing_count,
                     "imported_count": len(parse_result.rows),
+                    "blank_row_count": parse_result.skipped_count,
+                    "error_row_count": len(parse_result.errors),
                     "parser_mode": parse_result.parser_mode,
                     "deleted_entries": deleted_entries if can_log_deleted_entries else [],
                     "deleted_entries_omitted": not can_log_deleted_entries,
@@ -335,6 +335,6 @@ def import_vocabulary_upload(
         imported_count=len(parse_result.rows),
         deleted_existing_count=deleted_existing_count,
         skipped_count=parse_result.skipped_count,
-        errors=[],
+        errors=list(parse_result.errors),
         parser_mode=parse_result.parser_mode,
     )
