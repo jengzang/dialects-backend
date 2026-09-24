@@ -390,7 +390,7 @@ def query_vocabulary_items(
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
         f"WHERE {combined_where_clause} "
-        "ORDER BY e.id ASC LIMIT ? OFFSET ?"
+        "ORDER BY e.id DESC LIMIT ? OFFSET ?"
     )
     count_sql = (
         "SELECT COUNT(*) "

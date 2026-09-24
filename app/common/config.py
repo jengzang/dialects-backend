@@ -50,6 +50,8 @@ APP_URL = f"http://{LOCAL_IP}:{PORT}"
 # === 自动迁移配置 ===
 AUTO_MIGRATE = os.getenv("AUTO_MIGRATE", "false").lower() == "true"
 AUTO_INDEX = os.getenv("AUTO_INDEX", "false").lower() == "true"
+# vocabulary.db 启动维护默认开启：空闲页超阈值才 VACUUM，ANALYZE 每次都跑
+AUTO_DB_MAINTENANCE = os.getenv("AUTO_DB_MAINTENANCE", "true").lower() == "true"
 
 # 打印配置（仅在启动时）
 if AUTO_MIGRATE:
@@ -61,3 +63,8 @@ if AUTO_INDEX:
     print("[CONFIG] 自动索引: 启用")
 else:
     print("[CONFIG] 自动索引: 禁用（需手动运行 python -m app.sql.index_manager）")
+
+if AUTO_DB_MAINTENANCE:
+    print("[CONFIG] 启动维护: 启用（vocabulary.db 按需 VACUUM + ANALYZE）")
+else:
+    print("[CONFIG] 启动维护: 禁用（需手动运行 app.service.vocabulary.maintenance）")
