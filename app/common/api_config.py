@@ -50,6 +50,7 @@ RECORD_API = [
     "/api/gis/*",
     "/api/search_tones/",
     "/api/search_chars/",
+    "/api/notes",
     "/api/locations/*",
     "/api/compare/*",
     "/api/submit_form",
@@ -189,6 +190,11 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": False,  # GET 请求无 body，不需要记录
     }, "/api/search_tones/": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    }, "/api/notes": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,

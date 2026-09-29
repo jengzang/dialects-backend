@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI
 from .admin import router as admin_router
 from .auth import router as auth_router
 from .index import router as index_router
+from .notes import router as notes_router
 from .toponyms import router as toponyms_router
 from .user import router as user_router
 from .vocabulary import router as vocabulary_router
@@ -54,6 +55,7 @@ def setup_main_routes(app: FastAPI):
     app.include_router(custom_regions_router, tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(suggestions_router, prefix="/api", tags=["User"], dependencies=[Depends(ApiLimiter)])
     app.include_router(search_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
+    app.include_router(notes_router, prefix="/api", tags=["Notes"], dependencies=[Depends(ApiLimiter)])
     app.include_router(compare_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(yubao_router, prefix="/api", tags=["query"], dependencies=[Depends(ApiLimiter)])
     app.include_router(toponyms_router, prefix="/api", tags=["toponyms"], dependencies=[Depends(ApiLimiter)])
