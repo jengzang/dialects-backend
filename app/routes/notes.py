@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.get("/notes", response_model=NotesSearchResponse)
 async def get_notes(
-    q: str = Query(..., description="搜索 IPA 或注释"),
+    q: str = Query("", description="搜索 IPA 或注释"),
     search_fields: list[str] | None = Query(default=None),
     locations: list[str] | None = Query(default=None, description="地点列表"),
     regions: list[str] | None = Query(default=None, description="分区列表"),

@@ -129,6 +129,20 @@ def test_duplicate_source_rows_are_retained_in_rowid_order(notes_db, query_db):
     assert result["total"] == 2
 
 
+def test_blank_query_returns_newest_valid_notes_with_pagination(notes_db, query_db):
+    result = search(notes_db, query_db, q="", page_size=2)
+
+    assert [item["id"] for item in result["items"]] == [8, 7]
+    assert result["total"] == 6
+
+
+def test_blank_query_keeps_the_applied_location_scope(notes_db, query_db):
+    result = search(notes_db, query_db, q="", locations=["甲地"])
+
+    assert [item["id"] for item in result["items"]] == [2, 1]
+    assert result["total"] == 2
+
+
 def test_pagination_and_sentinel_filtering(notes_db, query_db):
     first_page = search(notes_db, query_db, page_size=2)
     second_page = search(notes_db, query_db, page=2, page_size=2)
@@ -189,7 +203,6 @@ def test_scope_that_resolves_to_nothing_does_not_fall_back_to_all_locations(note
 @pytest.mark.parametrize(
     ("params", "message"),
     [
-        ({"q": " "}, "q is required"),
         ({"search_fields": ["location"]}, "Unsupported search_fields"),
         ({"page": 0}, "page must be at least 1"),
         ({"page_size": 201}, "page_size cannot exceed 200"),

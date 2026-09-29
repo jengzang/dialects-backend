@@ -134,6 +134,13 @@ def _matched_rowids_sql(
     scope_clause = (
         f" AND notes.簡稱 IN (SELECT abbr FROM {_SCOPE_TABLE})" if use_scope else ""
     )
+    if not query:
+        return (
+            "SELECT notes.rowid FROM notes "
+            f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}",
+            [],
+        )
+
     branches: list[str] = []
     params: list[str] = []
 
@@ -173,8 +180,6 @@ def query_notes(
     query_db_path: str | Path,
 ) -> dict[str, Any]:
     """Return one page of note rows and the total count for the same matched set."""
-    if not q or not q.strip():
-        raise ValueError("q is required")
     if page < 1:
         raise ValueError("page must be at least 1")
     if page_size < 1:
@@ -192,8 +197,9 @@ def query_notes(
     if scope_supplied and not abbreviations:
         return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
+    normalized_query = q.strip()
     matched_rowids_sql, params = _matched_rowids_sql(
-        query=q.strip(),
+        query=normalized_query,
         search_fields=fields,
         use_scope=bool(abbreviations),
     )
@@ -204,7 +210,7 @@ def query_notes(
         "SELECT notes.rowid AS id, notes.簡稱 AS location_name, notes.漢字 AS character, "
         "notes.音節 AS ipa, notes.註釋 AS notes "
         "FROM notes JOIN matched ON matched.rowid = notes.rowid "
-        "ORDER BY notes.rowid ASC LIMIT ? OFFSET ?"
+        f"ORDER BY notes.rowid {'DESC' if not normalized_query else 'ASC'} LIMIT ? OFFSET ?"
     )
 
     pool = get_db_pool(str(notes_db_path))

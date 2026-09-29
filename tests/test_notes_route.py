@@ -92,14 +92,12 @@ def test_notes_route_forwards_repeated_scope_parameters_with_pagination(monkeypa
     }
 
 
-def test_notes_route_uses_pagination_defaults_and_returns_bad_requests(monkeypatch):
+def test_notes_route_uses_pagination_defaults_and_allows_a_missing_keyword(monkeypatch):
     from app.main import app
     from app.routes import notes as notes_routes
     from app.sql.db_selector import get_dialects_db, get_query_db
 
     def fake_query_notes(**kwargs):
-        if not kwargs["q"].strip():
-            raise ValueError("q is required")
         return {
             "items": [],
             "total": 0,
@@ -113,7 +111,7 @@ def test_notes_route_uses_pagination_defaults_and_returns_bad_requests(monkeypat
     try:
         client = TestClient(app)
         default_response = client.get("/api/notes", params={"q": "文"})
-        blank_response = client.get("/api/notes", params={"q": " "})
+        blank_response = client.get("/api/notes")
         invalid_mode_response = client.get(
             "/api/notes",
             params={"q": "文", "region_mode": "unknown"},
@@ -128,7 +126,13 @@ def test_notes_route_uses_pagination_defaults_and_returns_bad_requests(monkeypat
         "page": 1,
         "page_size": 50,
     }
-    assert blank_response.status_code == 400
+    assert blank_response.status_code == 200
+    assert blank_response.json() == {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "page_size": 50,
+    }
     assert invalid_mode_response.status_code == 400
 
 
