@@ -28,9 +28,9 @@ def notes_db(tmp_path: Path) -> Path:
             "CREATE VIRTUAL TABLE notes_fts USING fts5(註釋, content='', columnsize=0, tokenize='unicode61')"
         )
         rows = [
-            (1, "甲地", "甲", "pa%", "p", "a", "1", "pa 文 白 共"),
+            (1, "甲地", "甲", "pa%", "p", "a", "1", "p a 文 白 共"),
             (2, "甲地", "甲", "pb", "p", "b", "1", "文 白 共"),
-            (3, "乙地", "乙", "pa", "p", "a", "2", "白讀 共"),
+            (3, "乙地", "乙", "pa", "p", "a", "2", "白 讀 共"),
             (4, "乙地", "丙", "xx", "x", "x", "3", "文"),
             (5, "乙地", "丁", "sentinel", "s", "e", "4", "_"),
             (6, "乙地", "戊", "sentinel", "s", "e", "4", "-"),
@@ -99,6 +99,22 @@ def test_detail_search_matches_one_and_two_character_queries(notes_db, query_db)
 
     assert [item["id"] for item in one_character["items"]] == [1, 2, 4]
     assert [item["id"] for item in two_characters["items"]] == [1, 2]
+
+
+def test_detail_search_requires_adjacent_characters(notes_db, query_db):
+    """散落的字不該命中，只有相鄰子字串才算。"""
+    adjacent = search(notes_db, query_db, q="文白", search_fields=["detail"])
+    reversed_order = search(notes_db, query_db, q="白文", search_fields=["detail"])
+
+    assert [item["id"] for item in adjacent["items"]] == [1, 2]
+    assert reversed_order["items"] == []
+
+
+def test_detail_search_matches_latin_run(notes_db, query_db):
+    """拉丁字串在本索引中是逐字 token，需用 phrase 才搜得到。"""
+    result = search(notes_db, query_db, q="pa", search_fields=["detail"])
+
+    assert [item["id"] for item in result["items"]] == [1]
 
 
 def test_ipa_search_treats_percent_as_literal(notes_db, query_db):

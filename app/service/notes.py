@@ -79,34 +79,33 @@ def _is_han(character: str) -> bool:
 
 
 def _fts_query_for_notes(query: str) -> str | None:
-    """Build a literal FTS query, splitting consecutive Han characters into tokens.
+    """Build a literal FTS query over the character-tokenized notes index.
 
-    The notes FTS table tokenizes spaced annotation characters separately.  Joining
-    the quoted tokens with ``AND`` makes a user query such as ``文白`` find a stored
-    note such as ``文 白`` while leaving the stored display text unchanged.
+    The index stores every character as its own token (``上面`` -> ``上 面``,
+    ``tsiu24`` -> ``t s i u 2 4``).  A run of consecutive Han/alnum characters
+    must therefore be quoted as a *phrase*; joining single characters with
+    ``AND`` would also match notes that merely contain those characters apart,
+    e.g. ``上面`` matching ``〚請而開上〛面大也``.
     """
-    tokens: list[str] = []
-    word: list[str] = []
+    phrases: list[str] = []
+    run: list[str] = []
 
-    def flush_word() -> None:
-        if word:
-            tokens.append("".join(word))
-            word.clear()
+    def flush() -> None:
+        if run:
+            phrases.append('"' + " ".join(run) + '"')
+            run.clear()
 
     for character in query:
-        if _is_han(character):
-            flush_word()
-            tokens.append(character)
-        elif character.isalnum():
-            word.append(character)
+        if _is_han(character) or character.isalnum():
+            run.append(character)
         else:
-            flush_word()
-    flush_word()
+            flush()
+    flush()
 
-    if not tokens:
+    if not phrases:
         return None
 
-    return " AND ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
+    return " AND ".join(phrases)
 
 
 def _escape_like(value: str) -> str:

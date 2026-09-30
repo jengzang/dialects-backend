@@ -149,7 +149,6 @@ VOCABULARY_SEARCH_RULE: RuleConfig = {
         "/api/vocabulary/search/map-points",
         "/api/vocabulary/search/standard-words",
         "/api/vocabulary/search/map-items",
-        "/api/vocabulary/search/location-options",
     ],
     "prefixes": [],
     "exclude_prefixes": [],
