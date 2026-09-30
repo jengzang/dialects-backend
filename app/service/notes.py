@@ -124,44 +124,39 @@ def _prepare_scope_table(conn: Any, abbreviations: list[str]) -> None:
     )
 
 
-def _matched_rowids_sql(
+def _candidate_rowids_sql(
     *,
     query: str,
     search_fields: set[str],
-    use_scope: bool,
 ) -> tuple[str, list[str]]:
-    scope_clause = (
-        f" AND notes.簡稱 IN (SELECT abbr FROM {_SCOPE_TABLE})" if use_scope else ""
-    )
-    if not query:
-        return (
-            "SELECT notes.rowid FROM notes "
-            f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}",
-            [],
-        )
+    """Rowids matching ``query`` in the requested fields, before validity/scope.
 
+    Both the validity rule and the location scope are per-row properties, so the
+    caller applies them once to the unioned candidates instead of inside every
+    branch.  Keeping them out of the branches matters for performance: a
+    pronunciation ``LIKE '%…%'`` scan can only use the covering index on 音節
+    when no other column is referenced, otherwise SQLite falls back to a full
+    table scan.  The detail branch also reads ``notes_fts`` directly—its rowids
+    are ``notes`` rowids—avoiding a needless join back to ``notes``.
+    """
     branches: list[str] = []
     params: list[str] = []
 
     if "detail" in search_fields:
         fts_query = _fts_query_for_notes(query)
         if fts_query is not None:
-            branches.append(
-                "SELECT notes.rowid FROM notes "
-                "JOIN notes_fts ON notes_fts.rowid = notes.rowid "
-                f"WHERE notes_fts MATCH ? AND {_VALID_NOTE_CLAUSE}{scope_clause}"
-            )
+            branches.append("SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?")
             params.append(fts_query)
 
     if "pronunciation" in search_fields:
         branches.append(
-            "SELECT notes.rowid FROM notes "
-            f"WHERE COALESCE(notes.音節, '') LIKE ? ESCAPE '\\' AND {_VALID_NOTE_CLAUSE}{scope_clause}"
+            "SELECT notes.rowid AS rowid FROM notes "
+            "WHERE COALESCE(notes.音節, '') LIKE ? ESCAPE '\\'"
         )
         params.append(f"%{_escape_like(query)}%")
 
     if not branches:
-        return "SELECT notes.rowid FROM notes WHERE 0", []
+        return "SELECT notes.rowid AS rowid FROM notes WHERE 0", []
 
     return " UNION ".join(branches), params
 
@@ -197,19 +192,28 @@ def query_notes(
         return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
     normalized_query = q.strip()
-    matched_rowids_sql, params = _matched_rowids_sql(
-        query=normalized_query,
-        search_fields=fields,
-        use_scope=bool(abbreviations),
+    scope_clause = (
+        f" AND notes.簡稱 IN (SELECT abbr FROM {_SCOPE_TABLE})" if abbreviations else ""
     )
-    matched_cte = f"WITH matched AS ({matched_rowids_sql})"
-    count_sql = f"{matched_cte} SELECT COUNT(*) FROM matched"
-    page_sql = (
-        f"{matched_cte} "
-        "SELECT notes.rowid AS id, notes.簡稱 AS location_name, notes.漢字 AS character, "
-        "notes.音節 AS ipa, notes.註釋 AS notes "
-        "FROM notes JOIN matched ON matched.rowid = notes.rowid "
-        f"ORDER BY notes.rowid {'DESC' if not normalized_query else 'ASC'} LIMIT ? OFFSET ?"
+    if normalized_query:
+        candidate_sql, params = _candidate_rowids_sql(
+            query=normalized_query,
+            search_fields=fields,
+        )
+        matched_sql = (
+            f"SELECT candidates.rowid AS rowid FROM ({candidate_sql}) AS candidates "
+            "JOIN notes ON notes.rowid = candidates.rowid "
+            f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}"
+        )
+    else:
+        matched_sql = (
+            "SELECT notes.rowid AS rowid FROM notes "
+            f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}"
+        )
+        params = []
+    page_columns = (
+        "notes.rowid AS id, notes.簡稱 AS location_name, notes.漢字 AS character, "
+        "notes.音節 AS ipa, notes.註釋 AS notes"
     )
 
     pool = get_db_pool(str(notes_db_path))
@@ -217,11 +221,30 @@ def query_notes(
         if abbreviations:
             _prepare_scope_table(conn, abbreviations)
 
-        total = conn.execute(count_sql, params).fetchone()[0]
-        rows = conn.execute(
-            page_sql,
-            params + [page_size, (page - 1) * page_size],
-        ).fetchall()
+        if normalized_query:
+            # Materialize the matched rowids once.  Embedding the candidate UNION
+            # in both the count and the page statement would re-evaluate the FTS
+            # match and the pronunciation LIKE scan twice per request.
+            conn.execute("DROP TABLE IF EXISTS temp.matched_rowids")
+            conn.execute(f"CREATE TEMP TABLE matched_rowids AS {matched_sql}", params)
+            total = conn.execute("SELECT COUNT(*) FROM matched_rowids").fetchone()[0]
+            rows = conn.execute(
+                f"SELECT {page_columns} FROM notes "
+                "JOIN matched_rowids ON matched_rowids.rowid = notes.rowid "
+                "ORDER BY notes.rowid ASC LIMIT ? OFFSET ?",
+                [page_size, (page - 1) * page_size],
+            ).fetchall()
+        else:
+            matched_cte = f"WITH matched AS ({matched_sql})"
+            total = conn.execute(
+                f"{matched_cte} SELECT COUNT(*) FROM matched", params
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"{matched_cte} SELECT {page_columns} FROM notes "
+                "JOIN matched ON matched.rowid = notes.rowid "
+                "ORDER BY notes.rowid DESC LIMIT ? OFFSET ?",
+                params + [page_size, (page - 1) * page_size],
+            ).fetchall()
 
     return {
         "items": [

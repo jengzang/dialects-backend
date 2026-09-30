@@ -54,6 +54,14 @@ def ensure_indexes(db_path: str) -> None:
             "CREATE INDEX IF NOT EXISTS idx_dialects_abbr_pho_full ON dialects(簡稱, 聲母, 韻母, 聲調)",
         ]
 
+        # notes 表只在部分库中存在；缺失时跳过，避免中断 dialects 索引的创建。
+        # /api/notes 的 pronunciation 字段用 LIKE '%…%' 做「包含」搜索，前导通配符
+        # 无法用 B-tree 定位；该覆盖索引让计划器把「扫 ~92MB notes 表」改为
+        # 「扫 ~25MB 索引」——前提是查询不再引用 音節 以外的列（见 notes.py）。
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'")
+        if cursor.fetchone():
+            indexes.append("CREATE INDEX IF NOT EXISTS idx_notes_ipa ON notes(音節)")
+
         # 创建索引
         created_count = 0
         for idx_sql in indexes:
