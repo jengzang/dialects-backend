@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.service.notes import parse_notes_search_fields, query_notes
+from app.sql.db_pool import get_db_pool
 
 
 @pytest.fixture
@@ -150,6 +151,48 @@ def test_blank_query_returns_newest_valid_notes_with_pagination(notes_db, query_
 
     assert [item["id"] for item in result["items"]] == [8, 7]
     assert result["total"] == 6
+
+
+def test_unscoped_blank_query_counts_without_scanning_valid_annotations(notes_db, query_db):
+    with sqlite3.connect(notes_db) as conn:
+        conn.execute(
+            "CREATE INDEX idx_notes_invalid_detail ON notes(註釋) "
+            "WHERE TRIM(COALESCE(註釋, '')) IN ('', '_', '-')"
+        )
+        conn.executemany(
+            "INSERT INTO notes(簡稱, 漢字, 註釋) VALUES ('乙地', '新', '有效')",
+            [() for _ in range(5000)],
+        )
+        conn.executemany(
+            "INSERT INTO notes(簡稱, 漢字, 註釋) VALUES ('乙地', '新', ?)",
+            [(None,), ('',), ('   ',), ('_',), (' - ',)],
+        )
+
+    pool = get_db_pool(str(notes_db))
+    steps = 0
+
+    def limit_steps() -> int:
+        nonlocal steps
+        steps += 1
+        return int(steps > 100)
+
+    for conn in pool._all_conns:
+        conn.set_progress_handler(limit_steps, 100)
+    try:
+        result = search(notes_db, query_db, q="", page_size=2)
+    finally:
+        for conn in pool._all_conns:
+            conn.set_progress_handler(None, 0)
+
+    assert result["total"] == 5006
+    assert [item["id"] for item in result["items"]] == [5008, 5007]
+
+    with sqlite3.connect(notes_db) as conn:
+        conn.execute("DELETE FROM notes WHERE rowid = 5008")
+        conn.execute("UPDATE notes SET 註釋 = '有效' WHERE rowid = 5013")
+    updated = search(notes_db, query_db, q="", page_size=2)
+    assert updated["total"] == 5006
+    assert [item["id"] for item in updated["items"]] == [5013, 5007]
 
 
 def test_blank_query_keeps_the_applied_location_scope(notes_db, query_db):
