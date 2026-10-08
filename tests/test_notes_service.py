@@ -195,6 +195,34 @@ def test_unscoped_blank_query_counts_without_scanning_valid_annotations(notes_db
     assert [item["id"] for item in updated["items"]] == [5013, 5007]
 
 
+def test_text_policy_database_uses_direct_counts_and_pages(notes_db, query_db):
+    with sqlite3.connect(notes_db) as conn:
+        conn.execute("DELETE FROM notes WHERE 註釋 IN ('_', '-')")
+        conn.execute("PRAGMA user_version = 20261008")
+
+    pool = get_db_pool(str(notes_db))
+    statements = []
+    for conn in pool._all_conns:
+        conn.set_trace_callback(statements.append)
+    try:
+        unscoped = search(notes_db, query_db, q="", page_size=2)
+        scoped = search(notes_db, query_db, q="", locations=["甲地"])
+    finally:
+        for conn in pool._all_conns:
+            conn.set_trace_callback(None)
+
+    assert unscoped["total"] == 6
+    assert [item["id"] for item in unscoped["items"]] == [8, 7]
+    assert scoped["total"] == 2
+    assert [item["id"] for item in scoped["items"]] == [2, 1]
+    assert "SELECT COUNT(*) FROM notes" in statements
+    assert any(
+        "SELECT COUNT(*) FROM notes WHERE notes.簡稱 IN" in statement
+        for statement in statements
+    )
+    assert not any("JOIN matched" in statement for statement in statements)
+
+
 def test_blank_query_keeps_the_applied_location_scope(notes_db, query_db):
     result = search(notes_db, query_db, q="", locations=["甲地"])
 
