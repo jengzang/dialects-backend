@@ -262,6 +262,7 @@ class VocabularyMeResponse(BaseModel):
     can_upload: bool
     can_manage_entries: bool
     can_view_logs: bool
+    can_delete_locations: bool
 
 
 class VocabularyPermissionsResponse(BaseModel):

@@ -542,14 +542,18 @@ def delete_vocabulary_location(
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = get_effective_permission_level(db, current_user)
-    if permission_level not in ("manage", "admin"):
-        raise HTTPException(status_code=403, detail="仅 manage/admin 可删除地点")
-
     query = db.query(VocabularyLocation).filter(
         VocabularyLocation.location_name == location_name,
     )
-    if user_id is not None:
-        query = query.filter(VocabularyLocation.user_id == user_id)
+    if permission_level == "edit":
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="只能删除自己的地点")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif permission_level == "manage":
+        if user_id is not None:
+            query = query.filter(VocabularyLocation.user_id == user_id)
+    else:
+        raise HTTPException(status_code=403, detail="仅 edit/manage 可删除地点")
 
     targets = query.all()
     if not targets:
@@ -810,6 +814,7 @@ def get_my_vocabulary_context(
             can_upload=True,
             can_manage_entries=True,
             can_view_logs=True,
+            can_delete_locations=True,
         )
 
     permission = db.query(VocabularyPermission).filter(
@@ -822,6 +827,7 @@ def get_my_vocabulary_context(
         can_upload=permission_level in SELF_SCOPED_LEVELS or permission_level == "manage",
         can_manage_entries=permission_level == "manage",
         can_view_logs=permission_level == "manage",
+        can_delete_locations=permission_level in {"edit", "manage"},
     )
 
 
