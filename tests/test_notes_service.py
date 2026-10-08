@@ -146,19 +146,15 @@ def test_duplicate_source_rows_are_retained_in_rowid_order(notes_db, query_db):
     assert result["total"] == 2
 
 
-def test_blank_query_returns_newest_valid_notes_with_pagination(notes_db, query_db):
+def test_blank_query_returns_newest_notes_with_pagination(notes_db, query_db):
     result = search(notes_db, query_db, q="", page_size=2)
 
     assert [item["id"] for item in result["items"]] == [8, 7]
-    assert result["total"] == 6
+    assert result["total"] == 8
 
 
-def test_unscoped_blank_query_counts_without_scanning_valid_annotations(notes_db, query_db):
+def test_unscoped_blank_query_counts_without_scanning_annotations(notes_db, query_db):
     with sqlite3.connect(notes_db) as conn:
-        conn.execute(
-            "CREATE INDEX idx_notes_invalid_detail ON notes(註釋) "
-            "WHERE TRIM(COALESCE(註釋, '')) IN ('', '_', '-')"
-        )
         conn.executemany(
             "INSERT INTO notes(簡稱, 漢字, 註釋) VALUES ('乙地', '新', '有效')",
             [() for _ in range(5000)],
@@ -184,21 +180,23 @@ def test_unscoped_blank_query_counts_without_scanning_valid_annotations(notes_db
         for conn in pool._all_conns:
             conn.set_progress_handler(None, 0)
 
-    assert result["total"] == 5006
-    assert [item["id"] for item in result["items"]] == [5008, 5007]
+    assert result["total"] == 5013
+    assert [item["id"] for item in result["items"]] == [5013, 5012]
 
     with sqlite3.connect(notes_db) as conn:
         conn.execute("DELETE FROM notes WHERE rowid = 5008")
         conn.execute("UPDATE notes SET 註釋 = '有效' WHERE rowid = 5013")
     updated = search(notes_db, query_db, q="", page_size=2)
-    assert updated["total"] == 5006
-    assert [item["id"] for item in updated["items"]] == [5013, 5007]
+    assert updated["total"] == 5012
+    assert [item["id"] for item in updated["items"]] == [5013, 5012]
 
 
-def test_text_policy_database_uses_direct_counts_and_pages(notes_db, query_db):
+@pytest.mark.parametrize("version", [0, 20261008])
+def test_blank_query_uses_direct_counts_and_pages_regardless_of_database_version(
+    notes_db, query_db, version
+):
     with sqlite3.connect(notes_db) as conn:
-        conn.execute("DELETE FROM notes WHERE 註釋 IN ('_', '-')")
-        conn.execute("PRAGMA user_version = 20261008")
+        conn.execute(f"PRAGMA user_version = {version}")
 
     pool = get_db_pool(str(notes_db))
     statements = []
@@ -211,7 +209,7 @@ def test_text_policy_database_uses_direct_counts_and_pages(notes_db, query_db):
         for conn in pool._all_conns:
             conn.set_trace_callback(None)
 
-    assert unscoped["total"] == 6
+    assert unscoped["total"] == 8
     assert [item["id"] for item in unscoped["items"]] == [8, 7]
     assert scoped["total"] == 2
     assert [item["id"] for item in scoped["items"]] == [2, 1]
@@ -221,6 +219,7 @@ def test_text_policy_database_uses_direct_counts_and_pages(notes_db, query_db):
         for statement in statements
     )
     assert not any("JOIN matched" in statement for statement in statements)
+    assert not any("PRAGMA user_version" in statement for statement in statements)
 
 
 def test_blank_query_keeps_the_applied_location_scope(notes_db, query_db):

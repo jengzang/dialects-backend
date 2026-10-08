@@ -14,14 +14,7 @@ from app.sql.db_pool import get_db_pool
 SEARCH_FIELDS = frozenset({"pronunciation", "detail"})
 _VALID_REGION_MODES = frozenset({"map", "yindian"})
 _SCOPE_TABLE = "_notes_scope_abbreviations"
-# dialects-build marks a full notes rebuild after filtering annotations by script.
-_TEXT_NOTE_POLICY_VERSION = 20261008
 _VALID_NOTE_CLAUSE = "TRIM(COALESCE(notes.註釋, '')) NOT IN ('', '_', '-')"
-_UNSCOPED_VALID_COUNT_SQL = (
-    "SELECT (SELECT COUNT(*) FROM notes) - "
-    "(SELECT COUNT(*) FROM notes "
-    "WHERE TRIM(COALESCE(註釋, '')) IN ('', '_', '-'))"
-)
 
 
 def _normalize_values(values: str | Iterable[str] | None) -> list[str]:
@@ -212,12 +205,6 @@ def query_notes(
             "JOIN notes ON notes.rowid = candidates.rowid "
             f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}"
         )
-    else:
-        matched_sql = (
-            "SELECT notes.rowid AS rowid FROM notes "
-            f"WHERE {_VALID_NOTE_CLAUSE}{scope_clause}"
-        )
-        params = []
     page_columns = (
         "notes.rowid AS id, notes.簡稱 AS location_name, notes.漢字 AS character, "
         "notes.音節 AS ipa, notes.註釋 AS notes"
@@ -242,37 +229,18 @@ def query_notes(
                 [page_size, (page - 1) * page_size],
             ).fetchall()
         else:
-            text_notes_only = (
-                conn.execute("PRAGMA user_version").fetchone()[0]
-                == _TEXT_NOTE_POLICY_VERSION
+            scope_where = (
+                f" WHERE notes.簡稱 IN (SELECT abbr FROM {_SCOPE_TABLE})"
+                if abbreviations else ""
             )
-            if text_notes_only:
-                scope_where = (
-                    f" WHERE notes.簡稱 IN (SELECT abbr FROM {_SCOPE_TABLE})"
-                    if abbreviations else ""
-                )
-                total = conn.execute(
-                    f"SELECT COUNT(*) FROM notes{scope_where}"
-                ).fetchone()[0]
-                rows = conn.execute(
-                    f"SELECT {page_columns} FROM notes{scope_where} "
-                    "ORDER BY notes.rowid DESC LIMIT ? OFFSET ?",
-                    [page_size, (page - 1) * page_size],
-                ).fetchall()
-            else:
-                matched_cte = f"WITH matched AS ({matched_sql})"
-                if abbreviations:
-                    total = conn.execute(
-                        f"{matched_cte} SELECT COUNT(*) FROM matched", params
-                    ).fetchone()[0]
-                else:
-                    total = conn.execute(_UNSCOPED_VALID_COUNT_SQL).fetchone()[0]
-                rows = conn.execute(
-                    f"{matched_cte} SELECT {page_columns} FROM notes "
-                    "JOIN matched ON matched.rowid = notes.rowid "
-                    "ORDER BY notes.rowid DESC LIMIT ? OFFSET ?",
-                    params + [page_size, (page - 1) * page_size],
-                ).fetchall()
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM notes{scope_where}"
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT {page_columns} FROM notes{scope_where} "
+                "ORDER BY notes.rowid DESC LIMIT ? OFFSET ?",
+                [page_size, (page - 1) * page_size],
+            ).fetchall()
 
     return {
         "items": [
