@@ -1,6 +1,5 @@
 import traceback
 import time
-from datetime import datetime
 
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -13,10 +12,9 @@ from app.service.logging.config.diagnostics import (
     DIAGNOSTIC_CAPTURE_MODE,
     SLOW_API_THRESHOLD_MS,
 )
-from app.service.logging.core.queues import (
-    enqueue_with_backpressure as _enqueue_with_backpressure,
-    log_queue,
-    summary_queue,
+from app.service.logging.stats.auth_usage_pipeline import (
+    log_detailed_api_to_db,
+    log_detailed_api_to_db_async,
 )
 from app.service.logging.core.workers import start_api_logger_workers, stop_api_logger_workers
 from app.service.logging.stats.diagnostic_pipeline import enqueue_diagnostic_event_non_blocking
@@ -41,7 +39,7 @@ from app.service.logging.utils.request_capture import (
     capture_request_body as _capture_request_body,
 )
 from app.service.logging.utils.route_matcher import match_route_config, should_skip_route
-from app.service.logging.utils.usage_paths import normalize_auth_usage_path, should_record_auth_usage
+from app.service.logging.utils.usage_paths import should_record_auth_usage
 
 
 async def _log_params_if_needed(request: Request, path: str):
@@ -172,83 +170,6 @@ def enqueue_diagnostic_event(
         ),
     )
     enqueue_diagnostic_event_non_blocking(event)
-
-
-def log_detailed_api_to_db(
-    path: str,
-    duration: float,
-    status_code: int,
-    ip: str,
-    user_agent: str,
-    referer: str,
-    user_id: int = None,
-    request_size: int = 0,
-    response_size: int = 0,
-    start_time: float = None,
-    include_summary: bool = True,
-):
-    from app.service.auth.database.models import ApiUsageLog
-
-    normalized_usage_path = normalize_auth_usage_path(path)
-
-    log = ApiUsageLog(
-        path=normalized_usage_path,
-        duration=duration,
-        status_code=status_code,
-        ip=ip,
-        user_agent=user_agent,
-        referer=referer,
-        user_id=user_id,
-        request_size=request_size,
-        response_size=response_size,
-        called_at=datetime.utcfromtimestamp(start_time) if start_time else None
-    )
-
-    _enqueue_with_backpressure(log_queue, log, "log_queue")
-
-    if user_id and include_summary:
-        _enqueue_with_backpressure(
-            summary_queue,
-            {
-                "user_id": user_id,
-                "path": normalized_usage_path,
-                "duration": duration,
-                "request_size": request_size,
-                "response_size": response_size,
-            },
-            "summary_queue"
-        )
-
-
-async def log_detailed_api_to_db_async(
-    path: str,
-    duration: float,
-    status_code: int,
-    ip: str,
-    user_agent: str,
-    referer: str,
-    user_id: int = None,
-    request_size: int = 0,
-    response_size: int = 0,
-    start_time: float = None,
-    include_summary: bool = True,
-):
-    import asyncio
-
-    await asyncio.to_thread(
-        log_detailed_api_to_db,
-        path,
-        duration,
-        status_code,
-        ip,
-        user_agent,
-        referer,
-        user_id,
-        request_size,
-        response_size,
-        start_time,
-        include_summary,
-    )
 
 
 class StreamingResponseWrapper:
