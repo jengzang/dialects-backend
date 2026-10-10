@@ -359,6 +359,50 @@ class FeatureStatsRequest(BaseModel):
         return v
 
 
+class SyllableCountsRequest(BaseModel):
+    """
+    音節統計請求模型。
+
+    locations 和 regions 至少提供其一；regions 會按 region_mode 解析成地點簡稱。
+    """
+    locations: List[str] = Field(default_factory=list, description="地點簡稱列表")
+    regions: List[str] = Field(default_factory=list, description="分區名稱列表")
+    region_mode: str = Field(default="yindian", description="地區匹配模式")
+    variant: str = Field(
+        default="both",
+        description="返回哪一檔：both（帶調+不帶調）、toneless（不帶調）、toned（帶調）",
+    )
+
+    @field_validator("variant")
+    @classmethod
+    def validate_variant(cls, v):
+        valid = {"both", "toneless", "toned"}
+        if v not in valid:
+            raise ValueError(f"invalid variant: {v}; allowed: {valid}")
+        return v
+
+    @model_validator(mode="after")
+    def check_locations_or_regions(self):
+        if not self.locations and not self.regions:
+            raise ValueError("locations 和 regions 不能同時為空，至少提供其一")
+        return self
+
+    @field_validator("locations", "regions", mode="before")
+    @classmethod
+    def split_space_separated_values(cls, v):
+        if not v:
+            return []
+        if isinstance(v, str):
+            return [item for item in v.split() if item]
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.extend(part for part in item.split() if part)
+            else:
+                result.append(item)
+        return result
+
+
 class PhoPieRequest(BaseModel):
     """
     音韻餅圖 API 請求模型（音值視角 + 地位視角共用）

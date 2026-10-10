@@ -6,7 +6,21 @@ from sqlalchemy.orm import Session
 from app.service.vocabulary.models import VocabularyPermission
 
 
-VALID_PERMISSION_LEVELS = {"edit", "manage"}
+VALID_PERMISSION_LEVELS = {"edit", "manage", "one", "two", "three"}
+SELF_SCOPED_LEVELS = {"edit", "one", "two", "three"}
+
+_LOCATION_LIMITS: dict[str, int | None] = {
+    "edit": None,
+    "manage": None,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+}
+
+
+def get_location_limit(permission_level: str) -> int | None:
+    """Return max location count for the level, or None if unlimited."""
+    return _LOCATION_LIMITS.get(permission_level)
 
 
 def get_effective_permission_level(db: Session, user: Optional[object]) -> str:

@@ -1,4 +1,4 @@
-# User Suggestions Storage and API Design
+# Site Suggestions Storage and API Design
 
 ## Context
 
@@ -7,14 +7,14 @@ That database is already managed through SQLAlchemy models in
 `app/service/user/core/models.py`, with startup schema checks in
 `app/service/user/core/database.py` and `app/lifecycle/startup.py`.
 
-The new feature adds a general suggestion channel. It is separate from the
+The feature adds a site-level suggestion channel. It is separate from the
 existing structured dialect-data submissions in `informations`, because a
 suggestion is closer to feedback or a lightweight work item than to a dialect
-record.
+record. Authentication is optional; login details are attribution only.
 
 ## Goals
 
-- Let anyone submit a suggestion, including anonymous visitors.
+- Let anyone submit a site-level suggestion, including anonymous visitors.
 - If the requester is logged in, record their `user_id` and `username`.
 - Store suggestions in `supplements.db` through the existing ORM pattern.
 - Give administrators a simple triage surface: list, filter, and update status.
@@ -29,7 +29,9 @@ record.
 
 ## Data Model
 
-Add an ORM model named `UserSuggestion` mapped to `user_suggestions`.
+Add an ORM model named `UserSuggestion` mapped to `user_suggestions`. These are
+internal legacy names; product and API semantics should use neutral
+`suggestions`.
 
 Recommended SQL shape:
 
@@ -44,6 +46,7 @@ CREATE TABLE user_suggestions (
     source_path VARCHAR(300),
     context_json TEXT,
     contact VARCHAR(200),
+    image_base64 TEXT,
     submitter_ip VARCHAR(45),
     user_agent VARCHAR(300),
     recent_api TEXT,
@@ -69,6 +72,9 @@ Field notes:
 
 - `user_id` and `username` are nullable. Anonymous suggestions leave them empty.
 - `contact` is optional and intended for anonymous visitors who want follow-up.
+- `image_base64` is an optional screenshot data URL. It supports
+  `data:image/webp;base64,...`, `data:image/png;base64,...`, and
+  `data:image/jpeg;base64,...`. The API limits the field to 1MB.
 - `submitter_ip` and `user_agent` support abuse investigation and debugging.
 - `context_json` stores optional structured client context as JSON text.
 - `recent_api` stores a JSON array snapshot of up to 10 recent API calls, each
@@ -103,7 +109,8 @@ Request:
     "region": "嶺南-珠江",
     "client_version": "web-2026-07-30"
   },
-  "contact": "optional@example.com"
+  "contact": "optional@example.com",
+  "image_base64": "data:image/webp;base64,..."
 }
 ```
 
@@ -125,6 +132,8 @@ Validation:
   `general`.
 - `source_path`: optional, max 300 characters.
 - `contact`: optional, max 200 characters.
+- `image_base64`: optional screenshot data URL, max 1MB, supporting webp, png,
+  and jpeg.
 - `context`: optional JSON object; serialize to `context_json`.
 
 Recent API snapshot:
@@ -144,6 +153,7 @@ Recent API snapshot:
 
 Requires login. Anonymous users cannot query prior anonymous suggestions because
 there is no stable identity to authorize against.
+This endpoint keeps responses lightweight and does not include `image_base64`.
 
 Response:
 
@@ -187,6 +197,8 @@ Filters:
 - `q`, searching `title`, `content`, `username`, and `contact`
 
 Sort order: newest first by `created_at`, then `id`.
+Admin responses include `image_base64` so screenshots can be inspected during
+triage.
 
 ### Update Suggestion
 

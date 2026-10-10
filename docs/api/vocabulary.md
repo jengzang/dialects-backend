@@ -269,10 +269,10 @@ FastAPI 默认错误响应格式：
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `q` | string | null | 可选 | 搜索关键词。 |
+| `q` | string | null | 可选 | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见上面的搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词，会匹配地点简称和地点元数据。 |
-| `standard_words` | string[] | null | 可选 | 精确过滤一个或多个 `standard_word`，适合从标准词列表跳回 entries。 |
+| `standard_words` | string[] | null | 可选 | 过滤一个或多个 `standard_word`，后端会自动扩展简繁候选，适合从标准词列表跳回 entries。 |
 | `page` | number | `1` | `>= 1` | 页码。 |
 | `page_size` | number | `50` | `1..200` | 每页条数。 |
 
@@ -333,7 +333,7 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `q` | string | null | 可选 | 搜索关键词。 |
+| `q` | string | null | 可选 | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词。 |
 | `limit` | number | `100` | `1..1000` | 最多返回多少个标准词。 |
@@ -344,7 +344,9 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 {
   "standard_words": [
     {
+      "key": "太阳",
       "standard_word": "太阳",
+      "variants": ["太阳"],
       "entry_count": 12,
       "location_count": 3
     }
@@ -356,7 +358,8 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 说明：
 
 - `standard_words.length` 最多等于 `limit`。
-- `total` 是过滤条件下的标准词总数，不是当前返回数组长度。
+- `total` 是过滤条件下按繁简 key 合并后的标准词总数，不是当前返回数组长度。
+- `key` 是后端用简体规范化得到的稳定筛选 key；`standard_word` 是展示用代表写法；`variants` 是该组中数据库真实存在的原始写法。
 
 ### `GET /api/vocabulary/search/map-points`
 
@@ -370,7 +373,7 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `q` | string | null | 搜索关键词。 |
+| `q` | string | null | 搜索关键词。中文关键词会在后端自动扩展简繁候选，例如 `儿童` 同时匹配 `儿童` 和 `兒童`。 |
 | `search_fields` | string[] | 默认内容字段 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 地点过滤词。 |
 
@@ -387,7 +390,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
   "points": [
     {
       "location_name": "息烽",
-      "location_label": "贵州 / 贵阳 / 息烽",
+      "province": "贵州",
+      "city": "贵阳",
+      "county": "息烽",
+      "town": "",
+      "administrative_village": "",
+      "natural_village": "",
+      "yindian_region": "",
+      "atlas_region": "",
       "longitude": 106.7401,
       "latitude": 27.0902,
       "entry_count": 12
@@ -404,6 +414,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `points` | array | 可绘制地图点。 |
+| `points[].province` | string | 省；取自 `vocabulary_locations`，未匹配时为空串。 |
+| `points[].city` | string | 市；同上。 |
+| `points[].county` | string | 县/区；同上。 |
+| `points[].town` | string | 乡镇；同上。 |
+| `points[].administrative_village` | string | 行政村；同上。 |
+| `points[].natural_village` | string | 自然村；同上。 |
+| `points[].yindian_region` | string | 音典分区；同上。 |
+| `points[].atlas_region` | string | 地图集分区；同上。 |
 | `points[].longitude` | number | 经度。由 `coordinates` 第一个数字解析。 |
 | `points[].latitude` | number | 纬度。由 `coordinates` 第二个数字解析。 |
 | `points[].entry_count` | number | 该地点匹配 entries 数。 |
@@ -425,8 +443,9 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
-| `standard_words` | string[] | 无 | 必填 | 一个或多个标准词。 |
-| `q` | string | null | 可选 | 额外搜索关键词。 |
+| `standard_words` | string[] | null | 与 `standard_word_key` 二选一 | 一个或多个标准词；后端会自动扩展简繁候选。 |
+| `standard_word_key` | string | null | 与 `standard_words` 二选一 | `/search/standard-words` 返回的稳定 key，会匹配同一繁简组内所有原始标准词写法。 |
+| `q` | string | null | 可选 | 额外搜索关键词。中文关键词会在后端自动扩展简繁候选。 |
 | `search_fields` | string[] | 默认内容字段 | 可选 | 见搜索字段枚举。 |
 | `locations` | string[] | null | 可选 | 地点过滤词。 |
 
@@ -437,7 +456,14 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
   "points": [
     {
       "location_name": "息烽",
-      "location_label": "贵州 / 贵阳 / 息烽",
+      "province": "贵州",
+      "city": "贵阳",
+      "county": "息烽",
+      "town": "",
+      "administrative_village": "",
+      "natural_village": "",
+      "yindian_region": "",
+      "atlas_region": "",
       "longitude": 106.7401,
       "latitude": 27.0902,
       "entry_count": 1,
@@ -525,15 +551,16 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 | 内部字段 | 必填 | 可接受列名 |
 | --- | --- | --- |
-| `standard_word` | 是 | `standard_word`、`written`、`释义`、`釋義`、`书面`、`書面`、`书面词条`、`書面詞條`、`词条`、`詞條`、`meaning` |
-| `local_expression` | 是 | `local_expression`、`vocabulary`、`当地讲法`、`當地講法`、`方言词`、`方言詞`、`方言讲法`、`方言講法`、`local` |
-| `ipa` | 是 | `ipa`、`IPA`、`音标`、`音標`、`国际音标`、`國際音標` |
+| `standard_word` | 是（`fill_standard_from_local=true` 时可省略） | `standard_word`、`written`、`释义`、`釋義`、`书面`、`書面`、`书面词条`、`書面詞條`、`词条`、`詞條`、`meaning` |
+| `local_expression` | 否（与 `ipa` 至少有一个） | `local_expression`、`vocabulary`、`当地讲法`、`當地講法`、`方言词`、`方言詞`、`方言讲法`、`方言講法`、`local` |
+| `ipa` | 否（与 `local_expression` 至少有一个） | `ipa`、`IPA`、`音标`、`音標`、`国际音标`、`國際音標` |
 | `notes` | 否 | `notes`、`note`、`注释`、`註釋`、`备注`、`備註`、`说明`、`說明` |
 
-行级规则：
+行级规则（表格与文档通用）：
 
-- `standard_word` 和 `local_expression` 都为空的行会被跳过，计入 `skipped_count`。
-- `standard_word`、`local_expression`、`ipa` 任一缺失会产生错误。
+- `standard_word`、`local_expression`、`ipa` 三者都为空的行会被跳过，计入 `skipped_count`。
+- 有内容但缺少 `standard_word` 的行会产生错误。
+- `local_expression` 和 `ipa` 同时为空的行会产生错误。
 - `notes` 缺失时写空字符串。
 
 ### 文档空白分隔模式
@@ -827,7 +854,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 ### `PATCH /api/vocabulary/locations/{location_name}`
 
-用途：编辑已有地点元数据。不能改地点简称。
+用途：编辑已有地点元数据，并可通过 `new_location_name` 修改地点简称。
 
 权限：需要登录，且有效 vocabulary 权限为 `edit`、`manage` 或项目 admin。
 
@@ -835,7 +862,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `location_name` | string | 要编辑的地点简称。 |
+| `location_name` | string | 要编辑的地点**当前**简称。改名时这里仍传旧名。 |
 
 查询参数：
 
@@ -849,6 +876,7 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 ```json
 {
+  "new_location_name": "息烽县城",
   "coordinates": "106.7401,27.0902",
   "province": "贵州",
   "city": "贵阳",
@@ -863,12 +891,20 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 
 请求体规则：
 
-- 至少提供一个字段。
+- 至少提供一个字段（`new_location_name` 也算）。
 - 不允许额外字段。
-- 不允许传 `location_name`。
+- 改名通过 `new_location_name` 提供，不允许传 `location_name`（路径参数即旧名）。
 - 不允许传 `id`。
+- `new_location_name` 如果提供，trim 后不能为空字符串。
 - `coordinates` 如果提供，不能为空字符串。
 - 其他字段可以更新为空字符串。
+
+改名语义：
+
+- 只改 `(user_id, location_name)` 这个目标自身的名字，同事务内一并更新该用户下所有 `vocabulary_entries.location_name`，词条不会丢失。
+- 目标用户下已存在同名地点时返回 `409`，不做合并。
+- `new_location_name` 与当前同名时视为未改名。
+- 改名会写进 log payload 的 `new_location_name`、`renamed_entries`，`target_scope` 仍记录旧名。
 
 响应体：
 

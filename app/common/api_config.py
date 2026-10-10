@@ -50,6 +50,7 @@ RECORD_API = [
     "/api/gis/*",
     "/api/search_tones/",
     "/api/search_chars/",
+    "/api/notes",
     "/api/locations/*",
     "/api/compare/*",
     "/api/submit_form",
@@ -67,6 +68,7 @@ RECORD_API = [
     "/sql/tree/lazy",
     "/api/tools/*",
     "/api/feature_counts",
+    "/api/syllable_counts",
     "/api/feature_stats",
     "/api/pho_pie*",
     "/user/custom/batch-create",
@@ -93,6 +95,7 @@ IGNORE_API = [
     "/api/tools/*/download/*",
     "/api/tools/*/progress/*",
     "/user/custom/counts",
+    "/api/vocabulary/me",
 ]
 
 # ========== 第二套：详细参数日志系统（ApiLoggingMiddleware）=============
@@ -187,6 +190,11 @@ API_ROUTE_CONFIG = {
         "log_params": True,
         "log_body": False,  # GET 请求无 body，不需要记录
     }, "/api/search_tones/": {
+        "rate_limit": True,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    }, "/api/notes": {
         "rate_limit": True,
         "require_login": False,
         "log_params": True,
@@ -362,6 +370,12 @@ API_ROUTE_CONFIG = {
         "log_body": True,  # 记录请求体（分析参数配置）
     },
     # ===== Vocabulary API =====
+    "/api/vocabulary/search/location-options": {
+        "rate_limit": False,
+        "require_login": False,
+        "log_params": True,
+        "log_body": False,
+    },
     # 前台搜索公开可用，但仍参与限流；更具体的 search 规则会覆盖 /api/vocabulary/*。
     "/api/vocabulary/search/*": {
         "rate_limit": True,

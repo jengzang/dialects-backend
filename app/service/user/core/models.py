@@ -52,7 +52,7 @@ class UserRegion(Base):
 
 
 class UserSuggestion(Base):
-    """用户建议表 - 允许匿名或登录用户提交站内反馈。"""
+    """站点级反馈建议表；类名和表名保留 legacy 命名。"""
     __tablename__ = "user_suggestions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -64,6 +64,7 @@ class UserSuggestion(Base):
     source_path = Column(String(300), nullable=True)
     context_json = Column(Text, nullable=True)
     contact = Column(String(200), nullable=True)
+    image_base64 = Column(Text, nullable=True)
     submitter_ip = Column(String(45), nullable=True)
     user_agent = Column(String(300), nullable=True)
     recent_api = Column(Text, nullable=True)

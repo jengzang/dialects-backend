@@ -8,7 +8,7 @@ from app.service.vocabulary.location import normalize_location_payload
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation
 from app.service.vocabulary.parser import parse_uploaded_vocabulary_file
-from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.permissions import get_effective_permission_level, get_location_limit
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 
 MAX_LOGGED_DELETED_ENTRIES = 500
@@ -75,6 +75,19 @@ def _upsert_location(
         "natural_village": normalized_location.natural_village,
         "yindian_region": normalized_location.yindian_region,
         "atlas_region": normalized_location.atlas_region,
+        "vocabulary_source": normalized_location.vocabulary_source,
+        "description": normalized_location.description,
+        "other": normalized_location.other,
+        "t1": normalized_location.t1,
+        "t2": normalized_location.t2,
+        "t3": normalized_location.t3,
+        "t4": normalized_location.t4,
+        "t5": normalized_location.t5,
+        "t6": normalized_location.t6,
+        "t7": normalized_location.t7,
+        "t8": normalized_location.t8,
+        "t9": normalized_location.t9,
+        "t10": normalized_location.t10,
     }
     statement = sqlite_insert(VocabularyLocation).values(**values)
     update_values = {
@@ -139,6 +152,19 @@ def _location_snapshot(location: VocabularyLocation | None) -> dict[str, object]
         "natural_village": location.natural_village or "",
         "yindian_region": location.yindian_region or "",
         "atlas_region": location.atlas_region or "",
+        "vocabulary_source": location.vocabulary_source or "",
+        "description": location.description or "",
+        "other": location.other or "",
+        "t1": location.t1 or "",
+        "t2": location.t2 or "",
+        "t3": location.t3 or "",
+        "t4": location.t4 or "",
+        "t5": location.t5 or "",
+        "t6": location.t6 or "",
+        "t7": location.t7 or "",
+        "t8": location.t8 or "",
+        "t9": location.t9 or "",
+        "t10": location.t10 or "",
     }
 
 
@@ -161,7 +187,7 @@ def preview_vocabulary_upload(
         fill_standard_from_local=fill_standard_from_local,
     )
     errors = list(parse_result.errors)
-    parsed_count = len(parse_result.rows) if not errors else 0
+    parsed_count = len(parse_result.rows)
     would_delete_existing_count = 0
     if parsed_count > 0:
         would_delete_existing_count = session.query(VocabularyEntry).filter(
@@ -170,7 +196,7 @@ def preview_vocabulary_upload(
         ).count()
 
     return VocabularyUploadPreviewResult(
-        success=not errors and parsed_count > 0,
+        success=parsed_count > 0,
         location_name=normalized_location.location_name,
         permission_level=permission_level,
         parsed_count=parsed_count,
@@ -200,10 +226,24 @@ def import_vocabulary_upload(
         parser_mode=parser_mode,
         fill_standard_from_local=fill_standard_from_local,
     )
-    if parse_result.errors:
-        raise ValueError("; ".join(parse_result.errors))
     if not parse_result.rows:
         raise ValueError("No valid vocabulary rows found")
+
+    limit = get_location_limit(permission_level)
+    if limit is not None:
+        existing_location = session.query(VocabularyLocation).filter(
+            VocabularyLocation.user_id == user.id,
+            VocabularyLocation.location_name == normalized_location.location_name,
+        ).first()
+        if existing_location is None:
+            current_count = session.query(VocabularyLocation).filter(
+                VocabularyLocation.user_id == user.id,
+            ).count()
+            if current_count >= limit:
+                raise ValueError(
+                    f"您的權限最多可創建 {limit} 個地點，目前已創建 {current_count} 個。"
+                    f"如需更多地點，請聯繫管理員升級權限。"
+                )
 
     if not overwrite:
         existing_count = session.query(VocabularyEntry).filter(
@@ -268,6 +308,8 @@ def import_vocabulary_upload(
                     "location_name": normalized_location.location_name,
                     "deleted_existing_count": deleted_existing_count,
                     "imported_count": len(parse_result.rows),
+                    "blank_row_count": parse_result.skipped_count,
+                    "error_row_count": len(parse_result.errors),
                     "parser_mode": parse_result.parser_mode,
                     "deleted_entries": deleted_entries if can_log_deleted_entries else [],
                     "deleted_entries_omitted": not can_log_deleted_entries,
@@ -293,6 +335,6 @@ def import_vocabulary_upload(
         imported_count=len(parse_result.rows),
         deleted_existing_count=deleted_existing_count,
         skipped_count=parse_result.skipped_count,
-        errors=[],
+        errors=list(parse_result.errors),
         parser_mode=parse_result.parser_mode,
     )

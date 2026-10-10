@@ -21,20 +21,27 @@ from app.common.numba_bootstrap import bootstrap_numba_threading_environment
 # 这样后续 fork 出来的 worker 会继承同一套默认设置。
 bootstrap_numba_threading_environment()
 
+from app.common.config import AUTO_DB_MAINTENANCE
 from app.lifecycle import (
     cleanup_worker_process,
     start_background_services,
     stop_background_services,
 )
+from app.service.vocabulary.maintenance import maintain_vocabulary_database
 
 
 def on_starting(server):
     """
     Run once in the Gunicorn master process.
+
+    worker 尚未 fork，独占锁无人争抢，是跑 VACUUM 的唯一安全时机。
     """
     print("=" * 60)
     print("[Gunicorn Master] starting background workers...")
     print("=" * 60)
+
+    if AUTO_DB_MAINTENANCE:
+        maintain_vocabulary_database()
 
     start_background_services()
 

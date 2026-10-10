@@ -9,6 +9,7 @@ from app.service.auth.database.models import User
 from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.user.core.models import Information, UserRegion
 from app.service.user.submission.submit import get_max_value
+from app.service.user.submission.get_custom import _expand_phonology_list
 from app.schemas.admin.submissions import InformationBase
 
 from app.schemas.user import (
@@ -165,10 +166,11 @@ def list_records_by_point_for_user(user: User, location: Optional[str] = None, r
 def list_records_by_feature_for_user(user: User, feature: str, phonology: str) -> List[dict]:
     session_info = SessionLocal_info()
     try:
+        phonology_candidates = _expand_phonology_list([phonology]) if phonology else [phonology]
         rows = session_info.query(Information).filter(
             Information.user_id == user.id,
             Information.特徵 == feature,
-            Information.聲韻調 == phonology,
+            Information.聲韻調.in_(phonology_candidates),
         ).order_by(
             Information.created_at.asc(),
             Information.id.asc(),

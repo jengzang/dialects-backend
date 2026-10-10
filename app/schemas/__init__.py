@@ -17,6 +17,7 @@ from .core.phonology import (
     PhonologyClassificationMatrixRequest,
     PhonologyMatrixRequest,
     FeatureStatsRequest,
+    SyllableCountsRequest,
     PhoPieRequest,
 )
 from .user.submissions import FormData
@@ -27,6 +28,7 @@ __all__ = [
     "PhonologyClassificationMatrixRequest",
     "PhonologyMatrixRequest",
     "FeatureStatsRequest",
+    "SyllableCountsRequest",
     "PhoPieRequest",
     "FormData",
     "QueryParams",

@@ -70,6 +70,12 @@ def cleanup_old_logs() -> None:
 
 def cleanup_old_api_usage_logs() -> None:
     """Delete old API usage rows from auth.db."""
+    from app.common.api_config import CLEAR_WEEK
+
+    if not CLEAR_WEEK:
+        logger.info("[SKIP] ApiUsageLog cleanup disabled (CLEAR_WEEK=False)")
+        return
+
     logger.info("[DEL] Cleaning ApiUsageLog rows in auth.db...")
     db = AuthSessionLocal()
     try:

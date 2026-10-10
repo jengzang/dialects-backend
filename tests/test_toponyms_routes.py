@@ -2,6 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app.common.path import DB_MAPPING
+from app.common.path import ADMIN_ONLY_DBS, DB_MAPPING
 from app.routes.toponyms import router
 from app.service.toponyms.config import MAX_DETAIL_IDS, MAX_QUERY_LIMIT
 
@@ -45,6 +46,15 @@ def create_toponyms_db(path: str) -> None:
             latitude REAL,
             ur_code TEXT
         );
+
+        CREATE TABLE multi (
+            id TEXT PRIMARY KEY,
+            standard_name TEXT,
+            place_type TEXT,
+            place_type_code TEXT,
+            area_code TEXT,
+            coordinates BLOB
+        );
         """
     )
     conn.executemany(
@@ -55,9 +65,21 @@ def create_toponyms_db(path: str) -> None:
         """,
         [
             ("village-1", "黄村", "农村居民点", "22200", "440100001", 113.1, 23.1),
+            ("village-1b", "黄屋", "农村居民点", "22200", "440100001", 113.15, 23.15),
             ("village-2", "李村", "农村居民点", "22200", "440100002", 113.2, 23.2),
             ("admin-1", "某行政村", "行政村", "21610", "440100003", 113.3, 23.3),
             ("outside-1", "远村", "农村居民点", "22200", "110100001", 116.3, 39.9),
+        ],
+    )
+    conn.executemany(
+        """
+        INSERT INTO multi (
+            id, standard_name, place_type, place_type_code, area_code, coordinates
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("multi-1", "黄路", "主干路", "23512", "440100002", b"line"),
+            ("multi-2", "广东河", "河流", "25100", "440100001", b"line"),
         ],
     )
     conn.executemany(
@@ -104,8 +126,9 @@ class ToponymsRoutesTest(unittest.TestCase):
         repository.TOPONYMS_DB_PATH = self.original_db_path
         self.tmpdir.cleanup()
 
-    def test_toponyms_db_is_not_exposed_through_generic_sql_mapping(self) -> None:
-        self.assertNotIn("toponyms", DB_MAPPING)
+    def test_toponyms_db_is_admin_only_in_generic_sql_mapping(self) -> None:
+        self.assertIn("toponyms", DB_MAPPING)
+        self.assertIn("toponyms", ADMIN_ONLY_DBS)
 
     def test_main_app_registers_toponyms_routes(self) -> None:
         from app.main import create_main_app
@@ -114,6 +137,7 @@ class ToponymsRoutesTest(unittest.TestCase):
         paths = {route.path for route in app.routes}
 
         self.assertIn("/api/toponyms/points", paths)
+        self.assertIn("/api/toponyms/search", paths)
         self.assertIn("/api/toponyms/names", paths)
         self.assertIn("/api/toponyms/details", paths)
         self.assertNotIn("/api/toponyms/names/", paths)
@@ -133,7 +157,7 @@ class ToponymsRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["count"], 2)
         self.assertFalse(body["truncated"])
         self.assertEqual(
             body["items"][0],
@@ -213,6 +237,103 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertEqual(body["count"], 2)
         self.assertEqual({item["id"] for item in body["items"]}, {"village-1", "village-2"})
 
+    def test_search_endpoint_returns_single_and_multi_ids_with_names_only(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/search",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "23512"),
+                ("limit", "0"),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertFalse(body["truncated"])
+        self.assertEqual(
+            body["items"],
+            [
+                {"id": "village-1b", "name": "黄屋"},
+                {"id": "village-1", "name": "黄村"},
+                {"id": "multi-1", "name": "黄路"},
+            ],
+        )
+        serialized = response.text
+        self.assertNotIn("longitude", serialized)
+        self.assertNotIn("latitude", serialized)
+        self.assertNotIn("area_code", serialized)
+        self.assertNotIn("place_type_code", serialized)
+        self.assertNotIn("coordinates", serialized)
+
+    def test_search_endpoint_can_optionally_include_area_and_type_codes(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "黄路",
+                "match_mode": "exact",
+                "place_type_code": "23512",
+                "include_area_code": "true",
+                "include_place_type_code": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "items": [
+                    {
+                        "id": "multi-1",
+                        "name": "黄路",
+                        "area_code": "440100002",
+                        "place_type_code": "23512",
+                    }
+                ],
+                "count": 1,
+                "truncated": False,
+            },
+        )
+        self.assertNotIn("longitude", response.text)
+        self.assertNotIn("coordinates", response.text)
+
+    def test_search_endpoint_can_filter_by_area_code_scope(self) -> None:
+        descendants_response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "村",
+                "match_mode": "suffix",
+                "area_code": "44",
+                "area_scope": "descendants",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(descendants_response.status_code, 200)
+        self.assertEqual(
+            {item["id"] for item in descendants_response.json()["items"]},
+            {"village-1", "village-2"},
+        )
+
+        exact_response = self.client.get(
+            "/api/toponyms/search",
+            params={
+                "q": "黄",
+                "match_mode": "prefix",
+                "area_code": "440100001",
+                "area_scope": "exact",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(exact_response.status_code, 200)
+        self.assertEqual(
+            [item["id"] for item in exact_response.json()["items"]],
+            ["village-1b", "village-1"],
+        )
+
     def test_names_endpoint_returns_only_name_strings_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
             "/api/toponyms/names",
@@ -220,7 +341,7 @@ class ToponymsRoutesTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"items": ["黄村"]})
+        self.assertEqual(response.json(), {"items": ["黄屋", "黄村"]})
         serialized = response.text
         self.assertNotIn("village-1", serialized)
         self.assertNotIn("longitude", serialized)
@@ -251,6 +372,22 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("longitude", serialized)
         self.assertNotIn("latitude", serialized)
 
+    def test_names_endpoint_can_filter_by_bbox_without_returning_coordinates(self) -> None:
+        response = self.client.get(
+            "/api/toponyms/names",
+            params={
+                "q": "村",
+                "match_mode": "suffix",
+                "bbox": "113,23,114,24",
+                "limit": "0",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items": ["李村", "黄村"]})
+        self.assertNotIn("longitude", response.text)
+        self.assertNotIn("latitude", response.text)
+
     def test_names_endpoint_can_return_division_tree_without_ids_or_coordinates(self) -> None:
         response = self.client.get(
             "/api/toponyms/names",
@@ -267,6 +404,7 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertEqual(
             body,
             {
+                "mode": "full",
                 "items": [
                     {
                         "name": "北京市",
@@ -328,7 +466,8 @@ class ToponymsRoutesTest(unittest.TestCase):
                             }
                         ],
                     },
-                ]
+                ],
+                "levels": 4,
             },
         )
         serialized = response.text
@@ -351,10 +490,188 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertNotIn("longitude", response.text)
         self.assertNotIn("latitude", response.text)
 
+    def test_names_tree_falls_back_to_lazy_bootstrap_when_result_is_large(self) -> None:
+        with patch("app.service.toponyms.repository.TOPONYM_NAME_TREE_FULL_THRESHOLD", 2):
+            response = self.client.get(
+                "/api/toponyms/names",
+                params={
+                    "q": "村",
+                    "match_mode": "suffix",
+                    "include_division_tree": "true",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["mode"], "lazy_fallback")
+        self.assertEqual(body["reason"], "tree_result_too_large")
+        self.assertEqual(body["threshold"], 2)
+        self.assertEqual(body["filtered_count"], 3)
+        self.assertEqual(body["levels"], 4)
+        self.assertEqual(
+            body["lazy_bootstrap"],
+            [
+                {
+                    "name": "北京市",
+                    "level": 1,
+                    "children": [{"name": "北京市", "level": 2}],
+                },
+                {
+                    "name": "广东省",
+                    "level": 1,
+                    "children": [{"name": "广州市", "level": 2}],
+                },
+            ],
+        )
+        serialized = response.text
+        self.assertNotIn("village-1", serialized)
+        self.assertNotIn("area_code", serialized)
+        self.assertNotIn("longitude", serialized)
+
+    def test_names_tree_lazy_parent_path_returns_children_then_leaf_names_with_pagination(self) -> None:
+        child_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "村"),
+                ("match_mode", "suffix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+            ],
+        )
+
+        self.assertEqual(child_response.status_code, 200)
+        self.assertEqual(
+            child_response.json(),
+            {
+                "mode": "lazy",
+                "level": 2,
+                "parent_path": ["广东省"],
+                "children": [{"name": "广州市", "level": 2}],
+                "has_more": False,
+            },
+        )
+
+        leaf_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+                ("parent_path", "广州市"),
+                ("parent_path", "广州市辖区"),
+                ("parent_path", "越秀街道"),
+                ("page", "1"),
+                ("page_size", "1"),
+            ],
+        )
+
+        self.assertEqual(leaf_response.status_code, 200)
+        self.assertEqual(
+            leaf_response.json(),
+            {
+                "mode": "lazy",
+                "level": 4,
+                "parent_path": ["广东省", "广州市", "广州市辖区", "越秀街道"],
+                "names": ["黄屋"],
+                "page": 1,
+                "page_size": 1,
+                "has_more": True,
+            },
+        )
+
+    def test_names_tree_lazy_handles_division_paths_that_skip_level_three(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.executemany(
+            """
+            INSERT INTO divisions (
+                code, name, parent_code, level, single_cnt, multi_cnt, longitude, latitude, ur_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("4419", "东莞市", "44", 2, 2, 0, 113.7, 23.0, None),
+                ("441900114", "黄江镇", "4419", 4, 1, 0, 114.0, 22.9, None),
+                ("441900115", "清溪镇", "4419", 4, 1, 0, 114.1, 22.8, None),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO single (
+                id, standard_name, place_type, place_type_code, area_code, longitude, latitude
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("dongguan-huangjiang-1", "黄江村", "农村居民点", "22200", "441900114", 114.0, 22.9),
+                ("dongguan-qingxi-1", "黄田村", "农村居民点", "22200", "441900115", 114.1, 22.8),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        children_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+                ("parent_path", "东莞市"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "21610"),
+                ("place_type_code", "27610"),
+            ],
+        )
+
+        self.assertEqual(children_response.status_code, 200)
+        self.assertEqual(
+            children_response.json(),
+            {
+                "mode": "lazy",
+                "level": 4,
+                "parent_path": ["广东省", "东莞市"],
+                "children": [
+                    {"name": "黄江镇", "level": 4},
+                    {"name": "清溪镇", "level": 4},
+                ],
+                "has_more": False,
+            },
+        )
+
+        leaf_response = self.client.get(
+            "/api/toponyms/names",
+            params=[
+                ("q", "黄"),
+                ("match_mode", "prefix"),
+                ("include_division_tree", "true"),
+                ("parent_path", "广东省"),
+                ("parent_path", "东莞市"),
+                ("parent_path", "黄江镇"),
+                ("page", "1"),
+                ("page_size", "100"),
+                ("place_type_code", "22200"),
+                ("place_type_code", "21610"),
+                ("place_type_code", "27610"),
+            ],
+        )
+
+        self.assertEqual(leaf_response.status_code, 200)
+        self.assertEqual(
+            leaf_response.json(),
+            {
+                "mode": "lazy",
+                "level": 4,
+                "parent_path": ["广东省", "东莞市", "黄江镇"],
+                "names": ["黄江村"],
+                "page": 1,
+                "page_size": 100,
+                "has_more": False,
+            },
+        )
+
     def test_details_endpoint_returns_full_records_for_limited_ids(self) -> None:
         response = self.client.get(
             "/api/toponyms/details",
-            params={"ids": "village-1,admin-1,missing-id"},
+            params={"ids": "village-1,admin-1,multi-1,missing-id"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -385,11 +702,26 @@ class ToponymsRoutesTest(unittest.TestCase):
                         "latitude": 23.3,
                         "division_path": [],
                     },
+                    {
+                        "id": "multi-1",
+                        "name": "黄路",
+                        "place_type": "主干路",
+                        "place_type_code": "23512",
+                        "longitude": None,
+                        "latitude": None,
+                        "division_path": [
+                            {"name": "广东省", "level": 1},
+                            {"name": "广州市", "level": 2},
+                            {"name": "广州市辖区", "level": 3},
+                            {"name": "荔湾街道", "level": 4},
+                        ],
+                    },
                 ],
-                "count": 2,
+                "count": 3,
             },
         )
         self.assertNotIn("area_code", response.text)
+        self.assertNotIn("coordinates", response.text)
 
     def test_details_endpoint_rejects_more_than_configured_ids(self) -> None:
         ids = ",".join(f"id-{index}" for index in range(MAX_DETAIL_IDS + 1))

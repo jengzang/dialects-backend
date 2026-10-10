@@ -3,9 +3,12 @@ from sqlalchemy.orm import sessionmaker
 from app.service.auth.database.models import Base
 from app.common.path import USER_DATABASE_URL
 
+# Keep request-side waits bounded; background auth writers retry confirmed lock errors.
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
 engine = create_engine(
     USER_DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_MS / 1000},
     pool_pre_ping=True  # [NEW] 建议
 )
 
@@ -13,6 +16,7 @@ engine = create_engine(
 # [NEW] 新增：为每个新连接开启 WAL / 外键 / 同步级别
 def _sqlite_pragmas(dbapi_conn, _):
     cur = dbapi_conn.cursor()
+    cur.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};")
     # WAL 模式在某些只读挂载场景下可能失败，改用 DELETE 模式
     try:
         cur.execute("PRAGMA journal_mode=WAL;")

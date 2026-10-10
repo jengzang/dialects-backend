@@ -30,6 +30,14 @@ DETAIL_COLUMNS = [
     "T10輕聲",
 ]
 
+POINT_COLUMNS = [
+    "簡稱",
+    "經緯度",
+    "地圖集二分區",
+    "音典分區",
+    "方言島",
+]
+
 PARTITION_COLUMNS = [
     "簡稱",
     "語言",
@@ -42,7 +50,6 @@ PARTITION_COLUMNS = [
     "鎮",
     "行政村",
     "自然村",
-    "經緯度",
 ]
 
 
@@ -70,6 +77,30 @@ def get_location_detail_rows(name: str, query_db: str) -> list[dict[str, Any]]:
         rows = cursor.fetchall()
 
     return [dict(row) for row in rows]
+
+
+def get_location_point_rows(query_db: str) -> list[dict[str, Any]]:
+    pool = get_db_pool(query_db)
+    select_clause = ", ".join(_quote_identifier(column) for column in POINT_COLUMNS)
+    sql = (
+        f"SELECT {select_clause} "
+        f'FROM {_quote_identifier("dialects")} '
+        f'WHERE TRIM(COALESCE({_quote_identifier("簡稱")}, "")) <> ""'
+    )
+
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+
+    result = []
+    for row in rows:
+        item = dict(row)
+        dialect_island = item.pop("方言島", None)
+        if dialect_island and str(dialect_island).strip() == "☑":
+            item["方言島"] = 1
+        result.append(item)
+    return result
 
 
 def get_location_partition_rows(query_db: str) -> list[dict[str, Any]]:

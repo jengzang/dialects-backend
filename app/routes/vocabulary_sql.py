@@ -25,7 +25,7 @@ from app.service.logging.dependencies import ApiLimiter
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.permissions import get_effective_permission_level, SELF_SCOPED_LEVELS
 from app.service.vocabulary.models import VocabularyLocation
 
 
@@ -123,12 +123,12 @@ def _validate_mutable_columns(
 
 
 def _require_write_action_access(permission_level: str, action: str) -> None:
-    if permission_level == "edit" and action in EDIT_FORBIDDEN_ACTIONS:
-        raise HTTPException(status_code=403, detail="edit 用户不能通过词表 SQL 接口批量删除词条")
+    if permission_level in SELF_SCOPED_LEVELS and action in EDIT_FORBIDDEN_ACTIONS:
+        raise HTTPException(status_code=403, detail="当前权限等级不支持通过词表 SQL 接口批量删除词条")
 
 
 def _scope_clause(table_name: str, permission_level: str, user: User | None) -> tuple[list[str], list[Any], str]:
-    if table_name in OWNED_TABLES and permission_level == "edit":
+    if table_name in OWNED_TABLES and permission_level in SELF_SCOPED_LEVELS:
         return ["user_id = ?"], [user.id], f"user_id = {user.id}"
     return [], [], "all rows"
 
@@ -267,7 +267,7 @@ def _resolve_location_owner_user_id(data: dict[str, Any], db: Session) -> int:
 def _sanitize_create_data(record: dict[str, Any], user: User, permission_level: str, db: Session) -> dict[str, Any]:
     data = dict(record)
     data.pop("id", None)
-    if permission_level == "edit":
+    if permission_level in SELF_SCOPED_LEVELS:
         data["user_id"] = user.id
     else:
         data["user_id"] = _resolve_location_owner_user_id(data, db)
@@ -334,6 +334,16 @@ def _log_write(
 
 def _get_db_path(db: Session) -> str:
     return db.get_bind().url.database
+
+
+async def _invalidate_count_cache(table_name: str) -> None:
+    """Delete all cached count results for the given table after a write."""
+    try:
+        keys = await redis_client.keys(f"vocab_sql_count:{table_name}*")
+        if keys:
+            await redis_client.delete(*keys)
+    except Exception:
+        pass
 
 
 def _query_table_sync(
@@ -726,6 +736,7 @@ async def mutate_table(
             payload=payload,
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {"status": "success", "action": params.action, "affected_rows": affected_rows}
     except HTTPException:
         db.rollback()
@@ -782,7 +793,7 @@ async def batch_mutate_table(
                 except Exception as exc:
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
-            target_scope = f"user_id = {current_user.id}" if permission_level == "edit" else "created rows"
+            target_scope = f"user_id = {current_user.id}" if permission_level in SELF_SCOPED_LEVELS else "created rows"
             payload = {
                 **params.model_dump(),
                 "after": [{"id": row_id} for row_id in created_ids],
@@ -826,7 +837,7 @@ async def batch_mutate_table(
                 except Exception as exc:
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
-            target_scope = f"user_id = {current_user.id}" if permission_level == "edit" else "all rows"
+            target_scope = f"user_id = {current_user.id}" if permission_level in SELF_SCOPED_LEVELS else "all rows"
             payload = {
                 **params.model_dump(),
                 "before": before_snapshots,
@@ -870,6 +881,7 @@ async def batch_mutate_table(
             payload=payload,
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {
             "status": "completed",
             "action": params.action,
@@ -984,6 +996,7 @@ async def batch_replace_execute(
             },
         )
         db.commit()
+        await _invalidate_count_cache(params.table_name)
         return {"status": "success", "affected_rows": affected_rows}
     except Exception as exc:
         db.rollback()

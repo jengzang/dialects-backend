@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.schemas.user.suggestions import (
+    AdminSuggestionItem,
+    AdminSuggestionListResponse,
     AdminSuggestionUpdate,
-    SuggestionItem,
-    SuggestionListResponse,
 )
 from app.service.admin import suggestions as suggestion_admin_service
 from app.service.auth.core.dependencies import get_current_admin_user
@@ -16,7 +16,7 @@ from app.service.user.core.database import get_db as get_db_custom
 router = APIRouter()
 
 
-@router.get("", response_model=SuggestionListResponse)
+@router.get("", response_model=AdminSuggestionListResponse)
 async def list_suggestions(
     status: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -44,7 +44,7 @@ async def list_suggestions(
         raise HTTPException(status_code=500, detail=f"获取建议列表失败: {str(exc)}")
 
 
-@router.patch("/{suggestion_id}", response_model=SuggestionItem)
+@router.patch("/{suggestion_id}", response_model=AdminSuggestionItem)
 async def update_suggestion(
     suggestion_id: int,
     payload: AdminSuggestionUpdate,

@@ -1576,7 +1576,7 @@ vocabulary adapter never allows table_name other than vocabulary_entries
 
 这份文档主要指导前端。下面这些边界已经由后端强制，前端仍应同步隐藏或弱化相关入口，避免用户点到无效操作。
 
-### 8.1 edit 用户只能通过 SQL API 删除自己的单条 entry
+### 8.1 edit 用户的词条与地点删除边界
 
 后端 `/api/vocabulary/sql/mutate` 已允许 `edit` 用户执行单条 `delete`，但仍会自动加 `user_id = current_user.id` 作用域。`/batch-mutate` 的 `batch_delete` 仍对 `edit` 用户禁止。
 
@@ -1586,14 +1586,19 @@ vocabulary adapter never allows table_name other than vocabulary_entries
 - `edit` 用户可以删除自己的单条 entry。
 - `edit` 用户删除别人的 entry 时不会命中数据，返回 `affected_rows = 0` 并记录日志。
 - `edit` 用户批量删除 entries 会返回 `403`。
+- `edit` 用户可以删除自己名下的一个地点；该操作会级联删除该地点名下的全部 entries。
+- `edit` 用户通过 `user_id` 指向其他用户的地点时返回 `403`。
+- `one`、`two`、`three` 当前不具备地点删除能力。
 - `manage`/admin 可以删除任意 entries。
-- 后端没有提供“按地点简称清空自己整批数据”的专用接口。
+- `manage`/admin 可以删除任意地点；同名地点必须带 `user_id` 消歧。
 
 前端要求：
 
 - edit 用户可以展示单行删除入口，但需要二次确认。
-- edit 用户不要展示批量删除、清空选中、按地点清空等入口。
-- manage/admin 可以展示删除入口，但仍建议二次确认。
+- `can_delete_locations == true` 时可以展示地点删除入口，且地点删除仍需要二次确认。
+- 删除地点时必须传当前选中地点行的 `user_id`。
+- 地点移交入口仍仅面向 manage/admin，不能与地点删除共用同一个权限开关。
+- edit 用户不要展示批量删除或清空选中等入口。
 
 ### 8.2 entries 的 `location_name` 不允许表格编辑
 

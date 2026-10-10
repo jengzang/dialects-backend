@@ -23,6 +23,18 @@ INDEX_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_single_type_lng_lat_id
     ON single(place_type_code, longitude, latitude, id)
     """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_type_id
+    ON multi(place_type_code, id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_type_name_id
+    ON multi(place_type_code, standard_name, id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_type_name_area
+    ON multi(place_type_code, standard_name, area_code)
+    """,
 )
 
 

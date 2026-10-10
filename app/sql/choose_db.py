@@ -72,6 +72,10 @@ def _check_write_permission(auth_db: Optional[Session], user: Optional["User"], 
     if user and user.role == "admin":
         return True
 
+    # 管理员专属数据库，非管理员不能写，即使误授了 db_key 写权限也不放行
+    if db_key in ADMIN_ONLY_DBS:
+        return False
+
     # 未登录用户无写权限
     if not user or not auth_db:
         return False

@@ -1,6 +1,6 @@
 from typing import Callable
 
-from app.common.config import AUTO_INDEX, AUTO_MIGRATE
+from app.common.config import AUTO_DB_MAINTENANCE, AUTO_INDEX, AUTO_MIGRATE
 from app.common.path import (
     CHARACTERS_DB_PATH,
     DIALECTS_DB_ADMIN,
@@ -98,6 +98,26 @@ def cleanup_old_temp_files() -> None:
     print("=" * 60)
 
 
+def maintain_vocabulary_database_on_startup() -> None:
+    """维护 vocabulary.db（按需 VACUUM + ANALYZE）。
+
+    gunicorn 下由 master 的 on_starting 负责；worker 里再跑一遍会让 3 个进程
+    同时抢 VACUUM 的独占锁，所以这里直接跳过。
+    """
+    from app.lifecycle.runtime import is_gunicorn_worker_process
+
+    if is_gunicorn_worker_process():
+        print("[SKIP] Worker process skips vocabulary.db maintenance")
+        return
+
+    from app.service.vocabulary.maintenance import maintain_vocabulary_database
+
+    print("=" * 60)
+    print("[DB] Maintaining vocabulary.db...")
+    maintain_vocabulary_database()
+    print("=" * 60)
+
+
 def warm_dialect_cache() -> None:
     from app.service.geo.match_input_tip import _load_dialect_cache
 
@@ -158,6 +178,8 @@ def run_main_startup() -> None:
     if AUTO_INDEX:
         from app.sql.index_manager import initialize_all_indexes
         steps.append(initialize_all_indexes)
+    if AUTO_DB_MAINTENANCE:
+        steps.append(maintain_vocabulary_database_on_startup)
     steps.extend([
         cleanup_old_temp_files,
         warm_dialect_cache,

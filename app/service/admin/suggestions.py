@@ -56,7 +56,7 @@ def list_suggestions_admin(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [serialize_suggestion(row) for row in rows],
+        "items": [serialize_suggestion(row, include_image=True) for row in rows],
     }
 
 
@@ -86,7 +86,7 @@ def update_suggestion_admin(
     try:
         db.commit()
         db.refresh(row)
-        return serialize_suggestion(row)
+        return serialize_suggestion(row, include_image=True)
     except Exception:
         db.rollback()
         raise

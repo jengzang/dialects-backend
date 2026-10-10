@@ -33,6 +33,8 @@ _COLUMN_ALIASES = {
         "釋義",
         "书面",
         "書面",
+        "标准词",
+        "標準詞",
         "书面词条",
         "書面詞條",
         "词条",
@@ -65,6 +67,8 @@ _COLUMN_ALIASES = {
         "註釋",
         "备注",
         "備註",
+        "详细释义",
+        "詳細釋義",
         "说明",
         "說明",
     },
@@ -114,7 +118,7 @@ def _validate_row(
     if fill_standard_from_local and not standard_word and local_expression:
         standard_word = local_expression
 
-    if not standard_word and not local_expression:
+    if not standard_word and not local_expression and not ipa:
         return None, None, True
 
     missing = []

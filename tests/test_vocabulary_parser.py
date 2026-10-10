@@ -46,6 +46,73 @@ def test_parse_table_accepts_chinese_column_aliases(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "标准词,方言词,音标,详细释义",
+        "標準詞,方言詞,音標,詳細釋義",
+    ],
+)
+def test_parse_table_accepts_requested_column_aliases(tmp_path: Path, header: str) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        f"{header}\n太阳,日头,ȵit2 tʰəu2,常用\n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.errors == []
+    assert result.rows == [
+        ParsedVocabularyRow(
+            standard_word="太阳",
+            local_expression="日头",
+            ipa="ȵit2 tʰəu2",
+            notes="常用",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        ",,[ȵit2]",  # 只有音标
+        ",日头,",  # 只有方言词
+    ],
+)
+def test_parse_table_reports_missing_standard_word_for_non_blank_rows(
+    tmp_path: Path, row: str
+) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        f"标准词,方言词,音标,备注\n{row}\n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.rows == []
+    assert result.skipped_count == 0
+    assert len(result.errors) == 1
+    assert "standard_word" in result.errors[0]
+
+
+def test_parse_table_skips_only_fully_blank_rows(tmp_path: Path) -> None:
+    csv_path = tmp_path / "vocabulary.csv"
+    csv_path.write_text(
+        "标准词,方言词,音标,备注\n"
+        ",,,\n"
+        "  ,  ,  ,  \n",
+        encoding="utf-8",
+    )
+
+    result = parse_vocabulary_file(csv_path, parser_mode="table")
+
+    assert result.rows == []
+    assert result.errors == []
+    assert result.skipped_count == 2
+
+
 def test_parse_bracket_document_text_extracts_fields() -> None:
     rows, errors = parse_bracket_document_text(
         "太阳（日头）[ȵit2 tʰəu2]{常用}\n"
@@ -204,6 +271,39 @@ def test_normalize_location_payload_accepts_chinese_aliases() -> None:
     assert normalized.county == "息烽"
     assert normalized.yindian_region == "西南"
     assert normalized.atlas_region == "黔中"
+
+
+def test_normalize_location_payload_accepts_tone_values() -> None:
+    normalized = normalize_location_payload(
+        {
+            "location_name": "息烽",
+            "coordinates": "106.73,27.10",
+            "t1": "55",
+            "T2": "21",
+            "t10": "3",
+        }
+    )
+
+    assert normalized.t1 == "55"
+    assert normalized.t2 == "21"
+    assert normalized.t10 == "3"
+    assert normalized.t3 == ""
+
+
+def test_normalize_location_payload_accepts_source_description_and_other_aliases() -> None:
+    normalized = normalize_location_payload(
+        {
+            "location_name": "息烽",
+            "coordinates": "106.73,27.10",
+            "词表来源": "田野调查",
+            "说明": "老派材料",
+            "其他": "待复核",
+        }
+    )
+
+    assert normalized.vocabulary_source == "田野调查"
+    assert normalized.description == "老派材料"
+    assert normalized.other == "待复核"
 
 
 def test_normalize_location_payload_requires_location_name_and_coordinates() -> None:

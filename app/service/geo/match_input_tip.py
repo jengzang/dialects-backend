@@ -26,6 +26,7 @@ _dialect_cache = {
     'valid_abbrs': {},      # {db_path: {filter_flag: set()}}
     'geo_data': {},         # {db_path: {filter_flag: [(name, abbr), ...]}}
     'geo_pinyin': {},       # {db_path: {filter_flag: {name: pinyin_str}}}
+    'partition_map': {},    # {db_path: {簡稱: (地圖集二分區, 音典分區)}}
     'last_update': {}       # {db_path: timestamp}
 }
 
@@ -75,6 +76,12 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
             rows = cursor.fetchall()
             geo_data_list.extend(rows)
 
+        # 加载地点-分區映射（與存儲標記無關，全量載入一次）
+        partition_map = None
+        if query_db not in _dialect_cache['partition_map']:
+            cursor.execute("SELECT 簡稱, 地圖集二分區, 音典分區 FROM dialects")
+            partition_map = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+
     # 预计算拼音（临时禁用以降低启动导入与内存开销）
     # geo_names_seen = set()
     # for name, abbr in geo_data_list:
@@ -93,6 +100,8 @@ def _load_dialect_cache(query_db, filter_valid_abbrs_only):
         _dialect_cache['valid_abbrs'][query_db][filter_valid_abbrs_only] = valid_abbrs_set
         _dialect_cache['geo_data'][query_db][filter_valid_abbrs_only] = geo_data_list
         _dialect_cache['geo_pinyin'][query_db][filter_valid_abbrs_only] = geo_pinyin_map
+        if partition_map is not None:
+            _dialect_cache['partition_map'][query_db] = partition_map
         _dialect_cache['last_update'][query_db] = __import__('time').time()
 
     print(f"[CACHE] 已加载方言数据到缓存: {len(valid_abbrs_set)} 个简称, {len(geo_data_list)} 条地理数据, {len(geo_pinyin_map)} 个拼音")
@@ -112,14 +121,37 @@ def clear_dialect_cache(query_db=None):
             _dialect_cache['valid_abbrs'].pop(query_db, None)
             _dialect_cache['geo_data'].pop(query_db, None)
             _dialect_cache['geo_pinyin'].pop(query_db, None)
+            _dialect_cache['partition_map'].pop(query_db, None)
             _dialect_cache['last_update'].pop(query_db, None)
             print(f"[CACHE] 已清除缓存: {query_db}")
         else:
             _dialect_cache['valid_abbrs'].clear()
             _dialect_cache['geo_data'].clear()
             _dialect_cache['geo_pinyin'].clear()
+            _dialect_cache['partition_map'].clear()
             _dialect_cache['last_update'].clear()
             print("[CACHE] 已清除所有缓存")
+
+
+def get_partitions_for_abbrs(abbrs, query_db=QUERY_DB_ADMIN):
+    """
+    從內存分區圖回填地點的雙分區。
+
+    Args:
+        abbrs: 地點簡稱列表
+        query_db: 查詢資料庫路徑
+
+    Returns:
+        {簡稱: (地圖集二分區, 音典分區)}，只包含存在於分區圖中的簡稱
+    """
+    if not abbrs:
+        return {}
+
+    # 確保分區圖已載入（通常啟動時已預熱，此處僅兜底）
+    _load_dialect_cache(query_db, filter_valid_abbrs_only=True)
+
+    partition_map = _dialect_cache['partition_map'].get(query_db, {})
+    return {abbr: partition_map[abbr] for abbr in abbrs if abbr in partition_map}
 
 
 def read_partition_hierarchy(parent_regions=None, db_path=QUERY_DB_ADMIN):

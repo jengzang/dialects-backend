@@ -15,6 +15,19 @@ class NormalizedLocation:
     natural_village: str = ""
     yindian_region: str = ""
     atlas_region: str = ""
+    vocabulary_source: str = ""
+    description: str = ""
+    other: str = ""
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 _LOCATION_ALIASES = {
@@ -39,6 +52,19 @@ _LOCATION_ALIASES = {
         "分區",
         "分区",
     ),
+    "vocabulary_source": ("vocabulary_source", "source", "词表来源", "詞表來源"),
+    "description": ("description", "说明", "說明"),
+    "other": ("other", "其他"),
+    "t1": ("t1", "T1"),
+    "t2": ("t2", "T2"),
+    "t3": ("t3", "T3"),
+    "t4": ("t4", "T4"),
+    "t5": ("t5", "T5"),
+    "t6": ("t6", "T6"),
+    "t7": ("t7", "T7"),
+    "t8": ("t8", "T8"),
+    "t9": ("t9", "T9"),
+    "t10": ("t10", "T10"),
 }
 
 
@@ -89,4 +115,17 @@ def normalize_location_payload(payload: Mapping[str, Any] | str) -> NormalizedLo
         natural_village=values["natural_village"],
         yindian_region=values["yindian_region"],
         atlas_region=values["atlas_region"],
+        vocabulary_source=values["vocabulary_source"],
+        description=values["description"],
+        other=values["other"],
+        t1=values["t1"],
+        t2=values["t2"],
+        t3=values["t3"],
+        t4=values["t4"],
+        t5=values["t5"],
+        t6=values["t6"],
+        t7=values["t7"],
+        t8=values["t8"],
+        t9=values["t9"],
+        t10=values["t10"],
     )

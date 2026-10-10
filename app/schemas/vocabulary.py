@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VocabularyUploadResponse(BaseModel):
@@ -10,19 +10,23 @@ class VocabularyUploadResponse(BaseModel):
     permission_level: str
     imported_count: int
     deleted_existing_count: int
-    skipped_count: int
-    errors: list[str]
+    skipped_count: int = Field(description="空行数（标准词、方言词、音标均为空），未导入")
+    errors: list[str] = Field(
+        description="错误行明细（行号 + 原因），这些行已被跳过、未导入",
+    )
     parser_mode: str
 
 
 class VocabularyUploadPreviewResponse(BaseModel):
-    success: bool
+    success: bool = Field(description="是否存在可导入的行")
     location_name: str
     permission_level: str
-    parsed_count: int
+    parsed_count: int = Field(description="可成功解析、将被导入的行数")
     would_delete_existing_count: int
-    skipped_count: int
-    errors: list[str]
+    skipped_count: int = Field(description="空行数（标准词、方言词、音标均为空），未导入")
+    errors: list[str] = Field(
+        description="错误行明细（行号 + 原因），这些行在导入时会被跳过",
+    )
     parser_mode: str
 
 
@@ -45,7 +49,9 @@ class VocabularyItemsResponse(BaseModel):
 
 
 class VocabularyStandardWordResponse(BaseModel):
+    key: str
     standard_word: str
+    variants: list[str]
     entry_count: int
     location_count: int
 
@@ -57,10 +63,30 @@ class VocabularyStandardWordsResponse(BaseModel):
 
 class VocabularyMapPointResponse(BaseModel):
     location_name: str
-    location_label: str
+    province: str = ""
+    city: str = ""
+    county: str = ""
+    town: str = ""
+    administrative_village: str = ""
+    natural_village: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
+    vocabulary_source: str = ""
+    description: str = ""
+    other: str = ""
     longitude: float
     latitude: float
     entry_count: int
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 class VocabularyMapPointsResponse(BaseModel):
@@ -81,7 +107,14 @@ class VocabularyMapItemResponse(BaseModel):
 
 class VocabularyMapItemPointResponse(BaseModel):
     location_name: str
-    location_label: str
+    province: str = ""
+    city: str = ""
+    county: str = ""
+    town: str = ""
+    administrative_village: str = ""
+    natural_village: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
     longitude: float
     latitude: float
     entry_count: int
@@ -98,6 +131,8 @@ class VocabularyMapItemsResponse(BaseModel):
 class VocabularyLocationOptionResponse(BaseModel):
     location_name: str
     location_label: str
+    province: str = ""
+    city: str = ""
 
 
 class VocabularyLocationOptionsResponse(BaseModel):
@@ -107,6 +142,7 @@ class VocabularyLocationOptionsResponse(BaseModel):
 
 class VocabularyLocationResponse(BaseModel):
     user_id: int
+    username: str = ""
     location_name: str
     coordinates: str
     province: str
@@ -117,7 +153,20 @@ class VocabularyLocationResponse(BaseModel):
     natural_village: str
     yindian_region: str
     atlas_region: str
+    vocabulary_source: str = ""
+    description: str = ""
+    other: str = ""
     location_label: str
+    t1: str = ""
+    t2: str = ""
+    t3: str = ""
+    t4: str = ""
+    t5: str = ""
+    t6: str = ""
+    t7: str = ""
+    t8: str = ""
+    t9: str = ""
+    t10: str = ""
 
 
 class VocabularyLocationsResponse(BaseModel):
@@ -130,6 +179,7 @@ class VocabularyLocationsResponse(BaseModel):
 class VocabularyLocationUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    new_location_name: str | None = None
     coordinates: str | None = None
     province: str | None = None
     city: str | None = None
@@ -139,6 +189,40 @@ class VocabularyLocationUpdateRequest(BaseModel):
     natural_village: str | None = None
     yindian_region: str | None = None
     atlas_region: str | None = None
+    vocabulary_source: str | None = None
+    description: str | None = None
+    other: str | None = None
+    t1: str | None = None
+    t2: str | None = None
+    t3: str | None = None
+    t4: str | None = None
+    t5: str | None = None
+    t6: str | None = None
+    t7: str | None = None
+    t8: str | None = None
+    t9: str | None = None
+    t10: str | None = None
+
+
+class VocabularyLocationTransferRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location_name: str
+    user_id: int | None = None
+    username: str | None = None
+    target_user_id: int | None = None
+    target_username: str | None = None
+
+
+class VocabularyLocationTransferResponse(BaseModel):
+    success: bool
+    location_name: str
+    permission_level: str
+    source_user_id: int
+    source_username: str = ""
+    target_user_id: int
+    target_username: str = ""
+    transferred_entries_count: int
 
 
 class VocabularyLogResponse(BaseModel):
@@ -164,7 +248,7 @@ class VocabularyLogsResponse(BaseModel):
 
 
 class VocabularyPermissionUpdateRequest(BaseModel):
-    permission_level: Literal["none", "edit", "manage"]
+    permission_level: Literal["none", "edit", "manage", "one", "two", "three"]
 
 
 class VocabularyPermissionResponse(BaseModel):
@@ -178,6 +262,7 @@ class VocabularyMeResponse(BaseModel):
     can_upload: bool
     can_manage_entries: bool
     can_view_logs: bool
+    can_delete_locations: bool
 
 
 class VocabularyPermissionsResponse(BaseModel):

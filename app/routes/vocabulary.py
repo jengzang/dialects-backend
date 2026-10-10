@@ -1,6 +1,12 @@
-from typing import Any, Optional
+import io
+from typing import Any, Iterable, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Font
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -9,6 +15,8 @@ from app.schemas.vocabulary import (
     VocabularyLocationOptionsResponse,
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
+    VocabularyLocationTransferRequest,
+    VocabularyLocationTransferResponse,
     VocabularyLocationUpdateRequest,
     VocabularyLogResponse,
     VocabularyLogsResponse,
@@ -23,12 +31,13 @@ from app.schemas.vocabulary import (
     VocabularyUploadResponse,
 )
 from app.service.auth.core.dependencies import get_current_admin_user, get_current_user
+from app.service.auth.database.connection import SessionLocal as AuthSessionLocal
 from app.service.auth.database.models import User
 from app.service.vocabulary.database import get_db as get_vocabulary_db
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 from app.service.vocabulary.logging import record_vocabulary_log
-from app.service.vocabulary.models import VocabularyLocation, VocabularyLog, VocabularyPermission
-from app.service.vocabulary.permissions import get_effective_permission_level
+from app.service.vocabulary.models import TONE_COLUMNS, VocabularyEntry, VocabularyLocation, VocabularyLog, VocabularyPermission
+from app.service.vocabulary.permissions import get_effective_permission_level, SELF_SCOPED_LEVELS
 from app.service.vocabulary.query import (
     query_vocabulary_items,
     query_vocabulary_location_options,
@@ -39,6 +48,7 @@ from app.service.vocabulary.query import (
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
+from app.redis_client import redis_client
 
 
 router = APIRouter()
@@ -57,9 +67,51 @@ def _location_label(location: VocabularyLocation) -> str:
     return label or location.location_name
 
 
-def _location_response(location: VocabularyLocation) -> VocabularyLocationResponse:
+def _resolve_usernames(user_ids: set[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    auth_db = AuthSessionLocal()
+    try:
+        rows = auth_db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
+        return {row.id: row.username for row in rows}
+    finally:
+        auth_db.close()
+
+
+def _resolve_user_reference(
+    *,
+    user_id: Optional[int],
+    username: Optional[str],
+    role_label: str,
+) -> tuple[int, str]:
+    cleaned_username = username.strip() if username is not None else None
+    if user_id is None and not cleaned_username:
+        raise HTTPException(status_code=400, detail=f"{role_label} 需要提供 user_id 或 username")
+
+    auth_db = AuthSessionLocal()
+    try:
+        user_by_id = None
+        user_by_name = None
+        if user_id is not None:
+            user_by_id = auth_db.query(User).filter(User.id == user_id).first()
+            if user_by_id is None:
+                raise HTTPException(status_code=404, detail=f"{role_label} user_id 不存在")
+        if cleaned_username:
+            user_by_name = auth_db.query(User).filter(User.username == cleaned_username).first()
+            if user_by_name is None:
+                raise HTTPException(status_code=404, detail=f"{role_label} username 不存在")
+        if user_by_id is not None and user_by_name is not None and user_by_id.id != user_by_name.id:
+            raise HTTPException(status_code=400, detail=f"{role_label} user_id 与 username 不匹配")
+        resolved = user_by_id or user_by_name
+        return resolved.id, resolved.username
+    finally:
+        auth_db.close()
+
+
+def _location_response(location: VocabularyLocation, username: str = "") -> VocabularyLocationResponse:
     return VocabularyLocationResponse(
         user_id=location.user_id,
+        username=username,
         location_name=location.location_name,
         coordinates=location.coordinates,
         province=location.province or "",
@@ -70,7 +122,11 @@ def _location_response(location: VocabularyLocation) -> VocabularyLocationRespon
         natural_village=location.natural_village or "",
         yindian_region=location.yindian_region or "",
         atlas_region=location.atlas_region or "",
+        vocabulary_source=location.vocabulary_source or "",
+        description=location.description or "",
+        other=location.other or "",
         location_label=_location_label(location),
+        **{column: getattr(location, column) or "" for column in TONE_COLUMNS},
     )
 
 
@@ -106,6 +162,8 @@ def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -117,6 +175,8 @@ def get_vocabulary_items(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
             standard_words=standard_words,
             page=page,
             page_size=page_size,
@@ -132,6 +192,8 @@ def get_vocabulary_map_points(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -140,6 +202,8 @@ def get_vocabulary_map_points(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -152,7 +216,9 @@ def get_vocabulary_standard_words(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
-    limit: Optional[int] = Query(default=100, ge=1, le=1000),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
+    limit: Optional[int] = Query(default=100, ge=1, le=10000),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -161,6 +227,8 @@ def get_vocabulary_standard_words(
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
             limit=limit,
         )
     except ValueError as exc:
@@ -171,19 +239,25 @@ def get_vocabulary_standard_words(
 
 @router.get("/search/map-items", response_model=VocabularyMapItemsResponse)
 def get_vocabulary_map_items(
-    standard_words: list[str] = Query(...),
+    standard_words: Optional[list[str]] = Query(default=None),
+    standard_word_key: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
+    province: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
         return query_vocabulary_map_items(
             session=db,
             standard_words=standard_words,
+            standard_word_key=standard_word_key,
             q=q,
             search_fields=search_fields,
             locations=locations,
+            province=province,
+            city=city,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -204,6 +278,7 @@ def get_vocabulary_location_options(
 @router.get("/locations", response_model=VocabularyLocationsResponse)
 def get_vocabulary_locations(
     user_id: Optional[int] = Query(default=None),
+    username: Optional[str] = Query(default=None),
     location_name: Optional[str] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -213,9 +288,28 @@ def get_vocabulary_locations(
     permission_level = get_effective_permission_level(db, current_user)
     query = db.query(VocabularyLocation)
 
-    if permission_level == "edit":
+    if username is not None:
+        auth_db = AuthSessionLocal()
+        try:
+            resolved_ids = [
+                row.id for row in
+                auth_db.query(User.id).filter(User.username == username).all()
+            ]
+        finally:
+            auth_db.close()
+        if not resolved_ids:
+            return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
+        if user_id is not None and user_id not in resolved_ids:
+            return VocabularyLocationsResponse(locations=[], total=0, page=page, page_size=page_size)
+        if permission_level in SELF_SCOPED_LEVELS:
+            if current_user.id not in resolved_ids:
+                raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
+            query = query.filter(VocabularyLocation.user_id == current_user.id)
+        else:
+            query = query.filter(VocabularyLocation.user_id.in_(resolved_ids))
+    elif permission_level in SELF_SCOPED_LEVELS:
         if user_id is not None and user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="edit 用户只能读取自己的地点信息")
+            raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
         query = query.filter(VocabularyLocation.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(VocabularyLocation.user_id == user_id)
@@ -234,8 +328,10 @@ def get_vocabulary_locations(
         .all()
     )
 
+    usernames = _resolve_usernames({row.user_id for row in rows})
+
     return VocabularyLocationsResponse(
-        locations=[_location_response(row) for row in rows],
+        locations=[_location_response(row, usernames.get(row.user_id, "")) for row in rows],
         total=total,
         page=page,
         page_size=page_size,
@@ -252,8 +348,12 @@ def update_vocabulary_location(
 ):
     permission_level = get_effective_permission_level(db, current_user)
     raw_updates = params.model_dump(exclude_unset=True)
-    if not raw_updates:
+    rename_requested = "new_location_name" in raw_updates
+    new_location_name = str(raw_updates.pop("new_location_name", None) or "").strip()
+    if not raw_updates and not rename_requested:
         raise HTTPException(status_code=400, detail="至少需要提供一个可更新字段")
+    if rename_requested and not new_location_name:
+        raise HTTPException(status_code=400, detail="地点简称不能为空")
 
     updates: dict[str, str] = {}
     for field, value in raw_updates.items():
@@ -262,9 +362,9 @@ def update_vocabulary_location(
     query = db.query(VocabularyLocation).filter(
         VocabularyLocation.location_name == location_name,
     )
-    if permission_level == "edit":
+    if permission_level in SELF_SCOPED_LEVELS:
         if user_id is not None and user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="edit 用户只能编辑自己的地点信息")
+            raise HTTPException(status_code=403, detail="只能编辑自己的地点信息")
         query = query.filter(VocabularyLocation.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(VocabularyLocation.user_id == user_id)
@@ -276,14 +376,40 @@ def update_vocabulary_location(
         raise HTTPException(status_code=400, detail="同名地点属于多个用户，请通过 user_id 指定目标")
 
     target = matches[0]
+    rename_to = new_location_name if rename_requested and new_location_name != target.location_name else ""
+    if rename_to:
+        conflict = (
+            db.query(VocabularyLocation.user_id)
+            .filter(
+                VocabularyLocation.user_id == target.user_id,
+                VocabularyLocation.location_name == rename_to,
+            )
+            .first()
+        )
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail=f"地点「{rename_to}」已存在")
+
     changes = {}
     for field, value in updates.items():
         old_value = getattr(target, field) or ""
         if old_value != value:
             changes[field] = {"old": old_value, "new": value}
         setattr(target, field, value)
+    if rename_to:
+        changes["location_name"] = {"old": target.location_name, "new": rename_to}
 
     try:
+        renamed_entries = 0
+        if rename_to:
+            renamed_entries = (
+                db.query(VocabularyEntry)
+                .filter(
+                    VocabularyEntry.user_id == target.user_id,
+                    VocabularyEntry.location_name == target.location_name,
+                )
+                .update({VocabularyEntry.location_name: rename_to}, synchronize_session=False)
+            )
+            target.location_name = rename_to
         record_vocabulary_log(
             session=db,
             user_id=current_user.id,
@@ -292,12 +418,14 @@ def update_vocabulary_location(
             action="update_location",
             table_name="vocabulary_locations",
             target_scope=f"user_id = {target.user_id}; location_name = {location_name}",
-            affected_rows=1,
+            affected_rows=1 + renamed_entries,
             payload={
                 "location_name": location_name,
                 "target_user_id": target.user_id,
-                "updated_fields": sorted(updates),
+                "updated_fields": sorted(updates) + (["location_name"] if rename_to else []),
                 "changes": changes,
+                "new_location_name": rename_to or None,
+                "renamed_entries": renamed_entries,
             },
         )
         db.commit()
@@ -307,7 +435,254 @@ def update_vocabulary_location(
         raise_vocabulary_database_busy_if_locked(exc)
         raise
 
-    return _location_response(target)
+    usernames = _resolve_usernames({target.user_id})
+    return _location_response(target, usernames.get(target.user_id, ""))
+
+
+@router.post("/locations/transfer", response_model=VocabularyLocationTransferResponse)
+def transfer_vocabulary_location(
+    params: VocabularyLocationTransferRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    if permission_level != "manage":
+        raise HTTPException(status_code=403, detail="仅 manage 可转移地点权限")
+
+    location_name = _string_value(params.location_name)
+    if not location_name:
+        raise HTTPException(status_code=400, detail="location_name 不能为空")
+
+    source_user_id, source_username = _resolve_user_reference(
+        user_id=params.user_id,
+        username=params.username,
+        role_label="源用户",
+    )
+    target_user_id, target_username = _resolve_user_reference(
+        user_id=params.target_user_id,
+        username=params.target_username,
+        role_label="目标用户",
+    )
+    if source_user_id == target_user_id:
+        raise HTTPException(status_code=400, detail="源用户和目标用户不能相同")
+
+    target_exists = db.query(VocabularyLocation).filter(
+        VocabularyLocation.user_id == target_user_id,
+        VocabularyLocation.location_name == location_name,
+    ).first()
+    if target_exists is not None:
+        raise HTTPException(status_code=409, detail="目标用户已有同名地点，不能转移")
+
+    target = db.query(VocabularyLocation).filter(
+        VocabularyLocation.user_id == source_user_id,
+        VocabularyLocation.location_name == location_name,
+    ).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+
+    entry_query = db.query(VocabularyEntry).filter(
+        VocabularyEntry.user_id == source_user_id,
+        VocabularyEntry.location_name == location_name,
+    )
+    transferred_entries_count = entry_query.count()
+
+    try:
+        target.user_id = target_user_id
+        entry_query.update(
+            {VocabularyEntry.user_id: target_user_id},
+            synchronize_session=False,
+        )
+        record_vocabulary_log(
+            session=db,
+            user_id=current_user.id,
+            permission_level=permission_level,
+            source="location_editor",
+            action="transfer_location",
+            table_name="vocabulary_locations",
+            target_scope=(
+                f"source_user_id = {source_user_id}; "
+                f"target_user_id = {target_user_id}; "
+                f"location_name = {location_name}"
+            ),
+            affected_rows=1 + transferred_entries_count,
+            payload={
+                "location_name": location_name,
+                "source_user_id": source_user_id,
+                "source_username": source_username,
+                "target_user_id": target_user_id,
+                "target_username": target_username,
+                "transferred_entries_count": transferred_entries_count,
+                "rollback_supported": True,
+            },
+        )
+        db.commit()
+        db.refresh(target)
+    except Exception as exc:
+        db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
+        raise
+
+    return VocabularyLocationTransferResponse(
+        success=True,
+        location_name=target.location_name,
+        permission_level=permission_level,
+        source_user_id=source_user_id,
+        source_username=source_username,
+        target_user_id=target_user_id,
+        target_username=target_username,
+        transferred_entries_count=transferred_entries_count,
+    )
+
+
+@router.delete("/locations/{location_name}")
+def delete_vocabulary_location(
+    location_name: str,
+    user_id: Optional[int] = Query(default=None),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+    query = db.query(VocabularyLocation).filter(
+        VocabularyLocation.location_name == location_name,
+    )
+    if permission_level == "edit":
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="只能删除自己的地点")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif permission_level == "manage":
+        if user_id is not None:
+            query = query.filter(VocabularyLocation.user_id == user_id)
+    else:
+        raise HTTPException(status_code=403, detail="仅 edit/manage 可删除地点")
+
+    targets = query.all()
+    if not targets:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+    if user_id is None and len(targets) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="同名地点属于多个用户，请通过 user_id 参数指定目标",
+        )
+
+    target = targets[0]
+    entry_count = db.query(VocabularyEntry).filter(
+        VocabularyEntry.user_id == target.user_id,
+        VocabularyEntry.location_name == target.location_name,
+    ).count()
+
+    try:
+        db.query(VocabularyEntry).filter(
+            VocabularyEntry.user_id == target.user_id,
+            VocabularyEntry.location_name == target.location_name,
+        ).delete(synchronize_session=False)
+        db.delete(target)
+        record_vocabulary_log(
+            session=db,
+            user_id=current_user.id,
+            permission_level=permission_level,
+            source="location_editor",
+            action="delete_location",
+            table_name="vocabulary_locations",
+            target_scope=f"user_id = {target.user_id}; location_name = {location_name}",
+            affected_rows=1 + entry_count,
+            payload={
+                "location_name": location_name,
+                "target_user_id": target.user_id,
+                "deleted_entries_count": entry_count,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise_vocabulary_database_busy_if_locked(exc)
+        raise
+
+    return {"status": "deleted", "location_name": location_name, "deleted_entries": entry_count}
+
+
+_EXPORT_HEADERS = ("标准词", "方言词", "音标", "详细释义")
+
+
+def _iter_location_export_rows(db: Session, location: VocabularyLocation):
+    query = (
+        db.query(
+            VocabularyEntry.standard_word,
+            VocabularyEntry.local_expression,
+            VocabularyEntry.ipa,
+            VocabularyEntry.notes,
+        )
+        .filter(
+            VocabularyEntry.user_id == location.user_id,
+            VocabularyEntry.location_name == location.location_name,
+        )
+        .order_by(VocabularyEntry.id.asc())
+        .yield_per(2000)
+    )
+    for standard_word, local_expression, ipa, notes in query:
+        yield (standard_word or "", local_expression or "", ipa or "", notes or "")
+
+
+def _build_location_export_response(
+    location_name: str,
+    rows: Iterable[tuple[str, str, str, str]],
+) -> StreamingResponse:
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet(title="词表")
+
+    header_cells = [WriteOnlyCell(sheet, value=value) for value in _EXPORT_HEADERS]
+    for cell in header_cells:
+        cell.font = Font(bold=True)
+    sheet.append(header_cells)
+
+    for row in rows:
+        sheet.append(list(row))
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"{location_name}词表.xlsx"
+    disposition = (
+        'attachment; filename="vocabulary_export.xlsx"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.get("/locations/{location_name}/export")
+def export_vocabulary_location(
+    location_name: str,
+    user_id: Optional[int] = Query(default=None),
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_vocabulary_db),
+):
+    permission_level = get_effective_permission_level(db, current_user)
+
+    query = db.query(VocabularyLocation).filter(
+        VocabularyLocation.location_name == location_name,
+    )
+    if permission_level in SELF_SCOPED_LEVELS:
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="只能导出自己的地点信息")
+        query = query.filter(VocabularyLocation.user_id == current_user.id)
+    elif user_id is not None:
+        query = query.filter(VocabularyLocation.user_id == user_id)
+
+    matches = query.order_by(VocabularyLocation.user_id.asc()).all()
+    if not matches:
+        raise HTTPException(status_code=404, detail="未找到地点信息")
+    if permission_level == "manage" and user_id is None and len(matches) > 1:
+        raise HTTPException(status_code=400, detail="同名地点属于多个用户，请通过 user_id 指定目标")
+
+    target = matches[0]
+    return _build_location_export_response(
+        target.location_name,
+        _iter_location_export_rows(db, target),
+    )
 
 
 @router.get("/logs", response_model=VocabularyLogsResponse)
@@ -370,7 +745,7 @@ async def upload_vocabulary(
 ):
     content = await file.read()
     try:
-        return import_vocabulary_upload(
+        result = import_vocabulary_upload(
             session=db,
             user=current_user,
             filename=file.filename or "upload",
@@ -380,6 +755,13 @@ async def upload_vocabulary(
             overwrite=overwrite,
             fill_standard_from_local=fill_standard_from_local,
         )
+        try:
+            keys = await redis_client.keys("vocab_sql_count:vocabulary_entries*")
+            if keys:
+                await redis_client.delete(*keys)
+        except Exception:
+            pass
+        return result
     except HTTPException:
         raise
     except VocabularyImportConflictError as exc:
@@ -432,6 +814,7 @@ def get_my_vocabulary_context(
             can_upload=True,
             can_manage_entries=True,
             can_view_logs=True,
+            can_delete_locations=True,
         )
 
     permission = db.query(VocabularyPermission).filter(
@@ -441,9 +824,10 @@ def get_my_vocabulary_context(
     return VocabularyMeResponse(
         user_id=current_user.id,
         permission_level=permission_level,
-        can_upload=permission_level in {"edit", "manage"},
+        can_upload=permission_level in SELF_SCOPED_LEVELS or permission_level == "manage",
         can_manage_entries=permission_level == "manage",
         can_view_logs=permission_level == "manage",
+        can_delete_locations=permission_level in {"edit", "manage"},
     )
 
 

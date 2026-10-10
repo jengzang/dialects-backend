@@ -14,6 +14,8 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+TONE_COLUMNS = tuple(f"t{index}" for index in range(1, 11))
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -34,6 +36,11 @@ class VocabularyEntry(Base):
 
     __table_args__ = (
         Index("idx_vocabulary_entries_user_location", "user_id", "location_name"),
+        Index(
+            "idx_vocabulary_entries_standard_word_location",
+            "standard_word",
+            "location_name",
+        ),
     )
 
 
@@ -52,6 +59,19 @@ class VocabularyLocation(Base):
     natural_village = Column(String(200), default="")
     yindian_region = Column(String(200), default="")
     atlas_region = Column(String(200), default="")
+    vocabulary_source = Column(Text, default="", server_default="")
+    description = Column(Text, default="", server_default="")
+    other = Column(Text, default="", server_default="")
+    t1 = Column(String(50), default="", server_default="")
+    t2 = Column(String(50), default="", server_default="")
+    t3 = Column(String(50), default="", server_default="")
+    t4 = Column(String(50), default="", server_default="")
+    t5 = Column(String(50), default="", server_default="")
+    t6 = Column(String(50), default="", server_default="")
+    t7 = Column(String(50), default="", server_default="")
+    t8 = Column(String(50), default="", server_default="")
+    t9 = Column(String(50), default="", server_default="")
+    t10 = Column(String(50), default="", server_default="")
     __table_args__ = (
         UniqueConstraint("user_id", "location_name", name="uq_vocabulary_location_user_name"),
     )

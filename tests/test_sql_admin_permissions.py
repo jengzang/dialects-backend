@@ -64,7 +64,7 @@ class SqlAdminPermissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["role"], "admin")
         self.assertIn("query", result["editable_db_keys"])
         self.assertIn("query_admin", result["editable_db_keys"])
-        self.assertNotIn("vocabulary", result["editable_db_keys"])
+        self.assertIn("vocabulary", result["editable_db_keys"])
         self.assertNotIn("permissions", result)
 
     async def test_my_sql_permissions_only_reports_current_user_editable_databases(self) -> None:
@@ -151,29 +151,32 @@ class SqlAdminPermissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 403)
         self.assertEqual(rows, [("old",)])
 
-    async def test_generic_sql_does_not_expose_vocabulary_database(self) -> None:
-        from app.common.path import DB_MAPPING
+    async def test_non_admin_cannot_write_admin_only_database_even_with_db_permission(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "sensitive.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("CREATE TABLE items (name TEXT)")
 
-        self.assertNotIn("vocabulary", DB_MAPPING)
+            with (
+                patch("app.sql.sql_routes.DB_MAPPING", {"sensitive": str(db_path)}),
+                patch("app.sql.choose_db.DB_MAPPING", {"sensitive": str(db_path)}),
+                patch("app.sql.choose_db.ADMIN_ONLY_DBS", {"sensitive"}),
+                patch("app.service.auth.security.permission_cache.get_cached_permission_sync", return_value=None),
+                patch("app.service.auth.security.permission_cache.set_cached_permission_sync"),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    await mutate_table(
+                        MutationParams(
+                            db_key="sensitive",
+                            table_name="items",
+                            action="create",
+                            data={"name": "甲"},
+                        ),
+                        current_user=_FakeUser(user_id=1),
+                        auth_db=_FakeAuthDb(can_write=True),
+                    )
 
-        with self.assertRaises(HTTPException) as raised:
-            await mutate_table(
-                MutationParams(
-                    db_key="vocabulary",
-                    table_name="vocabulary_entries",
-                    action="create",
-                    data={
-                        "location_name": "息烽",
-                        "standard_word": "太阳",
-                        "local_expression": "日头",
-                        "ipa": "ipa",
-                    },
-                ),
-                current_user=_FakeUser(user_id=1, role="admin"),
-                auth_db=_FakeAuthDb(can_write=None),
-            )
-
-        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(raised.exception.status_code, 403)
 
 
 if __name__ == "__main__":

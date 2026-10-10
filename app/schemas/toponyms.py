@@ -18,6 +18,20 @@ class ToponymNamesResponse(BaseModel):
     items: list[str]
 
 
+class ToponymSearchItem(BaseModel):
+    id: str
+    name: str
+    area_code: str | None = None
+    place_type_code: str | None = None
+
+
+class ToponymSearchResponse(BaseModel):
+    items: list[ToponymSearchItem]
+    count: int
+    truncated: bool
+    next: None = None
+
+
 class ToponymNameDivisionNode(BaseModel):
     name: str
     level: int
@@ -26,7 +40,47 @@ class ToponymNameDivisionNode(BaseModel):
 
 
 class ToponymNameTreeResponse(BaseModel):
+    mode: str = "full"
     items: list[ToponymNameDivisionNode]
+    levels: int = 4
+
+
+class ToponymNameTreeBootstrapChild(BaseModel):
+    name: str
+    level: int
+
+
+class ToponymNameTreeBootstrapNode(BaseModel):
+    name: str
+    level: int
+    children: list[ToponymNameTreeBootstrapChild]
+
+
+class ToponymNameTreeLazyFallbackResponse(BaseModel):
+    mode: str
+    reason: str
+    threshold: int
+    filtered_count: int
+    levels: int
+    lazy_bootstrap: list[ToponymNameTreeBootstrapNode]
+
+
+class ToponymNameTreeLazyChildrenResponse(BaseModel):
+    mode: str
+    level: int
+    parent_path: list[str]
+    children: list[ToponymNameTreeBootstrapChild]
+    has_more: bool
+
+
+class ToponymNameTreeLazyNamesResponse(BaseModel):
+    mode: str
+    level: int
+    parent_path: list[str]
+    names: list[str]
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class ToponymDetailDivision(BaseModel):

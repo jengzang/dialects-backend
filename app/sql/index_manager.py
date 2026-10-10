@@ -4,7 +4,27 @@ Database Index Manager
 """
 
 import sqlite3
+from pathlib import Path
 from typing import Set
+
+
+NOTES_INVALID_DETAIL_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS idx_notes_invalid_detail ON notes(註釋) "
+    "WHERE TRIM(COALESCE(註釋, '')) IN ('', '_', '-')"
+)
+
+
+def ensure_notes_invalid_detail_index(db_path: str | Path) -> None:
+    """Apply only the sparse index needed by the unscoped /api/notes count."""
+    if not Path(db_path).is_file():
+        raise FileNotFoundError(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        with conn:
+            conn.execute(NOTES_INVALID_DETAIL_INDEX_SQL)
+    finally:
+        conn.close()
 
 
 def ensure_indexes(db_path: str) -> None:
@@ -53,6 +73,15 @@ def ensure_indexes(db_path: str) -> None:
             # 消除 filesort 和 hash aggregation，对大地点集合查询效果最显著
             "CREATE INDEX IF NOT EXISTS idx_dialects_abbr_pho_full ON dialects(簡稱, 聲母, 韻母, 聲調)",
         ]
+
+        # notes 表只在部分库中存在；缺失时跳过，避免中断 dialects 索引的创建。
+        # /api/notes 的 pronunciation 字段用 LIKE '%…%' 做「包含」搜索，前导通配符
+        # 无法用 B-tree 定位；该覆盖索引让计划器把「扫 ~92MB notes 表」改为
+        # 「扫 ~25MB 索引」——前提是查询不再引用 音節 以外的列（见 notes.py）。
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'")
+        if cursor.fetchone():
+            indexes.append("CREATE INDEX IF NOT EXISTS idx_notes_ipa ON notes(音節)")
+            indexes.append(NOTES_INVALID_DETAIL_INDEX_SQL)
 
         # 创建索引
         created_count = 0
@@ -304,6 +333,14 @@ def drop_all_indexes(db_path: str) -> None:
 if __name__ == "__main__":
     # 命令行工具：可以手动运行此脚本来创建索引
     import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "notes-invalid-detail":
+        if len(sys.argv) != 3:
+            raise SystemExit("Usage: python -m app.sql.index_manager notes-invalid-detail DB_PATH")
+        ensure_notes_invalid_detail_index(sys.argv[2])
+        print(f"  ✓ 已确保 notes 无效注释索引: {sys.argv[2]}")
+        sys.exit(0)
+
     from app.common.path import QUERY_DB_USER
     from app.common.path import QUERY_DB_ADMIN, QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER, CHARACTERS_DB_PATH
 

@@ -33,6 +33,7 @@ data/dependency/*.mmdb
 
 data/geo/
 data/gis/
+data/yubao_exports/
 
 # Logs
 *.log
