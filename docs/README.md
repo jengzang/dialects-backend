@@ -6,11 +6,14 @@ Process notes, intermediate plans, checklists, quickstarts, code review notes, a
 
 ## Root Docs
 
-- [admin_analytics_api.md](admin_analytics_api.md): Admin analytics API reference.
-- [admin_leaderboard_api.md](admin_leaderboard_api.md): Admin leaderboard API reference.
-- [api_stats_write_mechanism.md](api_stats_write_mechanism.md): `logs.db` statistics write path and queue behavior.
-- [ip_location_api_reference.md](ip_location_api_reference.md): IP location field semantics and response examples.
-- [session_online_vs_active.md](session_online_vs_active.md): Session online/active definitions and differences.
+- [Project README](../README.md): Current feature overview, setup, configuration, and maintenance entry points.
+- [API reference and schemas](../api.md): Generated reference for registered HTTP operations.
+- [OpenAPI JSON](openapi.json): Machine-readable HTTP contracts; regenerate with `python scripts/export_api_docs.py` from the repository root.
+- [Admin analytics API](api/admin/admin_analytics_api.md): Admin analytics API reference.
+- [Admin leaderboard API](api/admin/admin_leaderboard_api.md): Admin leaderboard API reference.
+- [API statistics write mechanism](api/admin/api_stats_write_mechanism.md): `logs.db` statistics write path and queue behavior.
+- [IP location API](api/admin/ip_location_api_reference.md): IP location field semantics and response examples.
+- [Session online vs active](archive/session_online_vs_active.md): Historical explanation of session online/active definitions and differences.
 
 ## API Docs
 
