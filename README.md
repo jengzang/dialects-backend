@@ -98,37 +98,222 @@ VillagesML 提供村名搜索、字频、语义、空间、N-gram 模式、区�
 
 ### 架构图
 
-后端由应用工厂装配业务模块。HTTP 请求通过中间件、路由及依赖检查进入业务实现；日志写入和 Cluster 排队任务分别使用独立的后台链路。
+以下框图按当前源码绘制。应用工厂负责装配，HTTP 链路负责请求处理，后台服务负责队列消费、维护和备份；它们之间的数据流分别展开。图中的依赖检查列出职责，具体执行顺序由路由及 FastAPI 依赖声明决定。
 
-```mermaid
-flowchart TB
-    Client["Vue 前端 / API 客户端"] --> Entry["run.py / serve.py<br/>Uvicorn / Gunicorn workers"]
-    Entry --> App["app/main.py<br/>应用工厂 + lifespan"]
-    App --> Middleware["中间件<br/>语言前缀与 SPA 兜底 / CORS / GZip<br/>RequestLogMiddleware / EXE 打印控制"]
-    Middleware --> Routes["路由装配<br/>app/routes + app/tools + app/sql<br/>app/service/logging + app/villagesML"]
-    Routes --> Dependencies["请求与依赖检查<br/>Pydantic 模型 / ApiLimiter<br/>JWT、Session 与业务权限"]
-    Dependencies --> Services["业务实现<br/>app/service：查询、比较、词表、用户、管理<br/>app/tools：字表、Praat、Cluster<br/>app/geo_query / app/villagesML：地理与村名分析"]
-    Services --> DataAccess["数据访问<br/>SQLite 连接池 / SQLAlchemy ORM<br/>GIS 空间索引与 VillagesML schema 映射"]
-    DataAccess --> BusinessDB["业务 SQLite<br/>读音、档案、韵书、词表、语保、自然村、地名<br/>supplements.db / GIS 索引"]
-    DataAccess --> AuthDB["auth.db<br/>用户、密钥、Session、Token、usage"]
-    DataAccess --> LogsDB["logs.db<br/>统计与诊断查询"]
-    Services --> Cache["缓存<br/>进程内方言与计算缓存<br/>WEB 模式 Redis"]
-    Services --> Files["工具文件与任务状态<br/>file_manager / task_manager<br/>FILE_STORAGE_PATH 下的 JSON 与产物"]
-    Files --> ClusterQueue["Cluster 文件队列<br/>pending / processing / completed / failed"]
-    ClusterQueue --> Executor["后台串行 Cluster executor"]
-    Executor --> Services
-    Middleware -. "usage / 路径统计 / 诊断事件" .-> Queues["日志跨进程队列<br/>usage、summary、statistics、HTML<br/>online time、diagnostics；keyword 可选"]
-    Queues --> Writers["后台日志 writer 线程"]
-    Writers --> AuthDB
-    Writers --> LogsDB
-    App -. "生命周期管理" .-> Background["后台服务<br/>日志 writers / APScheduler<br/>Cluster executor / 工具清理 / 数据库备份"]
-    Background -.-> Writers
-    Background -.-> Executor
-    Background -. "清理任务与产物" .-> Files
-    App --> Static["主应用静态文件挂载<br/>app/statics 前端构建产物"]
+#### 1. 应用装配与 HTTP 请求链路
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 客户端与运行入口                                                                                     │
+│ Vue 前端 / 外部 API 客户端 → HTTP 请求                                                               │
+│ 本地：run.py → Uvicorn → app.main:app                                                                │
+│ 生产：gunicorn_config.py → Gunicorn workers → serve:app                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 应用工厂：app/main.py                                                                                │
+│ _create_app(startup_fn, route_setup_fn, background_services, static_mounts)                          │
+│   ├─ create_main_app / create_app：完整主应用，默认 app，挂载前端                                    │
+│   ├─ create_gis_app：GIS 专用路由，启动严格加载引擎，不挂载前端                                      │
+│   └─ create_cluster_app：Cluster 专用路由，不挂载前端                                                │
+│ 共享：lifespan、公共中间件、运行模式；不同：路由、启动函数、后台与静态开关                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ HTTP 中间件与页面处理：_apply_common_middlewares / _mount_static                                     │
+│   ├─ 语言前缀处理：/en、/zh-Hant、/zh-CN → 实际后端或页面路径                                        │
+│   ├─ RequestLogMiddleware：耗时、响应大小、usage、统计、诊断采集                                     │
+│   ├─ GZipMiddleware：压缩满足阈值的响应                                                              │
+│   ├─ CORSMiddleware：WEB 限定线上来源，MINE / EXE 使用开发配置                                       │
+│   └─ EXE：请求期间打印控制                                                                           │
+│ 非后端路径的 GET 404 → SPA index.html；后端路径 404 保留接口错误                                     │
+│ 主应用静态挂载 → app/statics；EXE 额外挂载 /data → userdata                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │  API 请求进入对应路由；页面与静态资源由挂载处理
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 路由装配与业务入口                                                                                   │
+│ app/routes/__init__.py：setup_main_routes                                                            │
+│   ├─ /api：查字、查中古、查音位、查调、矩阵、演化、比较、查注释                                      │
+│   ├─ /api：地点详情、分区、匹配、坐标；/api/gis：边界与空间查询                                      │
+│   ├─ /api/auth：注册、登录、Token、会话                                                              │
+│   ├─ /api/vocabulary、/api/vocabulary/sql：词表与表格管理                                            │
+│   ├─ /api：语保、地名、个人补充、建议与提交                                                          │
+│   └─ /admin、/user：管理后台、个人资料与统计                                                         │
+│ app/tools/__init__.py：/api/tools/check、jyut2ipa、merge、praat、cluster                             │
+│ app/sql/__init__.py：/sql；app/service/logging/__init__.py：/logs                                    │
+│ app/villagesML/__init__.py：/api/villages → 村名查询、分析、计算、管理                               │
+│ 主应用 setup_routes 汇总上述模块；GIS / Cluster 专用应用仅装配对应子集                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 请求模型、认证与权限依赖                                                                             │
+│ Pydantic：query / path / body / 上传参数、类型约束与自定义 validator                                 │
+│ ApiLimiter：路径规则 → 是否要求登录 → 用户 / IP 使用限制                                             │
+│ 认证依赖：Bearer Token → JWT 校验 → 用户、Session、权限                                              │
+│ 业务权限：管理员、词表编辑 / 管理、个人数据归属、数据库访问范围                                      │
+│ 各模块按需组合；已登录并不自动获得所有写入或管理权限                                                 │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 业务执行与计算                                                                                       │
+│ app/service/core、geo：读音查询、分类统计、比较、矩阵、地点与分区                                    │
+│ app/service/vocabulary、yubao、toponyms：词表、词句、地名与相关管理                                  │
+│ app/service/auth、user、admin、logging：认证、个人数据、管理与统计                                   │
+│ app/tools：文件解析、字表检查 / 转换 / 合并、Praat、Cluster                                          │
+│ app/geo_query：空间索引引擎；app/villagesML：schema 映射、查询与计算                                 │
+│ 计算按模块使用同步函数、线程池、BackgroundTasks 或 Cluster executor                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 数据访问与响应返回                                                                                   │
+│ SQLite 连接池 / SQLAlchemy ORM / GIS 索引 / Redis 与进程内缓存                                       │
+│ 工具任务 → 文件状态与结果产物；日志事件 → 独立写入队列                                               │
+│ 响应模型或动态 JSON / 文件下载 → 中间件统计与压缩 → 客户端                                           │
+│ 详细数据去向见图 2；异步任务与日志分支见图 3                                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-图中的依赖检查表示职责，具体先后由 FastAPI 路由和依赖声明决定；并非每条路由都有同一套认证要求。日志队列与 Cluster 文件队列是两套不同机制，普通工具的任务也不都由 Cluster executor 执行。
+#### 2. 数据访问、数据库与缓存
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 业务模块的数据访问方式                                                                               │
+│ 原始 SQL：app/sql/db_pool.py → 每进程 SQLite 连接池                                                  │
+│ ORM：auth / user / vocabulary / logging 的 SQLAlchemy engine 与 Session                              │
+│ GIS：app/geo_query → gis.db 空间索引；首次请求可通过依赖懒加载                                       │
+│ VillagesML：schema_config / schema_runtime → 逻辑表字段映射 → 实际 SQLite                            │
+│ 路径集中配置：app/common/path.py；具体读写与权限由模块控制                                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │  按业务职责访问，不是所有数据库串行经过同一个 ORM
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ data/ 下的 SQLite 业务数据                                                                           │
+│   ├─ query_user.db：地点档案、分区、调类等查询资料                                                   │
+│   ├─ dialects_user.db：声母、韵母、声调、字音及注释                                                  │
+│   │    当前 QUERY_DB_ADMIN/USER 与 DIALECTS_DB_ADMIN/USER 分别共用上述文件                           │
+│   ├─ characters.db：韵书地位、汉字、注释与各字集                                                     │
+│   ├─ vocabulary.db：词条、地点资料、编辑历史与回滚相关记录                                           │
+│   ├─ yubao.db / yc_spoken.db：语保词句 / 阳春口语                                                    │
+│   ├─ villages.db / villages_admin.db：自然村、村名分析 / 管理侧资料                                  │
+│   ├─ toponyms.db：地名业务资料                                                                       │
+│   └─ dependency/gis.db：行政边界与空间查询索引                                                       │
+│ 预处理业务资料由外部数据流程准备，安装依赖和自动建表不会生成这些资料                                 │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 持久化用户数据与运维数据                                                                             │
+│   ├─ supplements.db：个人补充、自定义分区、提交与建议等                                              │
+│   ├─ auth.db：用户、JWT 密钥、Session、Token、usage 明细 / 摘要、在线时长                            │
+│   └─ logs.db：hourly / daily 访问统计、HTML 访问、API 诊断、历史关键词                               │
+│ 业务请求可直接访问 ORM；usage / 统计 / 诊断主要通过后台 writer 批量写入                              │
+│ 备份线程 → SQLite backup API → data/backups/{vocabulary,auth,supplements}/                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 缓存与工具文件：与 SQLite 分别管理                                                                   │
+│   ├─ 进程内缓存：地点匹配、方言资料和模块计算缓存；各 worker 独立                                    │
+│   ├─ Redis：WEB 使用真实服务，缓存用户、权限与部分计算结果                                           │
+│   │    MINE / EXE 使用空 Redis 实现，不影响其他进程内缓存                                            │
+│   └─ FILE_STORAGE_PATH：工具输入、任务 JSON、结果与 Cluster 分阶段产物                               │
+│        file_manager 管路径 / 清理策略；task_manager 管任务状态 / 进度                                │
+│        共享目录使不同 worker 能读取同一任务；不等同于永久业务数据存储                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 3. 工具任务与日志后台写入
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 工具任务入口：/api/tools/**                                                                          │
+│ 上传 / 请求校验 → file_manager 保存输入 → task_manager 创建任务 JSON                                 │
+│ 客户端获得 task_id / job_id → 轮询状态 → 读取结果 / 下载文件                                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │  普通工具与 Cluster 分别执行
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Check / Jyut2IPA / Merge / Praat                                                                     │
+│ 路由按模块使用 FastAPI BackgroundTasks，部分步骤移交线程池                                           │
+│ Praat：上传与归一化 → 创建分析 job → asyncio.to_thread 执行分析                                      │
+│ 执行过程更新 JSON 状态 / 进度 → 结果写入工具目录 → 客户端读取                                        │
+│ task_manager 任务状态：pending → processing → completed / failed                                     │
+│ 这些任务不会自动进入下面的 Cluster 文件执行队列                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Cluster 普通任务与分阶段任务                                                                         │
+│ 请求解析 / 地点匹配 / 数据库与参数快照 → 结果缓存检查                                                │
+│   ├─ 命中结果缓存 → 写结果、更新任务为 completed → 返回                                              │
+│   └─ 需要计算 → task_manager 创建任务 → executor_queue.enqueue_job                                   │
+│ 文件队列：_executor/pending/*.json                                                                   │
+│   → 原子移动领取 → processing → 单实例串行 executor 调度计算                                         │
+│   → completed 或 failed；下次 executor 启动时将遗留 processing 重新入队                              │
+│ 执行类型：cluster_job / staged_prepare / staged_distance / staged_cluster                            │
+│ 分阶段链路：preview → prepare → distances → clusters → result                                        │
+│ 任务 JSON / _artifacts / 结果文件 ↔ 客户端轮询、结果接口、模块缓存                                   │
+│ periodic_cleanup → 按 TTL / policy / 容量清理；不会作为任务计算器执行                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ HTTP 日志采集 → multiprocessing.Queue → 后台 writer 线程                                             │
+│ 采集来源：RequestLogMiddleware、业务日志调用及在线时长上报等                                         │
+│   ├─ log_queue         → usage 明细 writer       → auth.db                                           │
+│   ├─ summary_queue     → usage 摘要 writer       → auth.db                                           │
+│   ├─ online_time_queue → 在线时长 writer         → auth.db                                           │
+│   ├─ statistics_queue  → hourly / daily writer   → logs.db                                           │
+│   ├─ html_visit_queue  → 页面访问 writer         → logs.db                                           │
+│   ├─ diagnostic_queue  → 错误 / 慢请求 writer    → logs.db                                           │
+│   └─ keyword_log_queue → 关键词 writer           → logs.db（默认关闭）                               │
+│ usage / summary 入队或写入失败的恢复链路：auth_usage_recovery 保留事件文件                           │
+│ 日志队列在当前 Gunicorn 进程树中共享；与 Cluster 文件队列无关                                        │
+│ 关闭时通知 writer 停止并在时限内排空，强制终止仍可能丢失未落盘事件                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4. 进程边界与生命周期
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 本地主应用：run.py → 单个 Uvicorn 服务进程（MINE 开发重载另有监控进程）                              │
+│ lifespan 启动 → run_main_startup                                                                     │
+│   连接池 → 可选迁移 / 索引 → 可选 vocabulary 维护 → 工具清理 → 缓存预热                              │
+│   → start_background_services                                                                        │
+│   → 请求服务与日志 writers、scheduler、executor、清理 / 备份线程并行                                 │
+│ lifespan 关闭 → stop_background_services → Redis close → SQLite pools close                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 生产：gunicorn_config.py → Gunicorn master                                                           │
+│ 配置加载：准备 Numba 环境；on_starting：可选 vocabulary 维护、启动后台服务                           │
+│   ├─ 日志 writer 线程组：消费与 workers 共享的日志队列                                               │
+│   ├─ APScheduler：统计与认证相关维护                                                                 │
+│   ├─ Cluster executor：串行消费共享目录的 Cluster 文件任务                                           │
+│   ├─ periodic_cleanup：工具临时文件与产物清理                                                        │
+│   └─ db-backup：vocabulary / auth / supplements 的周期备份                                           │
+│ on_exit：停止上述后台服务                                                                            │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │  同一 master 下默认 3 个 Uvicorn workers
+                                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Gunicorn worker 1 / worker 2 / worker 3                                                              │
+│ 每个 worker：导入应用、执行相应启动步骤、承接 HTTP 请求                                              │
+│   ├─ 独立：SQLite 连接池、ORM 连接、进程内缓存                                                       │
+│   ├─ 共享：Redis、日志 multiprocessing.Queue、工具任务与结果文件目录                                 │
+│   └─ 跳过：后台服务的重复启停与 vocabulary 启动维护                                                  │
+│ worker lifespan 退出 → 关闭 Redis / 连接池；worker_exit → 连接池清理                                 │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ 可选独立应用入口：不是仓库默认的三进程部署                                                           │
+│ app/entrypoints/gis_app.py → create_gis_app → GIS 严格初始化                                         │
+│ app/entrypoints/cluster_app.py → create_cluster_app → Cluster 路由与预热                             │
+│ 两者的应用 lifespan 都不启动 start_background_services                                               │
+│ 独立 Cluster HTTP 服务还需要可访问同一目录的 executor 执行已入队任务                                 │
+│ 多套 Gunicorn master 不共享 Python 队列；需明确后台归属与转发配置                                    │
+│ 仓库现有主应用已注册 GIS 和 Cluster，不能按旧图假定默认已拆分                                        │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+框图中的数据库、缓存和线程属于不同生命周期：业务数据库长期保存，缓存可失效，工具产物按策略清理。请求处理、队列消费与维护任务并行运行，不应把图中的分层理解为所有工作都在请求线程里顺序完成。
 
 ### 应用装配与模块职责
 
