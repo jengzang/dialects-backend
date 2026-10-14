@@ -64,3 +64,42 @@ def get_partition_tree(db_path, region_mode="yindian", parent=None):
         "parent": parent,
         "nodes": roots if parent is None else nodes[parent]["children"],
     }
+
+
+def resolve_partition_items(db_path, region_mode, items, scope="default", db=None, user=None):
+    from opencc import OpenCC
+    from app.service.user.core.models import Information
+
+    sources = {}
+
+    def add_paths(paths, source):
+        for path in paths:
+            if not valid_partition_path(path):
+                continue
+            parts = path.split("-")
+            for depth in range(1, len(parts) + 1):
+                prefix = "-".join(parts[:depth])
+                sources.setdefault(prefix, set()).add(source)
+
+    # Visibility is a selector policy, not a restriction on explicitly typed accessible paths.
+    add_paths(read_partition_paths(db_path, region_mode), "default")
+    if scope == "default_and_user" and region_mode == "yindian" and db is not None and user:
+        rows = db.query(Information.音典分區).filter(Information.user_id == user.id).distinct().all()
+        add_paths((path for (path,) in rows), "user")
+    converter = OpenCC("t2s")
+    output = []
+    for item in items:
+        text, kind = item.text, item.kind
+        if kind == "path":
+            matches = [text] if text in sources else []
+        else:
+            matches = [path for path in sources if path.split("-")[-1] == text]
+            if not matches:
+                simplified = converter.convert(text)
+                matches = [path for path in sources if converter.convert(path.split("-")[-1]) == simplified]
+        candidates = [{"path": path, "label": path.split("-")[-1], "sources": sorted(sources[path])}
+                      for path in sorted(matches)]
+        output.append({"text": text, "kind": kind,
+                       "status": "resolved" if len(candidates) == 1 else "ambiguous" if candidates else "not_found",
+                       "candidates": candidates})
+    return {"schema_version": 2, "region_mode": region_mode, "items": output}
