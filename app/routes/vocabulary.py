@@ -1,5 +1,5 @@
 import io
-from typing import Any, Iterable, Optional
+from typing import Annotated, Any, Iterable, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -740,6 +740,7 @@ async def upload_vocabulary(
     parser_mode: str = Form("auto"),
     overwrite: bool = Form(False),
     fill_standard_from_local: bool = Form(False),
+    target_user_id: Annotated[Optional[int], Form()] = None,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -754,6 +755,7 @@ async def upload_vocabulary(
             parser_mode=parser_mode,
             overwrite=overwrite,
             fill_standard_from_local=fill_standard_from_local,
+            target_user_id=target_user_id,
         )
         try:
             keys = await redis_client.keys("vocab_sql_count:vocabulary_entries*")
@@ -779,6 +781,7 @@ async def preview_vocabulary_upload_endpoint(
     location: str = Form(...),
     parser_mode: str = Form("auto"),
     fill_standard_from_local: bool = Form(False),
+    target_user_id: Annotated[Optional[int], Form()] = None,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -792,6 +795,7 @@ async def preview_vocabulary_upload_endpoint(
             location_payload=location,
             parser_mode=parser_mode,
             fill_standard_from_local=fill_standard_from_local,
+            target_user_id=target_user_id,
         )
     except HTTPException:
         raise

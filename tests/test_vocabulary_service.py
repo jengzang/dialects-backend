@@ -388,7 +388,7 @@ def test_import_upserts_location_source_description_and_other(tmp_path: Path) ->
         session.close()
 
 
-def test_reimport_without_tones_clears_them_like_other_metadata(tmp_path: Path) -> None:
+def test_reimport_without_tones_preserves_them_like_other_metadata(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:
         session.add(VocabularyPermission(user_id=7, permission_level="edit"))
@@ -431,7 +431,7 @@ def test_reimport_without_tones_clears_them_like_other_metadata(tmp_path: Path) 
             overwrite=True,
         )
         location = session.query(VocabularyLocation).one()
-        assert (location.t1, location.province) == ("", "")
+        assert (location.t1, location.province) == ("55", "贵州")
     finally:
         session.close()
 

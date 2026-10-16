@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from threading import Lock
 
+from fastapi import HTTPException
+from sqlalchemy import case
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -60,11 +62,11 @@ def _get_import_lock(user_id: int, location_name: str) -> Lock:
 def _upsert_location(
     *,
     session: Session,
-    user: object,
+    user_id: int,
     normalized_location,
 ) -> VocabularyLocation:
     values = {
-        "user_id": user.id,
+        "user_id": user_id,
         "location_name": normalized_location.location_name,
         "coordinates": normalized_location.coordinates,
         "province": normalized_location.province,
@@ -91,7 +93,10 @@ def _upsert_location(
     }
     statement = sqlite_insert(VocabularyLocation).values(**values)
     update_values = {
-        column: getattr(statement.excluded, column)
+        column: case(
+            (getattr(statement.excluded, column) != "", getattr(statement.excluded, column)),
+            else_=getattr(VocabularyLocation, column),
+        )
         for column in values
         if column not in {"user_id", "location_name"}
     }
@@ -103,7 +108,7 @@ def _upsert_location(
     )
     session.flush()
     location = session.query(VocabularyLocation).filter(
-        VocabularyLocation.user_id == user.id,
+        VocabularyLocation.user_id == user_id,
         VocabularyLocation.location_name == normalized_location.location_name,
     ).one()
     return location
@@ -168,6 +173,23 @@ def _location_snapshot(location: VocabularyLocation | None) -> dict[str, object]
     }
 
 
+def _resolve_upload_owner(
+    *, session: Session, user: object, permission_level: str,
+    location_name: str, target_user_id: int | None,
+) -> int:
+    if target_user_id is None:
+        return user.id
+    if target_user_id != user.id and permission_level != "manage":
+        raise HTTPException(status_code=403, detail="只能覆盖自己的地点词表")
+    location = session.query(VocabularyLocation).filter(
+        VocabularyLocation.user_id == target_user_id,
+        VocabularyLocation.location_name == location_name,
+    ).first()
+    if location is None:
+        raise HTTPException(status_code=404, detail="未找到要覆盖的地点")
+    return target_user_id
+
+
 def preview_vocabulary_upload(
     *,
     session: Session,
@@ -177,9 +199,14 @@ def preview_vocabulary_upload(
     location_payload,
     parser_mode: str = "auto",
     fill_standard_from_local: bool = False,
+    target_user_id: int | None = None,
 ) -> VocabularyUploadPreviewResult:
     permission_level = get_effective_permission_level(session, user)
     normalized_location = normalize_location_payload(location_payload)
+    owner_id = _resolve_upload_owner(
+        session=session, user=user, permission_level=permission_level,
+        location_name=normalized_location.location_name, target_user_id=target_user_id,
+    )
     parse_result = parse_uploaded_vocabulary_file(
         filename=filename,
         content=content,
@@ -191,7 +218,7 @@ def preview_vocabulary_upload(
     would_delete_existing_count = 0
     if parsed_count > 0:
         would_delete_existing_count = session.query(VocabularyEntry).filter(
-            VocabularyEntry.user_id == user.id,
+            VocabularyEntry.user_id == owner_id,
             VocabularyEntry.location_name == normalized_location.location_name,
         ).count()
 
@@ -217,9 +244,14 @@ def import_vocabulary_upload(
     parser_mode: str = "auto",
     overwrite: bool = False,
     fill_standard_from_local: bool = False,
+    target_user_id: int | None = None,
 ) -> VocabularyImportResult:
     permission_level = get_effective_permission_level(session, user)
     normalized_location = normalize_location_payload(location_payload)
+    owner_id = _resolve_upload_owner(
+        session=session, user=user, permission_level=permission_level,
+        location_name=normalized_location.location_name, target_user_id=target_user_id,
+    )
     parse_result = parse_uploaded_vocabulary_file(
         filename=filename,
         content=content,
@@ -232,12 +264,12 @@ def import_vocabulary_upload(
     limit = get_location_limit(permission_level)
     if limit is not None:
         existing_location = session.query(VocabularyLocation).filter(
-            VocabularyLocation.user_id == user.id,
+            VocabularyLocation.user_id == owner_id,
             VocabularyLocation.location_name == normalized_location.location_name,
         ).first()
         if existing_location is None:
             current_count = session.query(VocabularyLocation).filter(
-                VocabularyLocation.user_id == user.id,
+                VocabularyLocation.user_id == owner_id,
             ).count()
             if current_count >= limit:
                 raise ValueError(
@@ -247,7 +279,7 @@ def import_vocabulary_upload(
 
     if not overwrite:
         existing_count = session.query(VocabularyEntry).filter(
-            VocabularyEntry.user_id == user.id,
+            VocabularyEntry.user_id == owner_id,
             VocabularyEntry.location_name == normalized_location.location_name,
         ).count()
         if existing_count > 0:
@@ -255,29 +287,29 @@ def import_vocabulary_upload(
                 "该地点已有数据，不能重复上传。如需更新，请联系管理员。"
             )
 
-    import_lock = _get_import_lock(user.id, normalized_location.location_name)
+    import_lock = _get_import_lock(owner_id, normalized_location.location_name)
     with import_lock:
         try:
             before_location = session.query(VocabularyLocation).filter(
-                VocabularyLocation.user_id == user.id,
+                VocabularyLocation.user_id == owner_id,
                 VocabularyLocation.location_name == normalized_location.location_name,
             ).first()
             before_location_snapshot = _location_snapshot(before_location)
             location = _upsert_location(
                 session=session,
-                user=user,
+                user_id=owner_id,
                 normalized_location=normalized_location,
             )
             deleted_entries = [
                 _entry_snapshot(entry)
                 for entry in session.query(VocabularyEntry).filter(
-                    VocabularyEntry.user_id == user.id,
+                    VocabularyEntry.user_id == owner_id,
                     VocabularyEntry.location_name == normalized_location.location_name,
                 ).all()
             ]
             can_log_deleted_entries = len(deleted_entries) <= MAX_LOGGED_DELETED_ENTRIES
             deleted_existing_count = session.query(VocabularyEntry).filter(
-                VocabularyEntry.user_id == user.id,
+                VocabularyEntry.user_id == owner_id,
                 VocabularyEntry.location_name == normalized_location.location_name,
             ).delete(synchronize_session=False)
 
@@ -285,7 +317,7 @@ def import_vocabulary_upload(
                 VocabularyEntry,
                 [
                     _entry_mapping(
-                        user_id=user.id,
+                        user_id=owner_id,
                         location_name=normalized_location.location_name,
                         filename=filename,
                         row=row,
@@ -301,9 +333,10 @@ def import_vocabulary_upload(
                 source="upload",
                 action="import",
                 table_name="vocabulary_entries",
-                target_scope=f"user_id = {user.id}; location_name = {normalized_location.location_name}",
+                target_scope=f"user_id = {owner_id}; location_name = {normalized_location.location_name}",
                 affected_rows=len(parse_result.rows),
                 payload={
+                    "target_user_id": owner_id,
                     "filename": filename,
                     "location_name": normalized_location.location_name,
                     "deleted_existing_count": deleted_existing_count,
