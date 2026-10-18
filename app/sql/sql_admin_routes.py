@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,17 @@ from app.sql.choose_db import get_db_connection
 from app.sql.sql_routes import router, _validate_table, _validate_columns, _quote_identifier
 from app.sql.sql_schemas import MutationParams, BatchMutationParams, BatchReplacePreviewParams, \
     BatchReplaceExecuteParams
+from app.service.vocabulary.cache import count_changed_values, finish_on_cancel, notify_vocabulary_change
+
+
+def _tracks_vocabulary(params):
+    return params.db_key == "vocabulary" and params.table_name in {"vocabulary_entries", "vocabulary_locations"}
+
+
+async def _notify_vocabulary(params, changed_rows):
+    if changed_rows and _tracks_vocabulary(params):
+        await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, DB_MAPPING["vocabulary"],
+            entries=params.table_name == "vocabulary_entries", locations=params.table_name == "vocabulary_locations"))
 
 
 @router.get("/permissions/me")
@@ -70,12 +83,14 @@ async def mutate_table(
         try:
             table_q = _quote_identifier(params.table_name)
             pk_q = _quote_identifier(params.pk_column)
+            changed_rows = 0
             if params.action == "create":
                 cols = list(params.data.keys())
                 cols_q = ",".join([_quote_identifier(c) for c in cols])
                 placeholders = ",".join(["?"] * len(cols))
                 sql = f"INSERT INTO {table_q} ({cols_q}) VALUES ({placeholders})"
                 cursor.execute(sql, list(params.data.values()))
+                changed_rows = cursor.rowcount
 
             elif params.action == "update":
                 cursor.execute(
@@ -88,6 +103,8 @@ async def mutate_table(
                 sql = f"UPDATE {table_q} SET {set_clause} WHERE {pk_q} = ?"
                 vals = list(params.data.values())
                 vals.append(params.pk_value)
+                if _tracks_vocabulary(params):
+                    changed_rows = count_changed_values(cursor, params.table_name, f"{pk_q} = ?", [params.pk_value], params.data)
                 cursor.execute(sql, vals)
 
             elif params.action == "delete":
@@ -99,8 +116,10 @@ async def mutate_table(
                     raise HTTPException(status_code=404, detail="记录不存在")
                 sql = f"DELETE FROM {table_q} WHERE {pk_q} = ?"
                 cursor.execute(sql, (params.pk_value,))
+                changed_rows = cursor.rowcount
 
             conn.commit()
+            await _notify_vocabulary(params, changed_rows)
             return {"status": "success", "message": f"单个{params.action}操作成功"}
         except Exception as e:
             conn.rollback()
@@ -165,6 +184,7 @@ async def batch_mutate_table(
         cursor = conn.cursor()
 
         success_count = 0
+        changed_rows = 0
         error_count = 0
         errors = []
 
@@ -189,6 +209,7 @@ async def batch_mutate_table(
                         values = [record.get(col) for col in cols]
                         cursor.execute(sql, values)
                         success_count += 1
+                        changed_rows += cursor.rowcount
                     except Exception as e:
                         error_count += 1
                         errors.append(f"第{i+1}条记录失败: {str(e)}")
@@ -224,9 +245,10 @@ async def batch_mutate_table(
 
                         values = list(update_fields.values())
                         values.append(pk_value)
-
+                        actual_changes = count_changed_values(cursor, params.table_name, f"{pk_q} = ?", [pk_value], update_fields) if _tracks_vocabulary(params) else 0
                         cursor.execute(sql, values)
                         success_count += 1
+                        changed_rows += actual_changes
 
                     except Exception as e:
                         error_count += 1
@@ -243,6 +265,7 @@ async def batch_mutate_table(
                 try:
                     cursor.execute(sql, params.delete_ids)
                     success_count = cursor.rowcount
+                    changed_rows = success_count
 
                     # 检查是否所有ID都被删除
                     if success_count < len(params.delete_ids):
@@ -261,7 +284,7 @@ async def batch_mutate_table(
 
             # 提交事务
             conn.commit()
-
+            await _notify_vocabulary(params, changed_rows)
             return {
                 "status": "completed",
                 "action": params.action,
@@ -496,12 +519,30 @@ async def batch_replace_execute(
             sql = f"UPDATE {_quote_identifier(params.table_name)} SET {set_clause} WHERE {where_clause}"
             all_params = update_params + where_params
 
+            changed_rows = 0
+            if _tracks_vocabulary(params) and params.columns:
+                change_conditions = []
+                change_values = []
+                for col in params.columns:
+                    col_q = _quote_identifier(col)
+                    if params.is_empty_search or params.match_mode == "exact":
+                        change_conditions.append(f"{col_q} IS NOT ?")
+                        change_values.append(params.replace_text)
+                    else:
+                        change_conditions.append(f"{col_q} IS NOT REPLACE({col_q}, ?, ?)")
+                        change_values.extend([params.find_text, params.replace_text])
+                changed_rows = cursor.execute(
+                    f"SELECT COUNT(*) FROM {_quote_identifier(params.table_name)} WHERE ({where_clause}) AND ({' OR '.join(change_conditions)})",
+                    where_params + change_values,
+                ).fetchone()[0]
+
             # 6. 执行更新
             cursor.execute(sql, all_params)
             affected_rows = cursor.rowcount
 
             # 7. 提交事务
             conn.commit()
+            await _notify_vocabulary(params, changed_rows)
 
             # 8. 返回结果
             return {

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.common.config import SQL_QUERY_MAX_PAGE
 from app.common.path import VOCABULARY_DB_PATH
 from app.redis_client import redis_client
+from app.service.vocabulary.cache import cached_sql, count_changed_values, finish_on_cancel, notify_vocabulary_change
 from app.schemas.vocabulary_sql import (
     BatchMutationParams,
     BatchReplaceExecuteParams,
@@ -336,16 +337,6 @@ def _get_db_path(db: Session) -> str:
     return db.get_bind().url.database
 
 
-async def _invalidate_count_cache(table_name: str) -> None:
-    """Delete all cached count results for the given table after a write."""
-    try:
-        keys = await redis_client.keys(f"vocab_sql_count:{table_name}*")
-        if keys:
-            await redis_client.delete(*keys)
-    except Exception:
-        pass
-
-
 def _query_table_sync(
     params: QueryParams,
     user: User | None,
@@ -510,7 +501,8 @@ async def query_table(
         raise HTTPException(status_code=400, detail=f"page_size cannot exceed {SQL_QUERY_MAX_PAGE}")
 
     try:
-        return await asyncio.to_thread(_query_table_sync, params, user, permission_level, db_path)
+        return await cached_sql(db_path, "sql-query", params.model_dump(),
+                                _query_table_sync, params, user, permission_level, db_path)
     except HTTPException:
         raise
     except Exception as exc:
@@ -525,7 +517,9 @@ async def get_column_info(
 ):
     _require_table_access(user, table_name)
 
-    cache_key = f"vocab_sql_columns:{table_name}"
+    import hashlib
+    db_path = _get_db_path(db)
+    cache_key = f"vocab_sql_columns:{hashlib.md5(db_path.encode()).hexdigest()}:{table_name}"
     try:
         cached = await redis_client.get(cache_key)
         if cached is not None:
@@ -560,36 +554,13 @@ async def get_table_count(
     if distinct_column is not None:
         await asyncio.to_thread(_validate_columns, table_name, [distinct_column], "distinct_column", db_path=db_path)
 
-    cache_key = f"vocab_sql_count:{table_name}"
-    if distinct_column is not None:
-        cache_key += f":distinct:{distinct_column}"
-    if filter_column is not None:
-        cache_key += f":{filter_column}:{filter_value}"
-
-    try:
-        cached = await redis_client.get(cache_key)
-        if cached is not None:
-            return {"count": int(cached)}
-    except Exception:
-        pass
-
-    count = await asyncio.to_thread(
-        _get_table_count_sync,
-        table_name,
-        permission_level,
-        user,
-        filter_column,
-        filter_value,
-        db_path,
-        distinct_column=distinct_column,
-    )
-
-    try:
-        await redis_client.setex(cache_key, 3600, str(count))
-    except Exception:
-        pass
-
-    return {"count": count}
+    def load_count():
+        return {"count": _get_table_count_sync(table_name, permission_level, user,
+            filter_column, filter_value, db_path, distinct_column=distinct_column)}
+    return await cached_sql(db_path, "sql-count", {
+        "table_name": table_name, "filter_column": filter_column,
+        "filter_value": filter_value, "distinct_column": distinct_column,
+    }, load_count)
 
 
 @router.get("/distinct/{table_name}/{column}")
@@ -602,7 +573,8 @@ async def get_distinct_path_values(
     permission_level = _require_table_access(user, table_name)
     db_path = _get_db_path(db)
     await asyncio.to_thread(_validate_columns, table_name, [column], "column", db_path=db_path)
-    values = await asyncio.to_thread(_get_distinct_values_sync, table_name, column, permission_level, user, db_path)
+    values = await cached_sql(db_path, "sql-distinct", {"table_name": table_name, "column": column},
+        _get_distinct_values_sync, table_name, column, permission_level, user, db_path)
     return {"values": values}
 
 
@@ -617,7 +589,8 @@ async def get_distinct_query_values(
     await asyncio.to_thread(_validate_columns, req.table_name, [req.target_column], "target_column", db_path=db_path)
     await asyncio.to_thread(_validate_columns, req.table_name, req.current_filters.keys(), "current_filters字段", db_path=db_path)
     await asyncio.to_thread(_validate_columns, req.table_name, req.search_columns, "search_columns", db_path=db_path)
-    values = await asyncio.to_thread(_get_distinct_query_values_sync, req, permission_level, user, db_path)
+    values = await cached_sql(db_path, "sql-distinct-query", req.model_dump(),
+        _get_distinct_query_values_sync, req, permission_level, user, db_path)
     return {"values": values}
 
 
@@ -662,6 +635,7 @@ async def mutate_table(
                 [data[col] for col in cols],
             )
             affected_rows = cursor.rowcount
+            changed_rows = affected_rows
             target_scope = f"user_id = {data.get('user_id')}"
             payload = {
                 **params.model_dump(),
@@ -688,6 +662,8 @@ async def mutate_table(
             if before_snapshot is None:
                 raise HTTPException(status_code=404, detail="记录不存在或无权限修改")
             _validate_entry_fields(params.data, db, current_user.id, existing=before_snapshot)
+            changed_rows = count_changed_values(cursor, params.table_name, _where_sql(clauses),
+                where_values + [params.pk_value], params.data)
             sql = f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}"
             cursor.execute(sql, list(params.data.values()) + where_values + [params.pk_value])
             affected_rows = cursor.rowcount
@@ -717,6 +693,7 @@ async def mutate_table(
                 where_values + [params.pk_value],
             )
             affected_rows = cursor.rowcount
+            changed_rows = affected_rows
             target_scope = f"{scope_description}; {params.pk_column} = {params.pk_value}"
             payload = {
                 **params.model_dump(),
@@ -736,7 +713,8 @@ async def mutate_table(
             payload=payload,
         )
         db.commit()
-        await _invalidate_count_cache(params.table_name)
+        if changed_rows:
+            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
         return {"status": "success", "action": params.action, "affected_rows": affected_rows}
     except HTTPException:
         db.rollback()
@@ -754,6 +732,7 @@ async def batch_mutate_table(
     db: Session = Depends(get_vocabulary_db),
 ):
     permission_level = _require_table_access(current_user, params.table_name, write=True, db=db)
+    changed_rows = 0
     _require_write_action_access(permission_level, params.action)
     _validate_columns(params.table_name, [params.pk_column], "pk_column", allow_rowid=True)
     table_q = _quote_identifier(params.table_name)
@@ -790,6 +769,7 @@ async def batch_mutate_table(
                     cursor.execute(sql, [record.get(col) for col in cols])
                     success_count += 1
                     created_ids.append(cursor.lastrowid)
+                    changed_rows += 1
                 except Exception as exc:
                     error_count += 1
                     errors.append(f"第{i + 1}条记录失败: {exc}")
@@ -825,12 +805,15 @@ async def batch_mutate_table(
                         errors.append(f"第{i + 1}条记录未找到或无权限 (主键={pk_value})")
                         continue
                     _validate_entry_fields(update_fields, db, current_user.id, existing=before_snapshot)
+                    actual_changes = count_changed_values(cursor, params.table_name, _where_sql(clauses),
+                        where_values + [pk_value], update_fields)
                     set_clause = ", ".join(f"{_quote_identifier(key)} = ?" for key in update_fields)
                     cursor.execute(
                         f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
                         list(update_fields.values()) + where_values + [pk_value],
                     )
                     success_count += 1
+                    changed_rows += actual_changes
                     selected = _select_columns(before_snapshot, update_fields.keys(), params.pk_column)
                     if selected is not None:
                         before_snapshots.append(selected)
@@ -859,6 +842,7 @@ async def batch_mutate_table(
                 where_values + params.delete_ids,
             )
             success_count = cursor.rowcount
+            changed_rows = success_count
             if success_count < len(params.delete_ids):
                 error_count = len(params.delete_ids) - success_count
                 errors.append(f"有 {error_count} 条记录未找到或无权限")
@@ -881,7 +865,8 @@ async def batch_mutate_table(
             payload=payload,
         )
         db.commit()
-        await _invalidate_count_cache(params.table_name)
+        if changed_rows:
+            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
         return {
             "status": "completed",
             "action": params.action,
@@ -952,11 +937,14 @@ async def batch_replace_execute(
 
     conn = _connection(db)
     table_q = _quote_identifier(params.table_name)
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     cursor = conn.execute(
         f"SELECT rowid AS __rowid__, * FROM {table_q} WHERE {_where_sql(clauses)}",
         where_values,
     )
     affected_rows_data = [_row_to_dict(cursor, row) for row in cursor.fetchall()]
+    changed_rows = 0
     for row in affected_rows_data:
         simulated = dict(row)
         changed: dict[str, Any] = {}
@@ -974,6 +962,8 @@ async def batch_replace_execute(
             changed[col] = new_val
             simulated[col] = new_val
         _validate_entry_fields(changed, db, current_user.id, existing=row)
+        if any(row.get(col) != value for col, value in changed.items()):
+            changed_rows += 1
 
     try:
         cursor = conn.execute(
@@ -996,7 +986,8 @@ async def batch_replace_execute(
             },
         )
         db.commit()
-        await _invalidate_count_cache(params.table_name)
+        if changed_rows:
+            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
         return {"status": "success", "affected_rows": affected_rows}
     except Exception as exc:
         db.rollback()

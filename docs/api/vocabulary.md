@@ -154,6 +154,40 @@ SQL 编辑接口挂在：
 /api/vocabulary/sql
 ```
 
+### Redis 缓存与主动预热
+
+仅 WEB 模式启用 Redis，MINE/EXE 模式保持直接查询。默认结果在主应用启动时主动准备，数据变更后后台重建，不需要前端先发起请求。
+
+| 固定预热接口（均以 `/api/vocabulary` 为前缀） | 参数 |
+| --- | --- |
+| GET `/search/location-options` | 无参数 |
+| GET `/search/entries` | 空 q、无筛选、page=1、page_size=50 |
+| GET `/search/map-points` | 空 q、无筛选 |
+| GET `/search/standard-words` | 空 q、无筛选，分别准备 limit=100、limit=1000 |
+| GET `/sql/query/count` | vocabulary_entries 总数，以及 distinct_column=location_name 的地点去重数 |
+
+上述七份结果没有 TTL；其他搜索、分页、筛选、map-items、SQL query、distinct 和带条件 count 按需缓存 3600 秒。columns 继续使用单独的 3600 秒结构缓存。认证、限流、参数校验不因命中缓存而跳过。
+
+- entries 实际变更且事务提交成功后，全部词表数据缓存切换版本，主动重建七份结果。覆盖上传/覆盖导入、SQL 单条/批量/替换、地点删除/重命名/转移和管理员通用表格写入。
+- 仅 locations 实际变更时，只刷新所有 map-points 参数组合的缓存，并预热默认 map-points。其他接口的地点信息按约定等到 entries 变更或按需缓存过期才更新。
+- 无实际变化、回滚、预览、日志和权限变更不触发预热；不自动检测外部 SQLite 工具或独立脚本修改。
+- 主动预热在所有 Web worker 之间通过 Redis 锁串行执行，连续变更合并；默认缓存缺失每 60 秒检查补齐。写入后立即切换版本，后台等待 1 秒合并通知再重建。
+- 按需缓存默认最多 128 个结果，单结果最多 128 KiB，可分别通过 `VOCABULARY_CACHE_MAX_KEYS` 和 `VOCABULARY_CACHE_MAX_BYTES` 调整。达到数量上限按 LRU 淘汰旧按需 key，再写入新 key。命中只更新使用顺序，不延长 TTL。超大结果正常返回但不写缓存。
+- 固定预热结果使用独立命名空间，不计入按需名额，不会被按需 LRU 淘汰或被加上 TTL；数据变更仍会按上述规则使其失效并重建。
+- Redis 故障回退数据库，并在恢复时切换版本、补齐预热；同一结果正在计算时异步等待，等待超过 30 秒返回 503，不无限占用线程等待。
+- 预热查询逐项执行，每项之间让出 100 ms；标准词 100 条结果复用同版本的 1000 条聚合。正常启动等待默认缓存就绪，Redis 故障则降级启动并后台重试。上传取消不会跳过已提交数据的失效通知。
+
+本地 95,003 条词条的只读测量中，七份默认结果合计约占 Redis 156 KiB，冷预热约 1.015 秒，进程峰值 RSS 增量约 44 MiB。按需结果数据预算默认最多约 16 MiB，另有 Redis 元数据开销；默认结果大小随数据增长。这些是开发机数据，生产 2 核 2 GB 环境仍需观察在线延迟和内存。
+
+本地真实 Redis 测试使用独立 namespace，不执行 FLUSHDB/FLUSHALL：
+
+```bash
+_RUN_TYPE=MINE VOCABULARY_TEST_REDIS_URL=redis://127.0.0.1:16379/0 \
+  .venv/bin/python -m pytest tests/test_vocabulary_cache.py tests/test_vocabulary_cache_routes.py tests/test_vocabulary_cache_lifecycle.py -q
+```
+
+未指定测试地址且默认本机 16379 端口没有 Redis 时，Redis 集成测试跳过；明确指定地址后连接失败会使测试失败。
+
 ### 错误响应
 
 FastAPI 默认错误响应格式：
