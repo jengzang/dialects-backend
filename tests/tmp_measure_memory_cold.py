@@ -30,10 +30,6 @@ if TARGET == 'main_create':
     m.create_main_app()
 elif TARGET == 'main_startup':
     m.run_main_startup()
-elif TARGET == 'cluster_create':
-    m.create_cluster_app()
-elif TARGET == 'cluster_startup':
-    m.run_cluster_startup()
 elif TARGET == 'gis_create':
     m.create_gis_app()
 elif TARGET == 'gis_startup':

@@ -49,8 +49,6 @@ steps = [
     ('import_app_main', "import app.main as m; globals()['app_main_mod']=m"),
     ('create_main_app', "globals()['main_app']=app_main_mod.create_main_app()"),
     ('run_main_startup', "app_main_mod.run_main_startup()"),
-    ('create_cluster_app', "globals()['cluster_app']=app_main_mod.create_cluster_app()"),
-    ('run_cluster_startup', "app_main_mod.run_cluster_startup()"),
     ('create_gis_app', "globals()['gis_app']=app_main_mod.create_gis_app()"),
     ('run_gis_startup', "app_main_mod.run_gis_startup()"),
 ]

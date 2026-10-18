@@ -6,26 +6,22 @@ import time
 from contextlib import asynccontextmanager
 from typing import Callable
 
-from app.common.numba_bootstrap import bootstrap_numba_threading_environment
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
-bootstrap_numba_threading_environment()
-
 from app.common.config import _RUN_TYPE
 from app.lifecycle import (
     is_gunicorn_worker_process,
-    run_cluster_startup,
     run_gis_startup,
     run_main_startup,
     shutdown_process_resources,
     start_background_services,
     stop_background_services,
 )
-from app.routes import setup_cluster_routes, setup_gis_routes, setup_routes
+from app.routes import setup_gis_routes, setup_routes
 from app.service.logging.middleware.traffic_logging import RequestLogMiddleware
 from app.static_utils import ensure_user_data
 
@@ -217,15 +213,6 @@ def create_gis_app() -> FastAPI:
     return _create_app(
         startup_fn=run_gis_startup,
         route_setup_fn=setup_gis_routes,
-        enable_background_services=False,
-        enable_static_mounts=False,
-    )
-
-
-def create_cluster_app() -> FastAPI:
-    return _create_app(
-        startup_fn=run_cluster_startup,
-        route_setup_fn=setup_cluster_routes,
         enable_background_services=False,
         enable_static_mounts=False,
     )

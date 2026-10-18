@@ -1,1 +1,1 @@
-"""Dedicated app entrypoints for main/gis/cluster deployments."""
+"""Dedicated app entrypoints for main/GIS deployments."""

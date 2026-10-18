@@ -51,7 +51,7 @@ def test_main_lifespan_starts_and_drains_warmup_in_every_web_worker(monkeypatch,
     assert calls == ["start", "stop", "shutdown"]
 
 
-def test_gis_and_cluster_lifespans_do_not_start_vocabulary_warmup(monkeypatch):
+def test_gis_lifespan_does_not_start_vocabulary_warmup(monkeypatch):
     from app import main
     from app.service.vocabulary import cache_warmup
     async def unexpected():
