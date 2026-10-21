@@ -169,7 +169,7 @@ SQL 编辑接口挂在：
 上述七份结果没有 TTL；其他搜索、分页、筛选、map-items、SQL query、distinct 和带条件 count 按需缓存 3600 秒。columns 继续使用单独的 3600 秒结构缓存。认证、限流、参数校验不因命中缓存而跳过。
 
 - entries 实际变更且事务提交成功后，全部词表数据缓存切换版本，主动重建七份结果。覆盖上传/覆盖导入、SQL 单条/批量/替换、地点删除/重命名/转移和管理员通用表格写入。
-- 仅 locations 实际变更时，只刷新所有 map-points 参数组合的缓存，并预热默认 map-points。其他接口的地点信息按约定等到 entries 变更或按需缓存过期才更新。
+- 仅 locations 实际变更时，全部 search 结果（entries、standard-words、map-points、map-items、location-options、partition-options）切换版本；已有默认搜索结果后台重建，SQL query/count/distinct 保持原版本。计算期间发生地点变更的旧结果不写入缓存。
 - 无实际变化、回滚、预览、日志和权限变更不触发预热；不自动检测外部 SQLite 工具或独立脚本修改。
 - 主动预热在所有 Web worker 之间通过 Redis 锁串行执行，连续变更合并；默认缓存缺失每 60 秒检查补齐。写入后立即切换版本，后台等待 1 秒合并通知再重建。
 - 按需缓存默认最多 128 个结果，单结果最多 128 KiB，可分别通过 `VOCABULARY_CACHE_MAX_KEYS` 和 `VOCABULARY_CACHE_MAX_BYTES` 调整。达到数量上限按 LRU 淘汰旧按需 key，再写入新 key。命中只更新使用顺序，不延长 TTL。超大结果正常返回但不写缓存。
@@ -177,7 +177,7 @@ SQL 编辑接口挂在：
 - Redis 故障回退数据库，并在恢复时切换版本、补齐预热；同一结果正在计算时异步等待，等待超过 30 秒返回 503，不无限占用线程等待。
 - 预热查询逐项执行，每项之间让出 100 ms；标准词 100 条结果复用同版本的 1000 条聚合。正常启动等待默认缓存就绪，Redis 故障则降级启动并后台重试。上传取消不会跳过已提交数据的失效通知。
 
-本地 95,003 条词条的只读测量中，七份默认结果合计约占 Redis 156 KiB，冷预热约 1.015 秒，进程峰值 RSS 增量约 44 MiB。按需结果数据预算默认最多约 16 MiB，另有 Redis 元数据开销；默认结果大小随数据增长。这些是开发机数据，生产 2 核 2 GB 环境仍需观察在线延迟和内存。
+历史缓存版本的本地 95,003 条词条测量中，七份默认结果合计约占 Redis 156 KiB，冷预热约 1.015 秒，进程峰值 RSS 增量约 44 MiB。新增分区返回后的实测见 [分区性能报告](../performance/2026-10-20-vocabulary-partitions.md)。按需结果数据预算默认最多约 16 MiB，另有 Redis 元数据开销；默认结果大小随数据增长。这些是开发机数据，生产 2 核 2 GB 环境仍需观察在线延迟和内存。
 
 本地真实 Redis 测试使用独立 namespace，不执行 FLUSHDB/FLUSHALL：
 
@@ -291,6 +291,45 @@ FastAPI 默认错误响应格式：
 ?locations=息烽,罗田
 ```
 
+### 分区筛选（2026-10-20）
+
+`entries`、`standard-words`、`map-points`、`map-items` 共同支持：
+
+| 参数 | 类型 | 默认值 | 规则 |
+| --- | --- | --- | --- |
+| `regions` | string[] | 不筛选 | 重复 query 参数，最多 50 条路径，每条最多 200 字符；不按逗号拆分。 |
+| `region_mode` | string | `yindian` | `yindian` 使用词表音典分区，`map` 使用词表地图集分区。 |
+
+```text
+GET /api/vocabulary/search/entries?regions=嶺南-珠江&regions=閩-閩南&region_mode=yindian
+GET /api/vocabulary/search/standard-words?regions=粵語-廣府片&region_mode=map&province=广东
+```
+
+路径按原文精确匹配本身及全部后代。例如 `甲-乙` 匹配 `甲-乙`、`甲-乙-丙`，不匹配 `甲-乙外` 或其他父级下的 `乙`；每个层级都传从根开始的完整路径，不做隐式繁简转换。`%`、`_`、反斜杠均按字面值处理。多选路径之间 OR，与关键词、行政区和地点条件 AND，父子重复选择不放大计数。无匹配返回空；不传 regions 时包含未分类地点。空路径、空段、段首尾空白、NUL、超限以及无效模式返回 400。
+
+分区来自 `vocabulary_locations`，通过 `(user_id, location_name)` 关联词条；不借公共音典库展开简称。现有 `locations` 仍然是模糊地理过滤词，语义保持不变。
+
+### `GET /api/vocabulary/search/partition-options`
+
+公开词表分区树。参数 `region_mode=yindian|map`（默认 yindian）、可选完整 `parent` 路径。返回词表地点表中的合法非空路径及其所有祖先，不要求每条地点记录已有词条，不套用公共分区树的隐藏根规则。无 parent 返回完整树；有 parent 返回直接子节点及其子树；叶子返回空 nodes，不存在的 parent 返回 404，格式错误返回 400。
+
+```json
+{
+  "schema_version": 2,
+  "region_mode": "yindian",
+  "revision": "路径集合与排序规则的SHA-256",
+  "max_depth": 3,
+  "parent": null,
+  "nodes": [{
+    "label": "嶺南", "path": "嶺南", "depth": 1,
+    "children": [{"label": "珠江", "path": "嶺南-珠江", "depth": 2,
+      "children": [{"label": "莞寶", "path": "嶺南-珠江-莞寶", "depth": 3, "children": []}]}]
+  }]
+}
+```
+
+节点以完整 path 为身份，深度动态计算。revision 根据分区路径和排序规则生成，可用于前端判断树内容变化。本接口按需缓存，不增加固定预热项。
+
 ### `GET /api/vocabulary/search/entries`
 
 用途：前台词表结果列表，分页返回 entries。
@@ -351,6 +390,8 @@ GET /api/vocabulary/search/entries?q=日头&search_fields=definition&search_fiel
 | `items[].informations` | string | 预留信息字段。 |
 | `items[].location_name` | string | 地点简称。 |
 | `items[].location_label` | string | 用省市县镇村拼出的展示标签；没有元数据时回退为 `location_name`。 |
+| `items[].yindian_region` | string | 当前词条所属地点的完整音典分区；缺失为空字符串。 |
+| `items[].atlas_region` | string | 当前词条所属地点的完整地图集分区；缺失为空字符串。 |
 | `total` | number | 所有匹配结果数。 |
 | `page` | number | 当前页。 |
 | `page_size` | number | 每页条数。 |
@@ -527,7 +568,7 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 请求体：无。
 
-查询参数：无。
+查询参数：`regions`、`region_mode` 与上述分区筛选一致；另支持精确 `province`、`city`，各维度 AND。先筛选地点记录，再按简称合并选项。
 
 响应体：
 
@@ -547,6 +588,8 @@ GET /api/vocabulary/search/map-points?q=日头&locations=息烽
 
 - 返回去重后的 `location_name`。
 - 如果不同用户上传了同名地点，当前响应按 `location_name` 去重，前端不会看到内部 `user_id` 或 location `id`。
+- 每个选项新增 `yindian_region`、`atlas_region` 字符串和 `yindian_regions`、`atlas_regions` 字符串数组。数组为所有匹配同名记录的非空分区去重排序；标量仅在所有匹配记录该字段一致时返回该值，否则为空。数组是可选分区集合，不表示两套分区的配对关系。
+- `province`、`city`、`location_label` 保持最早匹配地点记录的展示信息；同名选项不是精确地点身份。新增分区数组避免静默丢弃其他同名记录的分区信息。
 
 ## 3. 词表导入接口
 

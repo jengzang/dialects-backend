@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.vocabulary import (
     VocabularyItemsResponse,
+    VocabularyPartitionOptionsResponse,
     VocabularyLocationOptionsResponse,
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
@@ -49,6 +50,7 @@ from app.service.vocabulary.query import (
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
+from app.service.vocabulary.partitions import query_vocabulary_partition_options
 from app.service.vocabulary.cache import cached_search, finish_on_cancel, notify_vocabulary_change
 
 
@@ -165,6 +167,8 @@ async def get_vocabulary_items(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -178,6 +182,8 @@ async def get_vocabulary_items(
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
             standard_words=standard_words,
             page=page,
             page_size=page_size,
@@ -197,6 +203,8 @@ async def get_vocabulary_map_points(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -207,6 +215,8 @@ async def get_vocabulary_map_points(
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
         )
     except HTTPException:
         raise
@@ -223,6 +233,8 @@ async def get_vocabulary_standard_words(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     limit: Optional[int] = Query(default=100, ge=1, le=10000),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -234,6 +246,8 @@ async def get_vocabulary_standard_words(
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
             limit=limit,
         )
     except HTTPException:
@@ -253,6 +267,8 @@ async def get_vocabulary_map_items(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
@@ -265,6 +281,8 @@ async def get_vocabulary_map_items(
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
         )
     except HTTPException:
         raise
@@ -276,14 +294,36 @@ async def get_vocabulary_map_items(
 
 @router.get("/search/location-options", response_model=VocabularyLocationOptionsResponse)
 async def get_vocabulary_location_options(
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
+    province: Optional[str] = None,
+    city: Optional[str] = None,
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return await cached_search("location-options", db, query_vocabulary_location_options)
+        return await cached_search("location-options", db, query_vocabulary_location_options,
+                                   regions=regions, region_mode=region_mode, province=province, city=city)
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary location options query failed: {exc}") from exc
+
+
+@router.get("/search/partition-options", response_model=VocabularyPartitionOptionsResponse)
+async def get_vocabulary_partition_options(
+    region_mode: str = "yindian",
+    parent: Optional[str] = None,
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return await cached_search("partition-options", db, query_vocabulary_partition_options,
+                                   region_mode=region_mode, parent=parent)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Partition path not found") from exc
 
 
 @router.get("/locations", response_model=VocabularyLocationsResponse)

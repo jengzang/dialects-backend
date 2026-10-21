@@ -29,9 +29,24 @@ DEFAULTS = (
     ("standard-words", {"limit": 1000}),
 )
 
+SEARCH_KINDS = frozenset({'entries', 'map-points', 'standard-words', 'map-items',
+                          'location-options', 'partition-options'})
+
 
 def normalize(kind, params):
     p = dict(params)
+    if kind in SEARCH_KINDS:
+        from .partitions import normalize_regions
+        region_mode = p.get('region_mode', 'yindian')
+        if kind == 'partition-options':
+            p.setdefault('parent', None)
+            normalize_regions([p['parent']] if p['parent'] is not None else None, region_mode)
+            p['region_mode'] = region_mode
+        else:
+            p['regions'] = normalize_regions(p.get('regions'), region_mode)
+            p['region_mode'] = region_mode if p['regions'] else 'yindian'
+            for field in ('province', 'city'):
+                p[field] = p.get(field) or None
     if kind in {"entries", "map-points", "standard-words", "map-items"}:
         from .query import _normalize_multi_value, _normalize_search_fields
         fields = _normalize_search_fields(p.get("search_fields"))
@@ -147,9 +162,10 @@ class VocabularyCache:
         p = normalize(kind, params)
         permanent = any(kind == k and p == normalize(k, v) for k, v in DEFAULTS)
         state = state or self.state()
-        scope = "map-points" if kind == "map-points" else "data"
+        # New scope also prevents serving pre-partition response schemas after deployment.
+        scope = "search-v2" if kind in SEARCH_KINDS else "data"
         version = state["entries"]
-        if scope == "map-points":
+        if kind in SEARCH_KINDS:
             version += ":" + state["locations"]
         digest = hashlib.md5(encoded(p).encode()).hexdigest()
         mode = "default" if permanent else "ondemand"
@@ -171,7 +187,7 @@ class VocabularyCache:
     def store(self, kind, params, value, state):
         key, permanent, _ = self.describe(kind, params, state)
         self.client.eval(_WRITE, 4, self.state_key, key, self.lru_key, self.sequence_key,
-                         state["entries"], state["locations"] if kind == "map-points" else "",
+                         state["entries"], state["locations"] if kind in SEARCH_KINDS else "",
                          encoded(value), "default" if permanent else "ondemand",
                          self.max_keys, self.max_bytes, self.root + ":ondemand:")
 
@@ -291,8 +307,12 @@ class VocabularyCache:
             prefix = self.root + ":" + mode + ":"
             for key in self.client.scan_iter(match=prefix + "*", count=32):
                 parts = key[len(prefix):].split(":")
+                if parts[0] != 'search-v2' and parts[-2] in SEARCH_KINDS:
+                    self.client.unlink(key)
+                    self.client.zrem(self.lru_key, key)
+                    continue
                 self.client.eval(_CLEAN, 3, self.state_key, key, self.lru_key,
-                                 parts[1], parts[2] if parts[0] == "map-points" else "")
+                                 parts[1], parts[2] if parts[0] == "search-v2" else "")
 
 
 _instances = {}

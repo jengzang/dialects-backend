@@ -1,0 +1,6048 @@
+{
+  "environment": {
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "processor": "arm",
+    "python": "3.12.13 (main, Mar  3 2026, 12:39:30) [Clang 21.0.0 (clang-2100.0.123.102)]",
+    "sqlite": "3.53.2",
+    "baseline": "9c4b76a",
+    "snapshot_sha256": "978b50088330716db5dc1aced97d81ebb11ce2637f694fecff509beddb952656",
+    "counts": {
+      "vocabulary_entries": 95003,
+      "vocabulary_locations": 29
+    },
+    "repetitions": 21,
+    "warmups": 2,
+    "concurrency": 1,
+    "memory_method": "separate tracemalloc run and fresh spawned process RSS; block IO counters are OS page-cache dependent"
+  },
+  "service": {
+    "entries/all": {
+      "before": {
+        "wall_ms": {
+          "median": 4.927208,
+          "p95": 5.0665,
+          "samples": [
+            4.779125,
+            5.0075,
+            4.90825,
+            4.848125,
+            4.874875,
+            5.025083,
+            4.927208,
+            4.952875,
+            4.818125,
+            4.810666,
+            4.919125,
+            5.071583,
+            5.032916,
+            5.042583,
+            4.891583,
+            4.87,
+            4.800458,
+            4.95725,
+            4.945292,
+            5.016583,
+            5.0665
+          ]
+        },
+        "cpu_ms": {
+          "median": 4.928,
+          "p95": 5.066,
+          "samples": [
+            4.783,
+            5.001,
+            4.909,
+            4.841,
+            4.876,
+            5.02,
+            4.928,
+            4.946,
+            4.818,
+            4.811,
+            4.912,
+            5.073,
+            5.026,
+            5.043,
+            4.884,
+            4.869,
+            4.792,
+            4.958,
+            4.946,
+            5.017,
+            5.066
+          ]
+        },
+        "python_peak_bytes": 67131,
+        "response_bytes": 10495,
+        "plans": [
+          [
+            [
+              10,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              7,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 856000,
+        "result_total": 95003,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87015424,
+          "peak_rss_growth_bytes": 2932736,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 4.957791,
+          "p95": 5.100459,
+          "samples": [
+            4.763,
+            4.795708,
+            4.965166,
+            4.913334,
+            4.996916,
+            5.026083,
+            4.957791,
+            4.974291,
+            4.820375,
+            4.780167,
+            4.936417,
+            4.976958,
+            5.047583,
+            5.062042,
+            4.893416,
+            4.884417,
+            4.813333,
+            4.809792,
+            5.051834,
+            5.102333,
+            5.100459
+          ]
+        },
+        "cpu_ms": {
+          "median": 4.958,
+          "p95": 5.1,
+          "samples": [
+            4.763,
+            4.796,
+            4.966,
+            4.914,
+            4.996,
+            5.026,
+            4.958,
+            4.975,
+            4.821,
+            4.781,
+            4.937,
+            4.977,
+            5.049,
+            5.063,
+            4.894,
+            4.885,
+            4.814,
+            4.804,
+            5.053,
+            5.1,
+            5.101
+          ]
+        },
+        "python_peak_bytes": 78537,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              10,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              7,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 858000,
+        "result_total": 95003,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86294528,
+          "peak_rss_growth_bytes": 2949120,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/province": {
+      "before": {
+        "wall_ms": {
+          "median": 1.172083,
+          "p95": 1.219375,
+          "samples": [
+            1.157458,
+            1.132,
+            1.146917,
+            1.145042,
+            1.141167,
+            1.166375,
+            1.172083,
+            1.219375,
+            1.295958,
+            1.166125,
+            1.20325,
+            1.194875,
+            1.183,
+            1.207083,
+            1.206667,
+            1.175708,
+            1.174125,
+            1.17,
+            1.171541,
+            1.204625,
+            1.162875
+          ]
+        },
+        "cpu_ms": {
+          "median": 1.173,
+          "p95": 1.22,
+          "samples": [
+            1.16,
+            1.132,
+            1.147,
+            1.145,
+            1.141,
+            1.167,
+            1.173,
+            1.22,
+            1.296,
+            1.168,
+            1.198,
+            1.196,
+            1.183,
+            1.208,
+            1.207,
+            1.176,
+            1.175,
+            1.171,
+            1.171,
+            1.206,
+            1.164
+          ]
+        },
+        "python_peak_bytes": 67185,
+        "response_bytes": 10495,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              13,
+              0,
+              140,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              43,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              4,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              8,
+              0,
+              128,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 212000,
+        "result_total": 69157,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86622208,
+          "peak_rss_growth_bytes": 2670592,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 1.195334,
+          "p95": 1.243375,
+          "samples": [
+            1.171125,
+            1.15475,
+            1.169625,
+            1.170416,
+            1.193625,
+            1.203375,
+            1.20275,
+            1.202208,
+            1.237542,
+            1.062792,
+            1.176709,
+            1.245917,
+            1.208166,
+            1.243375,
+            1.213417,
+            1.207083,
+            1.196875,
+            1.193208,
+            1.195042,
+            1.195334,
+            1.1945
+          ]
+        },
+        "cpu_ms": {
+          "median": 1.196,
+          "p95": 1.244,
+          "samples": [
+            1.172,
+            1.155,
+            1.169,
+            1.171,
+            1.194,
+            1.204,
+            1.202,
+            1.203,
+            1.238,
+            1.063,
+            1.178,
+            1.247,
+            1.209,
+            1.244,
+            1.215,
+            1.207,
+            1.197,
+            1.195,
+            1.196,
+            1.196,
+            1.194
+          ]
+        },
+        "python_peak_bytes": 75463,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              13,
+              0,
+              140,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              45,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ],
+          [
+            [
+              4,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              8,
+              0,
+              128,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 212000,
+        "result_total": 69157,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86392832,
+          "peak_rss_growth_bytes": 2703360,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/location": {
+      "before": {
+        "wall_ms": {
+          "median": 22.389541,
+          "p95": 22.775,
+          "samples": [
+            22.76225,
+            22.501459,
+            22.251959,
+            22.252083,
+            22.224959,
+            22.389541,
+            22.728208,
+            22.05125,
+            22.822166,
+            22.33825,
+            22.775,
+            22.458875,
+            22.41575,
+            22.570542,
+            22.111958,
+            22.417583,
+            22.071417,
+            22.388375,
+            22.332625,
+            22.06175,
+            22.442833
+          ]
+        },
+        "cpu_ms": {
+          "median": 22.374,
+          "p95": 22.768,
+          "samples": [
+            22.751,
+            22.495,
+            22.245,
+            22.246,
+            22.219,
+            22.374,
+            22.722,
+            22.044,
+            22.815,
+            22.332,
+            22.768,
+            22.452,
+            22.409,
+            22.564,
+            22.104,
+            22.404,
+            22.063,
+            22.373,
+            22.325,
+            22.049,
+            22.435
+          ]
+        },
+        "python_peak_bytes": 70325,
+        "response_bytes": 13358,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              7,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3692000,
+        "result_total": 50434,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87195648,
+          "peak_rss_growth_bytes": 2998272,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 22.475333,
+          "p95": 22.846125,
+          "samples": [
+            22.364125,
+            22.754458,
+            22.553417,
+            22.6865,
+            22.783041,
+            22.320958,
+            22.312667,
+            22.696334,
+            22.603459,
+            22.06575,
+            22.022917,
+            22.2425,
+            22.130042,
+            22.475333,
+            22.329958,
+            22.846125,
+            22.322708,
+            22.856041,
+            22.560666,
+            22.468333,
+            22.759042
+          ]
+        },
+        "cpu_ms": {
+          "median": 22.462,
+          "p95": 22.832,
+          "samples": [
+            22.359,
+            22.74,
+            22.548,
+            22.681,
+            22.776,
+            22.307,
+            22.305,
+            22.681,
+            22.596,
+            22.052,
+            22.017,
+            22.228,
+            22.124,
+            22.462,
+            22.324,
+            22.832,
+            22.317,
+            22.849,
+            22.553,
+            22.461,
+            22.751
+          ]
+        },
+        "python_peak_bytes": 78603,
+        "response_bytes": 17058,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              5,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              7,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3693000,
+        "result_total": 50434,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86720512,
+          "peak_rss_growth_bytes": 3031040,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/root": {
+      "after": {
+        "wall_ms": {
+          "median": 4.053375,
+          "p95": 4.181458,
+          "samples": [
+            4.102625,
+            4.127917,
+            4.243083,
+            3.950792,
+            3.992791,
+            3.982833,
+            3.909958,
+            4.121917,
+            4.053375,
+            4.027667,
+            4.022375,
+            4.063209,
+            4.008083,
+            4.181458,
+            4.090917,
+            4.0965,
+            4.0345,
+            4.073166,
+            4.051542,
+            4.073334,
+            4.004792
+          ]
+        },
+        "cpu_ms": {
+          "median": 4.054,
+          "p95": 4.182,
+          "samples": [
+            4.1,
+            4.128,
+            4.236,
+            3.951,
+            3.994,
+            3.983,
+            3.91,
+            4.116,
+            4.054,
+            4.028,
+            4.017,
+            4.063,
+            4.002,
+            4.182,
+            4.091,
+            4.097,
+            4.035,
+            4.066,
+            4.052,
+            4.067,
+            4.006
+          ]
+        },
+        "python_peak_bytes": 75983,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              31,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 645000,
+        "result_total": 64265,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86278144,
+          "peak_rss_growth_bytes": 2572288,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/middle": {
+      "after": {
+        "wall_ms": {
+          "median": 3.92,
+          "p95": 4.016417,
+          "samples": [
+            3.951458,
+            3.993875,
+            3.905792,
+            3.824875,
+            3.910291,
+            3.956,
+            3.975959,
+            4.016417,
+            3.977458,
+            3.995875,
+            4.02375,
+            3.982917,
+            4.007875,
+            3.867167,
+            3.92,
+            3.865541,
+            3.809042,
+            3.82075,
+            3.873833,
+            3.912791,
+            3.837417
+          ]
+        },
+        "cpu_ms": {
+          "median": 3.921,
+          "p95": 4.009,
+          "samples": [
+            3.95,
+            3.995,
+            3.907,
+            3.825,
+            3.911,
+            3.95,
+            3.977,
+            4.009,
+            3.977,
+            3.996,
+            4.024,
+            3.983,
+            4.001,
+            3.868,
+            3.921,
+            3.859,
+            3.81,
+            3.821,
+            3.868,
+            3.913,
+            3.838
+          ]
+        },
+        "python_peak_bytes": 75940,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              31,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 632000,
+        "result_total": 62949,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86228992,
+          "peak_rss_growth_bytes": 2539520,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/leaf": {
+      "after": {
+        "wall_ms": {
+          "median": 0.682583,
+          "p95": 0.693041,
+          "samples": [
+            0.699916,
+            0.691458,
+            0.692875,
+            0.687458,
+            0.684708,
+            0.681833,
+            0.681917,
+            0.6845,
+            0.687542,
+            0.693041,
+            0.681333,
+            0.684333,
+            0.684292,
+            0.680458,
+            0.680792,
+            0.682375,
+            0.679667,
+            0.682583,
+            0.679667,
+            0.676708,
+            0.681125
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.683,
+          "p95": 0.694,
+          "samples": [
+            0.704,
+            0.692,
+            0.694,
+            0.687,
+            0.686,
+            0.682,
+            0.682,
+            0.686,
+            0.688,
+            0.694,
+            0.681,
+            0.684,
+            0.685,
+            0.681,
+            0.681,
+            0.682,
+            0.679,
+            0.683,
+            0.68,
+            0.677,
+            0.682
+          ]
+        },
+        "python_peak_bytes": 76369,
+        "response_bytes": 14194,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              31,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 94000,
+        "result_total": 9205,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84590592,
+          "peak_rss_growth_bytes": 933888,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/map": {
+      "after": {
+        "wall_ms": {
+          "median": 4.299625,
+          "p95": 4.434458,
+          "samples": [
+            4.378375,
+            4.303833,
+            4.348417,
+            4.273458,
+            4.279875,
+            4.231417,
+            4.2535,
+            4.299625,
+            4.249375,
+            4.29325,
+            4.294125,
+            4.451542,
+            4.434458,
+            4.379,
+            4.382625,
+            4.324,
+            4.297625,
+            4.249583,
+            4.269083,
+            4.332666,
+            4.338708
+          ]
+        },
+        "cpu_ms": {
+          "median": 4.294,
+          "p95": 4.436,
+          "samples": [
+            4.377,
+            4.304,
+            4.34,
+            4.274,
+            4.281,
+            4.232,
+            4.253,
+            4.293,
+            4.25,
+            4.286,
+            4.294,
+            4.446,
+            4.436,
+            4.379,
+            4.383,
+            4.324,
+            4.29,
+            4.249,
+            4.261,
+            4.333,
+            4.34
+          ]
+        },
+        "python_peak_bytes": 75933,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              31,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 694000,
+        "result_total": 69197,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86474752,
+          "peak_rss_growth_bytes": 2719744,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/empty": {
+      "after": {
+        "wall_ms": {
+          "median": 0.018542,
+          "p95": 0.024167,
+          "samples": [
+            0.027916,
+            0.024167,
+            0.021916,
+            0.022875,
+            0.021833,
+            0.019875,
+            0.018875,
+            0.018542,
+            0.018708,
+            0.020583,
+            0.018625,
+            0.017917,
+            0.017708,
+            0.017959,
+            0.017583,
+            0.017542,
+            0.017833,
+            0.017958,
+            0.018292,
+            0.01825,
+            0.017959
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.019,
+          "p95": 0.025,
+          "samples": [
+            0.033,
+            0.025,
+            0.022,
+            0.023,
+            0.021,
+            0.019,
+            0.019,
+            0.019,
+            0.019,
+            0.022,
+            0.018,
+            0.017,
+            0.018,
+            0.019,
+            0.018,
+            0.017,
+            0.018,
+            0.019,
+            0.019,
+            0.019,
+            0.017
+          ]
+        },
+        "python_peak_bytes": 6723,
+        "response_bytes": 46,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              31,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 0,
+        "result_total": 0,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84164608,
+          "peak_rss_growth_bytes": 475136,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "entries/max50": {
+      "after": {
+        "wall_ms": {
+          "median": 4.3375,
+          "p95": 4.519833,
+          "samples": [
+            4.519833,
+            4.261209,
+            4.429459,
+            4.320209,
+            4.467542,
+            4.401791,
+            4.347208,
+            4.156875,
+            4.058791,
+            4.075,
+            4.053,
+            4.179084,
+            4.439667,
+            4.380041,
+            4.525541,
+            4.388,
+            4.327167,
+            4.273334,
+            4.280375,
+            4.423625,
+            4.3375
+          ]
+        },
+        "cpu_ms": {
+          "median": 4.329,
+          "p95": 4.519,
+          "samples": [
+            4.519,
+            4.262,
+            4.401,
+            4.321,
+            4.46,
+            4.402,
+            4.341,
+            4.158,
+            4.058,
+            4.077,
+            4.053,
+            4.171,
+            4.439,
+            4.373,
+            4.526,
+            4.388,
+            4.327,
+            4.274,
+            4.273,
+            4.424,
+            4.329
+          ]
+        },
+        "python_peak_bytes": 90568,
+        "response_bytes": 14195,
+        "plans": [
+          [
+            [
+              4,
+              0,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              8,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              10,
+              8,
+              62,
+              "SCAN p"
+            ],
+            [
+              276,
+              0,
+              28,
+              "SEARCH l USING COVERING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ],
+          [
+            [
+              9,
+              0,
+              179,
+              "SCAN e"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              274,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              283,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 655000,
+        "result_total": 64265,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86523904,
+          "peak_rss_growth_bytes": 2899968,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/all": {
+      "before": {
+        "wall_ms": {
+          "median": 106.250291,
+          "p95": 109.130084,
+          "samples": [
+            101.340417,
+            94.914292,
+            106.430417,
+            108.911625,
+            112.048959,
+            92.997,
+            106.01675,
+            106.250291,
+            107.17725,
+            106.815,
+            109.130084,
+            107.893334,
+            96.477458,
+            99.085542,
+            106.925917,
+            105.994042,
+            94.510792,
+            94.832,
+            108.042458,
+            96.307417,
+            106.857
+          ]
+        },
+        "cpu_ms": {
+          "median": 106.208,
+          "p95": 109.062,
+          "samples": [
+            101.265,
+            94.854,
+            106.377,
+            108.845,
+            111.936,
+            92.96,
+            105.951,
+            106.208,
+            107.116,
+            106.757,
+            109.062,
+            107.836,
+            96.443,
+            99.036,
+            106.868,
+            105.942,
+            94.452,
+            94.799,
+            107.988,
+            96.25,
+            106.795
+          ]
+        },
+        "python_peak_bytes": 37417910,
+        "response_bytes": 10512,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              180,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_standard_word_location"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1969000,
+        "result_total": 39965,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 133021696,
+          "peak_rss_growth_bytes": 48742400,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 106.868209,
+          "p95": 111.728667,
+          "samples": [
+            123.056667,
+            109.496209,
+            111.728667,
+            96.957791,
+            97.992667,
+            106.159333,
+            105.867292,
+            101.07175,
+            95.598125,
+            108.558959,
+            97.73825,
+            107.866834,
+            107.150875,
+            109.757458,
+            94.347458,
+            103.94,
+            104.118959,
+            106.868209,
+            108.886542,
+            108.699042,
+            108.563209
+          ]
+        },
+        "cpu_ms": {
+          "median": 106.822,
+          "p95": 111.676,
+          "samples": [
+            121.333,
+            109.278,
+            111.676,
+            96.912,
+            97.946,
+            106.081,
+            105.813,
+            101.034,
+            95.558,
+            108.493,
+            97.69,
+            107.827,
+            107.117,
+            109.699,
+            94.301,
+            103.869,
+            104.069,
+            106.822,
+            108.829,
+            108.632,
+            108.503
+          ]
+        },
+        "python_peak_bytes": 37418206,
+        "response_bytes": 10512,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              180,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_standard_word_location"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1970000,
+        "result_total": 39965,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 132497408,
+          "peak_rss_growth_bytes": 48906240,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/province": {
+      "before": {
+        "wall_ms": {
+          "median": 92.521917,
+          "p95": 101.949333,
+          "samples": [
+            100.995792,
+            101.8025,
+            90.765417,
+            89.700625,
+            99.492417,
+            92.065042,
+            103.451333,
+            101.949333,
+            92.521917,
+            87.287792,
+            101.323,
+            92.760458,
+            85.823542,
+            101.268916,
+            91.611958,
+            90.170958,
+            98.099667,
+            91.64875,
+            89.121084,
+            100.606458,
+            90.056291
+          ]
+        },
+        "cpu_ms": {
+          "median": 89.428,
+          "p95": 100.216,
+          "samples": [
+            98.886,
+            97.945,
+            88.41,
+            87.411,
+            97.156,
+            88.206,
+            101.184,
+            97.981,
+            88.577,
+            87.124,
+            97.327,
+            88.919,
+            85.333,
+            99.032,
+            89.278,
+            88.0,
+            97.681,
+            89.428,
+            86.887,
+            100.216,
+            89.655
+          ]
+        },
+        "python_peak_bytes": 28035447,
+        "response_bytes": 10260,
+        "plans": [
+          [
+            [
+              8,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              12,
+              0,
+              140,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              21,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1919000,
+        "result_total": 33462,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 123076608,
+          "peak_rss_growth_bytes": 38862848,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 92.529875,
+          "p95": 102.290542,
+          "samples": [
+            91.041875,
+            91.3015,
+            99.211541,
+            92.934458,
+            90.4305,
+            102.155833,
+            92.450583,
+            91.142333,
+            103.343666,
+            89.66975,
+            92.529875,
+            102.290542,
+            99.154916,
+            87.916709,
+            98.961458,
+            91.659209,
+            90.759208,
+            101.43975,
+            99.36975,
+            89.408792,
+            101.886417
+          ]
+        },
+        "cpu_ms": {
+          "median": 89.277,
+          "p95": 100.932,
+          "samples": [
+            88.737,
+            87.456,
+            98.59,
+            89.069,
+            87.952,
+            99.808,
+            89.241,
+            87.265,
+            99.457,
+            89.277,
+            88.668,
+            98.267,
+            96.791,
+            87.366,
+            98.572,
+            89.473,
+            88.603,
+            100.932,
+            97.008,
+            89.137,
+            101.489
+          ]
+        },
+        "python_peak_bytes": 28035999,
+        "response_bytes": 10260,
+        "plans": [
+          [
+            [
+              8,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              12,
+              0,
+              140,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              21,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1919000,
+        "result_total": 33462,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 122454016,
+          "peak_rss_growth_bytes": 38928384,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/location": {
+      "before": {
+        "wall_ms": {
+          "median": 109.952875,
+          "p95": 118.716916,
+          "samples": [
+            118.6805,
+            105.528125,
+            117.194667,
+            118.716916,
+            108.72,
+            117.997792,
+            109.28875,
+            109.952875,
+            109.384375,
+            111.647875,
+            107.305208,
+            109.981958,
+            108.786125,
+            107.533292,
+            107.377625,
+            107.7175,
+            117.933,
+            106.883417,
+            117.743417,
+            117.775,
+            131.766958
+          ]
+        },
+        "cpu_ms": {
+          "median": 109.871,
+          "p95": 118.64,
+          "samples": [
+            118.626,
+            105.472,
+            117.103,
+            118.64,
+            108.623,
+            117.926,
+            109.231,
+            109.89,
+            109.283,
+            111.532,
+            107.258,
+            109.871,
+            108.711,
+            107.478,
+            107.291,
+            107.675,
+            117.869,
+            106.828,
+            117.692,
+            116.883,
+            125.457
+          ]
+        },
+        "python_peak_bytes": 22920644,
+        "response_bytes": 10133,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              190,
+              "SCAN e USING INDEX idx_vocabulary_entries_standard_word_location"
+            ],
+            [
+              14,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3903000,
+        "result_total": 30342,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 116015104,
+          "peak_rss_growth_bytes": 31784960,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 109.849875,
+          "p95": 119.281167,
+          "samples": [
+            111.917417,
+            107.461291,
+            111.569833,
+            106.797083,
+            109.03725,
+            106.637417,
+            107.79875,
+            121.564084,
+            107.010542,
+            119.281167,
+            106.340959,
+            117.158,
+            117.704584,
+            109.849875,
+            118.200416,
+            110.0075,
+            109.222208,
+            108.057958,
+            117.651125,
+            116.364084,
+            109.654167
+          ]
+        },
+        "cpu_ms": {
+          "median": 109.793,
+          "p95": 119.218,
+          "samples": [
+            111.754,
+            107.399,
+            110.916,
+            106.731,
+            108.98,
+            106.58,
+            107.724,
+            121.498,
+            106.965,
+            119.218,
+            106.278,
+            117.102,
+            117.652,
+            109.793,
+            118.14,
+            109.911,
+            109.166,
+            107.997,
+            117.263,
+            116.262,
+            109.612
+          ]
+        },
+        "python_peak_bytes": 22921620,
+        "response_bytes": 10133,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              190,
+              "SCAN e USING INDEX idx_vocabulary_entries_standard_word_location"
+            ],
+            [
+              14,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3902000,
+        "result_total": 30342,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 115326976,
+          "peak_rss_growth_bytes": 31703040,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/root": {
+      "after": {
+        "wall_ms": {
+          "median": 86.162958,
+          "p95": 96.442625,
+          "samples": [
+            92.66175,
+            83.1115,
+            85.0405,
+            94.866208,
+            86.162958,
+            94.478125,
+            84.282375,
+            84.2895,
+            94.95875,
+            87.126458,
+            81.77125,
+            96.442625,
+            84.960459,
+            95.967,
+            88.026208,
+            84.6755,
+            97.109375,
+            85.404917,
+            84.287666,
+            95.161541,
+            82.919125
+          ]
+        },
+        "cpu_ms": {
+          "median": 83.196,
+          "p95": 94.081,
+          "samples": [
+            92.148,
+            82.719,
+            81.226,
+            90.893,
+            82.308,
+            94.081,
+            83.869,
+            82.003,
+            92.684,
+            83.196,
+            81.357,
+            92.486,
+            82.617,
+            93.657,
+            87.671,
+            82.359,
+            94.639,
+            83.184,
+            82.1,
+            93.017,
+            82.585
+          ]
+        },
+        "python_peak_bytes": 26787602,
+        "response_bytes": 10479,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1771000,
+        "result_total": 32387,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 120143872,
+          "peak_rss_growth_bytes": 36585472,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/middle": {
+      "after": {
+        "wall_ms": {
+          "median": 85.910291,
+          "p95": 96.5515,
+          "samples": [
+            83.298875,
+            96.854792,
+            86.921792,
+            84.028042,
+            92.84225,
+            84.108917,
+            94.177042,
+            84.720583,
+            84.800042,
+            93.822666,
+            85.910291,
+            83.008458,
+            96.5515,
+            85.481125,
+            93.895083,
+            84.768125,
+            83.283167,
+            95.512708,
+            87.40625,
+            82.732583,
+            94.859041
+          ]
+        },
+        "cpu_ms": {
+          "median": 83.049,
+          "p95": 92.58,
+          "samples": [
+            83.049,
+            96.617,
+            86.527,
+            81.841,
+            90.5,
+            81.693,
+            91.936,
+            82.444,
+            80.75,
+            91.616,
+            81.924,
+            80.519,
+            92.58,
+            81.64,
+            91.749,
+            82.573,
+            80.862,
+            91.646,
+            83.462,
+            80.529,
+            91.015
+          ]
+        },
+        "python_peak_bytes": 26530614,
+        "response_bytes": 10470,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1731000,
+        "result_total": 32353,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 119996416,
+          "peak_rss_growth_bytes": 36274176,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/leaf": {
+      "after": {
+        "wall_ms": {
+          "median": 10.076958,
+          "p95": 17.512625,
+          "samples": [
+            10.1165,
+            10.076958,
+            10.080667,
+            18.493958,
+            10.206833,
+            10.108584,
+            10.145167,
+            9.915292,
+            9.997709,
+            17.512625,
+            10.31475,
+            9.926292,
+            9.877667,
+            10.033917,
+            10.023208,
+            9.927,
+            16.593167,
+            10.228209,
+            10.036375,
+            9.849708,
+            9.916375
+          ]
+        },
+        "cpu_ms": {
+          "median": 10.069,
+          "p95": 17.506,
+          "samples": [
+            10.121,
+            10.069,
+            10.073,
+            18.488,
+            10.196,
+            10.101,
+            10.147,
+            9.909,
+            9.999,
+            17.506,
+            10.305,
+            9.927,
+            9.869,
+            10.035,
+            10.017,
+            9.928,
+            16.583,
+            10.229,
+            10.03,
+            9.85,
+            9.908
+          ]
+        },
+        "python_peak_bytes": 3897983,
+        "response_bytes": 10167,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 293000,
+        "result_total": 4103,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 90472448,
+          "peak_rss_growth_bytes": 6864896,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/map": {
+      "after": {
+        "wall_ms": {
+          "median": 91.333167,
+          "p95": 103.453625,
+          "samples": [
+            99.96425,
+            90.287,
+            86.419042,
+            97.697875,
+            89.839916,
+            103.453625,
+            89.913708,
+            91.703167,
+            98.748083,
+            91.333167,
+            86.432166,
+            97.026292,
+            89.894292,
+            103.71325,
+            91.002417,
+            89.375917,
+            102.409459,
+            90.645125,
+            91.67275,
+            98.668208,
+            88.28925
+          ]
+        },
+        "cpu_ms": {
+          "median": 88.715,
+          "p95": 99.555,
+          "samples": [
+            97.479,
+            87.925,
+            86.023,
+            97.277,
+            85.999,
+            99.555,
+            89.562,
+            87.758,
+            98.335,
+            89.005,
+            86.036,
+            96.784,
+            87.679,
+            99.65,
+            88.715,
+            87.147,
+            98.448,
+            88.415,
+            87.719,
+            98.275,
+            87.865
+          ]
+        },
+        "python_peak_bytes": 27814793,
+        "response_bytes": 10470,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1927000,
+        "result_total": 32353,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 122159104,
+          "peak_rss_growth_bytes": 38584320,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/empty": {
+      "after": {
+        "wall_ms": {
+          "median": 0.019291,
+          "p95": 0.030292,
+          "samples": [
+            0.030292,
+            0.023958,
+            0.0215,
+            0.021166,
+            0.020916,
+            0.0215,
+            0.019667,
+            0.019959,
+            0.019167,
+            0.019334,
+            0.019125,
+            0.018709,
+            0.018792,
+            0.019042,
+            0.018208,
+            0.019291,
+            0.074958,
+            0.01875,
+            0.018792,
+            0.018458,
+            0.018417
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.02,
+          "p95": 0.038,
+          "samples": [
+            0.038,
+            0.024,
+            0.022,
+            0.022,
+            0.02,
+            0.021,
+            0.021,
+            0.021,
+            0.02,
+            0.019,
+            0.018,
+            0.019,
+            0.02,
+            0.02,
+            0.019,
+            0.019,
+            0.075,
+            0.019,
+            0.019,
+            0.019,
+            0.018
+          ]
+        },
+        "python_peak_bytes": 6384,
+        "response_bytes": 31,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              37,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 0,
+        "result_total": 0,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84180992,
+          "peak_rss_growth_bytes": 409600,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "standard-words/max50": {
+      "after": {
+        "wall_ms": {
+          "median": 88.302875,
+          "p95": 99.5335,
+          "samples": [
+            84.321417,
+            94.574875,
+            84.583375,
+            102.123292,
+            91.620166,
+            88.302875,
+            99.5335,
+            91.839875,
+            85.7795,
+            94.015917,
+            85.211042,
+            98.506042,
+            86.796042,
+            82.232208,
+            93.785667,
+            84.592209,
+            82.980458,
+            94.43325,
+            83.694458,
+            81.676708,
+            92.304625
+          ]
+        },
+        "cpu_ms": {
+          "median": 84.753,
+          "p95": 99.086,
+          "samples": [
+            80.503,
+            92.217,
+            82.233,
+            99.865,
+            87.77,
+            84.446,
+            99.086,
+            87.904,
+            81.903,
+            93.491,
+            84.753,
+            94.536,
+            84.425,
+            81.988,
+            93.359,
+            84.17,
+            82.631,
+            94.013,
+            83.33,
+            81.256,
+            91.94
+          ]
+        },
+        "python_peak_bytes": 26799079,
+        "response_bytes": 10479,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              186,
+              "SEARCH e USING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              11,
+              0,
+              0,
+              "LIST SUBQUERY 3"
+            ],
+            [
+              13,
+              11,
+              62,
+              "SCAN p"
+            ],
+            [
+              282,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1775000,
+        "result_total": 32387,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 120422400,
+          "peak_rss_growth_bytes": 36814848,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/all": {
+      "before": {
+        "wall_ms": {
+          "median": 8.17475,
+          "p95": 8.430583,
+          "samples": [
+            8.532333,
+            8.430583,
+            8.1725,
+            8.284792,
+            8.178084,
+            8.052791,
+            7.992291,
+            8.179167,
+            8.217666,
+            7.95425,
+            8.043083,
+            8.054667,
+            8.2155,
+            8.167875,
+            8.142167,
+            8.095625,
+            8.293667,
+            8.363916,
+            8.053416,
+            8.17475,
+            8.23375
+          ]
+        },
+        "cpu_ms": {
+          "median": 8.17,
+          "p95": 8.431,
+          "samples": [
+            8.527,
+            8.431,
+            8.166,
+            8.278,
+            8.17,
+            8.045,
+            7.992,
+            8.18,
+            8.21,
+            7.955,
+            8.044,
+            8.054,
+            8.216,
+            8.161,
+            8.135,
+            8.088,
+            8.287,
+            8.364,
+            8.047,
+            8.176,
+            8.226
+          ]
+        },
+        "python_peak_bytes": 63969,
+        "response_bytes": 13443,
+        "plans": [
+          [
+            [
+              10,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              80,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1807000,
+        "result_total": 95003,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87212032,
+          "peak_rss_growth_bytes": 2883584,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 8.14525,
+          "p95": 8.331667,
+          "samples": [
+            8.327791,
+            8.172667,
+            8.194542,
+            8.2875,
+            7.984583,
+            7.900959,
+            8.060208,
+            8.189,
+            8.331583,
+            8.140125,
+            7.999167,
+            8.14525,
+            8.191583,
+            8.331667,
+            7.895,
+            7.912834,
+            8.337083,
+            8.306958,
+            8.027209,
+            8.042667,
+            8.060625
+          ]
+        },
+        "cpu_ms": {
+          "median": 8.138,
+          "p95": 8.332,
+          "samples": [
+            8.328,
+            8.174,
+            8.189,
+            8.289,
+            7.984,
+            7.901,
+            8.053,
+            8.188,
+            8.332,
+            8.133,
+            7.991,
+            8.138,
+            8.184,
+            8.333,
+            7.895,
+            7.913,
+            8.33,
+            8.307,
+            8.021,
+            8.036,
+            8.061
+          ]
+        },
+        "python_peak_bytes": 63969,
+        "response_bytes": 13443,
+        "plans": [
+          [
+            [
+              10,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              80,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1807000,
+        "result_total": 95003,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86736896,
+          "peak_rss_growth_bytes": 2965504,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/province": {
+      "before": {
+        "wall_ms": {
+          "median": 35.297667,
+          "p95": 36.011917,
+          "samples": [
+            34.95725,
+            34.371166,
+            35.159375,
+            35.121083,
+            34.36125,
+            34.769958,
+            34.356833,
+            36.088167,
+            35.719958,
+            35.689084,
+            35.938292,
+            35.872458,
+            35.751083,
+            35.57275,
+            35.175167,
+            35.039167,
+            35.781959,
+            36.011917,
+            35.297667,
+            35.490083,
+            35.020334
+          ]
+        },
+        "cpu_ms": {
+          "median": 34.578,
+          "p95": 34.837,
+          "samples": [
+            34.362,
+            34.048,
+            34.837,
+            34.578,
+            34.046,
+            34.475,
+            34.066,
+            35.057,
+            34.759,
+            34.709,
+            34.592,
+            34.837,
+            34.724,
+            34.754,
+            34.224,
+            34.349,
+            34.762,
+            34.624,
+            34.274,
+            34.43,
+            34.051
+          ]
+        },
+        "python_peak_bytes": 39614,
+        "response_bytes": 7500,
+        "plans": [
+          [
+            [
+              8,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              12,
+              0,
+              128,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              18,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              106,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2836000,
+        "result_total": 69157,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 88539136,
+          "peak_rss_growth_bytes": 4292608,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 35.67775,
+          "p95": 37.052708,
+          "samples": [
+            35.360875,
+            34.707292,
+            34.608334,
+            34.691625,
+            34.831375,
+            36.447833,
+            35.918458,
+            36.149958,
+            36.063791,
+            35.510042,
+            35.515083,
+            35.725333,
+            37.2765,
+            35.639583,
+            36.16125,
+            36.448375,
+            35.616,
+            35.67775,
+            35.240625,
+            36.056417,
+            37.052708
+          ]
+        },
+        "cpu_ms": {
+          "median": 34.626,
+          "p95": 35.047,
+          "samples": [
+            34.708,
+            34.391,
+            34.294,
+            34.389,
+            34.523,
+            35.047,
+            34.497,
+            34.836,
+            34.737,
+            34.53,
+            34.523,
+            34.697,
+            34.869,
+            34.408,
+            34.846,
+            35.091,
+            34.626,
+            34.504,
+            34.238,
+            35.031,
+            34.918
+          ]
+        },
+        "python_peak_bytes": 39614,
+        "response_bytes": 7500,
+        "plans": [
+          [
+            [
+              8,
+              0,
+              62,
+              "SCAN l"
+            ],
+            [
+              12,
+              0,
+              128,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              18,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              106,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2837000,
+        "result_total": 69157,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87900160,
+          "peak_rss_growth_bytes": 4308992,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/location": {
+      "before": {
+        "wall_ms": {
+          "median": 18.693333,
+          "p95": 18.882667,
+          "samples": [
+            18.798,
+            18.882667,
+            18.835,
+            18.804375,
+            18.688459,
+            18.919458,
+            18.63275,
+            18.781125,
+            18.603125,
+            18.693333,
+            18.69,
+            18.628208,
+            18.600875,
+            18.680959,
+            18.82025,
+            18.597334,
+            18.605583,
+            18.806125,
+            18.802208,
+            18.876958,
+            18.662084
+          ]
+        },
+        "cpu_ms": {
+          "median": 18.687,
+          "p95": 18.876,
+          "samples": [
+            18.788,
+            18.876,
+            18.819,
+            18.79,
+            18.683,
+            18.903,
+            18.625,
+            18.767,
+            18.597,
+            18.687,
+            18.683,
+            18.62,
+            18.587,
+            18.673,
+            18.806,
+            18.598,
+            18.592,
+            18.783,
+            18.79,
+            18.863,
+            18.655
+          ]
+        },
+        "python_peak_bytes": 11812,
+        "response_bytes": 577,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              129,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3344000,
+        "result_total": 50434,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86818816,
+          "peak_rss_growth_bytes": 2850816,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 18.781083,
+          "p95": 19.033208,
+          "samples": [
+            18.646167,
+            18.904209,
+            18.947667,
+            18.5225,
+            18.871333,
+            18.593084,
+            18.698334,
+            18.662667,
+            18.835458,
+            18.99825,
+            18.82675,
+            19.057166,
+            19.033208,
+            18.623458,
+            18.673625,
+            18.753875,
+            18.609041,
+            18.715625,
+            18.970666,
+            18.781083,
+            18.934209
+          ]
+        },
+        "cpu_ms": {
+          "median": 18.774,
+          "p95": 19.022,
+          "samples": [
+            18.639,
+            18.89,
+            18.941,
+            18.522,
+            18.858,
+            18.586,
+            18.685,
+            18.663,
+            18.822,
+            18.991,
+            18.813,
+            19.05,
+            19.022,
+            18.608,
+            18.667,
+            18.739,
+            18.603,
+            18.701,
+            18.964,
+            18.774,
+            18.921
+          ]
+        },
+        "python_peak_bytes": 11812,
+        "response_bytes": 577,
+        "plans": [
+          [
+            [
+              9,
+              0,
+              177,
+              "SCAN e USING COVERING INDEX idx_vocabulary_entries_user_location"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              129,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3344000,
+        "result_total": 50434,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 86704128,
+          "peak_rss_growth_bytes": 2949120,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/root": {
+      "after": {
+        "wall_ms": {
+          "median": 10.939667,
+          "p95": 11.390375,
+          "samples": [
+            11.072958,
+            11.280958,
+            10.991459,
+            10.884625,
+            10.83975,
+            10.912041,
+            10.897,
+            10.668,
+            10.874041,
+            11.390375,
+            10.939667,
+            10.772875,
+            11.032959,
+            10.935042,
+            11.069416,
+            10.9115,
+            10.859875,
+            11.315833,
+            11.194,
+            11.538917,
+            11.041875
+          ]
+        },
+        "cpu_ms": {
+          "median": 10.788,
+          "p95": 10.983,
+          "samples": [
+            10.759,
+            10.906,
+            10.691,
+            10.782,
+            10.733,
+            10.81,
+            10.792,
+            10.557,
+            10.779,
+            10.957,
+            10.827,
+            10.671,
+            10.649,
+            10.818,
+            10.966,
+            10.804,
+            10.759,
+            10.983,
+            10.788,
+            11.156,
+            10.727
+          ]
+        },
+        "python_peak_bytes": 31243,
+        "response_bytes": 5310,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              35,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              82,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              85,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              128,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1222000,
+        "result_total": 64265,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87785472,
+          "peak_rss_growth_bytes": 4325376,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/middle": {
+      "after": {
+        "wall_ms": {
+          "median": 11.514208,
+          "p95": 11.971208,
+          "samples": [
+            11.620458,
+            11.071375,
+            11.4485,
+            11.375375,
+            11.003416,
+            11.638417,
+            11.774833,
+            11.1055,
+            11.514208,
+            11.216708,
+            11.693208,
+            11.282083,
+            11.971208,
+            11.225125,
+            10.773083,
+            11.530792,
+            11.330042,
+            11.836625,
+            11.533083,
+            11.667791,
+            12.137583
+          ]
+        },
+        "cpu_ms": {
+          "median": 11.134,
+          "p95": 11.568,
+          "samples": [
+            11.232,
+            10.817,
+            11.05,
+            11.067,
+            10.685,
+            11.3,
+            11.367,
+            10.996,
+            11.144,
+            11.113,
+            11.3,
+            10.986,
+            11.568,
+            10.908,
+            10.669,
+            11.134,
+            11.051,
+            11.364,
+            11.145,
+            11.314,
+            11.735
+          ]
+        },
+        "python_peak_bytes": 28939,
+        "response_bytes": 4763,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              35,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              82,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              85,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              128,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1197000,
+        "result_total": 62949,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87900160,
+          "peak_rss_growth_bytes": 4194304,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/leaf": {
+      "after": {
+        "wall_ms": {
+          "median": 1.361333,
+          "p95": 1.437708,
+          "samples": [
+            1.437708,
+            1.441375,
+            1.313625,
+            1.323584,
+            1.358375,
+            1.403917,
+            1.3835,
+            1.422333,
+            1.376083,
+            1.375459,
+            1.4145,
+            1.373667,
+            1.361333,
+            1.329625,
+            1.350291,
+            1.341666,
+            1.364,
+            1.339375,
+            1.30525,
+            1.3445,
+            1.355916
+          ]
+        },
+        "cpu_ms": {
+          "median": 1.359,
+          "p95": 1.442,
+          "samples": [
+            1.443,
+            1.442,
+            1.314,
+            1.324,
+            1.359,
+            1.404,
+            1.384,
+            1.423,
+            1.377,
+            1.371,
+            1.413,
+            1.374,
+            1.361,
+            1.33,
+            1.35,
+            1.343,
+            1.358,
+            1.34,
+            1.305,
+            1.345,
+            1.357
+          ]
+        },
+        "python_peak_bytes": 17808,
+        "response_bytes": 1953,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              35,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              82,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              85,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              128,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 175000,
+        "result_total": 9205,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84525056,
+          "peak_rss_growth_bytes": 917504,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/map": {
+      "after": {
+        "wall_ms": {
+          "median": 12.97175,
+          "p95": 13.360167,
+          "samples": [
+            13.572292,
+            13.174208,
+            13.360167,
+            12.893625,
+            12.352792,
+            12.964875,
+            12.869416,
+            12.834375,
+            13.054667,
+            13.108667,
+            12.671917,
+            12.859333,
+            13.053083,
+            13.001667,
+            13.04975,
+            12.536583,
+            12.9755,
+            13.003416,
+            12.514083,
+            12.842291,
+            12.97175
+          ]
+        },
+        "cpu_ms": {
+          "median": 12.851,
+          "p95": 13.16,
+          "samples": [
+            13.459,
+            13.066,
+            13.16,
+            12.785,
+            12.25,
+            12.851,
+            12.749,
+            12.718,
+            12.936,
+            13.001,
+            12.554,
+            12.746,
+            12.936,
+            12.888,
+            12.938,
+            12.43,
+            12.77,
+            12.892,
+            12.399,
+            12.71,
+            12.851
+          ]
+        },
+        "python_peak_bytes": 39840,
+        "response_bytes": 7421,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              35,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              82,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              85,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              128,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1316000,
+        "result_total": 69197,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 87736320,
+          "peak_rss_growth_bytes": 4456448,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/empty": {
+      "after": {
+        "wall_ms": {
+          "median": 0.021958,
+          "p95": 0.027625,
+          "samples": [
+            0.030417,
+            0.027625,
+            0.02475,
+            0.023792,
+            0.024125,
+            0.022958,
+            0.022167,
+            0.021958,
+            0.022375,
+            0.022458,
+            0.021875,
+            0.021375,
+            0.021875,
+            0.02375,
+            0.021291,
+            0.021875,
+            0.021584,
+            0.021208,
+            0.021583,
+            0.0215,
+            0.021208
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.023,
+          "p95": 0.028,
+          "samples": [
+            0.034,
+            0.028,
+            0.026,
+            0.024,
+            0.025,
+            0.024,
+            0.023,
+            0.022,
+            0.022,
+            0.023,
+            0.023,
+            0.022,
+            0.023,
+            0.024,
+            0.021,
+            0.021,
+            0.022,
+            0.021,
+            0.021,
+            0.022,
+            0.022
+          ]
+        },
+        "python_peak_bytes": 8097,
+        "response_bytes": 80,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              35,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              82,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              85,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              128,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1000,
+        "result_total": 0,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 83951616,
+          "peak_rss_growth_bytes": 507904,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-points/max50": {
+      "after": {
+        "wall_ms": {
+          "median": 11.875417,
+          "p95": 12.65,
+          "samples": [
+            11.890583,
+            12.000167,
+            11.617417,
+            11.263791,
+            14.588834,
+            11.583167,
+            11.64725,
+            12.023875,
+            11.875417,
+            11.825042,
+            11.697667,
+            12.119375,
+            12.65,
+            11.564292,
+            11.6475,
+            12.284917,
+            12.097791,
+            11.943,
+            12.1985,
+            11.75475,
+            11.756333
+          ]
+        },
+        "cpu_ms": {
+          "median": 11.52,
+          "p95": 11.72,
+          "samples": [
+            11.506,
+            11.576,
+            11.366,
+            11.152,
+            11.599,
+            11.256,
+            11.545,
+            11.615,
+            11.496,
+            11.481,
+            11.288,
+            11.708,
+            12.314,
+            11.243,
+            11.245,
+            11.699,
+            11.704,
+            11.52,
+            11.72,
+            11.651,
+            11.371
+          ]
+        },
+        "python_peak_bytes": 42720,
+        "response_bytes": 5310,
+        "plans": [
+          [
+            [
+              2,
+              0,
+              0,
+              "CO-ROUTINE e"
+            ],
+            [
+              8,
+              2,
+              174,
+              "SEARCH e USING COVERING INDEX idx_vocabulary_entries_user_location (user_id=? AND location_name=?)"
+            ],
+            [
+              12,
+              2,
+              0,
+              "LIST SUBQUERY 4"
+            ],
+            [
+              14,
+              12,
+              62,
+              "SCAN p"
+            ],
+            [
+              280,
+              2,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              327,
+              0,
+              82,
+              "SCAN e"
+            ],
+            [
+              330,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ],
+            [
+              373,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1226000,
+        "result_total": 64265,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 88293376,
+          "peak_rss_growth_bytes": 4587520,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/all": {
+      "before": {
+        "wall_ms": {
+          "median": 0.180459,
+          "p95": 0.196458,
+          "samples": [
+            0.198208,
+            0.192417,
+            0.194417,
+            0.190209,
+            0.196458,
+            0.179291,
+            0.177959,
+            0.178208,
+            0.179,
+            0.179,
+            0.179958,
+            0.181625,
+            0.178292,
+            0.183042,
+            0.177291,
+            0.178292,
+            0.180459,
+            0.178125,
+            0.191417,
+            0.187958,
+            0.186542
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.181,
+          "p95": 0.196,
+          "samples": [
+            0.202,
+            0.192,
+            0.194,
+            0.191,
+            0.196,
+            0.18,
+            0.179,
+            0.179,
+            0.18,
+            0.179,
+            0.18,
+            0.182,
+            0.178,
+            0.183,
+            0.177,
+            0.179,
+            0.181,
+            0.178,
+            0.191,
+            0.188,
+            0.187
+          ]
+        },
+        "python_peak_bytes": 80730,
+        "response_bytes": 15117,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 51,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84852736,
+          "peak_rss_growth_bytes": 720896,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 0.179083,
+          "p95": 0.194417,
+          "samples": [
+            0.196417,
+            0.194417,
+            0.193625,
+            0.193292,
+            0.180917,
+            0.180041,
+            0.179083,
+            0.17825,
+            0.177917,
+            0.178166,
+            0.178417,
+            0.178583,
+            0.177959,
+            0.1785,
+            0.177625,
+            0.177792,
+            0.180208,
+            0.178291,
+            0.1875,
+            0.187459,
+            0.191834
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.18,
+          "p95": 0.194,
+          "samples": [
+            0.197,
+            0.194,
+            0.194,
+            0.194,
+            0.181,
+            0.18,
+            0.18,
+            0.179,
+            0.179,
+            0.179,
+            0.179,
+            0.179,
+            0.178,
+            0.179,
+            0.178,
+            0.179,
+            0.181,
+            0.177,
+            0.188,
+            0.188,
+            0.192
+          ]
+        },
+        "python_peak_bytes": 83426,
+        "response_bytes": 15117,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              12,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 51,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84344832,
+          "peak_rss_growth_bytes": 802816,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/province": {
+      "before": {
+        "wall_ms": {
+          "median": 0.157334,
+          "p95": 0.161,
+          "samples": [
+            0.166916,
+            0.160208,
+            0.160666,
+            0.161,
+            0.158708,
+            0.157875,
+            0.157709,
+            0.15675,
+            0.15725,
+            0.156833,
+            0.157334,
+            0.157542,
+            0.156167,
+            0.156583,
+            0.156708,
+            0.159041,
+            0.157,
+            0.158291,
+            0.156667,
+            0.156583,
+            0.155834
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.158,
+          "p95": 0.161,
+          "samples": [
+            0.171,
+            0.161,
+            0.161,
+            0.161,
+            0.159,
+            0.159,
+            0.158,
+            0.157,
+            0.158,
+            0.157,
+            0.158,
+            0.158,
+            0.157,
+            0.157,
+            0.157,
+            0.16,
+            0.157,
+            0.159,
+            0.157,
+            0.158,
+            0.157
+          ]
+        },
+        "python_peak_bytes": 66714,
+        "response_bytes": 11965,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              12,
+              0,
+              0,
+              "BLOOM FILTER ON l (user_id=? AND location_name=?)"
+            ],
+            [
+              21,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?)"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1000,
+        "result_total": 41,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 85000192,
+          "peak_rss_growth_bytes": 688128,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 0.158375,
+          "p95": 0.161792,
+          "samples": [
+            0.162458,
+            0.161792,
+            0.159416,
+            0.161666,
+            0.158791,
+            0.158792,
+            0.158291,
+            0.157041,
+            0.156417,
+            0.158958,
+            0.158375,
+            0.157084,
+            0.161708,
+            0.157042,
+            0.156458,
+            0.155709,
+            0.156792,
+            0.159708,
+            0.157334,
+            0.156458,
+            0.15875
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.159,
+          "p95": 0.163,
+          "samples": [
+            0.163,
+            0.163,
+            0.16,
+            0.162,
+            0.159,
+            0.16,
+            0.159,
+            0.158,
+            0.157,
+            0.16,
+            0.159,
+            0.158,
+            0.162,
+            0.158,
+            0.158,
+            0.157,
+            0.157,
+            0.16,
+            0.158,
+            0.157,
+            0.16
+          ]
+        },
+        "python_peak_bytes": 68810,
+        "response_bytes": 11965,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              12,
+              0,
+              0,
+              "BLOOM FILTER ON l (user_id=? AND location_name=?)"
+            ],
+            [
+              21,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?)"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 41,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84688896,
+          "peak_rss_growth_bytes": 786432,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/location": {
+      "before": {
+        "wall_ms": {
+          "median": 0.102084,
+          "p95": 0.1065,
+          "samples": [
+            0.113083,
+            0.10525,
+            0.104,
+            0.100917,
+            0.102125,
+            0.101209,
+            0.10125,
+            0.101208,
+            0.101416,
+            0.100417,
+            0.106333,
+            0.100542,
+            0.102709,
+            0.1065,
+            0.102084,
+            0.103458,
+            0.099791,
+            0.099917,
+            0.100458,
+            0.103375,
+            0.103334
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.103,
+          "p95": 0.107,
+          "samples": [
+            0.116,
+            0.105,
+            0.104,
+            0.101,
+            0.103,
+            0.102,
+            0.101,
+            0.102,
+            0.102,
+            0.101,
+            0.106,
+            0.1,
+            0.104,
+            0.107,
+            0.103,
+            0.104,
+            0.101,
+            0.101,
+            0.101,
+            0.104,
+            0.104
+          ]
+        },
+        "python_peak_bytes": 27884,
+        "response_bytes": 4065,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 3000,
+        "result_total": 14,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84934656,
+          "peak_rss_growth_bytes": 688128,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 0.102625,
+          "p95": 0.108916,
+          "samples": [
+            0.109583,
+            0.106916,
+            0.102625,
+            0.102,
+            0.108916,
+            0.106125,
+            0.102875,
+            0.105708,
+            0.100958,
+            0.10125,
+            0.102958,
+            0.100834,
+            0.105125,
+            0.1005,
+            0.104292,
+            0.1005,
+            0.102583,
+            0.100833,
+            0.102917,
+            0.100667,
+            0.1005
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.103,
+          "p95": 0.109,
+          "samples": [
+            0.11,
+            0.108,
+            0.103,
+            0.103,
+            0.109,
+            0.107,
+            0.103,
+            0.107,
+            0.101,
+            0.102,
+            0.103,
+            0.1,
+            0.105,
+            0.1,
+            0.104,
+            0.101,
+            0.103,
+            0.101,
+            0.104,
+            0.101,
+            0.101
+          ]
+        },
+        "python_peak_bytes": 28300,
+        "response_bytes": 4065,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              82,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              11,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 14,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84459520,
+          "peak_rss_growth_bytes": 737280,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/root": {
+      "after": {
+        "wall_ms": {
+          "median": 0.112958,
+          "p95": 0.126417,
+          "samples": [
+            0.1285,
+            0.121084,
+            0.117167,
+            0.114,
+            0.126417,
+            0.119833,
+            0.113125,
+            0.111375,
+            0.113208,
+            0.110375,
+            0.111375,
+            0.110084,
+            0.110292,
+            0.113417,
+            0.110334,
+            0.112958,
+            0.113667,
+            0.110667,
+            0.109709,
+            0.110125,
+            0.110292
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.113,
+          "p95": 0.126,
+          "samples": [
+            0.133,
+            0.122,
+            0.118,
+            0.114,
+            0.126,
+            0.12,
+            0.114,
+            0.113,
+            0.114,
+            0.111,
+            0.112,
+            0.111,
+            0.111,
+            0.114,
+            0.111,
+            0.113,
+            0.115,
+            0.112,
+            0.111,
+            0.11,
+            0.11
+          ]
+        },
+        "python_peak_bytes": 46857,
+        "response_bytes": 7874,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 27,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84393984,
+          "peak_rss_growth_bytes": 688128,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/middle": {
+      "after": {
+        "wall_ms": {
+          "median": 0.10725,
+          "p95": 0.1225,
+          "samples": [
+            0.126041,
+            0.1225,
+            0.114167,
+            0.109792,
+            0.108792,
+            0.107042,
+            0.107291,
+            0.106042,
+            0.107375,
+            0.105291,
+            0.107083,
+            0.104958,
+            0.1065,
+            0.106084,
+            0.109792,
+            0.111708,
+            0.107583,
+            0.10475,
+            0.106708,
+            0.103959,
+            0.10725
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.108,
+          "p95": 0.123,
+          "samples": [
+            0.131,
+            0.123,
+            0.115,
+            0.11,
+            0.109,
+            0.106,
+            0.108,
+            0.106,
+            0.108,
+            0.106,
+            0.108,
+            0.106,
+            0.107,
+            0.106,
+            0.111,
+            0.112,
+            0.108,
+            0.105,
+            0.107,
+            0.104,
+            0.108
+          ]
+        },
+        "python_peak_bytes": 43858,
+        "response_bytes": 7297,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1000,
+        "result_total": 25,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84328448,
+          "peak_rss_growth_bytes": 704512,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/leaf": {
+      "after": {
+        "wall_ms": {
+          "median": 0.036792,
+          "p95": 0.043792,
+          "samples": [
+            0.048167,
+            0.043792,
+            0.040875,
+            0.040042,
+            0.040167,
+            0.0385,
+            0.03725,
+            0.036791,
+            0.036959,
+            0.036083,
+            0.037375,
+            0.035834,
+            0.035,
+            0.035375,
+            0.03625,
+            0.035541,
+            0.035542,
+            0.036042,
+            0.039167,
+            0.036792,
+            0.035667
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.038,
+          "p95": 0.045,
+          "samples": [
+            0.055,
+            0.045,
+            0.041,
+            0.039,
+            0.04,
+            0.038,
+            0.038,
+            0.038,
+            0.038,
+            0.037,
+            0.038,
+            0.037,
+            0.036,
+            0.035,
+            0.037,
+            0.035,
+            0.036,
+            0.036,
+            0.04,
+            0.037,
+            0.036
+          ]
+        },
+        "python_peak_bytes": 9885,
+        "response_bytes": 491,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1000,
+        "result_total": 1,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84246528,
+          "peak_rss_growth_bytes": 786432,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/map": {
+      "after": {
+        "wall_ms": {
+          "median": 0.142333,
+          "p95": 0.155584,
+          "samples": [
+            0.158833,
+            0.155584,
+            0.1475,
+            0.144334,
+            0.142333,
+            0.141292,
+            0.141708,
+            0.141292,
+            0.143417,
+            0.143458,
+            0.155333,
+            0.142667,
+            0.14025,
+            0.144708,
+            0.140375,
+            0.14025,
+            0.138584,
+            0.140209,
+            0.143292,
+            0.140125,
+            0.141792
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.143,
+          "p95": 0.156,
+          "samples": [
+            0.162,
+            0.156,
+            0.149,
+            0.145,
+            0.143,
+            0.142,
+            0.142,
+            0.142,
+            0.144,
+            0.144,
+            0.156,
+            0.143,
+            0.141,
+            0.145,
+            0.141,
+            0.141,
+            0.139,
+            0.14,
+            0.144,
+            0.141,
+            0.142
+          ]
+        },
+        "python_peak_bytes": 60288,
+        "response_bytes": 10485,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 36,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84475904,
+          "peak_rss_growth_bytes": 786432,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/empty": {
+      "after": {
+        "wall_ms": {
+          "median": 0.028292,
+          "p95": 0.039833,
+          "samples": [
+            0.039833,
+            0.034958,
+            0.031875,
+            0.031167,
+            0.031084,
+            0.029834,
+            0.02825,
+            0.047416,
+            0.028709,
+            0.027708,
+            0.028292,
+            0.027958,
+            0.027417,
+            0.027208,
+            0.027125,
+            0.03225,
+            0.027542,
+            0.027166,
+            0.037292,
+            0.027833,
+            0.026833
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.029,
+          "p95": 0.044,
+          "samples": [
+            0.044,
+            0.036,
+            0.032,
+            0.031,
+            0.032,
+            0.031,
+            0.029,
+            0.048,
+            0.03,
+            0.029,
+            0.029,
+            0.029,
+            0.027,
+            0.027,
+            0.028,
+            0.033,
+            0.028,
+            0.027,
+            0.037,
+            0.028,
+            0.028
+          ]
+        },
+        "python_peak_bytes": 7717,
+        "response_bytes": 80,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              29,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              38,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 1000,
+        "result_total": 0,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84213760,
+          "peak_rss_growth_bytes": 622592,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "map-items/max50": {
+      "after": {
+        "wall_ms": {
+          "median": 0.177917,
+          "p95": 0.185959,
+          "samples": [
+            0.192875,
+            0.185959,
+            0.181167,
+            0.181334,
+            0.177917,
+            0.177292,
+            0.180291,
+            0.177625,
+            0.177208,
+            0.177667,
+            0.179,
+            0.179041,
+            0.179458,
+            0.177333,
+            0.174458,
+            0.178833,
+            0.1765,
+            0.176417,
+            0.180208,
+            0.175417,
+            0.177916
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.179,
+          "p95": 0.186,
+          "samples": [
+            0.198,
+            0.186,
+            0.182,
+            0.182,
+            0.178,
+            0.177,
+            0.181,
+            0.178,
+            0.178,
+            0.178,
+            0.179,
+            0.18,
+            0.18,
+            0.178,
+            0.174,
+            0.179,
+            0.176,
+            0.176,
+            0.179,
+            0.176,
+            0.179
+          ]
+        },
+        "python_peak_bytes": 62158,
+        "response_bytes": 7874,
+        "plans": [
+          [
+            [
+              6,
+              0,
+              83,
+              "SEARCH e USING INDEX ix_vocabulary_entries_standard_word (standard_word=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SCAN p"
+            ],
+            [
+              274,
+              14,
+              0,
+              "CREATE BLOOM FILTER"
+            ],
+            [
+              283,
+              0,
+              33,
+              "SEARCH l USING INDEX sqlite_autoindex_vocabulary_locations_1 (user_id=? AND location_name=?) LEFT-JOIN"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 6000,
+        "result_total": 27,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84590592,
+          "peak_rss_growth_bytes": 950272,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "location-options/all": {
+      "before": {
+        "wall_ms": {
+          "median": 0.088208,
+          "p95": 0.102458,
+          "samples": [
+            0.101458,
+            0.091167,
+            0.088208,
+            0.091,
+            0.087,
+            0.089791,
+            0.086917,
+            0.133458,
+            0.102458,
+            0.09575,
+            0.089833,
+            0.088041,
+            0.087125,
+            0.087583,
+            0.086709,
+            0.086209,
+            0.085708,
+            0.09775,
+            0.093125,
+            0.087666,
+            0.085667
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.089,
+          "p95": 0.107,
+          "samples": [
+            0.107,
+            0.092,
+            0.089,
+            0.091,
+            0.087,
+            0.09,
+            0.087,
+            0.135,
+            0.103,
+            0.096,
+            0.091,
+            0.087,
+            0.087,
+            0.088,
+            0.087,
+            0.087,
+            0.087,
+            0.099,
+            0.093,
+            0.089,
+            0.086
+          ]
+        },
+        "python_peak_bytes": 28973,
+        "response_bytes": 3743,
+        "plans": [
+          [
+            [
+              7,
+              0,
+              62,
+              "SCAN vocabulary_locations"
+            ],
+            [
+              9,
+              0,
+              0,
+              "USE TEMP B-TREE FOR GROUP BY"
+            ],
+            [
+              66,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 2000,
+        "result_total": 29,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84590592,
+          "peak_rss_growth_bytes": 376832,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      },
+      "after": {
+        "wall_ms": {
+          "median": 0.090125,
+          "p95": 0.135917,
+          "samples": [
+            0.094583,
+            0.090167,
+            0.094917,
+            0.091709,
+            0.087208,
+            0.091666,
+            0.090041,
+            0.136417,
+            0.102667,
+            0.094416,
+            0.089375,
+            0.086375,
+            0.086458,
+            0.094,
+            0.086125,
+            0.085333,
+            0.089208,
+            0.087416,
+            0.090125,
+            0.087042,
+            0.135917
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.091,
+          "p95": 0.134,
+          "samples": [
+            0.095,
+            0.091,
+            0.095,
+            0.091,
+            0.088,
+            0.092,
+            0.091,
+            0.134,
+            0.103,
+            0.095,
+            0.089,
+            0.086,
+            0.087,
+            0.095,
+            0.087,
+            0.086,
+            0.089,
+            0.088,
+            0.091,
+            0.088,
+            0.136
+          ]
+        },
+        "python_peak_bytes": 47921,
+        "response_bytes": 8251,
+        "plans": [
+          [
+            [
+              5,
+              0,
+              71,
+              "SCAN l USING INDEX ix_vocabulary_locations_location_name"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 0,
+        "result_total": 29,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84213760,
+          "peak_rss_growth_bytes": 376832,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    },
+    "partition-options/all": {
+      "after": {
+        "wall_ms": {
+          "median": 0.041,
+          "p95": 0.049375,
+          "samples": [
+            0.0555,
+            0.049375,
+            0.045875,
+            0.046042,
+            0.043666,
+            0.044416,
+            0.042292,
+            0.041542,
+            0.041,
+            0.041209,
+            0.041125,
+            0.040625,
+            0.040583,
+            0.040584,
+            0.040333,
+            0.040416,
+            0.040458,
+            0.040667,
+            0.040125,
+            0.040417,
+            0.040084
+          ]
+        },
+        "cpu_ms": {
+          "median": 0.041,
+          "p95": 0.05,
+          "samples": [
+            0.059,
+            0.05,
+            0.047,
+            0.046,
+            0.045,
+            0.045,
+            0.043,
+            0.042,
+            0.042,
+            0.042,
+            0.041,
+            0.041,
+            0.04,
+            0.04,
+            0.041,
+            0.041,
+            0.041,
+            0.041,
+            0.04,
+            0.04,
+            0.041
+          ]
+        },
+        "python_peak_bytes": 13981,
+        "response_bytes": 2388,
+        "plans": [
+          [
+            [
+              3,
+              0,
+              62,
+              "SCAN vocabulary_locations"
+            ],
+            [
+              11,
+              0,
+              0,
+              "USE TEMP B-TREE FOR DISTINCT"
+            ]
+          ]
+        ],
+        "sqlite_vm_steps_lower_bound": 0,
+        "result_total": null,
+        "process_memory_and_io": {
+          "peak_rss_bytes": 84148224,
+          "peak_rss_growth_bytes": 458752,
+          "input_blocks": 0,
+          "output_blocks": 0
+        }
+      }
+    }
+  },
+  "cache": {
+    "entries/all": {
+      "before": {
+        "admitted": true,
+        "miss_ms": 12.354625,
+        "hit_wall_ms": {
+          "median": 0.6935830000000001,
+          "p95": 1.649291,
+          "samples": [
+            1.078208,
+            1.908916,
+            6.884917,
+            1.328083,
+            0.957083,
+            0.904375,
+            0.901834,
+            0.998375,
+            1.216916,
+            0.937875,
+            0.874333,
+            0.771542,
+            0.698291,
+            0.694125,
+            0.716,
+            0.697208,
+            1.382,
+            0.704084,
+            0.686083,
+            0.652125,
+            0.667458,
+            0.691667,
+            0.657541,
+            0.640084,
+            0.685083,
+            0.644208,
+            0.652125,
+            0.69475,
+            0.679291,
+            1.1055,
+            0.65425,
+            0.666916,
+            0.658416,
+            0.704834,
+            0.687,
+            0.720125,
+            0.668084,
+            0.6535,
+            0.693041,
+            0.661125,
+            0.673916,
+            0.709292,
+            1.649291,
+            0.685166,
+            0.665959,
+            0.65975,
+            0.660916,
+            0.665125,
+            0.71975,
+            0.654292
+          ]
+        },
+        "response_bytes": 10495,
+        "redis_memory_bytes": 12520
+      },
+      "after": {
+        "admitted": true,
+        "miss_ms": 9.856709,
+        "hit_wall_ms": {
+          "median": 0.7108125000000001,
+          "p95": 0.82,
+          "samples": [
+            0.705291,
+            0.71125,
+            0.700209,
+            0.716791,
+            0.702584,
+            0.702625,
+            0.614125,
+            0.678709,
+            0.687667,
+            0.711666,
+            0.6945,
+            0.731916,
+            0.724,
+            0.728833,
+            0.714458,
+            0.721042,
+            0.670167,
+            0.667958,
+            0.730791,
+            0.722125,
+            0.724083,
+            0.739916,
+            0.683,
+            0.676375,
+            0.651584,
+            0.701292,
+            0.6745,
+            0.718166,
+            0.741042,
+            0.723875,
+            0.713083,
+            0.731958,
+            0.72375,
+            0.710375,
+            1.175375,
+            0.687791,
+            0.685125,
+            0.82,
+            0.691792,
+            1.07025,
+            0.702084,
+            0.67425,
+            0.662875,
+            0.718834,
+            0.694917,
+            0.721125,
+            0.668375,
+            0.711375,
+            0.707416,
+            0.718834
+          ]
+        },
+        "response_bytes": 14195,
+        "redis_memory_bytes": 14600
+      }
+    },
+    "entries/root": {
+      "after": {
+        "admitted": true,
+        "miss_ms": 8.460041,
+        "hit_wall_ms": {
+          "median": 0.6924790000000001,
+          "p95": 1.767583,
+          "samples": [
+            0.730167,
+            0.706709,
+            0.677958,
+            0.695291,
+            0.725625,
+            1.958875,
+            0.747667,
+            0.733,
+            0.729208,
+            0.715625,
+            0.712166,
+            0.712916,
+            0.702291,
+            0.676083,
+            0.7235,
+            0.737,
+            0.701542,
+            0.722083,
+            0.706083,
+            0.667209,
+            1.995416,
+            0.703583,
+            0.702667,
+            0.671458,
+            0.667958,
+            0.690333,
+            0.681125,
+            0.674458,
+            0.68375,
+            0.693208,
+            0.69175,
+            0.713833,
+            0.688625,
+            0.604666,
+            0.664792,
+            0.678375,
+            0.663708,
+            0.664083,
+            0.654666,
+            0.652875,
+            0.667958,
+            0.696083,
+            0.695542,
+            0.6115,
+            0.677334,
+            0.680042,
+            1.767583,
+            0.686291,
+            0.687958,
+            0.666125
+          ]
+        },
+        "response_bytes": 14195,
+        "redis_memory_bytes": 14600
+      }
+    },
+    "standard-words/all": {
+      "before": {
+        "admitted": true,
+        "miss_ms": 94.8865,
+        "hit_wall_ms": {
+          "median": 0.6760415,
+          "p95": 0.712,
+          "samples": [
+            0.663,
+            0.653042,
+            0.677334,
+            0.691375,
+            0.700625,
+            0.618875,
+            0.614208,
+            0.619791,
+            0.645167,
+            0.655834,
+            0.690416,
+            0.655083,
+            0.910542,
+            0.627,
+            0.710667,
+            0.711083,
+            0.682458,
+            0.6565,
+            0.695875,
+            0.660375,
+            0.667083,
+            0.697167,
+            0.688041,
+            0.677291,
+            0.674792,
+            0.656125,
+            0.645333,
+            0.690583,
+            0.685125,
+            0.689375,
+            0.68775,
+            0.70375,
+            0.685125,
+            0.68225,
+            0.659583,
+            0.712,
+            0.6855,
+            0.661625,
+            0.659834,
+            0.610166,
+            0.65,
+            0.683208,
+            0.683625,
+            0.637083,
+            0.620417,
+            0.722958,
+            0.672834,
+            0.613875,
+            0.67875,
+            0.648375
+          ]
+        },
+        "response_bytes": 10512,
+        "redis_memory_bytes": 12520
+      },
+      "after": {
+        "admitted": true,
+        "miss_ms": 96.175125,
+        "hit_wall_ms": {
+          "median": 0.6771045,
+          "p95": 1.554375,
+          "samples": [
+            0.65075,
+            0.696833,
+            0.660625,
+            0.708417,
+            0.607458,
+            0.594458,
+            0.636792,
+            0.679667,
+            0.671875,
+            1.766042,
+            0.695334,
+            0.63525,
+            0.64625,
+            0.704709,
+            0.7155,
+            0.664375,
+            0.719834,
+            0.627833,
+            0.634417,
+            0.686084,
+            0.66575,
+            2.43575,
+            0.702792,
+            0.646958,
+            0.662708,
+            0.640291,
+            0.655666,
+            0.719792,
+            0.66825,
+            0.68,
+            0.73425,
+            0.684834,
+            0.728875,
+            0.707666,
+            0.7505,
+            0.705083,
+            0.644792,
+            0.689666,
+            0.651833,
+            0.726375,
+            0.674542,
+            0.725208,
+            0.637,
+            0.643958,
+            0.691709,
+            0.702583,
+            0.670459,
+            0.63025,
+            1.554375,
+            0.6665
+          ]
+        },
+        "response_bytes": 10512,
+        "redis_memory_bytes": 12552
+      }
+    },
+    "standard-words/root": {
+      "after": {
+        "admitted": true,
+        "miss_ms": 81.680417,
+        "hit_wall_ms": {
+          "median": 0.6611875,
+          "p95": 1.927708,
+          "samples": [
+            0.689791,
+            0.689041,
+            1.994458,
+            0.647834,
+            0.663875,
+            0.651791,
+            0.656958,
+            0.673375,
+            1.555666,
+            3.533792,
+            1.015333,
+            0.611542,
+            0.619334,
+            0.656417,
+            0.635,
+            0.626208,
+            0.626458,
+            0.620708,
+            0.62275,
+            0.638,
+            0.618708,
+            0.611333,
+            0.6265,
+            0.644709,
+            0.661333,
+            0.685834,
+            0.713917,
+            0.704542,
+            0.677458,
+            1.927708,
+            0.658542,
+            0.646292,
+            0.641125,
+            0.647792,
+            0.645375,
+            0.651375,
+            0.672792,
+            0.841291,
+            0.682666,
+            0.673458,
+            0.685875,
+            0.66525,
+            0.661042,
+            1.924,
+            0.859667,
+            1.413042,
+            1.726584,
+            0.6505,
+            1.619542,
+            0.596375
+          ]
+        },
+        "response_bytes": 10479,
+        "redis_memory_bytes": 12552
+      }
+    },
+    "map-points/all": {
+      "before": {
+        "admitted": true,
+        "miss_ms": 12.41825,
+        "hit_wall_ms": {
+          "median": 0.5803119999999999,
+          "p95": 0.895542,
+          "samples": [
+            0.697709,
+            0.895542,
+            0.671166,
+            0.618792,
+            0.634458,
+            0.621375,
+            0.665417,
+            0.572709,
+            0.634333,
+            0.567417,
+            0.626833,
+            0.594458,
+            0.555375,
+            0.566042,
+            0.6755,
+            0.579208,
+            0.866958,
+            1.406792,
+            0.642,
+            0.586209,
+            0.57425,
+            0.610542,
+            0.578334,
+            0.657625,
+            0.559334,
+            0.562792,
+            0.581416,
+            0.5705,
+            1.82175,
+            0.612666,
+            0.605291,
+            0.57175,
+            0.573666,
+            0.571333,
+            0.565667,
+            0.560125,
+            0.544125,
+            0.527959,
+            0.584167,
+            0.569042,
+            0.575958,
+            0.591667,
+            0.602375,
+            0.560917,
+            0.583458,
+            0.55875,
+            0.569084,
+            0.564042,
+            0.540084,
+            0.574
+          ]
+        },
+        "response_bytes": 13443,
+        "redis_memory_bytes": 14632
+      },
+      "after": {
+        "admitted": true,
+        "miss_ms": 11.233417,
+        "hit_wall_ms": {
+          "median": 0.6727915,
+          "p95": 1.275125,
+          "samples": [
+            0.644042,
+            0.638417,
+            0.687667,
+            0.696958,
+            1.322416,
+            0.670709,
+            0.669042,
+            0.694666,
+            0.675709,
+            0.687709,
+            0.627334,
+            0.661625,
+            0.649917,
+            0.641208,
+            0.652375,
+            1.275125,
+            0.679625,
+            0.614167,
+            0.656625,
+            0.651958,
+            0.662708,
+            0.678875,
+            0.672625,
+            0.68,
+            0.661833,
+            0.679041,
+            0.672958,
+            1.459917,
+            0.634791,
+            0.676583,
+            0.704833,
+            0.681542,
+            0.655875,
+            0.685375,
+            1.225875,
+            0.665542,
+            0.67375,
+            0.678125,
+            0.652958,
+            0.669583,
+            0.686583,
+            0.667375,
+            0.663375,
+            0.674125,
+            0.860209,
+            0.666834,
+            0.674125,
+            0.654458,
+            0.648958,
+            0.693416
+          ]
+        },
+        "response_bytes": 13443,
+        "redis_memory_bytes": 14600
+      }
+    },
+    "map-points/root": {
+      "after": {
+        "admitted": true,
+        "miss_ms": 17.142875,
+        "hit_wall_ms": {
+          "median": 0.5842915,
+          "p95": 1.564083,
+          "samples": [
+            0.592042,
+            0.610042,
+            0.591083,
+            0.612583,
+            0.581375,
+            0.600084,
+            0.585542,
+            0.593084,
+            0.590542,
+            1.814125,
+            0.574458,
+            0.593958,
+            0.58025,
+            0.582542,
+            0.614416,
+            0.600875,
+            0.58425,
+            0.590958,
+            1.564083,
+            0.591333,
+            0.567708,
+            0.569709,
+            0.57125,
+            0.571542,
+            0.585375,
+            0.573333,
+            0.574958,
+            0.578541,
+            0.570917,
+            0.560333,
+            1.382166,
+            0.58,
+            0.581708,
+            0.584333,
+            0.560084,
+            0.559375,
+            0.607,
+            0.64375,
+            0.611292,
+            0.608916,
+            0.6255,
+            0.581916,
+            2.391625,
+            0.564584,
+            0.546,
+            0.538833,
+            0.572459,
+            0.610583,
+            0.563,
+            0.551958
+          ]
+        },
+        "response_bytes": 5310,
+        "redis_memory_bytes": 6408
+      }
+    },
+    "map-items/all": {
+      "before": {
+        "admitted": true,
+        "miss_ms": 2.900917,
+        "hit_wall_ms": {
+          "median": 0.674021,
+          "p95": 1.302459,
+          "samples": [
+            0.671875,
+            0.682166,
+            0.6585,
+            0.675584,
+            0.639792,
+            0.655916,
+            0.638542,
+            0.652625,
+            0.617333,
+            0.633084,
+            0.6485,
+            0.655541,
+            0.639875,
+            0.641,
+            0.648959,
+            0.68225,
+            0.680125,
+            0.665334,
+            0.681541,
+            0.645958,
+            1.591583,
+            1.144166,
+            0.672458,
+            0.695292,
+            0.683708,
+            0.877917,
+            0.635166,
+            0.711459,
+            1.514,
+            0.670875,
+            0.643875,
+            0.634583,
+            0.678292,
+            1.302459,
+            0.654667,
+            0.65425,
+            0.693167,
+            1.091166,
+            0.723166,
+            0.766916,
+            0.656792,
+            0.862459,
+            0.986833,
+            0.978459,
+            0.852875,
+            0.848291,
+            0.775875,
+            0.747666,
+            0.665375,
+            0.639542
+          ]
+        },
+        "response_bytes": 15117,
+        "redis_memory_bytes": 16616
+      },
+      "after": {
+        "admitted": true,
+        "miss_ms": 2.752292,
+        "hit_wall_ms": {
+          "median": 0.6783125,
+          "p95": 1.239041,
+          "samples": [
+            0.6355,
+            0.643083,
+            0.655625,
+            0.699875,
+            0.618334,
+            0.587875,
+            0.630292,
+            0.71,
+            0.955792,
+            0.811334,
+            0.754167,
+            0.74175,
+            1.019667,
+            0.695417,
+            0.670208,
+            0.687917,
+            0.719,
+            0.816542,
+            0.744625,
+            0.692,
+            1.239041,
+            0.680583,
+            0.646917,
+            0.940958,
+            1.785541,
+            1.250834,
+            1.002667,
+            0.666125,
+            0.69575,
+            0.675917,
+            0.691667,
+            0.67975,
+            0.695583,
+            0.647792,
+            0.674791,
+            0.65175,
+            0.642,
+            0.648792,
+            0.641208,
+            0.649666,
+            0.637792,
+            0.649667,
+            0.676875,
+            0.68375,
+            0.65675,
+            1.182875,
+            0.6505,
+            0.671875,
+            0.6755,
+            0.638958
+          ]
+        },
+        "response_bytes": 15117,
+        "redis_memory_bytes": 16648
+      }
+    },
+    "map-items/root": {
+      "after": {
+        "admitted": true,
+        "miss_ms": 2.439875,
+        "hit_wall_ms": {
+          "median": 0.629291,
+          "p95": 1.261,
+          "samples": [
+            0.64975,
+            0.641917,
+            0.616583,
+            1.261,
+            0.590292,
+            0.630041,
+            0.605417,
+            0.612042,
+            0.630166,
+            0.661916,
+            0.639459,
+            0.683917,
+            0.602458,
+            0.605625,
+            0.869625,
+            0.647,
+            0.626125,
+            0.636208,
+            0.796875,
+            0.619625,
+            1.647,
+            0.589917,
+            0.618208,
+            0.609666,
+            0.613,
+            0.617625,
+            0.650625,
+            0.620958,
+            0.616625,
+            0.64675,
+            0.607125,
+            0.592709,
+            0.64725,
+            0.653042,
+            0.627208,
+            0.637917,
+            0.628541,
+            0.632083,
+            0.613708,
+            0.613292,
+            1.363917,
+            0.668833,
+            0.596583,
+            0.597625,
+            0.980709,
+            0.626958,
+            0.639292,
+            0.615875,
+            0.633542,
+            0.645416
+          ]
+        },
+        "response_bytes": 7874,
+        "redis_memory_bytes": 8456
+      }
+    },
+    "partition-options/all": {
+      "after": {
+        "admitted": true,
+        "miss_ms": 2.135375,
+        "hit_wall_ms": {
+          "median": 0.5646665,
+          "p95": 1.609958,
+          "samples": [
+            0.577792,
+            0.57475,
+            0.597792,
+            0.5685,
+            0.572,
+            0.577083,
+            0.572584,
+            0.574292,
+            0.55975,
+            1.609958,
+            0.569209,
+            0.561083,
+            0.581667,
+            0.560542,
+            0.564875,
+            0.557958,
+            0.587917,
+            0.566542,
+            0.560292,
+            0.59025,
+            0.566625,
+            0.581833,
+            0.564125,
+            0.538291,
+            0.526917,
+            0.552459,
+            0.547708,
+            0.570208,
+            0.560125,
+            0.696958,
+            1.877208,
+            0.548584,
+            0.551,
+            0.561125,
+            0.53925,
+            0.547,
+            0.697084,
+            0.539083,
+            0.726833,
+            0.724625,
+            0.564458,
+            0.544792,
+            0.558083,
+            0.543208,
+            0.532375,
+            0.541334,
+            0.540584,
+            1.698375,
+            0.566,
+            0.543292
+          ]
+        },
+        "response_bytes": 2388,
+        "redis_memory_bytes": 2856
+      }
+    },
+    "defaults": {
+      "before": [
+        {
+          "kind": "entries",
+          "params": {},
+          "response_bytes": 10495,
+          "redis_memory_bytes": 12520
+        },
+        {
+          "kind": "map-points",
+          "params": {},
+          "response_bytes": 13443,
+          "redis_memory_bytes": 14632
+        },
+        {
+          "kind": "location-options",
+          "params": {},
+          "response_bytes": 3743,
+          "redis_memory_bytes": 4360
+        },
+        {
+          "kind": "standard-words",
+          "params": {
+            "limit": 100
+          },
+          "response_bytes": 10512,
+          "redis_memory_bytes": 12520
+        },
+        {
+          "kind": "standard-words",
+          "params": {
+            "limit": 1000
+          },
+          "response_bytes": 103296,
+          "redis_memory_bytes": 114920
+        }
+      ],
+      "after": [
+        {
+          "kind": "entries",
+          "params": {},
+          "response_bytes": 14195,
+          "redis_memory_bytes": 14600
+        },
+        {
+          "kind": "map-points",
+          "params": {},
+          "response_bytes": 13443,
+          "redis_memory_bytes": 14600
+        },
+        {
+          "kind": "location-options",
+          "params": {},
+          "response_bytes": 8251,
+          "redis_memory_bytes": 10504
+        },
+        {
+          "kind": "standard-words",
+          "params": {
+            "limit": 100
+          },
+          "response_bytes": 10512,
+          "redis_memory_bytes": 12552
+        },
+        {
+          "kind": "standard-words",
+          "params": {
+            "limit": 1000
+          },
+          "response_bytes": 103296,
+          "redis_memory_bytes": 114952
+        }
+      ]
+    }
+  },
+  "warmup": {
+    "before": {
+      "entries": {
+        "wall_ms": {
+          "median": 965.253333,
+          "p95": 970.530875,
+          "samples": [
+            970.530875,
+            964.603833,
+            965.253333
+          ]
+        },
+        "cpu_ms": {
+          "median": 217.026,
+          "p95": 217.436,
+          "samples": [
+            217.436,
+            217.026,
+            210.376
+          ]
+        }
+      },
+      "locations": {
+        "wall_ms": {
+          "median": 797.4835,
+          "p95": 838.283167,
+          "samples": [
+            838.283167,
+            797.4835,
+            751.552667
+          ]
+        },
+        "cpu_ms": {
+          "median": 57.881,
+          "p95": 92.975,
+          "samples": [
+            92.975,
+            57.881,
+            22.014
+          ]
+        }
+      }
+    },
+    "after": {
+      "entries": {
+        "wall_ms": {
+          "median": 973.937,
+          "p95": 980.727375,
+          "samples": [
+            969.739666,
+            980.727375,
+            973.937
+          ]
+        },
+        "cpu_ms": {
+          "median": 222.163,
+          "p95": 223.287,
+          "samples": [
+            216.39,
+            222.163,
+            223.287
+          ]
+        }
+      },
+      "locations": {
+        "wall_ms": {
+          "median": 971.828584,
+          "p95": 983.725292,
+          "samples": [
+            971.828584,
+            953.908708,
+            983.725292
+          ]
+        },
+        "cpu_ms": {
+          "median": 217.418,
+          "p95": 223.765,
+          "samples": [
+            223.765,
+            205.291,
+            217.418
+          ]
+        }
+      }
+    }
+  }
+}
