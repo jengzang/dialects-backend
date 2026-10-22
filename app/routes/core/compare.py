@@ -247,7 +247,7 @@ async def compare_zhonggu(
                 "region_mode": payload.region_mode,
                 "query_db": query_db
             }
-            location_key = "compare_zhonggu_locations:" + hashlib.sha256(
+            location_key = "compare_zhonggu_locations:path-v2:" + hashlib.sha256(
                 json.dumps(location_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
             ).hexdigest()
             cached_locations = await get_cache(location_key)

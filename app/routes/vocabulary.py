@@ -1,5 +1,6 @@
+import asyncio
 import io
-from typing import Any, Iterable, Optional
+from typing import Annotated, Any, Iterable, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.vocabulary import (
     VocabularyItemsResponse,
+    VocabularyPartitionOptionsResponse,
     VocabularyLocationOptionsResponse,
     VocabularyLocationResponse,
     VocabularyLocationsResponse,
@@ -48,7 +50,8 @@ from app.service.vocabulary.query import (
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
-from app.redis_client import redis_client
+from app.service.vocabulary.partitions import query_vocabulary_partition_options
+from app.service.vocabulary.cache import cached_search, finish_on_cancel, notify_vocabulary_change
 
 
 router = APIRouter()
@@ -158,29 +161,35 @@ def _log_response(log: VocabularyLog) -> VocabularyLogResponse:
 
 
 @router.get("/search/entries", response_model=VocabularyItemsResponse)
-def get_vocabulary_items(
+async def get_vocabulary_items(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return query_vocabulary_items(
-            session=db,
+        return await cached_search(
+            "entries", db, query_vocabulary_items,
             q=q,
             search_fields=search_fields,
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
             standard_words=standard_words,
             page=page,
             page_size=page_size,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -188,23 +197,29 @@ def get_vocabulary_items(
 
 
 @router.get("/search/map-points", response_model=VocabularyMapPointsResponse)
-def get_vocabulary_map_points(
+async def get_vocabulary_map_points(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return query_vocabulary_map_points(
-            session=db,
+        return await cached_search(
+            "map-points", db, query_vocabulary_map_points,
             q=q,
             search_fields=search_fields,
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -212,25 +227,31 @@ def get_vocabulary_map_points(
 
 
 @router.get("/search/standard-words", response_model=VocabularyStandardWordsResponse)
-def get_vocabulary_standard_words(
+async def get_vocabulary_standard_words(
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     limit: Optional[int] = Query(default=100, ge=1, le=10000),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return query_vocabulary_standard_words(
-            session=db,
+        return await cached_search(
+            "standard-words", db, query_vocabulary_standard_words,
             q=q,
             search_fields=search_fields,
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
             limit=limit,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -238,7 +259,7 @@ def get_vocabulary_standard_words(
 
 
 @router.get("/search/map-items", response_model=VocabularyMapItemsResponse)
-def get_vocabulary_map_items(
+async def get_vocabulary_map_items(
     standard_words: Optional[list[str]] = Query(default=None),
     standard_word_key: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
@@ -246,11 +267,13 @@ def get_vocabulary_map_items(
     locations: Optional[list[str]] = Query(default=None),
     province: Optional[str] = Query(default=None),
     city: Optional[str] = Query(default=None),
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return query_vocabulary_map_items(
-            session=db,
+        return await cached_search(
+            "map-items", db, query_vocabulary_map_items,
             standard_words=standard_words,
             standard_word_key=standard_word_key,
             q=q,
@@ -258,7 +281,11 @@ def get_vocabulary_map_items(
             locations=locations,
             province=province,
             city=city,
+            regions=regions,
+            region_mode=region_mode,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -266,13 +293,37 @@ def get_vocabulary_map_items(
 
 
 @router.get("/search/location-options", response_model=VocabularyLocationOptionsResponse)
-def get_vocabulary_location_options(
+async def get_vocabulary_location_options(
+    regions: Annotated[Optional[list[str]], Query()] = None,
+    region_mode: str = "yindian",
+    province: Optional[str] = None,
+    city: Optional[str] = None,
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
-        return query_vocabulary_location_options(session=db)
+        return await cached_search("location-options", db, query_vocabulary_location_options,
+                                   regions=regions, region_mode=region_mode, province=province, city=city)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Vocabulary location options query failed: {exc}") from exc
+
+
+@router.get("/search/partition-options", response_model=VocabularyPartitionOptionsResponse)
+async def get_vocabulary_partition_options(
+    region_mode: str = "yindian",
+    parent: Optional[str] = None,
+    db: Session = Depends(get_vocabulary_db),
+):
+    try:
+        return await cached_search("partition-options", db, query_vocabulary_partition_options,
+                                   region_mode=region_mode, parent=parent)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Partition path not found") from exc
 
 
 @router.get("/locations", response_model=VocabularyLocationsResponse)
@@ -429,6 +480,8 @@ def update_vocabulary_location(
             },
         )
         db.commit()
+        if changes:
+            notify_vocabulary_change(db.get_bind().url.database, entries=bool(renamed_entries), locations=True)
         db.refresh(target)
     except Exception as exc:
         db.rollback()
@@ -484,11 +537,9 @@ def transfer_vocabulary_location(
         VocabularyEntry.user_id == source_user_id,
         VocabularyEntry.location_name == location_name,
     )
-    transferred_entries_count = entry_query.count()
-
     try:
         target.user_id = target_user_id
-        entry_query.update(
+        transferred_entries_count = entry_query.update(
             {VocabularyEntry.user_id: target_user_id},
             synchronize_session=False,
         )
@@ -516,6 +567,7 @@ def transfer_vocabulary_location(
             },
         )
         db.commit()
+        notify_vocabulary_change(db.get_bind().url.database, entries=bool(transferred_entries_count), locations=True)
         db.refresh(target)
     except Exception as exc:
         db.rollback()
@@ -565,13 +617,8 @@ def delete_vocabulary_location(
         )
 
     target = targets[0]
-    entry_count = db.query(VocabularyEntry).filter(
-        VocabularyEntry.user_id == target.user_id,
-        VocabularyEntry.location_name == target.location_name,
-    ).count()
-
     try:
-        db.query(VocabularyEntry).filter(
+        entry_count = db.query(VocabularyEntry).filter(
             VocabularyEntry.user_id == target.user_id,
             VocabularyEntry.location_name == target.location_name,
         ).delete(synchronize_session=False)
@@ -592,6 +639,7 @@ def delete_vocabulary_location(
             },
         )
         db.commit()
+        notify_vocabulary_change(db.get_bind().url.database, entries=bool(entry_count), locations=True)
     except Exception as exc:
         db.rollback()
         raise_vocabulary_database_busy_if_locked(exc)
@@ -740,28 +788,28 @@ async def upload_vocabulary(
     parser_mode: str = Form("auto"),
     overwrite: bool = Form(False),
     fill_standard_from_local: bool = Form(False),
+    target_user_id: Annotated[Optional[int], Form()] = None,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
     content = await file.read()
     try:
-        result = import_vocabulary_upload(
-            session=db,
-            user=current_user,
-            filename=file.filename or "upload",
-            content=content,
-            location_payload=location,
-            parser_mode=parser_mode,
-            overwrite=overwrite,
-            fill_standard_from_local=fill_standard_from_local,
-        )
-        try:
-            keys = await redis_client.keys("vocab_sql_count:vocabulary_entries*")
-            if keys:
-                await redis_client.delete(*keys)
-        except Exception:
-            pass
-        return result
+        def import_and_notify():
+            result = import_vocabulary_upload(
+                session=db,
+                user=current_user,
+                filename=file.filename or "upload",
+                content=content,
+                location_payload=location,
+                parser_mode=parser_mode,
+                overwrite=overwrite,
+                fill_standard_from_local=fill_standard_from_local,
+                target_user_id=target_user_id,
+            )
+            # Keep commit and notification together even if the request disconnects.
+            notify_vocabulary_change(db.get_bind().url.database, entries=True)
+            return result
+        return await finish_on_cancel(asyncio.to_thread(import_and_notify))
     except HTTPException:
         raise
     except VocabularyImportConflictError as exc:
@@ -779,6 +827,7 @@ async def preview_vocabulary_upload_endpoint(
     location: str = Form(...),
     parser_mode: str = Form("auto"),
     fill_standard_from_local: bool = Form(False),
+    target_user_id: Annotated[Optional[int], Form()] = None,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
@@ -792,6 +841,7 @@ async def preview_vocabulary_upload_endpoint(
             location_payload=location,
             parser_mode=parser_mode,
             fill_standard_from_local=fill_standard_from_local,
+            target_user_id=target_user_id,
         )
     except HTTPException:
         raise

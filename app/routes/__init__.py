@@ -33,10 +33,7 @@ from app.routes.user.form_submit import router as form_router
 from app.routes.user.suggestions import router as suggestions_router
 from app.service.logging import setup_logs_routes
 from app.service.logging.dependencies import ApiLimiter
-from app.tools import (
-    setup_cluster_tool_routes,
-    setup_non_cluster_tool_routes,
-)
+from app.tools import setup_tools_routes
 from app.villagesML import setup_villages_routes
 
 
@@ -75,12 +72,7 @@ def setup_gis_routes(app: FastAPI):
 
 def setup_routes(app: FastAPI):
     setup_main_routes(app)
-    setup_non_cluster_tool_routes(app)
-    setup_cluster_routes(app)
+    setup_tools_routes(app)
     setup_sql_routes(app)
     setup_logs_routes(app)
     setup_villages_routes(app)
-
-
-def setup_cluster_routes(app: FastAPI):
-    setup_cluster_tool_routes(app)

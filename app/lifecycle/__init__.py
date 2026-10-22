@@ -5,7 +5,6 @@ from .background import (
 )
 from .runtime import is_gunicorn_worker_process
 from .startup import (
-    run_cluster_startup,
     run_gis_startup,
     run_main_startup,
     run_process_startup,
@@ -15,7 +14,6 @@ from .startup import (
 __all__ = [
     "cleanup_worker_process",
     "is_gunicorn_worker_process",
-    "run_cluster_startup",
     "run_gis_startup",
     "run_main_startup",
     "run_process_startup",

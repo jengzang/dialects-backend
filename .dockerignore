@@ -14,8 +14,12 @@
 venv/
 ENV/
 __pycache__/
+**/__pycache__/
 *.pyc
 *.py[cod]
+**/*.py[cod]
+**/*.nbc
+**/*.nbi
 *$py.class
 *.so
 *.log

@@ -22,6 +22,7 @@ CLEANUP_POLICY_CHECK_WORKSPACE = "check_workspace"
 CLEANUP_POLICY_MERGE_RESULT = "merge_result"
 CLEANUP_POLICY_JYUT2IPA_RESULT = "jyut2ipa_result"
 CLEANUP_POLICY_PRAAT_UPLOAD = "praat_upload"
+# Retain legacy cluster policies so files from earlier deployments still expire.
 CLEANUP_POLICY_CLUSTER_JOB = "cluster_job"
 CLEANUP_POLICY_CLUSTER_PREVIEW = "cluster_preview"
 CLEANUP_POLICY_CLUSTER_PREPARE = "cluster_prepare"

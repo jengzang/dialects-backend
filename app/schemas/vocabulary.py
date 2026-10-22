@@ -39,6 +39,8 @@ class VocabularyItemResponse(BaseModel):
     informations: str
     location_name: str
     location_label: str
+    yindian_region: str = ""
+    atlas_region: str = ""
 
 
 class VocabularyItemsResponse(BaseModel):
@@ -133,6 +135,26 @@ class VocabularyLocationOptionResponse(BaseModel):
     location_label: str
     province: str = ""
     city: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
+    yindian_regions: list[str] = Field(default_factory=list)
+    atlas_regions: list[str] = Field(default_factory=list)
+
+
+class VocabularyPartitionNode(BaseModel):
+    label: str
+    path: str
+    depth: int
+    children: list['VocabularyPartitionNode'] = Field(default_factory=list)
+
+
+class VocabularyPartitionOptionsResponse(BaseModel):
+    schema_version: int = 2
+    region_mode: Literal['yindian', 'map']
+    revision: str
+    max_depth: int
+    parent: str | None = None
+    nodes: list[VocabularyPartitionNode]
 
 
 class VocabularyLocationOptionsResponse(BaseModel):

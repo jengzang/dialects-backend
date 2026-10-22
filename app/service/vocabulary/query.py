@@ -1,9 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from sqlalchemy.orm import Session
 
 from app.service.vocabulary.models import TONE_COLUMNS
+from app.service.vocabulary.partitions import partition_filter
 from app.service.vocabulary.script_variants import (
     build_script_variants,
     standard_word_key,
@@ -20,6 +21,8 @@ class VocabularyItem:
     informations: str
     location_name: str
     location_label: str
+    yindian_region: str = ""
+    atlas_region: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,10 @@ class VocabularyLocationOption:
     location_label: str
     province: str = ""
     city: str = ""
+    yindian_region: str = ""
+    atlas_region: str = ""
+    yindian_regions: list[str] = field(default_factory=list)
+    atlas_regions: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -256,6 +263,8 @@ def _row_to_vocabulary_item(row: dict) -> VocabularyItem:
         informations=row["informations"] or "",
         location_name=row["location_name"] or "",
         location_label=_format_location(row),
+        yindian_region=row.get("yindian_region") or "",
+        atlas_region=row.get("atlas_region") or "",
     )
 
 
@@ -277,7 +286,18 @@ def _build_filter_clause(
     locations: str | Iterable[str] | None,
     province: str | None = None,
     city: str | None = None,
+    regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian",
 ) -> tuple[str, list[str]]:
+    region_clause, region_values = partition_filter(regions, region_mode, alias='p')
+    if region_clause:
+        # Evaluate paths over locations once, then probe the existing entry identity index.
+        # Keep both identity columns: unrelated users may use the same location name.
+        region_clause = (
+            '(e.user_id, e.location_name) IN '
+            '(SELECT p.user_id, p.location_name FROM vocabulary_locations p '
+            f'WHERE {region_clause})'
+        )
     fields = _normalize_search_fields(search_fields)
     location_terms = _normalize_multi_value(locations)
     clauses: list[str] = []
@@ -310,6 +330,10 @@ def _build_filter_clause(
     if city:
         clauses.append("l.city = ?")
         values.append(city)
+
+    if region_clause:
+        clauses.append(region_clause)
+        values.extend(region_values)
 
     return " AND ".join(clauses) if clauses else "1=1", values
 
@@ -353,6 +377,8 @@ def query_vocabulary_items(
     locations: str | Iterable[str] | None = None,
     province: str | None = None,
     city: str | None = None,
+    regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian",
     standard_words: str | Iterable[str] | None = None,
     page: int = 1,
     page_size: int = 50,
@@ -370,6 +396,8 @@ def query_vocabulary_items(
         locations=locations,
         province=province,
         city=city,
+        regions=regions,
+        region_mode=region_mode,
     )
     clauses = [where_clause]
     _append_script_variant_standard_word_filter(
@@ -385,7 +413,7 @@ def query_vocabulary_items(
         "SELECT "
         "e.id, e.standard_word, e.local_expression, e.ipa, e.notes, e.informations, "
         "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
         "FROM vocabulary_entries e "
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
@@ -400,14 +428,24 @@ def query_vocabulary_items(
         f"WHERE {combined_where_clause}"
     )
 
+    total = None
+    if regions:
+        # Count uses the identity covering index. An empty selection can return before
+        # the ORDER BY id plan scans entries looking for its first matching page.
+        cursor.execute(count_sql, values)
+        total = cursor.fetchone()[0]
+        if total == 0:
+            return VocabularyItemsResult(items=[], total=0, page=page, page_size=page_size)
+
     cursor.execute(select_sql, values + [page_size, offset])
     column_names = [description[0] for description in cursor.description]
     rows = [
         {column_names[index]: value for index, value in enumerate(row)}
         for row in cursor.fetchall()
     ]
-    cursor.execute(count_sql, values)
-    total = cursor.fetchone()[0]
+    if total is None:
+        cursor.execute(count_sql, values)
+        total = cursor.fetchone()[0]
 
     return VocabularyItemsResult(
         items=[_row_to_vocabulary_item(row) for row in rows],
@@ -425,6 +463,8 @@ def query_vocabulary_standard_words(
     locations: str | Iterable[str] | None = None,
     province: str | None = None,
     city: str | None = None,
+    regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian",
     limit: int | None = DEFAULT_STANDARD_WORD_LIMIT,
 ) -> VocabularyStandardWordsResult:
     if limit is not None and limit < 1:
@@ -436,6 +476,8 @@ def query_vocabulary_standard_words(
         locations=locations,
         province=province,
         city=city,
+        regions=regions,
+        region_mode=region_mode,
     )
     conn = session.connection().connection
     cursor = conn.cursor()
@@ -447,10 +489,16 @@ def query_vocabulary_standard_words(
         if _filter_uses_locations(where_clause)
         else ""
     )
+    # With a partition scope, the identity index avoids scanning every standard word
+    # for an empty/small selection. Unscoped queries retain their covering group index.
+    entry_source = (
+        'vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location '
+        if regions else 'vocabulary_entries e '
+    )
     select_sql = (
         "SELECT "
         "e.standard_word, e.location_name, COUNT(*) AS entry_count "
-        "FROM vocabulary_entries e "
+        f"FROM {entry_source}"
         f"{join_clause}"
         f"WHERE {where_clause} AND e.standard_word <> '' "
         "GROUP BY e.standard_word, e.location_name"
@@ -520,6 +568,8 @@ def query_vocabulary_map_points(
     locations: str | Iterable[str] | None = None,
     province: str | None = None,
     city: str | None = None,
+    regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian",
 ) -> VocabularyMapPointsResult:
     where_clause, values = _build_filter_clause(
         q=q,
@@ -527,6 +577,8 @@ def query_vocabulary_map_points(
         locations=locations,
         province=province,
         city=city,
+        regions=regions,
+        region_mode=region_mode,
     )
     conn = session.connection().connection
     cursor = conn.cursor()
@@ -548,6 +600,27 @@ def query_vocabulary_map_points(
         "GROUP BY e.user_id, e.location_name "
         "ORDER BY first_entry_id ASC"
     )
+    if regions:
+        # Aggregate narrow entry identities before fetching wide location metadata.
+        # Otherwise SQLite sorts all matched entries together with every l.* field.
+        inner_join = (
+            'LEFT JOIN vocabulary_locations l '
+            'ON l.user_id = e.user_id AND l.location_name = e.location_name '
+            if _filter_uses_locations(where_clause) else ''
+        )
+        select_sql = (
+            'SELECT e.location_name, l.coordinates, l.province, l.city, l.county, l.town, '
+            'l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, '
+            'l.vocabulary_source, l.description, l.other, '
+            + ', '.join(f'l.{column}' for column in TONE_COLUMNS) + ', '
+            'e.entry_count, e.first_entry_id FROM ('
+            'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
+            'FROM vocabulary_entries e '
+            f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
+            ') e LEFT JOIN vocabulary_locations l '
+            'ON l.user_id = e.user_id AND l.location_name = e.location_name '
+            'ORDER BY e.first_entry_id ASC'
+        )
 
     cursor.execute(select_sql, values)
     column_names = [description[0] for description in cursor.description]
@@ -596,6 +669,8 @@ def query_vocabulary_map_items(
     locations: str | Iterable[str] | None = None,
     province: str | None = None,
     city: str | None = None,
+    regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian",
     standard_word_key: str | None = None,
 ) -> VocabularyMapItemsResult:
     selected_standard_words = _normalize_multi_value(standard_words)
@@ -610,6 +685,8 @@ def query_vocabulary_map_items(
         locations=locations,
         province=province,
         city=city,
+        regions=regions,
+        region_mode=region_mode,
     )
     clauses = [where_clause]
     _append_script_variant_standard_word_filter(
@@ -685,44 +762,39 @@ def query_vocabulary_map_items(
     )
 
 
-def query_vocabulary_location_options(*, session: Session) -> VocabularyLocationOptionsResult:
-    conn = session.connection().connection
-    cursor = conn.cursor()
-    select_sql = (
-        "SELECT "
-        "location_name, province, city, county, town, "
-        "administrative_village, natural_village, MIN(id) AS first_location_id "
-        "FROM vocabulary_locations "
-        "GROUP BY "
-        "location_name, province, city, county, town, "
-        "administrative_village, natural_village "
-        "ORDER BY location_name ASC, first_location_id ASC"
-    )
-
-    cursor.execute(select_sql)
-    column_names = [description[0] for description in cursor.description]
-    rows = [
-        {column_names[index]: value for index, value in enumerate(row)}
-        for row in cursor.fetchall()
-    ]
-
-    seen_location_names = set()
-    locations: list[VocabularyLocationOption] = []
-    for row in rows:
-        location_name = row["location_name"] or ""
-        if not location_name or location_name in seen_location_names:
+def query_vocabulary_location_options(
+    *, session: Session, regions: str | Iterable[str] | None = None,
+    region_mode: str = "yindian", province: str | None = None, city: str | None = None,
+) -> VocabularyLocationOptionsResult:
+    region_clause, values = partition_filter(regions, region_mode)
+    clauses = [region_clause] if region_clause else []
+    for column, value in (("province", province), ("city", city)):
+        if value:
+            clauses.append(f"l.{column} = ?")
+            values.append(value)
+    where = " AND ".join(clauses) if clauses else "1=1"
+    cursor = session.connection().connection.cursor()
+    cursor.execute(
+        "SELECT l.location_name, l.province, l.city, l.county, l.town, "
+        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
+        f"FROM vocabulary_locations l WHERE {where} ORDER BY l.location_name, l.id", values)
+    columns = [description[0] for description in cursor.description]
+    grouped = {}
+    for values_row in cursor:
+        row = dict(zip(columns, values_row))
+        name = row["location_name"] or ""
+        if not name:
             continue
-        seen_location_names.add(location_name)
-        locations.append(
-            VocabularyLocationOption(
-                location_name=location_name,
-                location_label=_format_location(row),
-                province=row.get("province") or "",
-                city=row.get("city") or "",
-            )
-        )
-
-    return VocabularyLocationOptionsResult(
-        locations=locations,
-        total=len(locations),
-    )
+        if name not in grouped:
+            grouped[name] = (row, set(), set())
+        _, yindian, atlas = grouped[name]
+        yindian.add(row["yindian_region"] or "")
+        atlas.add(row["atlas_region"] or "")
+    locations = [VocabularyLocationOption(
+        location_name=name, location_label=_format_location(row),
+        province=row["province"] or "", city=row["city"] or "",
+        yindian_region=next(iter(yindian)) if len(yindian) == 1 else "",
+        atlas_region=next(iter(atlas)) if len(atlas) == 1 else "",
+        yindian_regions=sorted(yindian - {""}), atlas_regions=sorted(atlas - {""}),
+    ) for name, (row, yindian, atlas) in grouped.items()]
+    return VocabularyLocationOptionsResult(locations=locations, total=len(locations))

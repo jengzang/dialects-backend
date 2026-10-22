@@ -195,14 +195,6 @@ def run_gis_startup() -> None:
     )
 
 
-def run_cluster_startup() -> None:
-    _run_startup_steps(
-        initialize_db_pools,
-        cleanup_old_temp_files,
-        warm_dialect_cache,
-    )
-
-
 async def shutdown_process_resources() -> None:
     try:
         await close_redis()
