@@ -18,7 +18,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.common.path import ADMIN_ONLY_DBS, DB_MAPPING
 from app.routes.toponyms import router
-from app.service.toponyms.config import MAX_DETAIL_IDS, MAX_QUERY_LIMIT
+from app.service.toponyms.config import MAX_DETAIL_IDS, MAX_NAME_LIMIT
 
 
 def create_toponyms_db(path: str) -> None:
@@ -149,6 +149,201 @@ class ToponymsRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_queries_preserve_unlimited_contract(self) -> None:
+        for endpoint in ("points", "search", "names"):
+            response = self.client.get(
+                f"/api/toponyms/{endpoint}",
+                params={"q": "村", "match_mode": "contains", "limit": 0},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(response.json()["items"]), 3)
+            if endpoint != "names":
+                self.assertFalse(response.json()["truncated"])
+                self.assertEqual(response.json()["count"], 3)
+
+    def test_unlimited_queries_stream_every_row_without_truncation(self) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executemany(
+                "INSERT INTO single VALUES (?,?,?,?,?,?,?)",
+                [(f"bulk-{i:06}", f"批量村{i:06}", "农村居民点", "22200",
+                  "440100001", 113.0, 23.0) for i in range(12001)],
+            )
+        for endpoint in ("points", "search", "names"):
+            response = self.client.get(f"/api/toponyms/{endpoint}", params={
+                "q": "批量村", "match_mode": "contains", "limit": 0,
+            })
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(len(body["items"]), 12001)
+            self.assertEqual(response.headers.get("x-toponyms-stream"), "1")
+            if endpoint != "names":
+                self.assertEqual(body["count"], 12001)
+                self.assertFalse(body["truncated"])
+
+    def test_unlimited_matching_matrix_equals_original_sql(self) -> None:
+        from scripts.toponyms.ensure_indexes import ensure_toponyms_indexes
+        ensure_toponyms_indexes(self.db_path)
+        modes = [("exact", "黄村", "=", "黄村"), ("prefix", "黄", "LIKE", "黄%"),
+                 ("suffix", "村", "LIKE", "%村"), ("contains", "村", "LIKE", "%村%"),
+                 ("contains", "不存在", "LIKE", "%不存在%"),
+                 ("contains", "%", "LIKE", "%%%")]
+        for mode, query, operator, pattern in modes:
+            for boxed in (False, True):
+                for codes in (["22200"], ["22200", "21610", "23512"]):
+                    placeholders = ",".join("?" for _ in codes)
+                    where = f"place_type_code IN ({placeholders}) AND standard_name {operator} ?"
+                    values = [*codes, pattern]
+                    if boxed:
+                        where += " AND longitude BETWEEN ? AND ? AND latitude BETWEEN ? AND ?"
+                        values += [113, 114, 23, 24]
+                    params = {"q": query, "match_mode": mode, "limit": 0,
+                              "place_type_code": ",".join(codes)}
+                    if boxed:
+                        params["bbox"] = "113,23,114,24"
+                    with sqlite3.connect(self.db_path) as conn:
+                        expected_points = conn.execute(
+                            f"SELECT id,longitude,latitude FROM single WHERE {where} ORDER BY id", values
+                        ).fetchall()
+                        expected_names = conn.execute(
+                            f"SELECT DISTINCT standard_name FROM single WHERE {where} "
+                            "AND TRIM(COALESCE(standard_name,''))<>'' ORDER BY standard_name", values
+                        ).fetchall()
+                        single = f"SELECT id,standard_name AS name FROM single WHERE {where}"
+                        sql = single if boxed else single + f" UNION ALL SELECT id,standard_name AS name FROM multi WHERE {where}"
+                        expected_search = conn.execute(
+                            "SELECT id,name FROM (" + sql + ") ORDER BY name,id",
+                            values if boxed else values * 2,
+                        ).fetchall()
+                    for endpoint, expected in (("points", expected_points),
+                                                ("search", expected_search), ("names", expected_names)):
+                        response = self.client.get(f"/api/toponyms/{endpoint}", params=params)
+                        self.assertEqual(response.status_code, 200, (endpoint, mode, response.text))
+                        body = response.json()
+                        actual = ([(name,) for name in body["items"]] if endpoint == "names"
+                                  else [tuple(item.values()) for item in body["items"]])
+                        self.assertEqual(actual, expected, (endpoint, mode, boxed, codes))
+                        if endpoint != "names":
+                            self.assertEqual(body["count"], len(expected))
+                            self.assertFalse(body["truncated"])
+                        if endpoint == "search":
+                            self.assertNotIn("next", body)
+
+    def test_unlimited_response_survives_logging_and_gzip_middleware(self) -> None:
+        from unittest.mock import AsyncMock, Mock
+        from app.service.logging.middleware import traffic_logging as logging
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        app.add_middleware(GZipMiddleware, minimum_size=1)
+        app.add_middleware(logging.RequestLogMiddleware)
+        @app.middleware("http")
+        async def passthrough(request, call_next):
+            return await call_next(request)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executemany("INSERT INTO single VALUES (?,?,?,?,?,?,?)", [
+                (f"gzip-{i:06}", f"流式村{i:06}", "农村居民点", "22200",
+                 "440100001", 113., 23.) for i in range(6001)
+            ])
+        with (
+            patch.object(logging, "should_capture_diagnostic_path", return_value=True),
+            patch.object(logging, "should_record_auth_usage", return_value=False),
+            patch.object(logging, "get_db", return_value=iter([Mock()])),
+            patch.object(logging, "get_current_user_for_middleware", new=AsyncMock(return_value=None)),
+            patch.object(logging, "update_count"),
+            patch.object(logging, "_log_params_if_needed", new=AsyncMock()),
+            patch.object(logging, "enqueue_diagnostic_event"),
+        ):
+            response = TestClient(app).get("/api/toponyms/points", params={
+                "q": "流式村", "match_mode": "contains", "limit": 0,
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-encoding"], "gzip")
+        self.assertEqual(response.json()["count"], 6001)
+        self.assertEqual(len(response.json()["items"]), 6001)
+        self.assertFalse(response.json()["truncated"])
+
+    def test_tree_never_loads_all_divisions(self) -> None:
+        from contextlib import contextmanager
+        from app.service.toponyms.resources import connection
+        statements = []
+        @contextmanager
+        def traced(path, **kwargs):
+            with connection(path, **kwargs) as conn:
+                conn.set_trace_callback(statements.append)
+                yield conn
+        with patch("app.service.toponyms.repository.connection", traced):
+            response = self.client.get("/api/toponyms/names", params={
+                "q": "村", "match_mode": "contains", "include_division_tree": "true",
+            })
+        division_queries = [sql for sql in statements if "FROM divisions" in sql]
+        self.assertTrue(division_queries)
+        self.assertTrue(all("WHERE code IN" in sql for sql in division_queries))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["mode"], "full")
+
+    def test_tree_probe_does_not_claim_exact_total(self) -> None:
+        with patch("app.service.toponyms.repository.TOPONYM_NAME_TREE_FULL_THRESHOLD", 1):
+            response = self.client.get("/api/toponyms/names", params={
+                "q": "村", "match_mode": "contains", "include_division_tree": "true",
+            })
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIsNone(body["filtered_count"])
+        self.assertFalse(body["count_exact"])
+        self.assertEqual(body["count_lower_bound"], 2)
+
+    def test_points_covering_path_preserves_results_and_order(self) -> None:
+        from contextlib import contextmanager
+        from scripts.toponyms.ensure_indexes import ensure_toponyms_indexes
+        from app.service.toponyms.resources import connection
+        from app.service.toponyms import repository
+        ensure_toponyms_indexes(self.db_path)
+        statements = []
+        @contextmanager
+        def traced(path, **kwargs):
+            with connection(path, **kwargs) as conn:
+                conn.set_trace_callback(statements.append)
+                yield conn
+        for mode, pattern in (("contains", "%村%"), ("suffix", "%村")):
+            with sqlite3.connect(self.db_path) as conn:
+                expected = conn.execute(
+                    "SELECT id,longitude,latitude FROM single WHERE place_type_code IN (?,?) "
+                    "AND standard_name LIKE ? ORDER BY id LIMIT 3",
+                    ("22200", "21610", pattern),
+                ).fetchall()
+            with patch.object(repository, "connection", traced):
+                items, truncated = repository.list_points_by_name(
+                    query="村", match_mode=mode, limit=2, place_type_codes=["22200", "21610"],
+                )
+            self.assertEqual([tuple(item.values()) for item in items], expected[:2])
+            self.assertTrue(truncated)
+        point_sql = next(sql for sql in statements if "INDEXED BY idx_single_type_name_id" in sql)
+        with sqlite3.connect(self.db_path) as conn:
+            plan = [row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + point_sql)]
+        self.assertTrue(any("COVERING INDEX idx_single_type_name_id" in row for row in plan))
+
+    def test_tree_loads_level_five_ancestors_and_unknown_paths_are_empty(self) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT INTO divisions (code,name,parent_code,level) VALUES (?,?,?,?)",
+                         ("440100001001", "村级区划", "440100001", 5))
+            conn.execute("UPDATE single SET area_code=? WHERE id='village-1'", ("440100001001",))
+        response = self.client.get("/api/toponyms/names", params={
+            "q": "黄村", "match_mode": "exact", "include_division_tree": "true",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("村级区划", response.text)
+        missing = self.client.get("/api/toponyms/names", params={
+            "q": "村", "include_division_tree": "true", "parent_path": "不存在省",
+        })
+        self.assertEqual(missing.status_code, 200)
+        self.assertEqual(missing.json()["children"], [])
+
+    def test_resource_errors_have_explicit_http_status(self) -> None:
+        from app.service.toponyms.resources import QueryBusy, QueryTimedOut
+        for error, status in ((QueryBusy("busy"), 503), (QueryTimedOut("deadline"), 504)):
+            with patch("app.routes.toponyms.run_query", side_effect=error):
+                response = self.client.get("/api/toponyms/search", params={"q": "黄"})
+            self.assertEqual(response.status_code, status)
+
     def test_points_endpoint_returns_matched_coordinates_and_ids_without_names(self) -> None:
         response = self.client.get(
             "/api/toponyms/points",
@@ -211,13 +406,13 @@ class ToponymsRoutesTest(unittest.TestCase):
     def test_query_limit_uses_configured_upper_bound(self) -> None:
         accepted = self.client.get(
             "/api/toponyms/names",
-            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_QUERY_LIMIT)},
+            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_NAME_LIMIT)},
         )
         self.assertEqual(accepted.status_code, 200)
 
         rejected = self.client.get(
             "/api/toponyms/names",
-            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_QUERY_LIMIT + 1)},
+            params={"q": "黄", "match_mode": "prefix", "limit": str(MAX_NAME_LIMIT + 1)},
         )
         self.assertEqual(rejected.status_code, 422)
 
@@ -506,7 +701,9 @@ class ToponymsRoutesTest(unittest.TestCase):
         self.assertEqual(body["mode"], "lazy_fallback")
         self.assertEqual(body["reason"], "tree_result_too_large")
         self.assertEqual(body["threshold"], 2)
-        self.assertEqual(body["filtered_count"], 3)
+        self.assertIsNone(body["filtered_count"])
+        self.assertFalse(body["count_exact"])
+        self.assertEqual(body["count_lower_bound"], 3)
         self.assertEqual(body["levels"], 4)
         self.assertEqual(
             body["lazy_bootstrap"],

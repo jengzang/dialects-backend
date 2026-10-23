@@ -1,8 +1,11 @@
 import math
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
-from starlette.concurrency import run_in_threadpool
+from fastapi import APIRouter, HTTPException, Query, Request
+from starlette.responses import Response
+from app.service.toponyms.streaming import stream_query, QueryDisconnected
+from app.service.toponyms.execution import run_query
+from app.service.toponyms.resources import QueryBusy, QueryTimedOut, QueryTooBroad
 
 from app.schemas.toponyms import (
     ToponymDetailsResponse,
@@ -17,6 +20,7 @@ from app.schemas.toponyms import (
 )
 from app.service.toponyms.config import (
     DEFAULT_NAME_LIMIT,
+    MAX_QUERY_LENGTH, MAX_PLACE_TYPE_CODES,
     DEFAULT_POINT_LIMIT,
     DEFAULT_SEARCH_LIMIT,
     MAX_DETAIL_IDS,
@@ -47,18 +51,42 @@ def _clean_query(query: str | None) -> str:
     cleaned = (query or "").strip()
     if not cleaned:
         raise HTTPException(status_code=400, detail="q is required")
+    if len(cleaned) > MAX_QUERY_LENGTH:
+        raise HTTPException(status_code=400, detail="q cannot exceed 128 characters")
     return cleaned
 
 
+async def _execute(func, *, request=None, **kwargs):
+    try:
+        endpoint = {"list_points_by_name": "points", "search_toponyms": "search",
+                    "sample_names": "names"}.get(func.__name__)
+        if endpoint and (kwargs["limit"] == 0 or kwargs["limit"] > 5000):
+            from app.service.toponyms import repository
+            return await stream_query(repository.TOPONYMS_DB_PATH, endpoint, kwargs, request=request)
+        return await run_query(func, **kwargs)
+    except QueryDisconnected as exc:
+        raise HTTPException(status_code=499, detail="Client disconnected") from exc
+    except QueryBusy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "1"}) from exc
+    except QueryTimedOut as exc:
+        raise HTTPException(status_code=504, detail="Query budget exceeded; narrow the search") from exc
+    except QueryTooBroad as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _clean_place_type_codes(raw_codes: list[str]) -> list[str]:
+    if sum(map(len, raw_codes)) > 256:
+        raise HTTPException(status_code=400, detail="Too many place type codes")
     codes: list[str] = []
     for raw_value in raw_codes:
         for part in raw_value.split(","):
             cleaned = part.strip()
-            if not cleaned or not cleaned.isdigit():
+            if not cleaned or len(cleaned) > 16 or not cleaned.isdigit():
                 raise HTTPException(status_code=400, detail=f"place_type_code must be a non-empty numeric string, got: {cleaned!r}")
             if cleaned not in codes:
                 codes.append(cleaned)
+    if len(codes) > MAX_PLACE_TYPE_CODES:
+        raise HTTPException(status_code=400, detail="At most 16 place type codes are allowed")
     if not codes:
         raise HTTPException(status_code=400, detail="place_type_code is required")
     return codes
@@ -68,12 +96,14 @@ def _clean_area_code(area_code: str | None) -> str | None:
     if area_code is None or area_code.strip() == "":
         return None
     cleaned = area_code.strip()
-    if not cleaned.isdigit():
+    if len(cleaned) > 32 or not cleaned.isdigit():
         raise HTTPException(status_code=400, detail="area_code must be a numeric string")
     return cleaned
 
 
 def _clean_ids(raw_ids: list[str]) -> list[str]:
+    if sum(map(len, raw_ids)) > MAX_DETAIL_IDS * 129:
+        raise HTTPException(status_code=400, detail="ids input is too long")
     ids: list[str] = []
     seen: set[str] = set()
     for raw_value in raw_ids:
@@ -98,7 +128,7 @@ def _clean_parent_path(raw_parent_path: list[str] | None) -> list[str] | None:
     parent_path = [part.strip() for part in raw_parent_path if part.strip()]
     if not parent_path:
         return None
-    if len(parent_path) > 4:
+    if len(parent_path) > 4 or any(len(part) > 128 for part in parent_path):
         raise HTTPException(status_code=400, detail="parent_path cannot contain more than 4 values")
     return parent_path
 
@@ -131,11 +161,12 @@ def _parse_bbox(raw_bbox: str | None) -> tuple[float, float, float, float] | Non
 
 @router.get("/toponyms/points", response_model=ToponymPointsResponse)
 async def get_toponym_points(
+    request: Request,
     q: str | None = Query(None, description="地名查询文本"),
     match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
     bbox: str | None = Query(None, description="可选: minLng,minLat,maxLng,maxLat"),
     zoom: int | None = Query(None, ge=0, le=24, description="可选: 前端地图缩放级别，后端仅校验"),
-    limit: int = Query(DEFAULT_POINT_LIMIT, ge=0, le=MAX_POINT_LIMIT, description="0 表示不限制"),
+    limit: int = Query(DEFAULT_POINT_LIMIT, ge=0, le=MAX_POINT_LIMIT, description="0 表示完整返回，不限制条数"),
     place_type_code: list[str] = Query(None, description="默认 22200 自然村/农村居民点，可逗号分隔或重复传参"),
 ) -> ToponymPointsResponse:
     del zoom
@@ -143,23 +174,28 @@ async def get_toponym_points(
     cleaned_place_type_codes = _clean_place_type_codes(place_type_code or NATURAL_VILLAGE_PLACE_TYPE_CODES)
     parsed_bbox = _parse_bbox(bbox)
 
-    items, truncated = await run_in_threadpool(
+    result = await _execute(
         list_points_by_name,
+        request=request,
         query=cleaned_query,
         match_mode=match_mode,
         limit=limit,
         place_type_codes=cleaned_place_type_codes,
         bbox=parsed_bbox,
     )
+    if isinstance(result, Response):
+        return result
+    items, truncated = result
     return ToponymPointsResponse(items=items, count=len(items), truncated=truncated)
 
 
 @router.get("/toponyms/search", response_model=ToponymSearchResponse, response_model_exclude_none=True)
 async def search_toponym_records(
+    request: Request,
     q: str | None = Query(None, description="地名查询文本"),
     match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
     bbox: str | None = Query(None, description="可选: minLng,minLat,maxLng,maxLat；仅过滤 single 点位"),
-    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=0, le=MAX_SEARCH_LIMIT, description="0 表示不限制"),
+    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=0, le=MAX_SEARCH_LIMIT, description="0 表示完整返回，不限制条数"),
     place_type_code: list[str] = Query(None, description="默认 22200 自然村/农村居民点，可逗号分隔或重复传参"),
     area_code: str | None = Query(None, description="可选行政区划 code"),
     area_scope: AreaScope = Query("descendants", description="descendants 匹配下级，exact 仅精确匹配 area_code"),
@@ -171,8 +207,9 @@ async def search_toponym_records(
     cleaned_area_code = _clean_area_code(area_code)
     parsed_bbox = _parse_bbox(bbox)
 
-    items, truncated = await run_in_threadpool(
+    result = await _execute(
         search_toponyms,
+        request=request,
         query=cleaned_query,
         match_mode=match_mode,
         limit=limit,
@@ -183,6 +220,9 @@ async def search_toponym_records(
         include_area_code=include_area_code,
         include_place_type_code=include_place_type_code,
     )
+    if isinstance(result, Response):
+        return result
+    items, truncated = result
     return ToponymSearchResponse(items=items, count=len(items), truncated=truncated)
 
 
@@ -197,6 +237,7 @@ ToponymNamesEndpointResponse = (
 
 @router.get("/toponyms/names", response_model=ToponymNamesEndpointResponse)
 async def get_toponym_names(
+    request: Request,
     q: str = Query(..., min_length=1),
     match_mode: MatchMode = Query("prefix", description="prefix, suffix, exact, contains"),
     limit: int = Query(DEFAULT_NAME_LIMIT, ge=0, le=MAX_NAME_LIMIT),
@@ -217,7 +258,7 @@ async def get_toponym_names(
     parsed_bbox = _parse_bbox(bbox)
     cleaned_parent_path = _clean_parent_path(parent_path)
     if include_division_tree:
-        result = await run_in_threadpool(
+        result = await _execute(
             list_names_with_division_tree,
             query=cleaned_query,
             match_mode=match_mode,
@@ -236,14 +277,17 @@ async def get_toponym_names(
             return ToponymNameTreeLazyNamesResponse(**result)
         return ToponymNameTreeLazyChildrenResponse(**result)
 
-    names = await run_in_threadpool(
+    names = await _execute(
         sample_names,
+        request=request,
         query=cleaned_query,
         match_mode=match_mode,
         limit=limit,
         place_type_codes=cleaned_place_type_codes,
         bbox=parsed_bbox,
     )
+    if isinstance(names, Response):
+        return names
     return ToponymNamesResponse(items=names)
 
 
@@ -252,13 +296,13 @@ async def get_toponym_details(
     ids: list[str] = Query(..., min_length=1, description="逗号分隔或重复传参，最多 10 个 ID"),
 ) -> ToponymDetailsResponse:
     cleaned_ids = _clean_ids(ids)
-    items = await run_in_threadpool(list_details_by_ids, ids=cleaned_ids)
+    items = await _execute(list_details_by_ids, ids=cleaned_ids)
     return ToponymDetailsResponse(items=items, count=len(items))
 
 
 @router.get("/toponyms/divisions", response_model=ToponymDivisionsResponse)
 async def get_toponym_divisions(
-    parent_code: str = Query("100000", min_length=1),
+    parent_code: str = Query("100000", min_length=1, max_length=32),
 ) -> ToponymDivisionsResponse:
-    items = await run_in_threadpool(list_child_divisions, parent_code=parent_code.strip())
+    items = await _execute(list_child_divisions, parent_code=parent_code.strip())
     return ToponymDivisionsResponse(items=items)

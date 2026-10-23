@@ -4,10 +4,14 @@ from typing import Any
 
 from app.service.toponyms.config import (
     NATURAL_VILLAGE_PLACE_TYPE_CODES,
+    QUERY_TIMEOUT_SECONDS,
     TOPONYM_NAME_TREE_FULL_THRESHOLD as CONFIG_TOPONYM_NAME_TREE_FULL_THRESHOLD,
     TOPONYMS_DB_PATH,
 )
-from app.sql.db_pool import get_db_pool
+from app.service.toponyms.resources import connection, check_deadline, QueryTooBroad
+from app.service.toponyms.divisions import (
+    load_paths, division_path as _division_path, resolve_parent_codes,
+)
 
 TOPONYM_NAME_TREE_FULL_THRESHOLD = CONFIG_TOPONYM_NAME_TREE_FULL_THRESHOLD
 TOPONYM_NAME_TREE_LEVELS = 4
@@ -111,17 +115,16 @@ def _add_area_scope_filter(
     params.append(f"{area_code}%")
 
 
-def list_points_by_name(
-    *,
+def points_query(
+    conn, *,
     query: str,
     match_mode: str,
     limit: int,
     place_type_codes: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[str, list[Any]]:
     if place_type_codes is None:
         place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     where_parts = [
         f"place_type_code IN {_in_clause(place_type_codes)}",
         _name_condition(match_mode),
@@ -154,9 +157,36 @@ def list_points_by_name(
         ORDER BY id
         {limit_clause}
     """.format(where_clause=" AND ".join(where_parts), limit_clause=limit_clause)
-    with pool.get_connection() as conn:
-        rows = conn.execute(sql, tuple(params)).fetchall()
+    # With no bbox, matching names in the covering index avoids a table
+    # lookup for every rejected candidate. Missing indexes remain supported.
+    if bbox is None and match_mode in {"contains", "suffix"}:
+        has_index = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_single_type_name_id'"
+        ).fetchone()
+        if has_index:
+            sql = """
+                SELECT id, longitude, latitude FROM single
+                WHERE id IN (
+                    SELECT id FROM single INDEXED BY idx_single_type_name_id
+                    WHERE {where_clause} ORDER BY id {limit_clause}
+                ) ORDER BY id
+            """.format(where_clause=" AND ".join(where_parts), limit_clause=limit_clause)
+    return sql, params
 
+
+
+def list_points_by_name(
+    *,
+    query: str,
+    match_mode: str,
+    limit: int,
+    place_type_codes: list[str] | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    with connection(TOPONYMS_DB_PATH, timeout=None if limit == 0 else QUERY_TIMEOUT_SECONDS) as conn:
+        sql, params = points_query(conn, query=query, match_mode=match_mode, limit=limit,
+                                   place_type_codes=place_type_codes, bbox=bbox)
+        rows = conn.execute(sql, params).fetchall()
     selected_rows = rows[:limit] if limit > 0 else rows
     items = [
         {"id": row["id"], "longitude": row["longitude"], "latitude": row["latitude"]}
@@ -165,7 +195,7 @@ def list_points_by_name(
     return items, bool(limit > 0 and len(rows) > limit)
 
 
-def search_toponyms(
+def search_query(
     *,
     query: str,
     match_mode: str,
@@ -176,7 +206,7 @@ def search_toponyms(
     bbox: tuple[float, float, float, float] | None = None,
     include_area_code: bool = False,
     include_place_type_code: bool = False,
-) -> tuple[list[dict[str, Any]], bool]:
+) -> tuple[str, list[Any]]:
     if place_type_codes is None:
         place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
 
@@ -202,10 +232,11 @@ def search_toponyms(
 
     selects = [
         """
-        SELECT id, standard_name AS name, area_code, place_type_code
+        SELECT id, standard_name AS name, {area_projection} AS area_code, place_type_code
         FROM single
         WHERE {where_clause}
-        """.format(where_clause=" AND ".join(single_where_parts))
+        """.format(where_clause=" AND ".join(single_where_parts),
+                   area_projection="area_code" if include_area_code else "NULL")
     ]
     params = [*single_params]
 
@@ -222,10 +253,11 @@ def search_toponyms(
         _add_area_scope_filter(multi_where_parts, multi_params, area_code, area_scope)
         selects.append(
             """
-            SELECT id, standard_name AS name, area_code, place_type_code
+            SELECT id, standard_name AS name, {area_projection} AS area_code, place_type_code
             FROM multi
             WHERE {where_clause}
-            """.format(where_clause=" AND ".join(multi_where_parts))
+            """.format(where_clause=" AND ".join(multi_where_parts),
+                       area_projection="area_code" if include_area_code else "NULL")
         )
         params.extend(multi_params)
 
@@ -244,8 +276,27 @@ def search_toponyms(
         {limit_clause}
     """.format(union_sql=" UNION ALL ".join(selects), limit_clause=limit_clause)
 
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
-    with pool.get_connection() as conn:
+    return sql, params
+
+
+def search_toponyms(
+    *,
+    query: str,
+    match_mode: str,
+    limit: int,
+    place_type_codes: list[str] | None = None,
+    area_code: str | None = None,
+    area_scope: str = "descendants",
+    bbox: tuple[float, float, float, float] | None = None,
+    include_area_code: bool = False,
+    include_place_type_code: bool = False,
+) -> tuple[list[dict[str, Any]], bool]:
+    sql, params = search_query(query=query, match_mode=match_mode, limit=limit,
+                               place_type_codes=place_type_codes, area_code=area_code,
+                               area_scope=area_scope, bbox=bbox,
+                               include_area_code=include_area_code,
+                               include_place_type_code=include_place_type_code)
+    with connection(TOPONYMS_DB_PATH, timeout=None if limit == 0 else QUERY_TIMEOUT_SECONDS) as conn:
         rows = conn.execute(sql, tuple(params)).fetchall()
 
     selected_rows = rows[:limit] if limit > 0 else rows
@@ -261,17 +312,16 @@ def search_toponyms(
     return items, bool(limit > 0 and len(rows) > limit)
 
 
-def sample_names(
+def names_query(
     *,
     query: str,
     match_mode: str,
     limit: int,
     place_type_codes: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
-) -> list[str]:
+) -> tuple[str, list[Any]]:
     if place_type_codes is None:
         place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     where_parts, params = _base_name_filters(
         query=query,
         match_mode=match_mode,
@@ -290,7 +340,20 @@ def sample_names(
         ORDER BY standard_name
         {limit_clause}
     """.format(where_clause=" AND ".join(where_parts), limit_clause=limit_clause)
-    with pool.get_connection() as conn:
+    return sql, params
+
+
+def sample_names(
+    *,
+    query: str,
+    match_mode: str,
+    limit: int,
+    place_type_codes: list[str] | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[str]:
+    sql, params = names_query(query=query, match_mode=match_mode, limit=limit,
+                              place_type_codes=place_type_codes, bbox=bbox)
+    with connection(TOPONYMS_DB_PATH, timeout=None if limit == 0 else QUERY_TIMEOUT_SECONDS) as conn:
         rows = conn.execute(sql, tuple(params)).fetchall()
 
     return [row["standard_name"] for row in rows]
@@ -309,110 +372,36 @@ def list_names_with_division_tree(
 ) -> dict[str, Any]:
     if place_type_codes is None:
         place_type_codes = NATURAL_VILLAGE_PLACE_TYPE_CODES
-    del limit
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
-    with pool.get_connection() as conn:
-        divisions = _load_divisions(conn)
+    with connection(TOPONYMS_DB_PATH, timeout=None if limit == 0 else QUERY_TIMEOUT_SECONDS) as conn:
         if parent_path:
             return _list_lazy_tree_node(
-                conn=conn,
-                divisions=divisions,
-                query=query,
-                match_mode=match_mode,
-                place_type_codes=place_type_codes,
-                bbox=bbox,
-                parent_path=parent_path,
-                page=page,
-                page_size=page_size,
+                conn=conn, query=query, match_mode=match_mode,
+                place_type_codes=place_type_codes, bbox=bbox,
+                parent_path=parent_path, page=page, page_size=page_size,
             )
-
-        filtered_count = _count_distinct_name_area(
-            conn=conn,
-            query=query,
-            match_mode=match_mode,
-            place_type_codes=place_type_codes,
-            bbox=bbox,
+        rows = _fetch_distinct_name_area_rows(
+            conn=conn, query=query, match_mode=match_mode,
+            place_type_codes=place_type_codes, bbox=bbox,
+            row_limit=TOPONYM_NAME_TREE_FULL_THRESHOLD + 1, probe=True,
         )
-        if filtered_count > TOPONYM_NAME_TREE_FULL_THRESHOLD:
+        if len(rows) > TOPONYM_NAME_TREE_FULL_THRESHOLD:
             return {
-                "mode": "lazy_fallback",
-                "reason": "tree_result_too_large",
+                "mode": "lazy_fallback", "reason": "tree_result_too_large",
                 "threshold": TOPONYM_NAME_TREE_FULL_THRESHOLD,
-                "filtered_count": filtered_count,
+                "filtered_count": None, "count_exact": False,
+                "count_lower_bound": TOPONYM_NAME_TREE_FULL_THRESHOLD + 1,
                 "levels": TOPONYM_NAME_TREE_LEVELS,
                 "lazy_bootstrap": _build_lazy_bootstrap(
-                    conn=conn,
-                    divisions=divisions,
-                    query=query,
-                    match_mode=match_mode,
-                    place_type_codes=place_type_codes,
-                    bbox=bbox,
+                    conn=conn, query=query, match_mode=match_mode,
+                    place_type_codes=place_type_codes, bbox=bbox,
                 ),
             }
-
-        rows = _fetch_distinct_name_area_rows(
-            conn=conn,
-            query=query,
-            match_mode=match_mode,
-            place_type_codes=place_type_codes,
-            bbox=bbox,
-            limit=0,
-        )
-
-    return {
-        "mode": "full",
-        "items": _build_public_name_tree(rows, divisions),
-        "levels": TOPONYM_NAME_TREE_LEVELS,
-    }
-
-
-def _load_divisions(conn) -> dict[str, dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT code, name, parent_code, level
-        FROM divisions
-        ORDER BY level, code
-        """
-    ).fetchall()
-    return {
-        row["code"]: {
-            "code": row["code"],
-            "name": row["name"],
-            "parent_code": row["parent_code"],
-            "level": row["level"],
+        rows.sort(key=lambda row: (row["area_code"], row["standard_name"]))
+        divisions = load_paths(conn, {row["area_code"] for row in rows})
+        return {
+            "mode": "full", "items": _build_public_name_tree(rows, divisions),
+            "levels": TOPONYM_NAME_TREE_LEVELS,
         }
-        for row in rows
-    }
-
-
-def _count_distinct_name_area(
-    *,
-    conn,
-    query: str,
-    match_mode: str,
-    place_type_codes: list[str],
-    bbox: tuple[float, float, float, float] | None,
-    area_codes: list[str] | None = None,
-) -> int:
-    where_parts, params = _base_name_filters(
-        query=query,
-        match_mode=match_mode,
-        place_type_codes=place_type_codes,
-        bbox=bbox,
-        require_area_code=True,
-    )
-    if area_codes is not None:
-        _add_area_code_filter(where_parts, params, area_codes)
-    sql = """
-        SELECT COUNT(*) AS count
-        FROM (
-            SELECT DISTINCT standard_name, area_code
-            FROM single
-            WHERE {where_clause}
-        )
-    """.format(where_clause=" AND ".join(where_parts))
-    row = conn.execute(sql, tuple(params)).fetchone()
-    return int(row["count"]) if row else 0
 
 
 def _fetch_distinct_name_area_rows(
@@ -426,6 +415,7 @@ def _fetch_distinct_name_area_rows(
     area_codes: list[str] | None = None,
     offset: int = 0,
     row_limit: int | None = None,
+    probe: bool = False,
 ) -> list[Any]:
     where_parts, params = _base_name_filters(
         query=query,
@@ -441,8 +431,9 @@ def _fetch_distinct_name_area_rows(
         SELECT DISTINCT standard_name, area_code
         FROM single
         WHERE {where_clause}
-        ORDER BY area_code, standard_name
     """.format(where_clause=" AND ".join(where_parts))
+    if not probe:
+        sql += " ORDER BY area_code, standard_name"
     actual_limit = row_limit if row_limit is not None else limit
     if actual_limit > 0:
         sql += " LIMIT ? OFFSET ?"
@@ -455,6 +446,7 @@ def _build_public_name_tree(rows: list[Any], divisions: dict[str, dict[str, Any]
     nodes_by_code: dict[str, dict[str, Any]] = {}
 
     for row in rows:
+        check_deadline()
         path = _division_path(row["area_code"], divisions)
         if not path:
             continue
@@ -486,13 +478,12 @@ def _build_public_name_tree(rows: list[Any], divisions: dict[str, dict[str, Any]
 def _build_lazy_bootstrap(
     *,
     conn,
-    divisions: dict[str, dict[str, Any]],
     query: str,
     match_mode: str,
     place_type_codes: list[str],
     bbox: tuple[float, float, float, float] | None,
 ) -> list[dict[str, Any]]:
-    rows = _fetch_distinct_area_rows(
+    paths = _iter_area_paths(
         conn=conn,
         query=query,
         match_mode=match_mode,
@@ -501,8 +492,7 @@ def _build_lazy_bootstrap(
     )
     roots: dict[str, dict[str, Any]] = {}
     seen_children: dict[str, set[str]] = {}
-    for row in rows:
-        path = _division_path(row["area_code"], divisions)
+    for path in paths:
         if not path:
             continue
         root = path[0]
@@ -518,7 +508,7 @@ def _build_lazy_bootstrap(
     return list(roots.values())
 
 
-def _fetch_distinct_area_rows(
+def _iter_area_paths(
     *,
     conn,
     query: str,
@@ -542,13 +532,21 @@ def _fetch_distinct_area_rows(
         WHERE {where_clause}
         ORDER BY area_code
     """.format(where_clause=" AND ".join(where_parts))
-    return conn.execute(sql, tuple(params)).fetchall()
+    cursor = conn.execute(sql, tuple(params))
+    while True:
+        check_deadline()
+        rows = cursor.fetchmany(256)
+        if not rows:
+            break
+        divisions = load_paths(conn, {row["area_code"] for row in rows})
+        for row in rows:
+            yield _division_path(row["area_code"], divisions)
+
 
 
 def _list_lazy_tree_node(
     *,
     conn,
-    divisions: dict[str, dict[str, Any]],
     query: str,
     match_mode: str,
     place_type_codes: list[str],
@@ -557,7 +555,8 @@ def _list_lazy_tree_node(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
-    parent_codes = _resolve_parent_codes(parent_path, divisions)
+    parent_codes = resolve_parent_codes(conn, parent_path)
+    divisions = load_paths(conn, parent_codes)
     parent_divisions = [divisions[code] for code in parent_codes if code in divisions]
     if (
         parent_divisions
@@ -585,7 +584,7 @@ def _list_lazy_tree_node(
             "has_more": len(rows) > page_size,
         }
 
-    area_rows = _fetch_distinct_area_rows(
+    paths = _iter_area_paths(
         conn=conn,
         query=query,
         match_mode=match_mode,
@@ -594,8 +593,7 @@ def _list_lazy_tree_node(
         area_codes=parent_codes,
     )
     children_by_code: dict[str, dict[str, Any]] = {}
-    for row in area_rows:
-        path = _division_path(row["area_code"], divisions)
+    for path in paths:
         child_index = len(parent_path)
         if len(path) <= child_index:
             continue
@@ -614,34 +612,6 @@ def _list_lazy_tree_node(
     }
 
 
-def _resolve_parent_codes(
-    parent_path: list[str],
-    divisions: dict[str, dict[str, Any]],
-) -> list[str]:
-    if not parent_path:
-        return []
-
-    codes = []
-    for division in divisions.values():
-        path = _division_path(division["code"], divisions)
-        if [item["name"] for item in path] == parent_path:
-            codes.append(division["code"])
-    return codes
-
-
-def _division_path(
-    area_code: str,
-    divisions: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    path: list[dict[str, Any]] = []
-    current = divisions.get(area_code)
-    while current is not None and current["level"] > 0:
-        path.append(current)
-        current = divisions.get(current["parent_code"])
-    path.reverse()
-    return path
-
-
 def _public_division_name_node(node: dict[str, Any]) -> dict[str, Any]:
     children = [_public_division_name_node(child) for child in node["_children_by_code"].values()]
     return {
@@ -656,7 +626,6 @@ def list_details_by_ids(*, ids: list[str]) -> list[dict[str, Any]]:
     if not ids:
         return []
 
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     placeholders = ",".join("?" for _ in ids)
     single_sql = """
         SELECT id, standard_name, place_type, place_type_code, area_code, longitude, latitude
@@ -670,15 +639,15 @@ def list_details_by_ids(*, ids: list[str]) -> list[dict[str, Any]]:
         WHERE id IN ({placeholders})
     """.format(placeholders=placeholders)
 
-    with pool.get_connection() as conn:
+    with connection(TOPONYMS_DB_PATH) as conn:
         rows = [
             *conn.execute(single_sql, tuple(ids)).fetchall(),
             *conn.execute(multi_sql, tuple(ids)).fetchall(),
         ]
+        codes = {row["area_code"] for row in rows if row["area_code"]}
+        divisions = load_paths(conn, codes)
         division_paths_by_area_code = {
-            row["area_code"]: _division_path_from_db(conn, row["area_code"])
-            for row in rows
-            if row["area_code"]
+            code: _division_path(code, divisions) for code in codes
         }
 
     rows_by_id = {row["id"]: row for row in rows}
@@ -707,43 +676,14 @@ def list_details_by_ids(*, ids: list[str]) -> list[dict[str, Any]]:
     return items
 
 
-def _division_path_from_db(conn, area_code: str) -> list[dict[str, Any]]:
-    path: list[dict[str, Any]] = []
-    current_code = area_code
-    while current_code:
-        row = conn.execute(
-            """
-            SELECT code, name, parent_code, level
-            FROM divisions
-            WHERE code = ?
-            """,
-            (current_code,),
-        ).fetchone()
-        if row is None or row["level"] <= 0:
-            break
-        path.append(
-            {
-                "code": row["code"],
-                "name": row["name"],
-                "parent_code": row["parent_code"],
-                "level": row["level"],
-            }
-        )
-        current_code = row["parent_code"]
-
-    path.reverse()
-    return path
-
-
 def list_child_divisions(*, parent_code: str) -> list[dict[str, Any]]:
-    pool = get_db_pool(TOPONYMS_DB_PATH, pool_size=4)
     sql = """
         SELECT code, name, level, COALESCE(single_cnt, 0) AS single_count
         FROM divisions
         WHERE parent_code = ?
         ORDER BY code
     """
-    with pool.get_connection() as conn:
+    with connection(TOPONYMS_DB_PATH) as conn:
         rows = conn.execute(sql, (parent_code,)).fetchall()
 
     return [

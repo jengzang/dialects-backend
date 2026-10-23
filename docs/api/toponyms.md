@@ -207,7 +207,9 @@ leaf names at once.
   "mode": "lazy_fallback",
   "reason": "tree_result_too_large",
   "threshold": 5000,
-  "filtered_count": 59739,
+  "filtered_count": null,
+  "count_exact": false,
+  "count_lower_bound": 5001,
   "levels": 4,
   "lazy_bootstrap": [
     {
@@ -220,6 +222,11 @@ leaf names at once.
   ]
 }
 ```
+
+The threshold is detected with at most 5001 distinct name/area pairs. In a
+fallback response, `filtered_count` is now nullable: it is not an exact count.
+Use `count_lower_bound` ("at least 5001") when `count_exact=false`; do not display
+null as zero. The full-tree and lazy-node result shapes are otherwise preserved.
 
 Expand a non-leaf node with the same endpoint and repeated `parent_path`
 parameters:
@@ -370,3 +377,56 @@ ON multi(place_type_code, standard_name, area_code);
 ```
 
 It also runs `ANALYZE`.
+
+
+## Resource behavior and unlimited responses (2026-10-24)
+
+`limit=0` remains a complete, unlimited query for points, search and plain names.
+Positive limits retain their existing maximum of 2,000,000. No forced paging,
+row cap or silent truncation was introduced. Existing tree full/lazy behavior
+is retained; its count metadata change is described above.
+
+Requests with `limit=0` or a positive limit above 5000 return standard
+`application/json` incrementally. Clients can still use `response.json()`, although
+that buffers the complete response in the client. The server reads/encodes up
+to 256 rows at a time. Points/search finish the JSON object with the actual
+`count` and `truncated` fields; points also retain `next: null`, while search
+continues to omit null fields. Unlimited successful responses always have
+`truncated=false`. They carry `X-Toponyms-Stream: 1` and
+`X-Accel-Buffering: no`; they do not require a Content-Length header.
+
+A single host shares two heavy-query slots across workers, including streams;
+trees additionally share one tree slot. Details/divisions have a separate
+single lightweight slot. Slots fail fast with 503 and Retry-After: 1 rather
+than building a database wait queue. They are held until the query/stream
+actually ends. Slow clients therefore occupy slots for longer. Unlimited
+streams are not subject to the short-query SQL deadline; client disconnects
+cancel SQL, including during the initial sort before response headers.
+The existing proxy/application transport timeout can still end a connection;
+configure it consistently with legitimate full-query durations. Mid-stream
+errors terminate the JSON transfer rather than claiming a complete result.
+
+SQLite connections are read-only, close after each request, use a 4 MiB page
+cache target and file-backed temporary storage. Sorting can still consume
+CPU, temporary disk space and I/O proportional to the data. No indexes are
+created or changed at runtime. Do not replace/modify lock files during service
+operation. `TOPONYMS_LOCK_DIR` may select a shared writable directory (default:
+the system temporary directory's `dialects-toponyms-locks` subdirectory).
+All workers on the single host must use the same database path and lock directory.
+The POSIX flock implementation targets the deployed Linux/macOS environments;
+separate hosts/containers with separate lock directories are not globally limited.
+
+Only small non-streaming results are cached: 4 MiB serialized bytes / 256 entries
+per worker, 128 KiB per item, TTL 30 seconds; Python metadata is additional.
+Database/WAL identity and timestamps are part of the key. Identical small requests
+share in-flight work, with at most four producer jobs and eight waiting callers
+per worker. Full streams bypass result caching and coalescing, so complete results
+are never retained in a Python cache. At most two streams are admitted per worker
+before checking the shared heavy slots. Failures are not cached or retried.
+
+Input validation: q is at most 128 characters, at most 16 type codes (256 input
+characters total), area_code at most 32 characters, and each parent_path segment
+at most 128 characters. Existing SQL LIKE wildcard semantics are retained.
+These input bounds do not cap matching result counts. Short materialized queries
+use a 2 second cooperative SQLite/Python deadline (504 on expiry); a tree request
+with limit=0 also has no total query deadline.

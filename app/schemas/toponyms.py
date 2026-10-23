@@ -60,7 +60,9 @@ class ToponymNameTreeLazyFallbackResponse(BaseModel):
     mode: str
     reason: str
     threshold: int
-    filtered_count: int
+    filtered_count: int | None
+    count_exact: bool = False
+    count_lower_bound: int
     levels: int
     lazy_bootstrap: list[ToponymNameTreeBootstrapNode]
 
