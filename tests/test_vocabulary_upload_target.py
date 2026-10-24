@@ -13,7 +13,8 @@ from app.service.vocabulary.service import import_vocabulary_upload, preview_voc
 
 @pytest.fixture
 def db():
-    engine = create_engine('sqlite:///:memory:')
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         session.add(VocabularyPermission(user_id=7, permission_level='edit'))
@@ -90,15 +91,13 @@ def test_self_scoped_user_can_replace_explicit_own_location(db):
 def test_routes_forward_explicit_target_owner(db, preview, monkeypatch):
     from app.routes import vocabulary as routes
     from app.routes.vocabulary import preview_vocabulary_upload_endpoint, upload_vocabulary
-    async def no_cached_keys(pattern):
-        return []
-    monkeypatch.setattr(routes.redis_client, 'keys', no_cached_keys)
+    monkeypatch.setattr(routes, 'notify_vocabulary_change', lambda *args, **kwargs: None)
     data = args(db, user_id=1, role='admin')
 
-    class Upload:
-        filename = 'update.csv'
-        async def read(self):
-            return data['content']
+    from io import BytesIO
+    from starlette.datastructures import UploadFile
+    def Upload():
+        return UploadFile(BytesIO(data['content']), filename='update.csv')
 
     kwargs = dict(file=Upload(), location=json.dumps(data['location_payload']), parser_mode='table', fill_standard_from_local=False, current_user=data['user'], db=db, target_user_id=8)
     if not preview:

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from heapq import nsmallest
 from typing import Iterable
 
 from sqlalchemy.orm import Session
@@ -382,6 +383,7 @@ def query_vocabulary_items(
     standard_words: str | Iterable[str] | None = None,
     page: int = 1,
     page_size: int = 50,
+    _count_loader=None,
 ) -> VocabularyItemsResult:
     if page < 1:
         raise ValueError("page must be at least 1")
@@ -420,20 +422,27 @@ def query_vocabulary_items(
         f"WHERE {combined_where_clause} "
         "ORDER BY e.id DESC LIMIT ? OFFSET ?"
     )
-    count_sql = (
-        "SELECT COUNT(*) "
-        "FROM vocabulary_entries e "
+    count_join = (
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {combined_where_clause}"
+        if _filter_uses_locations(combined_where_clause) else ""
     )
+    count_sql = (
+        "SELECT COUNT(*) FROM vocabulary_entries e "
+        f"{count_join}WHERE {combined_where_clause}"
+    )
+
+    def count():
+        if _count_loader is not None:
+            return _count_loader(count_sql, values)
+        cursor.execute(count_sql, values)
+        return cursor.fetchone()[0]
 
     total = None
     if regions:
         # Count uses the identity covering index. An empty selection can return before
         # the ORDER BY id plan scans entries looking for its first matching page.
-        cursor.execute(count_sql, values)
-        total = cursor.fetchone()[0]
+        total = count()
         if total == 0:
             return VocabularyItemsResult(items=[], total=0, page=page, page_size=page_size)
 
@@ -444,8 +453,7 @@ def query_vocabulary_items(
         for row in cursor.fetchall()
     ]
     if total is None:
-        cursor.execute(count_sql, values)
-        total = cursor.fetchone()[0]
+        total = count()
 
     return VocabularyItemsResult(
         items=[_row_to_vocabulary_item(row) for row in rows],
@@ -505,14 +513,13 @@ def query_vocabulary_standard_words(
     )
 
     cursor.execute(select_sql, values)
-    # 直接按位置解包元组，避免为 5.9 万行各建一个 dict；word_keys 让同一标准词
-    # 在一个请求内只换算一次 key。
-    word_keys: dict[str, str] = {}
+    # GROUP BY yields contiguous rows for each spelling; retain only its last key.
+    previous_word = previous_key = None
     grouped: dict[str, list] = {}
-    for word, location_name, entry_count in cursor.fetchall():
-        key = word_keys.get(word)
-        if key is None:
-            key = word_keys[word] = standard_word_key(word)
+    for word, location_name, entry_count in cursor:
+        if word != previous_word:
+            previous_word, previous_key = word, standard_word_key(word)
+        key = previous_key
         group = grouped.get(key)
         if group is None:
             group = grouped[key] = [0, set(), {}]
@@ -532,10 +539,9 @@ def query_vocabulary_standard_words(
 
     # 先按轻量元组排序再切片：全库有近 4 万个分组，而 limit 通常只有 100，
     # 给最终会被丢弃的分组建 dataclass 是白做功。
-    ordered_keys = sorted(grouped, key=sort_key)
-    total = len(ordered_keys)
-    if limit is not None:
-        ordered_keys = ordered_keys[:limit]
+    total = len(grouped)
+    ordered_keys = (sorted(grouped, key=sort_key) if limit is None
+                    else nsmallest(limit, grouped, key=sort_key))
 
     standard_word_groups = []
     for key in ordered_keys:
@@ -582,45 +588,25 @@ def query_vocabulary_map_points(
     )
     conn = session.connection().connection
     cursor = conn.cursor()
-    # 分组键只用 e 的两列：地点表的字段由 (user_id, location_name) 唯一确定，
-    # 按全部 l.* 列分组会引入 temp b-tree；按这两列分组可复用
-    # idx_vocabulary_entries_user_location 的有序扫描，结果等价。
-    select_sql = (
-        "SELECT "
-        "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
-        "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, "
-        "l.vocabulary_source, l.description, l.other, "
-        + ", ".join(f"l.{column}" for column in TONE_COLUMNS) + ", "
-        "COUNT(*) AS entry_count, "
-        "MIN(e.id) AS first_entry_id "
-        "FROM vocabulary_entries e "
-        "LEFT JOIN vocabulary_locations l "
-        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {where_clause} "
-        "GROUP BY e.user_id, e.location_name "
-        "ORDER BY first_entry_id ASC"
+    # Aggregate narrow identities before fetching wide location metadata.
+    inner_join = (
+        'LEFT JOIN vocabulary_locations l '
+        'ON l.user_id = e.user_id AND l.location_name = e.location_name '
+        if _filter_uses_locations(where_clause) else ''
     )
-    if regions:
-        # Aggregate narrow entry identities before fetching wide location metadata.
-        # Otherwise SQLite sorts all matched entries together with every l.* field.
-        inner_join = (
-            'LEFT JOIN vocabulary_locations l '
-            'ON l.user_id = e.user_id AND l.location_name = e.location_name '
-            if _filter_uses_locations(where_clause) else ''
-        )
-        select_sql = (
-            'SELECT e.location_name, l.coordinates, l.province, l.city, l.county, l.town, '
-            'l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, '
-            'l.vocabulary_source, l.description, l.other, '
-            + ', '.join(f'l.{column}' for column in TONE_COLUMNS) + ', '
-            'e.entry_count, e.first_entry_id FROM ('
-            'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
-            'FROM vocabulary_entries e '
-            f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
-            ') e LEFT JOIN vocabulary_locations l '
-            'ON l.user_id = e.user_id AND l.location_name = e.location_name '
-            'ORDER BY e.first_entry_id ASC'
-        )
+    select_sql = (
+        'SELECT e.location_name, l.coordinates, l.province, l.city, l.county, l.town, '
+        'l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, '
+        'l.vocabulary_source, l.description, l.other, '
+        + ', '.join(f'l.{column}' for column in TONE_COLUMNS) + ', '
+        'e.entry_count, e.first_entry_id FROM ('
+        'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
+        'FROM vocabulary_entries e '
+        f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
+        ') e LEFT JOIN vocabulary_locations l '
+        'ON l.user_id = e.user_id AND l.location_name = e.location_name '
+        'ORDER BY e.first_entry_id ASC'
+    )
 
     cursor.execute(select_sql, values)
     column_names = [description[0] for description in cursor.description]

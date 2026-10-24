@@ -1783,3 +1783,73 @@ def test_query_vocabulary_map_items_rejects_blank_standard_word_key(tmp_path: Pa
             query_vocabulary_map_items(session=session, standard_word_key="  ")
     finally:
         session.close()
+
+
+@pytest.mark.parametrize('fail_batch', [False, True])
+def test_large_import_batches_are_atomic_and_staging_is_closed(tmp_path, monkeypatch, fail_batch):
+    from app.service.vocabulary import parser
+    session = _make_session(tmp_path)
+    session.add(VocabularyEntry(user_id=1, location_name='large', standard_word='old', local_expression='old', ipa='old'))
+    session.commit()
+    handles = []
+    original_temp = parser.TemporaryFile
+    def tracked_temp(*args, **kwargs):
+        handle = original_temp(*args, **kwargs)
+        handles.append(handle)
+        return handle
+    monkeypatch.setattr(parser, 'TemporaryFile', tracked_temp)
+    original_insert = session.bulk_insert_mappings
+    batch_sizes = []
+    def checked_insert(model, mappings, **kwargs):
+        batch_sizes.append(len(mappings))
+        assert len(mappings) <= 512
+        if fail_batch and len(batch_sizes) == 2:
+            raise RuntimeError('batch failure')
+        return original_insert(model, mappings, **kwargs)
+    monkeypatch.setattr(session, 'bulk_insert_mappings', checked_insert)
+    content = ('standard_word,local_expression,ipa\n' + ''.join(
+        f'word{i},local{i},ipa\n' for i in range(1600)) + ',local,\n').encode()
+    try:
+        arguments = dict(session=session, user=_User(1, 'admin'), filename='large.csv',
+                         content=content, location_payload={'location_name': 'large', 'coordinates': '1,2'}, overwrite=True)
+        if fail_batch:
+            with pytest.raises(RuntimeError, match='batch failure'):
+                import_vocabulary_upload(**arguments)
+            assert session.query(VocabularyEntry).one().standard_word == 'old'
+            assert session.query(VocabularyLocation).count() == 0
+        else:
+            result = import_vocabulary_upload(**arguments)
+            assert result.imported_count == 1600
+            assert result.deleted_existing_count == 1
+            assert len(result.errors) == 1
+            assert session.query(VocabularyEntry).count() == 1600
+            assert session.query(VocabularyEntry).filter_by(standard_word='word1599').one()
+            assert sum(batch_sizes) == 1600
+        assert handles and all(handle.closed for handle in handles)
+    finally:
+        session.close()
+
+
+def test_import_only_materializes_deleted_snapshot_limit_plus_one(tmp_path, monkeypatch):
+    from app.service.vocabulary import service
+    session = _make_session(tmp_path)
+    session.bulk_insert_mappings(VocabularyEntry, [dict(user_id=1, location_name='large',
+        standard_word=f'old{i}', local_expression='local', ipa='ipa') for i in range(1200)])
+    session.commit()
+    snapshots = []
+    original = service._entry_snapshot
+    def snapshot(entry):
+        snapshots.append(entry.id)
+        return original(entry)
+    monkeypatch.setattr(service, '_entry_snapshot', snapshot)
+    try:
+        result = import_vocabulary_upload(session=session, user=_User(1, 'admin'), filename='a.csv',
+            content=b'standard_word,local_expression\nnew,new\n',
+            location_payload={'location_name': 'large', 'coordinates': '1,2'}, overwrite=True)
+        assert result.deleted_existing_count == 1200
+        assert len(snapshots) <= 501
+        payload = json.loads(session.query(VocabularyLog).one().payload_json)
+        assert payload['deleted_entries_omitted'] is True
+        assert payload['deleted_entries'] == []
+    finally:
+        session.close()

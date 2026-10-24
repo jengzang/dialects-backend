@@ -651,14 +651,13 @@ def test_my_permission_endpoint_returns_effective_permission_or_null(tmp_path: P
 
 
 def test_upload_preview_endpoint_returns_counts_without_writing_database(tmp_path: Path) -> None:
-    class _UploadFile:
-        filename = "upload.csv"
-
-        async def read(self):
-            return (
-                "written,vocabulary,ipa,notes\n"
-                "太阳,日头,ȵit2 tʰəu2,常用\n"
-            ).encode("utf-8")
+    from io import BytesIO
+    from starlette.datastructures import UploadFile
+    def _UploadFile():
+        return UploadFile(BytesIO((
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+        ).encode("utf-8")), filename="upload.csv")
 
     import asyncio
 
@@ -688,14 +687,13 @@ def test_upload_preview_endpoint_returns_counts_without_writing_database(tmp_pat
 
 
 def test_upload_endpoint_returns_409_when_current_user_location_exists_without_overwrite(tmp_path: Path) -> None:
-    class _UploadFile:
-        filename = "upload.csv"
-
-        async def read(self):
-            return (
-                "written,vocabulary,ipa,notes\n"
-                "太阳,日头,ȵit2 tʰəu2,常用\n"
-            ).encode("utf-8")
+    from io import BytesIO
+    from starlette.datastructures import UploadFile
+    def _UploadFile():
+        return UploadFile(BytesIO((
+            "written,vocabulary,ipa,notes\n"
+            "太阳,日头,ȵit2 tʰəu2,常用\n"
+        ).encode("utf-8")), filename="upload.csv")
 
     import asyncio
 

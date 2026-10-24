@@ -54,7 +54,9 @@ async def warm_once(cache, factory, *, pause=.1):
             async def load():
                 if kind == "standard-words" and params["limit"] == 100 and large_words is not None:
                     return {**large_words, "standard_words": large_words["standard_words"][:100]}
-                return await asyncio.to_thread(_load, factory, kind, params)
+                from .resources import run_bounded
+                return await run_bounded(cache.db_path, _load, factory, kind, params,
+                                         expensive=kind == "standard-words")
 
             result = await cache.acall(kind, params, load, expected_state=state)
             if kind == "standard-words" and params["limit"] == 1000:

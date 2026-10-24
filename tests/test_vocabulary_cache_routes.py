@@ -233,3 +233,46 @@ def test_partial_batch_commit_invalidates_and_no_matches_does_not(cache, api):
     assert response.status_code == 200
     assert response.json()["affected_rows"] == 0
     assert cache.key("entries", {}) == current
+
+
+def test_exact_search_count_reused_across_pages_and_invalidated(cache, api):
+    from app.service.vocabulary.models import VocabularyEntry
+    client, factory = api
+    with factory() as session:
+        session.add_all([VocabularyEntry(user_id=1, location_name='甲', standard_word='共享计数', local_expression='a', ipa='a') for _ in range(7)])
+        session.commit()
+    cache.invalidate('entries')
+    statements = []
+    with factory() as session:
+        session.connection().connection.set_trace_callback(statements.append)
+    try:
+        for page in (1, 2, 3, 4):
+            response = client.get('/vocabulary/search/entries', params={'q': '共享计数', 'page': page, 'page_size': 2})
+            assert response.status_code == 200, response.text
+            assert response.json()['total'] == 7
+            assert len(response.json()['items']) == (1 if page == 4 else 2)
+        counts = [sql for sql in statements if sql.startswith('SELECT COUNT(*) FROM vocabulary_entries e')]
+        assert len(counts) == 1
+        with factory() as session:
+            session.add(VocabularyEntry(user_id=1, location_name='甲', standard_word='共享计数', local_expression='b', ipa='b'))
+            session.commit()
+        cache.invalidate('entries')
+        response = client.get('/vocabulary/search/entries', params={'q': '共享计数', 'page': 4, 'page_size': 2})
+        assert response.json()['total'] == 8
+        assert len(response.json()['items']) == 2
+    finally:
+        with factory() as session:
+            session.connection().connection.set_trace_callback(None)
+
+
+def test_count_location_filter_tracks_location_revision(cache, api):
+    from app.service.vocabulary.models import VocabularyLocation
+    client, factory = api
+    params = {'province': '贵州', 'page_size': 1}
+    assert client.get('/vocabulary/search/entries', params=params).json()['total'] == 0
+    with factory() as session:
+        session.query(VocabularyLocation).update({'province': '贵州'})
+        session.commit()
+    cache.invalidate('locations')
+    result = client.get('/vocabulary/search/entries', params=params).json()
+    assert result['total'] == len(result['items']) == 1

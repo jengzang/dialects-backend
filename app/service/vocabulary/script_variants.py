@@ -19,7 +19,7 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=8192)
 def standard_word_key(value: str) -> str:
     text = value.strip()
     if not text:

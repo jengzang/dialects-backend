@@ -312,3 +312,94 @@ def test_normalize_location_payload_requires_location_name_and_coordinates() -> 
 
     with pytest.raises(ValueError, match="coordinates"):
         normalize_location_payload({"location_name": "息烽"})
+
+
+def test_staged_upload_streams_and_closes_rows():
+    import io
+    from app.service.vocabulary import parser
+
+    class BoundedRead(io.BytesIO):
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024
+            return super().read(size)
+
+    content = BoundedRead(('standard_word,local_expression,ipa\n' + ''.join(
+        f'word{i},local{i},ipa\n' for i in range(1500)
+    ) + ',local,\n,,\n').encode())
+    with parser.staged_uploaded_vocabulary_file(filename='large.csv', content=content) as result:
+        assert len(result.rows) == 1500
+        assert list(result.rows)[-1].standard_word == 'word1499'
+        assert len(result.errors) == 1
+        assert '1502' in result.errors[0]
+        assert result.skipped_count == 1
+        assert list(result.rows)[0].standard_word == 'word0'
+        staged_rows = result.rows
+    assert staged_rows.closed
+    assert not content.closed
+
+
+def test_uploaded_parser_accepts_file_object():
+    import io
+    from app.service.vocabulary.parser import parse_uploaded_vocabulary_file
+    result = parse_uploaded_vocabulary_file(filename='a.tsv', content=io.BytesIO(
+        '标准词\t方言词\t音标\n太阳\t日头\tNA\n'.encode()))
+    assert result.rows == [ParsedVocabularyRow('太阳', '日头', 'NA')]
+
+
+def test_xlsx_stream_preserves_numeric_blank_and_duplicate_headers(tmp_path, monkeypatch):
+    import pandas as pd
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(['standard_word', 'local_expression', 'ipa', 'notes', 'notes'])
+    sheet.append([123, True, 1.0, 'first', 'second'])
+    sheet.append([None, None, None, None, None])
+    sheet.append(['word', 'local', 'NA', None, None])
+    sheet.cell(10, 1).number_format = '0'
+    path = tmp_path / 'values.xlsx'
+    workbook.save(path)
+    monkeypatch.setattr(pd, 'read_excel', lambda *a, **k: pytest.fail('full Excel frame'))
+    result = parse_vocabulary_file(path)
+    assert result.rows == [ParsedVocabularyRow('123', 'True', '1', 'first'),
+                           ParsedVocabularyRow('word', 'local', 'NA')]
+    assert result.skipped_count == 1
+
+
+@pytest.mark.parametrize('content', [b'wrong,header\na,b\n', b'standard_word,local_expression\na,b,c\nd,e,f,g\n'])
+def test_staged_parser_closes_resources_on_parse_error(tmp_path, monkeypatch, content):
+    from app.service.vocabulary import parser
+    handles = []
+    paths = []
+    original_temp = parser.TemporaryFile
+    original_mkstemp = parser.mkstemp
+    def temporary(*args, **kwargs):
+        handle = original_temp(*args, **kwargs)
+        handles.append(handle)
+        return handle
+    def named(*args, **kwargs):
+        fd, name = original_mkstemp(*args, dir=tmp_path, **kwargs)
+        paths.append(Path(name))
+        return fd, name
+    monkeypatch.setattr(parser, 'TemporaryFile', temporary)
+    monkeypatch.setattr(parser, 'mkstemp', named)
+    with pytest.raises(ValueError):
+        with parser.staged_uploaded_vocabulary_file(filename='broken.csv', content=content):
+            pytest.fail('invalid input accepted')
+    assert all(handle.closed for handle in handles)
+    assert paths and not any(path.exists() for path in paths)
+
+
+def test_xlsx_error_only_terminal_row_is_counted_as_skipped(tmp_path):
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(['standard_word', 'local_expression', 'ipa'])
+    sheet.append(['word', 'local', 'ipa'])
+    sheet.append(['#DIV/0!', None, None])
+    sheet.cell(8, 1).number_format = '0'
+    path = tmp_path / 'error-row.xlsx'
+    workbook.save(path)
+    result = parse_vocabulary_file(path)
+    assert result.rows == [ParsedVocabularyRow('word', 'local', 'ipa')]
+    assert result.skipped_count == 1
+    assert result.errors == []

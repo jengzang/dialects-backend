@@ -1,10 +1,12 @@
 import asyncio
-import io
+import os
+from pathlib import Path
+from tempfile import mkstemp
 from typing import Annotated, Any, Iterable, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
@@ -47,6 +49,7 @@ from app.service.vocabulary.query import (
     query_vocabulary_map_points,
     query_vocabulary_standard_words,
 )
+from app.service.vocabulary.resources import run_bounded, bounded_operation
 from app.service.vocabulary.service import import_vocabulary_upload
 from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
@@ -673,35 +676,59 @@ def _iter_location_export_rows(db: Session, location: VocabularyLocation):
 def _build_location_export_response(
     location_name: str,
     rows: Iterable[tuple[str, str, str, str]],
-) -> StreamingResponse:
-    workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet(title="词表")
+) -> FileResponse:
+    fd, path = mkstemp(prefix="vocabulary-export-", suffix=".xlsx")
+    os.close(fd)
+    workbook = None
+    try:
+        workbook = Workbook(write_only=True)
+        sheet = workbook.create_sheet(title="词表")
+        header_cells = [WriteOnlyCell(sheet, value=value) for value in _EXPORT_HEADERS]
+        for cell in header_cells:
+            cell.font = Font(bold=True)
+        sheet.append(header_cells)
+        for row in rows:
+            sheet.append(list(row))
+        workbook.save(path)
+        filename = f"{location_name}词表.xlsx"
+        disposition = (
+            'attachment; filename="vocabulary_export.xlsx"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+        return _TemporaryExportResponse(
+            path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": disposition},
+        )
+    except BaseException:
+        Path(path).unlink(missing_ok=True)
+        # write_only worksheets also own temporary XML files on a failed build.
+        for worksheet in workbook.worksheets if workbook is not None else ():
+            if worksheet._writer is not None:
+                try:
+                    worksheet.close()
+                finally:
+                    if os.path.exists(worksheet._writer.out):
+                        worksheet._writer.cleanup()
+        raise
+    finally:
+        if workbook is not None:
+            workbook.close()
 
-    header_cells = [WriteOnlyCell(sheet, value=value) for value in _EXPORT_HEADERS]
-    for cell in header_cells:
-        cell.font = Font(bold=True)
-    sheet.append(header_cells)
 
-    for row in rows:
-        sheet.append(list(row))
+class _TemporaryExportResponse(FileResponse):
+    def cleanup(self):
+        Path(self.path).unlink(missing_ok=True)
 
-    output = io.BytesIO()
-    workbook.save(output)
-    output.seek(0)
-
-    filename = f"{location_name}词表.xlsx"
-    disposition = (
-        'attachment; filename="vocabulary_export.xlsx"; '
-        f"filename*=UTF-8''{quote(filename)}"
-    )
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": disposition},
-    )
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.cleanup()
 
 
 @router.get("/locations/{location_name}/export")
+@bounded_operation(expensive=True)
 def export_vocabulary_location(
     location_name: str,
     user_id: Optional[int] = Query(default=None),
@@ -792,7 +819,7 @@ async def upload_vocabulary(
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    content = await file.read()
+    content = file.file
     try:
         def import_and_notify():
             result = import_vocabulary_upload(
@@ -809,7 +836,7 @@ async def upload_vocabulary(
             # Keep commit and notification together even if the request disconnects.
             notify_vocabulary_change(db.get_bind().url.database, entries=True)
             return result
-        return await finish_on_cancel(asyncio.to_thread(import_and_notify))
+        return await run_bounded(db.get_bind().url.database, import_and_notify, write=True, expensive=True)
     except HTTPException:
         raise
     except VocabularyImportConflictError as exc:
@@ -831,9 +858,10 @@ async def preview_vocabulary_upload_endpoint(
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
 ):
-    content = await file.read()
+    content = file.file
     try:
-        return preview_vocabulary_upload(
+        return await run_bounded(
+            db.get_bind().url.database, preview_vocabulary_upload, expensive=True,
             session=db,
             user=current_user,
             filename=file.filename or "upload",

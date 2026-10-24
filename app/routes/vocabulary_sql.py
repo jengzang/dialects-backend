@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.common.config import SQL_QUERY_MAX_PAGE
 from app.common.path import VOCABULARY_DB_PATH
 from app.redis_client import redis_client
-from app.service.vocabulary.cache import cached_sql, count_changed_values, finish_on_cancel, notify_vocabulary_change
+from app.service.vocabulary.cache import cached_sql, count_changed_values, notify_vocabulary_change
 from app.schemas.vocabulary_sql import (
     BatchMutationParams,
     BatchReplaceExecuteParams,
@@ -28,6 +28,7 @@ from app.service.vocabulary.database import raise_vocabulary_database_busy_if_lo
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.permissions import get_effective_permission_level, SELF_SCOPED_LEVELS
 from app.service.vocabulary.models import VocabularyLocation
+from app.service.vocabulary.resources import bounded_operation
 
 
 router = APIRouter()
@@ -600,7 +601,8 @@ async def get_distinct_query_values(
 
 
 @router.post("/mutate")
-async def mutate_table(
+@bounded_operation(write=True, expensive=True)
+def mutate_table(
     params: MutationParams,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
@@ -714,7 +716,7 @@ async def mutate_table(
         )
         db.commit()
         if changed_rows:
-            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
+            notify_vocabulary_change(_get_db_path(db), entries=True)
         return {"status": "success", "action": params.action, "affected_rows": affected_rows}
     except HTTPException:
         db.rollback()
@@ -726,7 +728,8 @@ async def mutate_table(
 
 
 @router.post("/batch-mutate")
-async def batch_mutate_table(
+@bounded_operation(write=True, expensive=True)
+def batch_mutate_table(
     params: BatchMutationParams,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
@@ -866,7 +869,7 @@ async def batch_mutate_table(
         )
         db.commit()
         if changed_rows:
-            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
+            notify_vocabulary_change(_get_db_path(db), entries=True)
         return {
             "status": "completed",
             "action": params.action,
@@ -886,7 +889,8 @@ async def batch_mutate_table(
 
 
 @router.post("/batch-replace-preview")
-async def batch_replace_preview(
+@bounded_operation(expensive=True)
+def batch_replace_preview(
     params: BatchReplacePreviewParams,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
@@ -908,7 +912,8 @@ async def batch_replace_preview(
 
 
 @router.post("/batch-replace-execute")
-async def batch_replace_execute(
+@bounded_operation(write=True, expensive=True)
+def batch_replace_execute(
     params: BatchReplaceExecuteParams,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
@@ -937,35 +942,48 @@ async def batch_replace_execute(
 
     conn = _connection(db)
     table_q = _quote_identifier(params.table_name)
-    if not conn.in_transaction:
-        conn.execute("BEGIN IMMEDIATE")
-    cursor = conn.execute(
-        f"SELECT rowid AS __rowid__, * FROM {table_q} WHERE {_where_sql(clauses)}",
-        where_values,
-    )
-    affected_rows_data = [_row_to_dict(cursor, row) for row in cursor.fetchall()]
-    changed_rows = 0
-    for row in affected_rows_data:
-        simulated = dict(row)
-        changed: dict[str, Any] = {}
-        for col in params.columns:
-            old_val = str(simulated.get(col, ""))
-            if params.is_empty_search:
-                if not old_val.strip():
-                    new_val = params.replace_text
-                else:
-                    new_val = old_val
-            elif params.match_mode == "exact":
-                new_val = params.replace_text if old_val == params.find_text else old_val
-            else:
-                new_val = old_val.replace(params.find_text, params.replace_text)
-            changed[col] = new_val
-            simulated[col] = new_val
-        _validate_entry_fields(changed, db, current_user.id, existing=row)
-        if any(row.get(col) != value for col, value in changed.items()):
-            changed_rows += 1
-
+    # Existing transactions retain their snapshot and SQLite's write-upgrade rules.
+    # For a fresh transaction, validate without holding the SQLite writer slot.
+    validation_columns = list(dict.fromkeys(params.columns))
+    if {"ipa", "local_expression"}.intersection(validation_columns):
+        validation_columns = list(dict.fromkeys(validation_columns + ["ipa", "local_expression"]))
+    projection = ", ".join(_quote_identifier(col) for col in validation_columns)
     try:
+        existing_transaction = conn.in_transaction
+        data_version = conn.execute("PRAGMA data_version").fetchone()[0]
+        cursor = conn.execute(
+            f"SELECT {projection} FROM {table_q} WHERE {_where_sql(clauses)}",
+            where_values,
+        )
+        try:
+            changed_rows = 0
+            while batch := cursor.fetchmany(256):
+                for values in batch:
+                    row = dict(zip(validation_columns, values))
+                    simulated = dict(row)
+                    changed: dict[str, Any] = {}
+                    for col in params.columns:
+                        old_val = str(simulated.get(col, ""))
+                        if params.is_empty_search:
+                            if not old_val.strip():
+                                new_val = params.replace_text
+                            else:
+                                new_val = old_val
+                        elif params.match_mode == "exact":
+                            new_val = params.replace_text if old_val == params.find_text else old_val
+                        else:
+                            new_val = old_val.replace(params.find_text, params.replace_text)
+                        changed[col] = new_val
+                        simulated[col] = new_val
+                    _validate_entry_fields(changed, db, current_user.id, existing=row)
+                    if any(row.get(col) != value for col, value in changed.items()):
+                        changed_rows += 1
+        finally:
+            cursor.close()
+        if not existing_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("PRAGMA data_version").fetchone()[0] != data_version:
+                raise HTTPException(status_code=409, detail="词表数据在验证期间发生变化，请重新预览后重试")
         cursor = conn.execute(
             f"UPDATE {table_q} SET {set_clause} WHERE {_where_sql(clauses)}",
             update_values + where_values,
@@ -987,8 +1005,11 @@ async def batch_replace_execute(
         )
         db.commit()
         if changed_rows:
-            await finish_on_cancel(asyncio.to_thread(notify_vocabulary_change, _get_db_path(db), entries=True))
+            notify_vocabulary_change(_get_db_path(db), entries=True)
         return {"status": "success", "affected_rows": affected_rows}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         raise_vocabulary_database_busy_if_locked(exc)

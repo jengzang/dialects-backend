@@ -29,7 +29,7 @@ DEFAULTS = (
     ("standard-words", {"limit": 1000}),
 )
 
-SEARCH_KINDS = frozenset({'entries', 'map-points', 'standard-words', 'map-items',
+SEARCH_KINDS = frozenset({'entries-count', 'entries', 'map-points', 'standard-words', 'map-items',
                           'location-options', 'partition-options'})
 
 
@@ -363,15 +363,30 @@ async def cached_search(kind, session, query, **params):
     # Validate even on a hit. A cache must not hide invalid search fields.
     normalize(kind, params)
     cache = get_vocabulary_cache(session.get_bind().url.database)
+    def run():
+        if kind == "entries" and cache is not None:
+            def count(sql, values):
+                def execute():
+                    cursor = session.connection().connection.cursor()
+                    try:
+                        return cursor.execute(sql, values).fetchone()[0]
+                    finally:
+                        cursor.close()
+                return cache.call("entries-count", {"sql": sql, "values": values}, execute)
+            return query(session=session, _count_loader=count, **params)
+        return query(session=session, **params)
     async def load():
-        return await asyncio.to_thread(query, session=session, **params)
+        from .resources import run_bounded
+        return await run_bounded(session.get_bind().url.database, run, expensive=kind in {"standard-words", "map-items"})
     return await cache.acall(kind, params, load) if cache else await finish_on_cancel(load())
+
 
 
 async def cached_sql(db_path, kind, params, query, *args, **kwargs):
     cache = get_vocabulary_cache(db_path)
     async def load():
-        return await asyncio.to_thread(query, *args, **kwargs)
+        from .resources import run_bounded
+        return await run_bounded(db_path, query, *args, **kwargs)
     return await cache.acall(kind, params, load) if cache else await finish_on_cancel(load())
 
 

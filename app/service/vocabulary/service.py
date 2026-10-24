@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from threading import Lock
+from typing import BinaryIO
 
 from fastapi import HTTPException
 from sqlalchemy import case
@@ -9,11 +10,12 @@ from sqlalchemy.orm import Session
 from app.service.vocabulary.location import normalize_location_payload
 from app.service.vocabulary.logging import record_vocabulary_log
 from app.service.vocabulary.models import VocabularyEntry, VocabularyLocation
-from app.service.vocabulary.parser import parse_uploaded_vocabulary_file
+from app.service.vocabulary.parser import staged_uploaded_vocabulary_file
 from app.service.vocabulary.permissions import get_effective_permission_level, get_location_limit
 from app.service.vocabulary.database import raise_vocabulary_database_busy_if_locked
 
 MAX_LOGGED_DELETED_ENTRIES = 500
+IMPORT_BATCH_SIZE = 512
 
 
 class VocabularyImportConflictError(ValueError):
@@ -195,7 +197,7 @@ def preview_vocabulary_upload(
     session: Session,
     user: object,
     filename: str,
-    content: bytes,
+    content: bytes | BinaryIO,
     location_payload,
     parser_mode: str = "auto",
     fill_standard_from_local: bool = False,
@@ -207,31 +209,31 @@ def preview_vocabulary_upload(
         session=session, user=user, permission_level=permission_level,
         location_name=normalized_location.location_name, target_user_id=target_user_id,
     )
-    parse_result = parse_uploaded_vocabulary_file(
+    with staged_uploaded_vocabulary_file(
         filename=filename,
         content=content,
         parser_mode=parser_mode,
         fill_standard_from_local=fill_standard_from_local,
-    )
-    errors = list(parse_result.errors)
-    parsed_count = len(parse_result.rows)
-    would_delete_existing_count = 0
-    if parsed_count > 0:
-        would_delete_existing_count = session.query(VocabularyEntry).filter(
-            VocabularyEntry.user_id == owner_id,
-            VocabularyEntry.location_name == normalized_location.location_name,
-        ).count()
+    ) as parse_result:
+        errors = list(parse_result.errors)
+        parsed_count = len(parse_result.rows)
+        would_delete_existing_count = 0
+        if parsed_count > 0:
+            would_delete_existing_count = session.query(VocabularyEntry).filter(
+                VocabularyEntry.user_id == owner_id,
+                VocabularyEntry.location_name == normalized_location.location_name,
+            ).count()
 
-    return VocabularyUploadPreviewResult(
-        success=parsed_count > 0,
-        location_name=normalized_location.location_name,
-        permission_level=permission_level,
-        parsed_count=parsed_count,
-        would_delete_existing_count=would_delete_existing_count,
-        skipped_count=parse_result.skipped_count,
-        errors=errors or ([] if parsed_count > 0 else ["No valid vocabulary rows found"]),
-        parser_mode=parse_result.parser_mode,
-    )
+        return VocabularyUploadPreviewResult(
+            success=parsed_count > 0,
+            location_name=normalized_location.location_name,
+            permission_level=permission_level,
+            parsed_count=parsed_count,
+            would_delete_existing_count=would_delete_existing_count,
+            skipped_count=parse_result.skipped_count,
+            errors=errors or ([] if parsed_count > 0 else ["No valid vocabulary rows found"]),
+            parser_mode=parse_result.parser_mode,
+        )
 
 
 def import_vocabulary_upload(
@@ -239,7 +241,7 @@ def import_vocabulary_upload(
     session: Session,
     user: object,
     filename: str,
-    content: bytes,
+    content: bytes | BinaryIO,
     location_payload,
     parser_mode: str = "auto",
     overwrite: bool = False,
@@ -252,122 +254,123 @@ def import_vocabulary_upload(
         session=session, user=user, permission_level=permission_level,
         location_name=normalized_location.location_name, target_user_id=target_user_id,
     )
-    parse_result = parse_uploaded_vocabulary_file(
+    with staged_uploaded_vocabulary_file(
         filename=filename,
         content=content,
         parser_mode=parser_mode,
         fill_standard_from_local=fill_standard_from_local,
-    )
-    if not parse_result.rows:
-        raise ValueError("No valid vocabulary rows found")
+    ) as parse_result:
+        if not parse_result.rows:
+            raise ValueError("No valid vocabulary rows found")
 
-    limit = get_location_limit(permission_level)
-    if limit is not None:
-        existing_location = session.query(VocabularyLocation).filter(
-            VocabularyLocation.user_id == owner_id,
-            VocabularyLocation.location_name == normalized_location.location_name,
-        ).first()
-        if existing_location is None:
-            current_count = session.query(VocabularyLocation).filter(
-                VocabularyLocation.user_id == owner_id,
-            ).count()
-            if current_count >= limit:
-                raise ValueError(
-                    f"您的權限最多可創建 {limit} 個地點，目前已創建 {current_count} 個。"
-                    f"如需更多地點，請聯繫管理員升級權限。"
-                )
-
-    if not overwrite:
-        existing_count = session.query(VocabularyEntry).filter(
-            VocabularyEntry.user_id == owner_id,
-            VocabularyEntry.location_name == normalized_location.location_name,
-        ).count()
-        if existing_count > 0:
-            raise VocabularyImportConflictError(
-                "该地点已有数据，不能重复上传。如需更新，请联系管理员。"
-            )
-
-    import_lock = _get_import_lock(owner_id, normalized_location.location_name)
-    with import_lock:
-        try:
-            before_location = session.query(VocabularyLocation).filter(
+        limit = get_location_limit(permission_level)
+        if limit is not None:
+            existing_location = session.query(VocabularyLocation).filter(
                 VocabularyLocation.user_id == owner_id,
                 VocabularyLocation.location_name == normalized_location.location_name,
             ).first()
-            before_location_snapshot = _location_snapshot(before_location)
-            location = _upsert_location(
-                session=session,
-                user_id=owner_id,
-                normalized_location=normalized_location,
-            )
-            deleted_entries = [
-                _entry_snapshot(entry)
-                for entry in session.query(VocabularyEntry).filter(
-                    VocabularyEntry.user_id == owner_id,
-                    VocabularyEntry.location_name == normalized_location.location_name,
-                ).all()
-            ]
-            can_log_deleted_entries = len(deleted_entries) <= MAX_LOGGED_DELETED_ENTRIES
-            deleted_existing_count = session.query(VocabularyEntry).filter(
+            if existing_location is None:
+                current_count = session.query(VocabularyLocation).filter(
+                    VocabularyLocation.user_id == owner_id,
+                ).count()
+                if current_count >= limit:
+                    raise ValueError(
+                        f"您的權限最多可創建 {limit} 個地點，目前已創建 {current_count} 個。"
+                        f"如需更多地點，請聯繫管理員升級權限。"
+                    )
+
+        if not overwrite:
+            existing_count = session.query(VocabularyEntry).filter(
                 VocabularyEntry.user_id == owner_id,
                 VocabularyEntry.location_name == normalized_location.location_name,
-            ).delete(synchronize_session=False)
+            ).count()
+            if existing_count > 0:
+                raise VocabularyImportConflictError(
+                    "该地点已有数据，不能重复上传。如需更新，请联系管理员。"
+                )
 
-            session.bulk_insert_mappings(
-                VocabularyEntry,
-                [
-                    _entry_mapping(
+        import_lock = _get_import_lock(owner_id, normalized_location.location_name)
+        with import_lock:
+            try:
+                before_location = session.query(VocabularyLocation).filter(
+                    VocabularyLocation.user_id == owner_id,
+                    VocabularyLocation.location_name == normalized_location.location_name,
+                ).first()
+                before_location_snapshot = _location_snapshot(before_location)
+                location = _upsert_location(
+                    session=session,
+                    user_id=owner_id,
+                    normalized_location=normalized_location,
+                )
+                deleted_entries = [
+                    _entry_snapshot(entry)
+                    for entry in session.query(VocabularyEntry).filter(
+                        VocabularyEntry.user_id == owner_id,
+                        VocabularyEntry.location_name == normalized_location.location_name,
+                    ).limit(MAX_LOGGED_DELETED_ENTRIES + 1).all()
+                ]
+                can_log_deleted_entries = len(deleted_entries) <= MAX_LOGGED_DELETED_ENTRIES
+                deleted_existing_count = session.query(VocabularyEntry).filter(
+                    VocabularyEntry.user_id == owner_id,
+                    VocabularyEntry.location_name == normalized_location.location_name,
+                ).delete(synchronize_session=False)
+
+                batch = []
+                for row in parse_result.rows:
+                    batch.append(_entry_mapping(
                         user_id=owner_id,
                         location_name=normalized_location.location_name,
                         filename=filename,
                         row=row,
-                    )
-                    for row in parse_result.rows
-                ],
-            )
+                    ))
+                    if len(batch) == IMPORT_BATCH_SIZE:
+                        session.bulk_insert_mappings(VocabularyEntry, batch)
+                        batch.clear()
+                if batch:
+                    session.bulk_insert_mappings(VocabularyEntry, batch)
 
-            record_vocabulary_log(
-                session=session,
-                user_id=user.id,
-                permission_level=permission_level,
-                source="upload",
-                action="import",
-                table_name="vocabulary_entries",
-                target_scope=f"user_id = {owner_id}; location_name = {normalized_location.location_name}",
-                affected_rows=len(parse_result.rows),
-                payload={
-                    "target_user_id": owner_id,
-                    "filename": filename,
-                    "location_name": normalized_location.location_name,
-                    "deleted_existing_count": deleted_existing_count,
-                    "imported_count": len(parse_result.rows),
-                    "blank_row_count": parse_result.skipped_count,
-                    "error_row_count": len(parse_result.errors),
-                    "parser_mode": parse_result.parser_mode,
-                    "deleted_entries": deleted_entries if can_log_deleted_entries else [],
-                    "deleted_entries_omitted": not can_log_deleted_entries,
-                    "deleted_entries_log_limit": MAX_LOGGED_DELETED_ENTRIES,
-                    "before_location": before_location_snapshot,
-                    "after_location": _location_snapshot(location),
-                    "rollback_supported": False,
-                    "rollback_note": "import replaces a location set; logs preserve deleted entries only when under limit, but inserted entry ids are not tracked",
-                },
-            )
-            session.commit()
-            session.refresh(location)
-        except Exception as exc:
-            session.rollback()
-            raise_vocabulary_database_busy_if_locked(exc)
-            raise
+                record_vocabulary_log(
+                    session=session,
+                    user_id=user.id,
+                    permission_level=permission_level,
+                    source="upload",
+                    action="import",
+                    table_name="vocabulary_entries",
+                    target_scope=f"user_id = {owner_id}; location_name = {normalized_location.location_name}",
+                    affected_rows=len(parse_result.rows),
+                    payload={
+                        "target_user_id": owner_id,
+                        "filename": filename,
+                        "location_name": normalized_location.location_name,
+                        "deleted_existing_count": deleted_existing_count,
+                        "imported_count": len(parse_result.rows),
+                        "blank_row_count": parse_result.skipped_count,
+                        "error_row_count": len(parse_result.errors),
+                        "parser_mode": parse_result.parser_mode,
+                        "deleted_entries": deleted_entries if can_log_deleted_entries else [],
+                        "deleted_entries_omitted": not can_log_deleted_entries,
+                        "deleted_entries_log_limit": MAX_LOGGED_DELETED_ENTRIES,
+                        "before_location": before_location_snapshot,
+                        "after_location": _location_snapshot(location),
+                        "rollback_supported": False,
+                        "rollback_note": "import replaces a location set; logs preserve deleted entries only when under limit, but inserted entry ids are not tracked",
+                    },
+                )
+                session.commit()
+                session.refresh(location)
+            except Exception as exc:
+                session.rollback()
+                raise_vocabulary_database_busy_if_locked(exc)
+                raise
 
-    return VocabularyImportResult(
-        success=True,
-        location_id=location.id,
-        location_name=normalized_location.location_name,
-        permission_level=permission_level,
-        imported_count=len(parse_result.rows),
-        deleted_existing_count=deleted_existing_count,
-        skipped_count=parse_result.skipped_count,
-        errors=list(parse_result.errors),
-        parser_mode=parse_result.parser_mode,
-    )
+        return VocabularyImportResult(
+            success=True,
+            location_id=location.id,
+            location_name=normalized_location.location_name,
+            permission_level=permission_level,
+            imported_count=len(parse_result.rows),
+            deleted_existing_count=deleted_existing_count,
+            skipped_count=parse_result.skipped_count,
+            errors=list(parse_result.errors),
+            parser_mode=parse_result.parser_mode,
+        )

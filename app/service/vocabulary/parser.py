@@ -1,10 +1,12 @@
 import re
+import json
+from contextlib import contextmanager
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import mkstemp
-from typing import Iterable, Optional
+from tempfile import mkstemp, TemporaryFile
+from typing import BinaryIO, Iterable, Optional
 
 import pandas as pd
 
@@ -137,18 +139,89 @@ def _validate_row(
     ), None, False
 
 
-def parse_table_file(path: Path, fill_standard_from_local: bool = False) -> VocabularyParseResult:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        frame = pd.read_csv(path, dtype=str, keep_default_na=False)
-    elif suffix == ".tsv":
-        frame = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
-    elif suffix in {".xlsx", ".xls"}:
-        frame = pd.read_excel(path, dtype=str, keep_default_na=False)
-    else:
-        raise ValueError(f"Unsupported table file type: {suffix}")
+TABLE_CHUNK_SIZE = 512
 
-    column_map = _build_column_map(frame.columns)
+
+def _table_records(path: Path):
+    """Yield a header followed by (spreadsheet row number, mapping) records."""
+    suffix = path.suffix.lower()
+    if suffix in {".csv", ".tsv"}:
+        with pd.read_csv(path, sep="\t" if suffix == ".tsv" else ",",
+                         dtype=str, keep_default_na=False,
+                         chunksize=TABLE_CHUNK_SIZE) as reader:
+            first = True
+            for frame in reader:
+                if first:
+                    yield frame.columns
+                    first = False
+                for index, values in zip(frame.index, frame.itertuples(index=False, name=None)):
+                    yield int(index) + 2, dict(zip(frame.columns, values))
+        return
+    if suffix == ".xlsx":
+        from openpyxl import load_workbook
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            sheet = workbook.worksheets[0]
+            sheet.reset_dimensions()
+            records = sheet.iter_rows()
+
+            def cell_value(cell):
+                if cell.data_type == "e" or cell.value is None:
+                    return ""
+                value = cell.value
+                if cell.data_type == "n" and isinstance(value, float) and value.is_integer():
+                    return int(value)
+                return value
+
+            raw_headers = [cell_value(cell) for cell in next(records, ())]
+            headers = []
+            # Match pandas' duplicate-header suffixes; first alias remains authoritative.
+            for index, value in enumerate(raw_headers):
+                name = str(value) if value != "" else f"Unnamed: {index}"
+                original = name
+                duplicate = 0
+                while name in headers:
+                    duplicate += 1
+                    name = f"{original}.{duplicate}"
+                headers.append(name)
+            yield headers
+            pending_blank = 0
+            for row_number, cells in enumerate(records, start=2):
+                values = [cell_value(cell) for cell in cells]
+                # Excel errors become blank during validation, but pandas treats
+                # them as present when locating the final populated row.
+                if not any(value != "" or cell.data_type == "e"
+                           for cell, value in zip(cells, values)):
+                    pending_blank += 1
+                    continue
+                # pandas ignores trailing empty spreadsheet rows, but counts interior ones.
+                for blank_number in range(row_number - pending_blank, row_number):
+                    yield blank_number, {}
+                pending_blank = 0
+                yield row_number, dict(zip(headers, values))
+        finally:
+            workbook.close()
+        return
+    if suffix == ".xls":
+        # Legacy binary Excel still uses pandas/xlrd's workbook allocation.
+        frame = pd.read_excel(path, dtype=str, keep_default_na=False)
+        yield frame.columns
+        for index, values in zip(frame.index, frame.itertuples(index=False, name=None)):
+            yield int(index) + 2, dict(zip(frame.columns, values))
+        return
+    raise ValueError(f"Unsupported table file type: {suffix}")
+
+
+def parse_table_file(path: Path, fill_standard_from_local: bool = False, *, _rows=None) -> VocabularyParseResult:
+    records = _table_records(path)
+    try:
+        return _parse_table_records(records, fill_standard_from_local, _rows)
+    finally:
+        records.close()
+
+
+def _parse_table_records(records, fill_standard_from_local, row_sink):
+    column_map = _build_column_map(next(records, ()))
     required = set()
     if not fill_standard_from_local:
         required.add("standard_word")
@@ -158,16 +231,16 @@ def parse_table_file(path: Path, fill_standard_from_local: bool = False) -> Voca
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
-    rows: list[ParsedVocabularyRow] = []
+    rows = [] if row_sink is None else row_sink
     errors: list[str] = []
     skipped_count = 0
-    for index, row in frame.iterrows():
+    for row_number, row in records:
         parsed, error, skipped = _validate_row(
             standard_word=_clean_cell(row.get(column_map.get("standard_word", ""))) if "standard_word" in column_map else "",
             local_expression=_clean_cell(row.get(column_map.get("local_expression", ""))) if "local_expression" in column_map else "",
             ipa=_clean_cell(row.get(column_map.get("ipa", ""))) if "ipa" in column_map else "",
             notes=_clean_cell(row.get(column_map.get("notes", ""))) if "notes" in column_map else "",
-            row_number=int(index) + 2,
+            row_number=row_number,
             fill_standard_from_local=fill_standard_from_local,
         )
         if skipped:
@@ -370,7 +443,7 @@ def parse_vocabulary_file(path: Path | str, parser_mode: str = "auto", fill_stan
 def parse_uploaded_vocabulary_file(
     *,
     filename: str,
-    content: bytes,
+    content: bytes | BinaryIO,
     parser_mode: str = "auto",
     fill_standard_from_local: bool = False,
 ) -> VocabularyParseResult:
@@ -379,10 +452,76 @@ def parse_uploaded_vocabulary_file(
     temp_path = Path(temp_name)
     try:
         with open(fd, "wb", closefd=True) as tmp:
-            tmp.write(content)
+            if isinstance(content, bytes):
+                tmp.write(content)
+            else:
+                shutil.copyfileobj(content, tmp, length=1024 * 1024)
         return parse_vocabulary_file(temp_path, parser_mode=parser_mode, fill_standard_from_local=fill_standard_from_local)
     finally:
         try:
             temp_path.unlink()
         except FileNotFoundError:
             pass
+
+
+class _StagedRows:
+    """Disk-backed, replayable rows; must stay inside the staging context."""
+    def __init__(self):
+        self._file = TemporaryFile(mode="w+t", encoding="utf-8")
+        self._count = 0
+
+    def append(self, row):
+        self._file.write(json.dumps([row.standard_word, row.local_expression, row.ipa, row.notes],
+                                    ensure_ascii=False) + "\n")
+        self._count += 1
+
+    def __len__(self):
+        return self._count
+
+    def __iter__(self):
+        self._file.seek(0)
+        for line in self._file:
+            yield ParsedVocabularyRow(*json.loads(line))
+
+    @property
+    def closed(self):
+        return self._file.closed
+
+    def close(self):
+        self._file.close()
+
+
+@contextmanager
+def staged_uploaded_vocabulary_file(
+    *, filename: str, content: bytes | BinaryIO, parser_mode: str = "auto",
+    fill_standard_from_local: bool = False,
+):
+    """Stage valid rows on disk; retain every error for the existing response contract.
+
+    File-like input is read from its current position and remains caller-owned.
+    XLS and document libraries retain their existing whole-document allocations.
+    """
+    suffix = Path(filename).suffix.lower()
+    rows = _StagedRows()
+    try:
+        fd, temp_name = mkstemp(suffix=suffix)
+        temp_path = Path(temp_name)
+        try:
+            with open(fd, "wb", closefd=True) as tmp:
+                if isinstance(content, bytes):
+                    tmp.write(content)
+                else:
+                    shutil.copyfileobj(content, tmp, length=1024 * 1024)
+            mode = parser_mode or "auto"
+            if mode == "table" or (mode == "auto" and suffix in _TABLE_SUFFIXES):
+                result = parse_table_file(temp_path, fill_standard_from_local, _rows=rows)
+            else:
+                result = parse_vocabulary_file(temp_path, parser_mode, fill_standard_from_local)
+                for row in result.rows:
+                    rows.append(row)
+            result = VocabularyParseResult(rows, result.errors, result.skipped_count, result.parser_mode)
+        finally:
+            temp_path.unlink(missing_ok=True)
+        yield result
+    finally:
+        rows.close()
