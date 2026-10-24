@@ -93,3 +93,102 @@ def test_map_aggregation_preserves_orphans_counts_order_and_filters(database):
     filtered = query_vocabulary_map_points(session=session, locations='广东')
     assert filtered.total_entries == 1
     assert filtered.points[0].longitude == 107
+
+
+@pytest.mark.parametrize('params,expected', [
+    ({}, [4, 3]),
+    ({'q': '日', 'search_fields': ['headword']}, [2, 1]),
+    ({'standard_words': ['太阳']}, [3, 2]),
+    ({'regions': ['官话/西南']}, [2, 1]),
+    ({'page': 2}, [2, 1]),
+])
+def test_entries_page_before_location_join(database, params, expected):
+    _, session, statements = database
+    result = query_vocabulary_items(session=session, page_size=2, **params)
+    assert [item.id for item in result.items] == expected
+    selects = [sql for sql in statements if sql.startswith('SELECT')]
+    assert selects[0].startswith('SELECT COUNT(*)')
+    page_sql = selects[-1]
+    assert 'FROM (SELECT' in page_sql
+    assert page_sql.index('LIMIT') < page_sql.index('LEFT JOIN vocabulary_locations l')
+    if expected[0] == 4:
+        assert result.items[0].location_label == '孤立地点'
+
+
+@pytest.mark.parametrize('params,expected', [
+    ({'province': '贵州'}, [2]),
+    ({'city': '广州'}, [3]),
+])
+def test_entries_metadata_filter_stays_before_pagination(database, params, expected):
+    _, session, statements = database
+    result = query_vocabulary_items(session=session, page_size=1, **params)
+    assert [item.id for item in result.items] == expected
+    selects = [sql for sql in statements if sql.startswith('SELECT')]
+    assert selects[0].startswith('SELECT COUNT(*)')
+    page_sql = selects[-1]
+    assert page_sql.index('LEFT JOIN vocabulary_locations l') < page_sql.index('LIMIT')
+
+
+@pytest.mark.parametrize('params,total', [
+    ({'q': '不存在'}, 0),
+    ({'page': 3, 'page_size': 2}, 4),
+    ({'q': '日', 'search_fields': ['headword'], 'page': 2, 'page_size': 2}, 2),
+    ({'province': '不存在'}, 0),
+])
+def test_entries_empty_or_out_of_range_only_counts(database, params, total):
+    _, session, statements = database
+    result = query_vocabulary_items(session=session, **params)
+    assert result.items == []
+    assert result.total == total
+    assert [sql for sql in statements if sql.startswith('SELECT')] == [
+        next(sql for sql in statements if sql.startswith('SELECT COUNT(*)'))
+    ]
+
+
+def test_entries_cached_count_shortcuts_empty_page(database):
+    _, session, statements = database
+    counts = []
+    def cached_count(sql, values):
+        counts.append((sql, values))
+        return 4
+    result = query_vocabulary_items(session=session, page=3, page_size=2,
+                                    _count_loader=cached_count)
+    assert result.items == [] and result.total == 4
+    assert len(counts) == 1
+    assert not any(sql.startswith('SELECT') for sql in statements)
+
+
+@pytest.mark.parametrize('params', [
+    {},
+    {'q': '不存在'},
+    {'page': 3, 'page_size': 2},
+    {'province': '贵州', 'page_size': 1},
+    {'standard_words': ['太阳'], 'page_size': 2, 'page': 2},
+])
+def test_entries_http_matches_service_contract(database, monkeypatch, params):
+    from dataclasses import asdict
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+    from app.routes import vocabulary
+    from app.service.vocabulary import cache
+
+    conn, session, _ = database
+    expected = asdict(query_vocabulary_items(session=session, **params))
+    path = conn.execute('PRAGMA database_list').fetchone()[2]
+    engine = create_engine(f'sqlite:///{path}', connect_args={'check_same_thread': False})
+    factory = sessionmaker(bind=engine)
+    def get_db():
+        with factory() as db:
+            yield db
+    monkeypatch.setattr(cache, 'get_vocabulary_cache', lambda path: None)
+    app = FastAPI()
+    app.include_router(vocabulary.router, prefix='/api/vocabulary')
+    app.dependency_overrides[vocabulary.get_vocabulary_db] = get_db
+    try:
+        with TestClient(app) as client:
+            response = client.get('/api/vocabulary/search/entries', params=params)
+        assert response.status_code == 200
+        assert response.json() == expected
+    finally:
+        engine.dispose()

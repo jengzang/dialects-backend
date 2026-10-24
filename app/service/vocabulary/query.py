@@ -199,6 +199,39 @@ def _append_like_group(
         clauses.append(f"({' OR '.join(parts)})")
 
 
+def _append_search_like_group(
+    *, clauses: list[str], values: list[str], columns: Iterable[str],
+    terms: Iterable[str], prefilter_locations: bool = False,
+) -> None:
+    """Match repeated location metadata once, retaining entry-field OR branches."""
+    columns = list(columns)
+    terms = list(terms)
+    location_columns = [column for column in columns if column.startswith('l.')]
+    # COALESCE(NULL, '') LIKE '%%' is true for orphan entries. An identity
+    # subquery cannot reproduce that NULL row, so retain the original LEFT JOIN.
+    if (not prefilter_locations or not location_columns or not terms
+            or any(not term.strip('%') for term in terms)):
+        _append_like_group(clauses=clauses, values=values, columns=columns, terms=terms)
+        return
+
+    branches: list[str] = []
+    entry_columns = [column for column in columns if not column.startswith('l.')]
+    if entry_columns:
+        _append_like_group(clauses=branches, values=values, columns=entry_columns, terms=terms)
+    metadata: list[str] = []
+    _append_like_group(
+        clauses=metadata, values=values,
+        columns=[column.replace('l.', 'p.', 1) for column in location_columns],
+        terms=terms,
+    )
+    branches.append(
+        '(e.user_id, e.location_name) IN '
+        '(SELECT p.user_id, p.location_name FROM vocabulary_locations p '
+        f"WHERE {' AND '.join(metadata)})"
+    )
+    clauses.append(f"({' OR '.join(branches)})")
+
+
 def _format_location(row: dict) -> str:
     parts = [
         row["province"],
@@ -303,6 +336,9 @@ def _build_filter_clause(
     location_terms = _normalize_multi_value(locations)
     clauses: list[str] = []
     values: list[str] = []
+    # Exact province/city and partition constraints already have efficient
+    # identity plans. Keep their combinations on the previously measured path.
+    prefilter_locations = not (province or city or region_clause)
 
     if q and q.strip():
         search_columns = [
@@ -310,19 +346,21 @@ def _build_filter_clause(
             for field in fields
             for column in SEARCH_FIELD_COLUMNS[field]
         ]
-        _append_like_group(
+        _append_search_like_group(
             clauses=clauses,
             values=values,
             columns=search_columns,
             terms=build_script_variants(q),
+            prefilter_locations=prefilter_locations,
         )
 
     if location_terms:
-        _append_like_group(
+        _append_search_like_group(
             clauses=clauses,
             values=values,
             columns=SEARCH_FIELD_COLUMNS["location"],
             terms=location_terms,
+            prefilter_locations=prefilter_locations,
         )
 
     if province:
@@ -411,22 +449,38 @@ def query_vocabulary_items(
     offset = (page - 1) * page_size
     conn = session.connection().connection
     cursor = conn.cursor()
-    select_sql = (
-        "SELECT "
+    entry_columns = (
         "e.id, e.standard_word, e.local_expression, e.ipa, e.notes, e.informations, "
-        "e.location_name, l.coordinates, l.province, l.city, l.county, l.town, "
+        "e.location_name"
+    )
+    location_columns = (
+        "l.coordinates, l.province, l.city, l.county, l.town, "
         "l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region "
-        "FROM vocabulary_entries e "
+    )
+    location_join = (
         "LEFT JOIN vocabulary_locations l "
         "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        f"WHERE {combined_where_clause} "
-        "ORDER BY e.id DESC LIMIT ? OFFSET ?"
     )
-    count_join = (
-        "LEFT JOIN vocabulary_locations l "
-        "ON l.user_id = e.user_id AND l.location_name = e.location_name "
-        if _filter_uses_locations(combined_where_clause) else ""
-    )
+    uses_locations = _filter_uses_locations(combined_where_clause)
+    if uses_locations:
+        # Metadata filters must run before pagination, including location LIKEs.
+        select_sql = (
+            f"SELECT {entry_columns}, {location_columns}"
+            f"FROM vocabulary_entries e {location_join}"
+            f"WHERE {combined_where_clause} "
+            "ORDER BY e.id DESC LIMIT ? OFFSET ?"
+        )
+    else:
+        # LIMIT prevents flattening: join metadata for just this page, not every
+        # candidate/offset row. Keep LEFT JOIN so orphan entries still appear.
+        select_sql = (
+            f"SELECT {entry_columns}, {location_columns}"
+            f"FROM (SELECT {entry_columns}, e.user_id FROM vocabulary_entries e "
+            f"WHERE {combined_where_clause} "
+            "ORDER BY e.id DESC LIMIT ? OFFSET ?) e "
+            f"{location_join}ORDER BY e.id DESC"
+        )
+    count_join = location_join if uses_locations else ""
     count_sql = (
         "SELECT COUNT(*) FROM vocabulary_entries e "
         f"{count_join}WHERE {combined_where_clause}"
@@ -438,13 +492,11 @@ def query_vocabulary_items(
         cursor.execute(count_sql, values)
         return cursor.fetchone()[0]
 
-    total = None
-    if regions:
-        # Count uses the identity covering index. An empty selection can return before
-        # the ORDER BY id plan scans entries looking for its first matching page.
-        total = count()
-        if total == 0:
-            return VocabularyItemsResult(items=[], total=0, page=page, page_size=page_size)
+    # Reuse the pagination-independent exact count cache first. Empty searches
+    # and out-of-range pages need no second scan (nor any metadata lookup).
+    total = count()
+    if offset >= total:
+        return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
 
     cursor.execute(select_sql, values + [page_size, offset])
     column_names = [description[0] for description in cursor.description]
@@ -452,9 +504,6 @@ def query_vocabulary_items(
         {column_names[index]: value for index, value in enumerate(row)}
         for row in cursor.fetchall()
     ]
-    if total is None:
-        total = count()
-
     return VocabularyItemsResult(
         items=[_row_to_vocabulary_item(row) for row in rows],
         total=total,
@@ -478,10 +527,13 @@ def query_vocabulary_standard_words(
     if limit is not None and limit < 1:
         raise ValueError("limit must be at least 1")
 
+    # Reuse normalized fields even when the caller passed a one-shot iterable.
+    fields = _normalize_search_fields(search_fields)
+    location_terms = _normalize_multi_value(locations)
     where_clause, values = _build_filter_clause(
         q=q,
-        search_fields=search_fields,
-        locations=locations,
+        search_fields=fields,
+        locations=location_terms,
         province=province,
         city=city,
         regions=regions,
@@ -503,6 +555,14 @@ def query_vocabulary_standard_words(
         'vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location '
         if regions else 'vocabulary_entries e '
     )
+    # For unscoped LIKEs on non-covering fields, ordered index traversal causes
+    # table lookups for most candidates. Scan once and group only matches.
+    # Keep covering scans, selective identity plans, and wildcard paths intact.
+    if (q and q.strip() and '%' not in q and '_' not in q
+            and not (location_terms or province or city or regions)
+            and 'location' not in fields
+            and any(field in {'headword', 'pronunciation', 'detail'} for field in fields)):
+        entry_source = 'vocabulary_entries e NOT INDEXED '
     select_sql = (
         "SELECT "
         "e.standard_word, e.location_name, COUNT(*) AS entry_count "
