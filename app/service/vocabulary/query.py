@@ -322,6 +322,7 @@ def _build_filter_clause(
     city: str | None = None,
     regions: str | Iterable[str] | None = None,
     region_mode: str = "yindian",
+    location_scope_first: bool = False,
 ) -> tuple[str, list[str]]:
     region_clause, region_values = partition_filter(regions, region_mode, alias='p')
     if region_clause:
@@ -339,6 +340,8 @@ def _build_filter_clause(
     # Exact province/city and partition constraints already have efficient
     # identity plans. Keep their combinations on the previously measured path.
     prefilter_locations = not (province or city or region_clause)
+    search_clauses = [] if location_scope_first else clauses
+    search_values = [] if location_scope_first else values
 
     if q and q.strip():
         search_columns = [
@@ -347,8 +350,8 @@ def _build_filter_clause(
             for column in SEARCH_FIELD_COLUMNS[field]
         ]
         _append_search_like_group(
-            clauses=clauses,
-            values=values,
+            clauses=search_clauses,
+            values=search_values,
             columns=search_columns,
             terms=build_script_variants(q),
             prefilter_locations=prefilter_locations,
@@ -374,7 +377,32 @@ def _build_filter_clause(
         clauses.append(region_clause)
         values.extend(region_values)
 
+    if location_scope_first:
+        clauses.extend(search_clauses)
+        values.extend(search_values)
+
     return " AND ".join(clauses) if clauses else "1=1", values
+
+
+def _prefer_location_identity_scan(*, q, fields, locations, province, city, regions) -> bool:
+    """Measured path for default content search narrowed by literal location text.
+
+    Single-field covering scans, metadata ORs, exact scopes and wildcard paths
+    have different costs; leave them to their existing plans.
+    """
+    if not (
+        q and q.strip() and not any(char in q for char in '%_\x00')
+        and locations and not any(char in term for term in locations for char in '%_\x00')
+        and not (province or city or regions)
+        and set(fields) == set(DEFAULT_SEARCH_FIELDS)
+    ):
+        return False
+    # Correlated keyword/scope text can match most rows, making the old
+    # covering/grouping path cheaper than content lookups plus sorting.
+    # Compare the same script variants that the actual content search uses.
+    keywords = [variant.casefold() for variant in build_script_variants(q)]
+    return all(keyword not in term.casefold() and term.casefold() not in keyword
+               for term in locations for keyword in keywords)
 
 
 def _filter_uses_locations(where_clause: str) -> bool:
@@ -430,14 +458,22 @@ def query_vocabulary_items(
     if page_size > 200:
         raise ValueError("page_size cannot exceed 200")
 
+    fields = _normalize_search_fields(search_fields)
+    location_terms = _normalize_multi_value(locations)
+    # Multiple location ORs can cost more than a selective content predicate;
+    # retain their original order and automatic count plan.
+    location_identity_scan = not standard_words and len(location_terms) == 1 and _prefer_location_identity_scan(
+        q=q, fields=fields, locations=location_terms, province=province, city=city, regions=regions,
+    )
     where_clause, values = _build_filter_clause(
         q=q,
-        search_fields=search_fields,
-        locations=locations,
+        search_fields=fields,
+        locations=location_terms,
         province=province,
         city=city,
         regions=regions,
         region_mode=region_mode,
+        location_scope_first=location_identity_scan,
     )
     clauses = [where_clause]
     _append_script_variant_standard_word_filter(
@@ -481,8 +517,14 @@ def query_vocabulary_items(
             f"{location_join}ORDER BY e.id DESC"
         )
     count_join = location_join if uses_locations else ""
+    # Count has no ID ordering requirement. Its narrow identity scan can reject
+    # out-of-scope entries before reading content; keep pagination's own plan.
+    count_source = (
+        'vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location '
+        if location_identity_scan else 'vocabulary_entries e '
+    )
     count_sql = (
-        "SELECT COUNT(*) FROM vocabulary_entries e "
+        f"SELECT COUNT(*) FROM {count_source}"
         f"{count_join}WHERE {combined_where_clause}"
     )
 
@@ -553,7 +595,9 @@ def query_vocabulary_standard_words(
     # for an empty/small selection. Unscoped queries retain their covering group index.
     entry_source = (
         'vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location '
-        if regions else 'vocabulary_entries e '
+        if regions or _prefer_location_identity_scan(
+            q=q, fields=fields, locations=location_terms, province=province, city=city, regions=regions,
+        ) else 'vocabulary_entries e '
     )
     # For unscoped LIKEs on non-covering fields, ordered index traversal causes
     # table lookups for most candidates. Scan once and group only matches.

@@ -163,6 +163,7 @@ def test_entries_cached_count_shortcuts_empty_page(database):
     {'q': '不存在'},
     {'page': 3, 'page_size': 2},
     {'province': '贵州', 'page_size': 1},
+    {'q': '日头', 'locations': ['贵州'], 'page_size': 1, 'page': 2},
     {'standard_words': ['太阳'], 'page_size': 2, 'page': 2},
 ])
 def test_entries_http_matches_service_contract(database, monkeypatch, params):
