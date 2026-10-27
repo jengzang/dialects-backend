@@ -1,7 +1,6 @@
-"""Isolate current vs bounded cache encoding for standard-word result shapes.
+"""Compare original full encoding against production bounded cache encoding.
 
-An analysis prototype only: vars is safe for these plain result dataclasses,
-not proposed as a general replacement for FastAPI's jsonable_encoder.
+Read-only local data; measures cache encoding, excluding SQL/Redis/HTTP.
 """
 from dataclasses import asdict
 import json
@@ -15,19 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.benchmark_vocabulary_entries import readonly
 from app.service.vocabulary.query import query_vocabulary_standard_words
-from app.service.vocabulary.cache import encoded
+from app.service.vocabulary.cache import bounded_encoded, encoded
 
 
 def bounded(value, maximum):
-    encoder = json.JSONEncoder(default=vars, ensure_ascii=False, sort_keys=True,
-                               separators=(',', ':'))
-    chunks, size = [], 0
-    for chunk in encoder.iterencode(value):
-        size += len(chunk.encode('utf-8'))
-        if maximum is not None and size > maximum:
-            return None
-        chunks.append(chunk)
-    return ''.join(chunks)
+    return encoded(value) if maximum is None else bounded_encoded(value, maximum)
 
 
 def main():
@@ -44,7 +35,7 @@ def main():
         if maximum is not None and len(expected.encode()) > maximum:
             assert candidate is None
         else:
-            assert candidate == expected
+            assert json.loads(candidate) == json.loads(expected)
         samples = {'current': [], 'candidate': []}
         for iteration in range(5):
             order = ['current', 'candidate'] if iteration % 2 == 0 else ['candidate', 'current']

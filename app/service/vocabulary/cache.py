@@ -1,5 +1,6 @@
 """Bounded, database-scoped vocabulary cache. No process-local result copies."""
 import asyncio
+from dataclasses import fields, is_dataclass
 import hashlib
 import json
 import logging
@@ -79,6 +80,67 @@ def normalize(kind, params):
 
 def encoded(value):
     return json.dumps(jsonable_encoder(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def bounded_encoded(value, maximum):
+    """Encode optional cache data without first copying a complete result.
+
+    Only the plain JSON/dataclass shapes used by vocabulary queries are handled.
+    Other shapes skip this optional cache, rather than changing serialization
+    semantics. Permanent defaults continue through the original encoder.
+    Object key order is internal to Redis; response values/order are untouched.
+    """
+    def tokens(item, depth=0):
+        if depth > 64:
+            raise ValueError('Cache value is too deeply nested')
+        if type(item) is str:
+            if len(item) <= 1024:
+                yield json.dumps(item, ensure_ascii=False)
+                return
+            yield '"'
+            # iterencode alone still allocates an entire escaped large string.
+            for offset in range(0, len(item), 1024):
+                yield json.dumps(item[offset:offset + 1024], ensure_ascii=False)[1:-1]
+            yield '"'
+        elif item is None or type(item) in (bool, int, float):
+            yield json.dumps(item)
+        elif type(item) in (list, tuple):
+            yield '['
+            for index, child in enumerate(item):
+                if index:
+                    yield ','
+                yield from tokens(child, depth + 1)
+            yield ']'
+        elif type(item) is dict or (is_dataclass(item) and not isinstance(item, type)):
+            pairs = item.items() if type(item) is dict else (
+                (field.name, getattr(item, field.name)) for field in fields(item))
+            yield '{'
+            first = True
+            for key, child in pairs:
+                if type(key) is not str:
+                    raise ValueError('Unsupported cache key')
+                if key.startswith('_sa'):
+                    continue  # Match jsonable_encoder's sqlalchemy_safe default.
+                if not first:
+                    yield ','
+                first = False
+                yield from tokens(key, depth + 1)
+                yield ':'
+                yield from tokens(child, depth + 1)
+            yield '}'
+        else:
+            raise ValueError('Unsupported optional cache value')
+
+    chunks, size = [], 0
+    try:
+        for chunk in tokens(value):
+            size += len(chunk.encode('utf-8'))
+            if size > maximum:
+                return None
+            chunks.append(chunk)
+    except (ValueError, UnicodeError, RecursionError):
+        return None
+    return ''.join(chunks)
 
 
 # Atomic revision check + bounded LRU admission; never evicts a permanent key.
@@ -192,9 +254,12 @@ class VocabularyCache:
 
     def store(self, kind, params, value, state):
         key, permanent, _ = self.describe(kind, params, state)
+        payload = encoded(value) if permanent else bounded_encoded(value, self.max_bytes)
+        if payload is None:
+            return
         self.client.eval(_WRITE, 4, self.state_key, key, self.lru_key, self.sequence_key,
                          state["entries"], state["locations"] if kind in SEARCH_KINDS else "",
-                         encoded(value), "default" if permanent else "ondemand",
+                         payload, "default" if permanent else "ondemand",
                          self.max_keys, self.max_bytes, self.root + ":ondemand:")
 
     def call(self, kind, params, loader):
