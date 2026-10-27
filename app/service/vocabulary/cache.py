@@ -26,7 +26,6 @@ DEFAULTS = (
     ("location-options", {}),
     ("entries", {}),
     ("map-points", {}),
-    ("standard-words", {"limit": 100}),
     ("standard-words", {"limit": 1000}),
     ("entries", {"q": "蜘蛛", "search_fields": ["definition", "headword"], "page": 1, "page_size": 50}),
     ("map-items", {"standard_words": ["蚯蚓"]}),

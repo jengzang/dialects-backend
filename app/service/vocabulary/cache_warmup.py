@@ -42,11 +42,8 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
                 return all(pipe.execute())
         if await asyncio.to_thread(ready):
             return True
-        # Compute the 1000-option aggregation once, reuse its first 100 for W4.
-        work = [*DEFAULTS[:5], DEFAULTS[6], DEFAULTS[5], *DEFAULTS[7:]]
-        large_words = None
         queried = False
-        for kind, params in work:
+        for kind, params in DEFAULTS:
             current = await asyncio.to_thread(cache.state)
             if (current["entries"], current["locations"]) != (state["entries"], state["locations"]):
                 return False
@@ -55,10 +52,6 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
 
             async def load():
                 nonlocal queried
-                if kind == "standard-words" and params["limit"] == 100 and large_words is not None:
-                    from fastapi.encoders import jsonable_encoder
-                    words = await asyncio.to_thread(jsonable_encoder, large_words)
-                    return {**words, "standard_words": words["standard_words"][:100]}
                 if queried and pause:
                     await asyncio.sleep(pause)
                     # A write/lease loss during the pause must not start more old work.
@@ -77,9 +70,7 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
             options = {'expected_state': state}
             if background:
                 options['wait_for_lease'] = False
-            result = await cache.acall(kind, params, load, **options)
-            if kind == "standard-words" and params["limit"] == 1000:
-                large_words = result
+            await cache.acall(kind, params, load, **options)
         if await asyncio.to_thread(cache.state) != state:
             return False
         log.info("Vocabulary default cache ready for database %s", cache.root)

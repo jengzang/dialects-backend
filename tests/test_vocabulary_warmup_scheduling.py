@@ -57,17 +57,21 @@ def test_cold_warmup_waits_only_between_real_queries(cache, monkeypatch, pause_c
     assert asyncio.run(cache_warmup.warm_once(cache, None, pause=.12345))
     assert len(calls) == 8
     assert len(pause_calls) == 7
-    assert cache.read(cache.key('standard-words', {'limit': 100})) == {
-        'standard_words': list(range(100)), 'total': 5678}
+    assert cache.read(cache.key('standard-words', {'limit': 1000})) == {
+        'standard_words': list(range(1000)), 'total': 5678}
+    assert cache.read(cache.key('standard-words', {'limit': 100})) is None
 
 
-def test_missing_small_word_list_reuses_large_without_query_or_pause(cache, monkeypatch, pause_calls):
+def test_small_word_list_is_demand_only_without_proactive_query_or_pause(cache, monkeypatch, pause_calls):
     populate(cache)
-    cache.client.delete(cache.key('standard-words', {'limit': 100}))
     monkeypatch.setattr(cache_warmup, '_load', lambda *args: pytest.fail('aggregation repeated'))
     assert asyncio.run(cache_warmup.warm_once(cache, None, pause=.12345))
-    assert cache.read(cache.key('standard-words', {'limit': 100})) == {
-        'standard_words': list(range(100)), 'total': 5678}
+    assert cache.read(cache.key('standard-words', {'limit': 100})) is None
+    assert not cache.describe('standard-words', {'limit': 100})[1]
+    assert len(DEFAULTS) == 8
+    cache.call('standard-words', {'limit': 100}, lambda: {'standard_words': [], 'total': 0})
+    assert 0 < cache.client.ttl(cache.key('standard-words', {'limit': 100})) <= 3600
+    assert cache.client.ttl(cache.key('standard-words', {'limit': 1000})) == -1
     assert pause_calls == []
 
 

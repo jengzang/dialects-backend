@@ -21,14 +21,14 @@ def test_open_circuit_traffic_does_not_postpone_recovery(cache, monkeypatch):
     assert cache.read(cache.key('entries', {})) == {'recovered': True}
 
 
-def test_warmup_reused_words_cannot_publish_into_new_revision(cache, monkeypatch):
+def test_warmup_cannot_publish_into_new_revision(cache, monkeypatch):
     import asyncio
     from app.service.vocabulary import cache_warmup
     async_call = cache.acall
     switched = False
     async def injected(kind, params, loader, **kwargs):
         nonlocal switched
-        if kind == 'standard-words' and params['limit'] == 100:
+        if kind == 'standard-words' and params['limit'] == 1000:
             switched = True
             cache.invalidate('entries')
         return await async_call(kind, params, loader, **kwargs)
@@ -36,7 +36,7 @@ def test_warmup_reused_words_cannot_publish_into_new_revision(cache, monkeypatch
     monkeypatch.setattr(cache_warmup, '_load', lambda *args: {'standard_words': ['OLD']})
     assert asyncio.run(cache_warmup.warm_once(cache, None, pause=0)) is False
     assert switched
-    assert cache.read(cache.key('standard-words', {'limit': 100})) is None
+    assert cache.read(cache.key('standard-words', {'limit': 1000})) is None
 
 
 @pytest.fixture
