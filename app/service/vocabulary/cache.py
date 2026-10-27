@@ -28,6 +28,8 @@ DEFAULTS = (
     ("map-points", {}),
     ("standard-words", {"limit": 100}),
     ("standard-words", {"limit": 1000}),
+    ("entries", {"q": "蜘蛛", "search_fields": ["definition", "headword"], "page": 1, "page_size": 50}),
+    ("map-items", {"standard_words": ["蚯蚓"]}),
 )
 
 SEARCH_KINDS = frozenset({'entries-count', 'entries', 'map-points', 'standard-words', 'map-items',
@@ -66,8 +68,11 @@ def normalize(kind, params):
             p.setdefault("limit", 100)
             if p["limit"] is not None and p["limit"] < 1:
                 raise ValueError("limit must be at least 1")
-        if kind == "map-items" and not p["standard_words"] and not (p.get("standard_word_key") or "").strip():
-            raise ValueError("standard_words is required")
+        if kind == "map-items":
+            # HTTP supplies None explicitly; warmup omits this optional alias.
+            p["standard_word_key"] = (p.get("standard_word_key") or "").strip() or None
+            if not p["standard_words"] and not p["standard_word_key"]:
+                raise ValueError("standard_words is required")
     elif kind.startswith("sql-"):
         p.setdefault("table_name", "vocabulary_entries")
         if kind == "sql-count":

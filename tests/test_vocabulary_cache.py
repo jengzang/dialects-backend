@@ -153,7 +153,7 @@ def test_warmup_populates_seven_permanent_results_and_refreshes_only_map(cache, 
         session.commit()
     asyncio.run(warm_once(cache, factory, pause=0))
     from app.service.vocabulary.cache import DEFAULTS
-    assert [cache.client.ttl(cache.key(k, p)) for k, p in DEFAULTS] == [-1] * 7
+    assert [cache.client.ttl(cache.key(k, p)) for k, p in DEFAULTS] == [-1] * len(DEFAULTS)
     assert cache.read(cache.key("sql-count", {})) == {"count": 1}
     assert cache.read(cache.key("map-points", {}))["points"][0]["longitude"] == 106
     entry_key = cache.key("entries", {})
@@ -291,7 +291,7 @@ def test_default_missing_key_is_actively_repaired_after_write(cache, tmp_path):
                 await asyncio.sleep(.1)
                 if all(cache.client.exists(cache.key(k, p)) for k, p in DEFAULTS):
                     break
-            assert [cache.client.ttl(cache.key(k, p)) for k, p in DEFAULTS] == [-1] * 7
+            assert [cache.client.ttl(cache.key(k, p)) for k, p in DEFAULTS] == [-1] * len(DEFAULTS)
             assert cache.read(cache.key("sql-count", {})) == {"count": 1}
         finally:
             _wakeups.discard(identity)

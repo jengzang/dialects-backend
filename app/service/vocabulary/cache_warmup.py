@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 def _load(factory, kind, params):
     from .query import (
         query_vocabulary_items, query_vocabulary_location_options,
-        query_vocabulary_map_points, query_vocabulary_standard_words,
+        query_vocabulary_map_points, query_vocabulary_map_items, query_vocabulary_standard_words,
     )
     with factory() as session:
         if kind == "sql-count":
@@ -22,7 +22,8 @@ def _load(factory, kind, params):
             expression = "COUNT(DISTINCT location_name)" if params.get("distinct_column") else "COUNT(*)"
             return {"count": session.execute(text(f"SELECT {expression} FROM vocabulary_entries")).scalar_one()}
         query = {"entries": query_vocabulary_items, "location-options": query_vocabulary_location_options,
-                 "map-points": query_vocabulary_map_points, "standard-words": query_vocabulary_standard_words}[kind]
+                 "map-points": query_vocabulary_map_points, "map-items": query_vocabulary_map_items,
+                 "standard-words": query_vocabulary_standard_words}[kind]
         return query(session=session, **params)
 
 
@@ -42,7 +43,7 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
         if await asyncio.to_thread(ready):
             return True
         # Compute the 1000-option aggregation once, reuse its first 100 for W4.
-        work = [*DEFAULTS[:5], DEFAULTS[6], DEFAULTS[5]]
+        work = [*DEFAULTS[:5], DEFAULTS[6], DEFAULTS[5], *DEFAULTS[7:]]
         large_words = None
         queried = False
         for kind, params in work:
@@ -66,7 +67,7 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
                     if await asyncio.to_thread(cache.client.get, lock_key) != token:
                         raise BackgroundBusy()
                 from .resources import run_bounded
-                options = {'expensive': kind == 'standard-words'}
+                options = {'expensive': kind in {'standard-words', 'map-items'}}
                 if background:
                     options['background'] = True
                 result = await run_bounded(cache.db_path, _load, factory, kind, params, **options)

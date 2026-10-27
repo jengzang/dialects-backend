@@ -55,8 +55,8 @@ def test_cold_warmup_waits_only_between_real_queries(cache, monkeypatch, pause_c
         return {'kind': kind}
     monkeypatch.setattr(cache_warmup, '_load', load)
     assert asyncio.run(cache_warmup.warm_once(cache, None, pause=.12345))
-    assert len(calls) == 6
-    assert len(pause_calls) == 5
+    assert len(calls) == 8
+    assert len(pause_calls) == 7
     assert cache.read(cache.key('standard-words', {'limit': 100})) == {
         'standard_words': list(range(100)), 'total': 5678}
 
