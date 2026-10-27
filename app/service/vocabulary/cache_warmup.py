@@ -6,6 +6,7 @@ import uuid
 from redis.exceptions import RedisError
 
 from .cache import DEFAULTS, _UNLOCK, _wakeups, get_vocabulary_cache
+from .resources import BackgroundBusy
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def _load(factory, kind, params):
         return query(session=session, **params)
 
 
-async def warm_once(cache, factory, *, pause=.1):
+async def warm_once(cache, factory, *, pause=.1, background=False):
     token = uuid.uuid4().hex
     lock_key = cache.root + ":warm-lock"
     if not await cache.acquire_lease(lock_key, token):
@@ -33,7 +34,6 @@ async def warm_once(cache, factory, *, pause=.1):
     heartbeat = asyncio.create_task(cache.renew_lease(lock_key, token))
     try:
         state = await asyncio.to_thread(cache.state)
-        await asyncio.to_thread(cache.cleanup)
         def ready():
             with cache.client.pipeline() as pipe:
                 for kind, params in DEFAULTS:
@@ -44,6 +44,7 @@ async def warm_once(cache, factory, *, pause=.1):
         # Compute the 1000-option aggregation once, reuse its first 100 for W4.
         work = [*DEFAULTS[:5], DEFAULTS[6], DEFAULTS[5]]
         large_words = None
+        queried = False
         for kind, params in work:
             current = await asyncio.to_thread(cache.state)
             if (current["entries"], current["locations"]) != (state["entries"], state["locations"]):
@@ -52,28 +53,52 @@ async def warm_once(cache, factory, *, pause=.1):
                 return False
 
             async def load():
+                nonlocal queried
                 if kind == "standard-words" and params["limit"] == 100 and large_words is not None:
-                    return {**large_words, "standard_words": large_words["standard_words"][:100]}
+                    from fastapi.encoders import jsonable_encoder
+                    words = await asyncio.to_thread(jsonable_encoder, large_words)
+                    return {**words, "standard_words": words["standard_words"][:100]}
+                if queried and pause:
+                    await asyncio.sleep(pause)
+                    # A write/lease loss during the pause must not start more old work.
+                    if await asyncio.to_thread(cache.state) != state:
+                        raise BackgroundBusy()
+                    if await asyncio.to_thread(cache.client.get, lock_key) != token:
+                        raise BackgroundBusy()
                 from .resources import run_bounded
-                return await run_bounded(cache.db_path, _load, factory, kind, params,
-                                         expensive=kind == "standard-words")
+                options = {'expensive': kind == 'standard-words'}
+                if background:
+                    options['background'] = True
+                result = await run_bounded(cache.db_path, _load, factory, kind, params, **options)
+                queried = True
+                return result
 
-            result = await cache.acall(kind, params, load, expected_state=state)
+            options = {'expected_state': state}
+            if background:
+                options['wait_for_lease'] = False
+            result = await cache.acall(kind, params, load, **options)
             if kind == "standard-words" and params["limit"] == 1000:
-                from fastapi.encoders import jsonable_encoder
-                large_words = await asyncio.to_thread(jsonable_encoder, result)
-            await asyncio.sleep(pause)
+                large_words = result
         if await asyncio.to_thread(cache.state) != state:
             return False
         log.info("Vocabulary default cache ready for database %s", cache.root)
         return True
+    except BackgroundBusy:
+        # Retain successfully filled keys; the serial runner retries latest state.
+        return False
     finally:
-        heartbeat.cancel()
-        await asyncio.gather(heartbeat, return_exceptions=True)
+        # Maintenance must also progress when SQL admission/revisions defer warmup.
+        # Its own Redis gate bounds work and protects against a lost warmup lease.
         try:
-            await asyncio.to_thread(cache.client.eval, _UNLOCK, 1, lock_key, token)
-        except Exception:
-            log.warning("Could not release vocabulary warmup lease", exc_info=True)
+            await asyncio.to_thread(cache.cleanup)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            try:
+                await asyncio.to_thread(cache.client.eval, _UNLOCK, 1, lock_key, token)
+            except Exception:
+                log.warning("Could not release vocabulary warmup lease", exc_info=True)
+
 
 
 async def _run(cache, factory, event):
@@ -81,9 +106,9 @@ async def _run(cache, factory, event):
     while True:
         event.clear()
         try:
-            complete = await warm_once(cache, factory)
+            complete = await warm_once(cache, factory, background=True)
             retry = 0
-            timeout = 60 if complete else 1
+            timeout = 60 if complete and not getattr(cache, '_cleanup_pending', False) else 1
         except Exception as exc:
             if isinstance(exc, RedisError):
                 cache.failed(exc)

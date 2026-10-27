@@ -113,6 +113,12 @@ return value
 """
 _UNLOCK = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0"
 _RENEW = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0"
+_CLEANUP_COMMIT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('HSET', KEYS[2], 'default', ARGV[2], 'ondemand', ARGV[3], 'pending', ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1
+"""
 _CLEAN = """
 if redis.call('HGET', KEYS[1], 'entries') == ARGV[1] and
    (ARGV[2] == '' or redis.call('HGET', KEYS[1], 'locations') == ARGV[2]) then return 0 end
@@ -228,7 +234,7 @@ class VocabularyCache:
             except RedisError:
                 log.warning("Vocabulary computation lease expired or Redis disconnected")
 
-    async def acall(self, kind, params, loader, *, expected_state=None):
+    async def acall(self, kind, params, loader, *, expected_state=None, wait_for_lease=True):
         """Async wait for shared computation: no thread occupied while polling."""
         try:
             key, _, state = await asyncio.to_thread(self.describe, kind, params, expected_state)
@@ -241,6 +247,9 @@ class VocabularyCache:
                     return value
                 if await self.acquire_lease(lock_key, token):
                     break
+                if not wait_for_lease:
+                    from .resources import BackgroundBusy
+                    raise BackgroundBusy()
                 if time.monotonic() >= deadline:
                     from fastapi import HTTPException
                     raise HTTPException(503, "词表查询正在准备，请稍后重试")
@@ -296,23 +305,71 @@ class VocabularyCache:
     def invalidate(self, scope):
         try:
             self.state()
-            self.client.hset(self.state_key, "entries" if scope == "entries" else "locations", uuid.uuid4().hex)
+            with self.client.pipeline() as pipe:
+                pipe.hset(self.state_key, "entries" if scope == "entries" else "locations", uuid.uuid4().hex)
+                # A new revision may advance cleanup without waiting for the idle cooldown.
+                pipe.delete(self.root + ':cleanup-gate')
+                pipe.execute()
         except RedisError as exc:
             self.failed(exc)
         signal_warmup()
 
     def cleanup(self):
+        """Advance at most one SCAN page per mode under the warmup lease.
+
+        Redis owns the cursors/cooldown, shared by workers. COUNT is a hint;
+        only a page is held, never a complete keyspace list. Old keys are
+        removed with the existing atomic revision check before cursor commit.
+        """
+        gate = self.root + ':cleanup-gate'
+        progress = self.root + ':cleanup-progress'
+        token = uuid.uuid4().hex
+        if not self.client.set(gate, token, nx=True, ex=60):
+            self._cleanup_pending = self.client.hget(progress, 'pending') == '1'
+            return self._cleanup_pending
+        try:
+            return self._cleanup_page(gate, progress, token)
+        except Exception:
+            try:
+                self.client.eval(_UNLOCK, 1, gate, token)
+            except RedisError:
+                log.warning('Could not release vocabulary cleanup gate', exc_info=True)
+            raise
+
+    def _cleanup_page(self, gate, progress, token):
         self.state()
+        cursors = self.client.hgetall(progress)
+        updated = {}
         for mode in ("default", "ondemand"):
+            cursor = cursors.get(mode, '0')
+            if cursor == '-1':
+                updated[mode] = '-1'
+                continue
             prefix = self.root + ":" + mode + ":"
-            for key in self.client.scan_iter(match=prefix + "*", count=32):
-                parts = key[len(prefix):].split(":")
-                if parts[0] != 'search-v2' and parts[-2] in SEARCH_KINDS:
-                    self.client.unlink(key)
-                    self.client.zrem(self.lru_key, key)
-                    continue
-                self.client.eval(_CLEAN, 3, self.state_key, key, self.lru_key,
-                                 parts[1], parts[2] if parts[0] == "search-v2" else "")
+            next_cursor, keys = self.client.scan(cursor=int(cursor), match=prefix + '*', count=32)
+            with self.client.pipeline(transaction=False) as pipe:
+                for key in keys:
+                    parts = key[len(prefix):].split(':')
+                    if len(parts) < 4:
+                        continue
+                    if parts[0] != 'search-v2' and parts[-2] in SEARCH_KINDS:
+                        pipe.unlink(key)
+                        pipe.zrem(self.lru_key, key)
+                    else:
+                        pipe.eval(_CLEAN, 3, self.state_key, key, self.lru_key,
+                                  parts[1], parts[2] if parts[0] == 'search-v2' else '')
+                pipe.execute()
+            updated[mode] = str(next_cursor) if next_cursor else '-1'
+        pending = any(cursor != '-1' for cursor in updated.values())
+        if not pending:
+            updated = {'default': '0', 'ondemand': '0'}
+        updated['pending'] = '1' if pending else '0'
+        # A failed page may safely repeat; never commit a cursor before deletion.
+        committed = self.client.eval(_CLEANUP_COMMIT, 2, gate, progress, token,
+                                     updated['default'], updated['ondemand'], updated['pending'],
+                                     1 if pending else 60)
+        self._cleanup_pending = pending or not committed
+        return self._cleanup_pending
 
 
 _instances = {}

@@ -31,7 +31,8 @@ def test_preview_parsing_does_not_block_event_loop(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_expensive_work_is_serial_and_cancellation_retains_lease(monkeypatch, tmp_path):
+@pytest.mark.parametrize('background', [False, True])
+def test_expensive_work_is_serial_and_cancellation_retains_lease(monkeypatch, tmp_path, background):
     from app.service.vocabulary.resources import run_bounded
     monkeypatch.setenv('TOPONYMS_LOCK_DIR', str(tmp_path / 'locks'))
     entered, release = threading.Event(), threading.Event()
@@ -42,7 +43,7 @@ def test_expensive_work_is_serial_and_cancellation_retains_lease(monkeypatch, tm
         events.append('commit')
     def second(): events.append('second')
     async def scenario():
-        a = asyncio.create_task(run_bounded('test', first, expensive=True))
+        a = asyncio.create_task(run_bounded('test', first, expensive=True, background=background))
         assert await asyncio.to_thread(entered.wait, 2)
         a.cancel()
         b = asyncio.create_task(run_bounded('test', second, expensive=True))
