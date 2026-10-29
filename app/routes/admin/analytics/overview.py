@@ -6,7 +6,7 @@ Admin-only endpoints for user behavior analytics.
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Literal
 
 from app.service.auth.core.dependencies import get_current_admin_user
 from app.service.auth.database.models import User
@@ -40,6 +40,8 @@ from app.service.admin.analytics import (
     get_user_api_matrix,
     export_data,
 )
+
+from app.service.admin.analytics.trends import MAX_TREND_DAYS
 
 router = APIRouter()
 
@@ -156,14 +158,14 @@ async def api_dashboard(
 
 
 @router.get("/recent-trends", response_model=RecentTrendsResponse)
-async def api_recent_trends(
-    granularity: str = Query("day", description="Granularity: day or hour"),
-    days: int = Query(7, description="Number of days to analyze (max 7)"),
+def api_recent_trends(
+    granularity: Literal["day", "hour"] = Query("day", description="Beijing time granularity: day or hour"),
+    days: int = Query(7, ge=1, le=MAX_TREND_DAYS, description="Number of recent days to analyze (1-365)"),
     admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """
-    Analyze recent API usage trends (last 7 days).
+    Analyze API usage trends over the requested rolling window (up to 365 days).
 
     Returns daily/hourly call counts, active users, and performance metrics.
     """

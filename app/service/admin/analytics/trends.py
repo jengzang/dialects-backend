@@ -1,128 +1,101 @@
-"""
-Recent Trends Analysis Module
+"""Aggregate auth.db API usage by Beijing hour/day without loading raw logs."""
 
-Analyzes API usage trends from recent logs (7 days).
-"""
+from datetime import timedelta
 
-from datetime import datetime, timedelta
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.common.time_utils import now_utc_naive
 from app.service.auth.database.models import ApiUsageLog
+from app.service.admin.monitoring.api_usage import LOGIN_PATHS
 
 
-def get_recent_trends(
-    db: Session,
-    granularity: str = "day",
-    days: int = 7
-) -> dict:
+MAX_TREND_DAYS = 365
+
+
+def get_recent_trends(db: Session, granularity: str = "day", days: int = 7) -> dict:
+    """Return up to one year of usage, excluding the detail page's login paths.
+
+    Two sequential SQL aggregates return at most one row per time bucket each.
+    The largest hourly response has 8,761 buckets; raw log rows stay in SQLite.
+    No background work, automatic retries, or additional workers are started.
     """
-    Analyze recent API usage trends.
+    if granularity not in ("hour", "day"):
+        raise ValueError("granularity must be hour or day")
+    if not 1 <= days <= MAX_TREND_DAYS:
+        raise ValueError(f"days must be between 1 and {MAX_TREND_DAYS}")
 
-    Args:
-        db: Database session
-        granularity: 'day' or 'hour'
-        days: Number of days to analyze (max 7)
-
-    Returns:
-        Dictionary with trend data
-    """
-    now = datetime.utcnow()
-    start_date = now - timedelta(days=min(days, 7))
-
-    # Query logs
-    query = db.query(ApiUsageLog).filter(
-        ApiUsageLog.called_at >= start_date
+    now = now_utc_naive()
+    start = now - timedelta(days=days)
+    date_format = "%Y-%m-%d" if granularity == "day" else "%Y-%m-%d %H:00"
+    bucket = func.strftime(date_format, ApiUsageLog.called_at, "+8 hours")
+    filters = (
+        ApiUsageLog.called_at >= start,
+        ApiUsageLog.called_at <= now,
+        ~ApiUsageLog.path.in_(LOGIN_PATHS),
     )
 
-    logs = query.all()
+    aggregates = db.query(
+        bucket.label("time"),
+        func.count(ApiUsageLog.id).label("total_calls"),
+        func.count(func.distinct(ApiUsageLog.user_id)).label("active_users"),
+        func.avg(ApiUsageLog.duration).label("avg_duration"),
+    ).filter(*filters).group_by(bucket).order_by(bucket).all()
 
-    if not logs:
-        return {
-            "period": f"{days}d",
-            "granularity": granularity,
-            "trends": [],
-            "summary": {
-                "total_calls": 0,
-                "avg_daily_calls": 0,
-                "peak_day": None
-            }
-        }
-
-    # Group by time period
-    trends_data = {}
-
-    for log in logs:
-        if not log.called_at:
-            continue
-
-        if granularity == "day":
-            time_key = log.called_at.strftime("%Y-%m-%d")
-        else:  # hour
-            time_key = log.called_at.strftime("%Y-%m-%d %H:00")
-
-        if time_key not in trends_data:
-            trends_data[time_key] = {
-                "time": time_key,
-                "total_calls": 0,
-                "active_users": set(),
-                "durations": [],
-                "api_calls": {}
-            }
-
-        trends_data[time_key]["total_calls"] += 1
-        if log.user_id:
-            trends_data[time_key]["active_users"].add(log.user_id)
-        trends_data[time_key]["durations"].append(log.duration)
-
-        # Track API calls
-        api_path = log.path
-        if api_path not in trends_data[time_key]["api_calls"]:
-            trends_data[time_key]["api_calls"][api_path] = 0
-        trends_data[time_key]["api_calls"][api_path] += 1
-
-    # Process trends
-    trends = []
-    total_calls = 0
-    peak_calls = 0
-    peak_time = None
-
-    for time_key in sorted(trends_data.keys()):
-        data = trends_data[time_key]
-        calls = data["total_calls"]
-        total_calls += calls
-
-        # Find top API for this period
-        top_api = max(data["api_calls"].items(), key=lambda x: x[1])[0] if data["api_calls"] else None
-
-        # Calculate average duration
-        avg_duration = sum(data["durations"]) / len(data["durations"]) if data["durations"] else 0
-
-        trend_item = {
-            "time": time_key,
-            "total_calls": calls,
-            "active_users": len(data["active_users"]),
-            "avg_duration": round(avg_duration, 3),
-            "top_api": top_api
-        }
-
-        trends.append(trend_item)
-
-        # Track peak
-        if calls > peak_calls:
-            peak_calls = calls
-            peak_time = time_key
-
-    # Calculate summary
-    avg_daily_calls = total_calls / days if days > 0 else 0
-
-    return {
+    summary = {
+        "total_calls": 0,
+        "avg_daily_calls": 0,
+        "peak_time": None,
+        "peak_calls": 0,
+    }
+    response = {
         "period": f"{days}d",
         "granularity": granularity,
-        "trends": trends,
-        "summary": {
-            "total_calls": total_calls,
-            "avg_daily_calls": round(avg_daily_calls, 2),
-            "peak_time": peak_time,
-            "peak_calls": peak_calls
-        }
+        "trends": [],
+        "summary": summary,
     }
+    if not aggregates:
+        return response
+
+    # Rank within SQL so even high-cardinality paths do not cross into Python.
+    path_counts = db.query(
+        bucket.label("time"),
+        ApiUsageLog.path.label("path"),
+        func.count(ApiUsageLog.id).label("calls"),
+    ).filter(*filters).group_by(bucket, ApiUsageLog.path).subquery()
+    ranked = db.query(
+        path_counts.c.time,
+        path_counts.c.path,
+        func.row_number().over(
+            partition_by=path_counts.c.time,
+            order_by=(path_counts.c.calls.desc(), path_counts.c.path.asc()),
+        ).label("rank"),
+    ).subquery()
+    top_paths = dict(db.query(ranked.c.time, ranked.c.path).filter(ranked.c.rank == 1).all())
+
+    by_time = {row.time: row for row in aggregates}
+    cursor = (start + timedelta(hours=8)).replace(minute=0, second=0, microsecond=0)
+    end = now + timedelta(hours=8)
+    if granularity == "day":
+        cursor = cursor.replace(hour=0)
+    step = timedelta(days=1) if granularity == "day" else timedelta(hours=1)
+
+    while cursor <= end:
+        key = cursor.strftime(date_format)
+        row = by_time.get(key)
+        calls = row.total_calls if row else 0
+        response["trends"].append({
+            "time": key,
+            "total_calls": calls,
+            "active_users": row.active_users if row else 0,
+            "avg_duration": round(float(row.avg_duration or 0), 3) if row else 0,
+            "top_api": top_paths.get(key),
+        })
+        summary["total_calls"] += calls
+        if calls > summary["peak_calls"]:
+            summary["peak_calls"] = calls
+            summary["peak_time"] = key
+        cursor += step
+
+    summary["avg_daily_calls"] = round(summary["total_calls"] / days, 2)
+    return response
