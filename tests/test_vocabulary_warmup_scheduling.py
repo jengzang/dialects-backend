@@ -170,8 +170,9 @@ def test_background_cache_miss_does_not_wait_for_online_compute(cache):
         pytest.fail('must not duplicate online computation')
     async def scenario():
         with pytest.raises(BackgroundBusy):
-            await cache.acall('entries', {}, loader, wait_for_lease=False)
+            await cache.acall('entries', {}, loader, wait_for_lease=False, prewarm=True)
         assert cache.client.get(lock_key) == 'online'
+        assert not list(cache.client.scan_iter(match=cache.root + ':prewarm-compute:*'))
     asyncio.run(scenario())
 
 

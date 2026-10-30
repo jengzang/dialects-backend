@@ -303,17 +303,22 @@ class VocabularyCache:
             except RedisError:
                 log.warning("Vocabulary computation lease expired or Redis disconnected")
 
-    async def acall(self, kind, params, loader, *, expected_state=None, wait_for_lease=True):
-        """Async wait for shared computation: no thread occupied while polling."""
+    async def acall(self, kind, params, loader, *, expected_state=None, wait_for_lease=True, prewarm=False):
+        """Merge online misses independently of the serial background prewarmer."""
         try:
             key, _, state = await asyncio.to_thread(self.describe, kind, params, expected_state)
             token = uuid.uuid4().hex
-            lock_key = self.root + ":compute:" + hashlib.md5(key.encode()).hexdigest()
+            digest = hashlib.md5(key.encode()).hexdigest()
+            online_lock_key = self.root + ":compute:" + digest
+            lock_key = self.root + ":prewarm-compute:" + digest if prewarm else online_lock_key
             deadline = time.monotonic() + 30
             while True:
                 value = await asyncio.to_thread(self.read, key)
                 if value is not None:
                     return value
+                if prewarm and await asyncio.to_thread(self.client.exists, online_lock_key):
+                    from .resources import BackgroundBusy
+                    raise BackgroundBusy()
                 if await self.acquire_lease(lock_key, token):
                     break
                 if not wait_for_lease:
@@ -503,7 +508,7 @@ async def cached_search(kind, session, query, **params):
         return query(session=session, **params)
     async def load():
         from .resources import run_bounded
-        return await run_bounded(session.get_bind().url.database, run, expensive=kind in {"standard-words", "map-items"})
+        return await run_bounded(session.get_bind().url.database, run, expensive=kind == "standard-words")
     return await cache.acall(kind, params, load) if cache else await finish_on_cancel(load())
 
 

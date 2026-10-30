@@ -60,14 +60,14 @@ async def warm_once(cache, factory, *, pause=.1, background=False):
                     if await asyncio.to_thread(cache.client.get, lock_key) != token:
                         raise BackgroundBusy()
                 from .resources import run_bounded
-                options = {'expensive': kind in {'standard-words', 'map-items'}}
+                options = {'expensive': kind == 'standard-words'}
                 if background:
                     options['background'] = True
                 result = await run_bounded(cache.db_path, _load, factory, kind, params, **options)
                 queried = True
                 return result
 
-            options = {'expected_state': state}
+            options = {'expected_state': state, 'prewarm': True}
             if background:
                 options['wait_for_lease'] = False
             await cache.acall(kind, params, load, **options)
@@ -124,17 +124,7 @@ async def start_vocabulary_warmup():
     event = asyncio.Event()
     identity = (asyncio.get_running_loop(), event)
     _wakeups.add(identity)
-    # Warm before readiness, while a lease in another worker is awaited asynchronously.
-    try:
-        while not await warm_once(cache, SessionLocal):
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        _wakeups.discard(identity)
-        raise
-    except Exception as exc:
-        if isinstance(exc, RedisError):
-            cache.failed(exc)
-        log.warning("Startup warmup deferred until Redis recovers", exc_info=True)
+    # Serve requests immediately; the shared Redis lease elects one prewarmer.
     task = asyncio.create_task(_run(cache, SessionLocal, event), name="vocabulary-cache-warmup")
     return task, identity
 

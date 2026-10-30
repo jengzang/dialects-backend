@@ -4,22 +4,26 @@ import pytest
 from fastapi import FastAPI
 
 
-def test_startup_waits_until_other_worker_finishes_warmup(monkeypatch):
+def test_startup_returns_while_background_warmup_is_still_running(monkeypatch):
     from app.service.vocabulary import cache_warmup
-    calls = 0
     monkeypatch.setattr(cache_warmup, 'get_vocabulary_cache', lambda path: object())
-    async def warm(*args):
-        nonlocal calls
-        calls += 1
-        return calls > 31
-    async def sleep(seconds):
-        return
-    monkeypatch.setattr(cache_warmup, 'warm_once', warm)
-    monkeypatch.setattr(cache_warmup.asyncio, 'sleep', sleep)
     async def scenario():
-        handle = await cache_warmup.start_vocabulary_warmup()
-        assert calls == 32
-        await cache_warmup.stop_vocabulary_warmup(handle)
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def warm(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return True
+        monkeypatch.setattr(cache_warmup, 'warm_once', warm)
+        handle = None
+        try:
+            handle = await asyncio.wait_for(cache_warmup.start_vocabulary_warmup(), .5)
+            await asyncio.wait_for(entered.wait(), .5)
+            assert not handle[0].done()
+        finally:
+            release.set()
+            if handle is not None:
+                await cache_warmup.stop_vocabulary_warmup(handle)
+                assert handle[1] not in cache_warmup._wakeups
     asyncio.run(scenario())
 
 
