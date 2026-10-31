@@ -787,10 +787,12 @@ def query_vocabulary_map_points(
     regions: str | Iterable[str] | None = None,
     region_mode: str = "yindian",
 ) -> VocabularyMapPointsResult:
+    fields = _normalize_search_fields(search_fields)
+    location_terms = _normalize_multi_value(locations)
     where_clause, values = _build_filter_clause(
         q=q,
-        search_fields=search_fields,
-        locations=locations,
+        search_fields=fields,
+        locations=location_terms,
         province=province,
         city=city,
         regions=regions,
@@ -804,6 +806,25 @@ def query_vocabulary_map_points(
         'ON l.user_id = e.user_id AND l.location_name = e.location_name '
         if _filter_uses_locations(where_clause) else ''
     )
+    # Identity-ordered grouping otherwise reads non-covering content through
+    # the index for every candidate. Only the measured unscoped literal paths
+    # scan directly; narrow scopes and covering/wildcard plans stay automatic.
+    table_scan = (
+        q and q.strip() and not any(char in q for char in '%_\x00')
+        and not (location_terms or province or city or regions)
+        and set(fields) in ({'definition'}, {'headword'}, {'definition', 'headword'})
+    )
+    if table_scan:
+        # A literal can still match almost every row. Probe at most 128 recent
+        # entries, returning only two scalars, to retain ordered grouping for
+        # dense content. This selects a plan, never the scope/result of a query.
+        matches, sampled = cursor.execute(
+            'SELECT SUM(matched), COUNT(*) FROM ('
+            f'SELECT ({where_clause}) AS matched FROM vocabulary_entries e NOT INDEXED '
+            'ORDER BY e.id DESC LIMIT 128)', values,
+        ).fetchone()
+        table_scan = not sampled or (matches or 0) * 4 < sampled * 3
+    entry_source = 'vocabulary_entries e NOT INDEXED ' if table_scan else 'vocabulary_entries e '
     select_sql = (
         'SELECT e.location_name, l.coordinates, l.province, l.city, l.county, l.town, '
         'l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, '
@@ -811,7 +832,7 @@ def query_vocabulary_map_points(
         + ', '.join(f'l.{column}' for column in TONE_COLUMNS) + ', '
         'e.entry_count, e.first_entry_id FROM ('
         'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
-        'FROM vocabulary_entries e '
+        f'FROM {entry_source}'
         f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
         ') e LEFT JOIN vocabulary_locations l '
         'ON l.user_id = e.user_id AND l.location_name = e.location_name '
