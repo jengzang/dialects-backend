@@ -93,13 +93,15 @@ def test_expired_and_oversized_entries_do_not_evict_live_values(cache):
     assert cache.client.zcard(cache.lru_key) == 1
 
 
-def test_locations_invalidate_map_only_entries_invalidate_everything(cache):
+def test_locations_invalidate_search_results_without_advancing_entry_revision(cache):
     for kind in ["entries", "location-options", "map-points", "map-items", "standard-words", "sql-query", "sql-count", "sql-distinct"]:
         cache.call(kind, {"standard_words": ["太阳"]} if kind == "map-items" else {}, lambda: {"old": True})
     old_map = cache.key("map-points", {})
     old_entry = cache.key("entries", {})
+    entry_revision = cache.state()['entries']
     cache.invalidate("locations")
-    assert cache.key("entries", {}) == old_entry
+    assert cache.state()['entries'] == entry_revision
+    assert cache.key("entries", {}) != old_entry
     assert cache.key("map-points", {}) != old_map
     assert cache.client.exists(old_entry)
     cache.invalidate("entries")
@@ -139,7 +141,7 @@ def test_concurrent_admission_stays_bounded(cache):
     assert len(list(cache.client.scan_iter(match=cache.root + ":ondemand:*"))) == 2
 
 
-def test_warmup_populates_seven_permanent_results_and_refreshes_only_map(cache, tmp_path):
+def test_warmup_populates_defaults_and_refreshes_location_dependent_search(cache, tmp_path):
     from app.service.vocabulary.cache_warmup import warm_once
     from app.service.vocabulary.database import create_vocabulary_engine_and_session
     from app.service.vocabulary.models import Base, VocabularyEntry, VocabularyLocation
@@ -162,7 +164,7 @@ def test_warmup_populates_seven_permanent_results_and_refreshes_only_map(cache, 
         session.commit()
     cache.invalidate("locations")
     asyncio.run(warm_once(cache, factory, pause=0))
-    assert cache.key("entries", {}) == entry_key
+    assert cache.key("entries", {}) != entry_key
     assert cache.read(cache.key("map-points", {}))["points"][0]["longitude"] == 107
     with factory() as session:
         session.add(VocabularyEntry(user_id=1, location_name="甲", standard_word="月亮", local_expression="月光", ipa="b"))

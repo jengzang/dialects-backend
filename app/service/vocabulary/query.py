@@ -496,6 +496,7 @@ def query_vocabulary_items(
     page: int = 1,
     page_size: int = 50,
     _count_loader=None,
+    _count_resolver=None,
 ) -> VocabularyItemsResult:
     if page < 1:
         raise ValueError("page must be at least 1")
@@ -578,24 +579,55 @@ def query_vocabulary_items(
             and not (standard_words or province or city or regions)):
         count_sql, count_values = _location_first_count_sql(location_terms, count_sql, values)
 
-    def count():
-        if _count_loader is not None:
-            return _count_loader(count_sql, count_values)
+    rows = None
+
+    def read_page():
+        cursor.execute(select_sql, values + [page_size, offset])
+        names = [description[0] for description in cursor.description]
+        return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+    # Only measured non-covering content shapes may infer a cold first-page
+    # count. In particular, definition-only COUNT has a cheaper covering scan.
+    page_first = (
+        page == 1 and not standard_words
+        and set(fields) in ({'headword'}, {'definition', 'headword'})
+        and _prefer_location_identity_scan(
+            q=q, fields=DEFAULT_SEARCH_FIELDS, locations=location_terms,
+            province=province, city=city, regions=regions,
+        )
+    )
+
+    def execute_count():
+        nonlocal rows
+        if page_first:
+            # Legacy sqlite3 transaction mode does not begin on SELECT. A read
+            # savepoint gives the page and a full-page COUNT the same snapshot,
+            # including when another connection commits between the two reads.
+            cursor.execute('SAVEPOINT vocabulary_first_page')
+            try:
+                rows = read_page()
+                if len(rows) < page_size:
+                    return len(rows)
+                return cursor.execute(count_sql, count_values).fetchone()[0]
+            finally:
+                cursor.execute('RELEASE SAVEPOINT vocabulary_first_page')
         cursor.execute(count_sql, count_values)
         return cursor.fetchone()[0]
 
-    # Reuse the pagination-independent exact count cache first. Empty searches
-    # and out-of-range pages need no second scan (nor any metadata lookup).
-    total = count()
+    # Resolve the existing independent count cache before computing anything.
+    # Its miss callback may infer an exact total from a short first page. Keep
+    # legacy two-argument loaders count-first for existing service callers.
+    if _count_resolver is not None:
+        total = _count_resolver(count_sql, count_values, execute_count)
+    elif _count_loader is not None:
+        total = _count_loader(count_sql, count_values)
+    else:
+        total = execute_count()
     if offset >= total:
         return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
 
-    cursor.execute(select_sql, values + [page_size, offset])
-    column_names = [description[0] for description in cursor.description]
-    rows = [
-        {column_names[index]: value for index, value in enumerate(row)}
-        for row in cursor.fetchall()
-    ]
+    if rows is None:
+        rows = read_page()
     return VocabularyItemsResult(
         items=[_row_to_vocabulary_item(row) for row in rows],
         total=total,

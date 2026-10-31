@@ -135,10 +135,12 @@ def test_entry_writes_invalidate_all_and_can_rewarm(cache, api, path, payload):
 def test_location_write_scopes(cache, api, method, path, payload, entry_change):
     client, _ = api
     old_entries = cache.key("entries", {})
+    entry_revision = cache.state()['entries']
     old_map = cache.key("map-points", {})
     response = client.request(method, path, json=payload)
     assert response.status_code == 200, response.text
-    assert (cache.key("entries", {}) != old_entries) is entry_change
+    assert (cache.state()['entries'] != entry_revision) is entry_change
+    assert cache.key("entries", {}) != old_entries
     assert cache.key("map-points", {}) != old_map
 
 
@@ -276,3 +278,33 @@ def test_count_location_filter_tracks_location_revision(cache, api):
     cache.invalidate('locations')
     result = client.get('/vocabulary/search/entries', params=params).json()
     assert result['total'] == len(result['items']) == 1
+
+
+def test_inferred_first_page_count_is_reused_and_invalidated(cache, api):
+    from app.service.vocabulary.models import VocabularyEntry
+    client, factory = api
+    params = {'q': '日头', 'locations': '甲', 'search_fields': 'headword'}
+    statements = []
+    with factory() as session:
+        session.connection().connection.set_trace_callback(statements.append)
+    try:
+        first = client.get('/vocabulary/search/entries', params=params)
+        assert first.status_code == 200, first.text
+        assert first.json()['total'] == len(first.json()['items']) == 1
+        for page in (1, 2):
+            response = client.get('/vocabulary/search/entries', params={**params, 'page': page, 'page_size': 1})
+            assert response.status_code == 200, response.text
+            assert response.json()['total'] == 1
+            assert len(response.json()['items']) == (1 if page == 1 else 0)
+        assert not any(sql.startswith('SELECT COUNT(*)') for sql in statements)
+        with factory() as session:
+            session.add(VocabularyEntry(user_id=1, location_name='甲', standard_word='太阳', local_expression='日头', ipa='b'))
+            session.commit()
+        cache.invalidate('entries')
+        response = client.get('/vocabulary/search/entries', params={**params, 'page': 2, 'page_size': 1})
+        assert response.json()['total'] == 2
+        assert len(response.json()['items']) == 1
+        assert any(sql.startswith('SELECT COUNT(*)') for sql in statements)
+    finally:
+        with factory() as session:
+            session.connection().connection.set_trace_callback(None)

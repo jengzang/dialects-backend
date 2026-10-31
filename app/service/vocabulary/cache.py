@@ -496,15 +496,9 @@ async def cached_search(kind, session, query, **params):
     cache = get_vocabulary_cache(session.get_bind().url.database)
     def run():
         if kind == "entries" and cache is not None:
-            def count(sql, values):
-                def execute():
-                    cursor = session.connection().connection.cursor()
-                    try:
-                        return cursor.execute(sql, values).fetchone()[0]
-                    finally:
-                        cursor.close()
+            def count(sql, values, execute):
                 return cache.call("entries-count", {"sql": sql, "values": values}, execute)
-            return query(session=session, _count_loader=count, **params)
+            return query(session=session, _count_resolver=count, **params)
         return query(session=session, **params)
     async def load():
         from .resources import run_bounded

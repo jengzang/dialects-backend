@@ -39,7 +39,9 @@ def test_default_fuzzy_location_count_uses_identity_before_content(database, par
 ])
 def test_entries_other_shapes_keep_automatic_count_plan(database, params):
     _, session, statements = database
-    query.query_vocabulary_items(session=session, **params)
+    # Force a full first page for the headword shape, which can otherwise infer
+    # its exact total without executing COUNT at all.
+    query.query_vocabulary_items(session=session, page_size=1, **params)
     count = next(s for s in statements if s.startswith('SELECT COUNT(*)'))
     assert 'INDEXED BY' not in count
 
