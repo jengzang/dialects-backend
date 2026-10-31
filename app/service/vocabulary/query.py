@@ -722,20 +722,32 @@ def query_vocabulary_standard_words(
         key = previous_key
         group = grouped.get(key)
         if group is None:
-            group = grouped[key] = [0, set(), {}]
+            # Most normalized words have one spelling and one location. Keep
+            # scalars until a second distinct value requires a set/dict.
+            group = grouped[key] = [0, None, word]
         group[0] += entry_count
         if location_name:
-            group[1].add(location_name)
-        variant_counts = group[2]
-        variant_counts[word] = variant_counts.get(word, 0) + entry_count
+            if group[1] is None:
+                group[1] = location_name
+            elif isinstance(group[1], str):
+                if group[1] != location_name:
+                    group[1] = {group[1], location_name}
+            else:
+                group[1].add(location_name)
+        if isinstance(group[2], str):
+            if group[2] != word:
+                # Before promotion every previous row belonged to the first
+                # spelling, even across multiple locations or other word keys.
+                group[2] = {group[2]: group[0] - entry_count, word: entry_count}
+        else:
+            group[2][word] = group[2].get(word, 0) + entry_count
 
     def sort_key(key: str) -> tuple:
         entry_count, locations, variant_counts = grouped[key]
-        representative = min(
-            variant_counts,
-            key=lambda variant: (-variant_counts[variant], variant),
-        )
-        return (-len(locations), -entry_count, representative)
+        representative = (variant_counts if isinstance(variant_counts, str) else min(
+            variant_counts, key=lambda variant: (-variant_counts[variant], variant)))
+        location_count = 1 if isinstance(locations, str) else len(locations or ())
+        return (-location_count, -entry_count, representative)
 
     # 先按轻量元组排序再切片：全库有近 4 万个分组，而 limit 通常只有 100，
     # 给最终会被丢弃的分组建 dataclass 是白做功。
@@ -746,17 +758,15 @@ def query_vocabulary_standard_words(
     standard_word_groups = []
     for key in ordered_keys:
         entry_count, locations, variant_counts = grouped[key]
-        variants = sorted(
-            variant_counts,
-            key=lambda variant: (-variant_counts[variant], variant),
-        )
+        variants = ([variant_counts] if isinstance(variant_counts, str) else sorted(
+            variant_counts, key=lambda variant: (-variant_counts[variant], variant)))
         standard_word_groups.append(
             VocabularyStandardWord(
                 key=key,
                 standard_word=variants[0],
                 variants=variants,
                 entry_count=entry_count,
-                location_count=len(locations),
+                location_count=1 if isinstance(locations, str) else len(locations or ()),
             )
         )
 
