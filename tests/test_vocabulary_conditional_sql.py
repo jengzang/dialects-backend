@@ -52,11 +52,11 @@ def test_location_text_is_prefiltered_without_per_entry_metadata_join(database, 
     if endpoint == 'map_items':
         options['standard_words'] = ['太阳']
     getattr(query, 'query_vocabulary_' + endpoint)(session=session, **options)
-    selects = [sql for sql in statements if sql.startswith('SELECT')]
+    selects = [sql for sql in statements if sql.startswith(('SELECT', 'WITH RECURSIVE'))]
     assert any('SELECT p.user_id, p.location_name FROM vocabulary_locations p WHERE' in sql
                for sql in selects)
     if endpoint == 'items':
-        count_sql = next(sql for sql in selects if sql.startswith('SELECT COUNT(*)'))
+        count_sql = next(sql for sql in selects if sql.startswith(('SELECT COUNT(*)', 'WITH RECURSIVE')))
         assert 'LEFT JOIN' not in count_sql
 
 
@@ -70,7 +70,7 @@ def test_location_text_is_prefiltered_without_per_entry_metadata_join(database, 
 def test_location_prefilter_falls_back_for_constraints_or_empty_matching_patterns(database, params):
     _, session, statements = database
     query.query_vocabulary_items(session=session, **params)
-    count_sql = next(sql for sql in statements if sql.startswith('SELECT COUNT(*)'))
+    count_sql = next(sql for sql in statements if sql.startswith(('SELECT COUNT(*)', 'WITH RECURSIVE')))
     assert 'LEFT JOIN vocabulary_locations l' in count_sql
 
 

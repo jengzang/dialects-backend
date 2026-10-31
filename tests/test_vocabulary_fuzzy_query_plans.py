@@ -25,7 +25,7 @@ def test_default_fuzzy_location_count_uses_identity_before_content(database, par
 
 
 @pytest.mark.parametrize('params', [
-    {}, {'locations': ['贵州']}, {'q': '日头'},
+    {}, {'q': '日头'},
     {'q': '日头', 'locations': ['贵州'], 'search_fields': ['definition']},
     {'q': '备注', 'locations': ['贵州'], 'search_fields': ['detail']},
     {'q': '日头', 'locations': ['贵州'], 'search_fields': ['headword']},

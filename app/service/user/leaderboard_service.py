@@ -78,6 +78,7 @@ CATEGORY_RULES: Dict[str, RuleConfig] = {
             "/api/vocabulary/search/standard-words",
             "/api/vocabulary/search/map-items",
             "/api/vocabulary/search/location-options",
+            "/api/vocabulary/search/partition-options",
             "/api/vocabulary/logs",
             "/api/vocabulary/imports",
             "/api/vocabulary/imports/preview",

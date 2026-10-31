@@ -436,6 +436,52 @@ def _append_script_variant_standard_word_filter(
     values.extend(unique_words)
 
 
+def _location_first_count_sql(
+    locations: list[str], fallback_sql: str, fallback_values: list[str],
+) -> tuple[str, list[str]]:
+    """Count disjoint name/metadata matches with existing covering indexes.
+
+    MIN seeks skip repeated names instead of scanning every entry. Enumerate
+    at most 257 names; above 256 distinct names CASE lazily runs the old count.
+    This bounds extra work as location cardinality grows, without limiting data.
+    Entry location names are NOT NULL. Keep orphan entries in the name branch
+    and both identity columns in the metadata branch.
+    """
+    name_clauses, name_values, meta_clauses, meta_values = [], [], [], []
+    _append_like_group(clauses=name_clauses, values=name_values,
+                       columns=['n.name'], terms=locations)
+    _append_like_group(
+        clauses=meta_clauses, values=meta_values,
+        columns=[column.replace('l.', 'p.', 1)
+                 for column in SEARCH_FIELD_COLUMNS['location'] if column.startswith('l.')],
+        terms=locations,
+    )
+    # The lazy fallback duplicates predicates in one statement. Stay below
+    # older SQLite parameter/expression-depth budgets for many search terms.
+    if len(name_values) + len(fallback_values) + len(meta_values) > 400:
+        return fallback_sql, fallback_values
+    sql = (
+        'WITH RECURSIVE location_names(name) AS ('
+        'SELECT MIN(location_name) FROM vocabulary_entries '
+        'UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries '
+        'WHERE location_name > n.name) FROM location_names n '
+        'WHERE n.name IS NOT NULL LIMIT 257), '
+        'matched_names AS (SELECT n.name FROM location_names n '
+        f"WHERE n.name IS NOT NULL AND {' AND '.join(name_clauses)}) "
+        'SELECT CASE WHEN EXISTS (SELECT 1 FROM location_names '
+        'WHERE name IS NOT NULL LIMIT 1 OFFSET 256) '
+        f'THEN ({fallback_sql}) ELSE '
+        '(SELECT COUNT(*) FROM vocabulary_entries '
+        'WHERE location_name IN (SELECT name FROM matched_names)) + '
+        '(SELECT COUNT(*) FROM vocabulary_entries e '
+        'WHERE (e.user_id, e.location_name) IN ('
+        'SELECT p.user_id, p.location_name FROM vocabulary_locations p '
+        f"WHERE {' AND '.join(meta_clauses)} "
+        'AND p.location_name NOT IN (SELECT name FROM matched_names))) END'
+    )
+    return sql, name_values + fallback_values + meta_values
+
+
 def query_vocabulary_items(
     *,
     session: Session,
@@ -527,11 +573,15 @@ def query_vocabulary_items(
         f"SELECT COUNT(*) FROM {count_source}"
         f"{count_join}WHERE {combined_where_clause}"
     )
+    count_values = values
+    if (not (q and q.strip()) and location_terms
+            and not (standard_words or province or city or regions)):
+        count_sql, count_values = _location_first_count_sql(location_terms, count_sql, values)
 
     def count():
         if _count_loader is not None:
-            return _count_loader(count_sql, values)
-        cursor.execute(count_sql, values)
+            return _count_loader(count_sql, count_values)
+        cursor.execute(count_sql, count_values)
         return cursor.fetchone()[0]
 
     # Reuse the pagination-independent exact count cache first. Empty searches
