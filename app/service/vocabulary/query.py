@@ -413,6 +413,18 @@ def _filter_uses_locations(where_clause: str) -> bool:
     return "l." in where_clause
 
 
+def _prefer_scoped_standard_word_scan(*, q, fields, locations, province, city, regions) -> bool:
+    """Measured non-covering headword shapes; retain definition's covering scan.
+
+    This changes index traversal/locality, not substring indexability. Reuse the
+    literal/overlap guards without widening entries' separate count policy.
+    """
+    return set(fields) in ({'headword'}, {'definition', 'headword'}) and _prefer_location_identity_scan(
+        q=q, fields=DEFAULT_SEARCH_FIELDS, locations=locations,
+        province=province, city=city, regions=regions,
+    )
+
+
 def _append_script_variant_standard_word_filter(
     *,
     clauses: list[str],
@@ -678,6 +690,8 @@ def query_vocabulary_standard_words(
     entry_source = (
         'vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location '
         if regions or _prefer_location_identity_scan(
+            q=q, fields=fields, locations=location_terms, province=province, city=city, regions=regions,
+        ) or _prefer_scoped_standard_word_scan(
             q=q, fields=fields, locations=location_terms, province=province, city=city, regions=regions,
         ) else 'vocabulary_entries e '
     )
