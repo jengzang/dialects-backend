@@ -845,24 +845,63 @@ def query_vocabulary_standard_words(
     # GROUP BY yields contiguous rows for each spelling; retain only its last key.
     previous_word = previous_key = None
     grouped: dict[str, list] = {}
+    # Bounded shared bit IDs replace repeated sets/strings for common names.
+    # Excess names retain exact scalar/set state: no unbounded-width integers.
+    location_bits: dict[str, int] = {}
+    # After high location diversity is observed, new groups use the original
+    # scalar/set representation. Existing masked groups retain exact overflow.
+    use_location_bits = True
     for word, location_name, entry_count in cursor:
         if word != previous_word:
             previous_word, previous_key = word, standard_word_key(word)
         key = previous_key
+        # Most simplified spellings equal their normalized key. Reuse the
+        # string already retained as the group key instead of a second copy.
+        if word == key:
+            word = key
         group = grouped.get(key)
         if group is None:
-            # Most normalized words have one spelling and one location. Keep
-            # scalars until a second distinct value requires a set/dict.
-            group = grouped[key] = [0, None, word]
+            # Keep variant counts scalar until a second spelling appears.
+            # Location state: mask, overflow string/set, or [mask, overflow].
+            # Last field freezes this group's representation across fallback.
+            group = grouped[key] = [0, 0 if use_location_bits else None, word, use_location_bits]
         group[0] += entry_count
         if location_name:
-            if group[1] is None:
-                group[1] = location_name
-            elif isinstance(group[1], str):
-                if group[1] != location_name:
-                    group[1] = {group[1], location_name}
+            state = group[1]
+            if not group[3]:
+                if state is None:
+                    group[1] = location_name
+                elif isinstance(state, str):
+                    if state != location_name:
+                        group[1] = {state, location_name}
+                else:
+                    state.add(location_name)
             else:
-                group[1].add(location_name)
+                bit = location_bits.get(location_name)
+                if bit is None and len(location_bits) < 256:
+                    bit = location_bits[location_name] = 1 << len(location_bits)
+                if bit is None:
+                    use_location_bits = False
+                if bit is not None:
+                    if isinstance(state, int):
+                        group[1] = state | bit
+                    elif isinstance(state, list):
+                        state[0] |= bit
+                    else:
+                        group[1] = [bit, state]
+                elif isinstance(state, int):
+                    group[1] = location_name if not state else [state, location_name]
+                else:
+                    overflow = state[1] if isinstance(state, list) else state
+                    if isinstance(overflow, str):
+                        if overflow != location_name:
+                            overflow = {overflow, location_name}
+                    else:
+                        overflow.add(location_name)
+                    if isinstance(state, list):
+                        state[1] = overflow
+                    else:
+                        group[1] = overflow
         if isinstance(group[2], str):
             if group[2] != word:
                 # Before promotion every previous row belonged to the first
@@ -871,12 +910,22 @@ def query_vocabulary_standard_words(
         else:
             group[2][word] = group[2].get(word, 0) + entry_count
 
+    def location_count(state):
+        if state is None:
+            return 0
+        if isinstance(state, int):
+            return state.bit_count()
+        if isinstance(state, str):
+            return 1
+        if isinstance(state, set):
+            return len(state)
+        return state[0].bit_count() + (1 if isinstance(state[1], str) else len(state[1]))
+
     def sort_key(key: str) -> tuple:
-        entry_count, locations, variant_counts = grouped[key]
+        entry_count, locations, variant_counts, _ = grouped[key]
         representative = (variant_counts if isinstance(variant_counts, str) else min(
             variant_counts, key=lambda variant: (-variant_counts[variant], variant)))
-        location_count = 1 if isinstance(locations, str) else len(locations or ())
-        return (-location_count, -entry_count, representative)
+        return (-location_count(locations), -entry_count, representative)
 
     # 先按轻量元组排序再切片：全库有近 4 万个分组，而 limit 通常只有 100，
     # 给最终会被丢弃的分组建 dataclass 是白做功。
@@ -886,7 +935,9 @@ def query_vocabulary_standard_words(
 
     standard_word_groups = []
     for key in ordered_keys:
-        entry_count, locations, variant_counts = grouped[key]
+        # Release membership/count containers while building full output,
+        # rather than retaining every group alongside every response object.
+        entry_count, locations, variant_counts, _ = grouped.pop(key)
         variants = ([variant_counts] if isinstance(variant_counts, str) else sorted(
             variant_counts, key=lambda variant: (-variant_counts[variant], variant)))
         standard_word_groups.append(
@@ -895,7 +946,7 @@ def query_vocabulary_standard_words(
                 standard_word=variants[0],
                 variants=variants,
                 entry_count=entry_count,
-                location_count=1 if isinstance(locations, str) else len(locations or ()),
+                location_count=location_count(locations),
             )
         )
 
