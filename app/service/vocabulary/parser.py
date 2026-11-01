@@ -3,7 +3,7 @@ import json
 from contextlib import contextmanager
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import mkstemp, TemporaryFile
 from typing import BinaryIO, Iterable, Optional
@@ -25,6 +25,24 @@ class VocabularyParseResult:
     errors: list[str]
     skipped_count: int
     parser_mode: str
+    error_groups: list[dict] = field(default_factory=list)
+
+
+class _ErrorGroups:
+    """Group validation failures while preserving indexes into legacy errors."""
+
+    def __init__(self):
+        self.groups: dict[tuple[str, ...], dict] = {}
+        self.error_count = 0
+
+    def add(self, fields: list[str], row_number: int):
+        key = tuple(fields)
+        if key not in self.groups:
+            self.groups[key] = {"code": "missing_fields", "fields": fields,
+                                "row_numbers": [], "error_indexes": []}
+        self.groups[key]["row_numbers"].append(row_number)
+        self.groups[key]["error_indexes"].append(self.error_count)
+        self.error_count += 1
 
 
 _COLUMN_ALIASES = {
@@ -116,6 +134,7 @@ def _validate_row(
     notes: str,
     row_number: int,
     fill_standard_from_local: bool = False,
+    error_groups: _ErrorGroups | None = None,
 ) -> tuple[Optional[ParsedVocabularyRow], Optional[str], bool]:
     if fill_standard_from_local and not standard_word and local_expression:
         standard_word = local_expression
@@ -129,6 +148,13 @@ def _validate_row(
     if not ipa and not local_expression:
         missing.append("ipa 或 local_expression（至少需要一个非空）")
     if missing:
+        if error_groups is not None:
+            fields = []
+            if not standard_word:
+                fields.append("standard_word")
+            if not ipa and not local_expression:
+                fields.append("local_expression_or_ipa")
+            error_groups.add(fields, row_number)
         return None, f"第 {row_number} 行缺少字段: {', '.join(missing)}", False
 
     return ParsedVocabularyRow(
@@ -234,6 +260,7 @@ def _parse_table_records(records, fill_standard_from_local, row_sink):
     rows = [] if row_sink is None else row_sink
     errors: list[str] = []
     skipped_count = 0
+    error_groups = _ErrorGroups()
     for row_number, row in records:
         parsed, error, skipped = _validate_row(
             standard_word=_clean_cell(row.get(column_map.get("standard_word", ""))) if "standard_word" in column_map else "",
@@ -242,6 +269,7 @@ def _parse_table_records(records, fill_standard_from_local, row_sink):
             notes=_clean_cell(row.get(column_map.get("notes", ""))) if "notes" in column_map else "",
             row_number=row_number,
             fill_standard_from_local=fill_standard_from_local,
+            error_groups=error_groups,
         )
         if skipped:
             skipped_count += 1
@@ -255,6 +283,7 @@ def _parse_table_records(records, fill_standard_from_local, row_sink):
         errors=errors,
         skipped_count=skipped_count,
         parser_mode="table",
+        error_groups=list(error_groups.groups.values()),
     )
 
 
@@ -265,7 +294,7 @@ _BRACKET_PATTERNS = {
 }
 
 
-def parse_bracket_document_text(text: str, fill_standard_from_local: bool = False) -> tuple[list[ParsedVocabularyRow], list[str]]:
+def parse_bracket_document_text(text: str, fill_standard_from_local: bool = False, *, _error_groups: _ErrorGroups | None = None) -> tuple[list[ParsedVocabularyRow], list[str]]:
     rows: list[ParsedVocabularyRow] = []
     errors: list[str] = []
 
@@ -296,6 +325,7 @@ def parse_bracket_document_text(text: str, fill_standard_from_local: bool = Fals
             notes=notes,
             row_number=line_number,
             fill_standard_from_local=fill_standard_from_local,
+            error_groups=_error_groups,
         )
         if error:
             errors.append(error)
@@ -305,7 +335,7 @@ def parse_bracket_document_text(text: str, fill_standard_from_local: bool = Fals
     return rows, errors
 
 
-def parse_whitespace_document_text(text: str, fill_standard_from_local: bool = False) -> tuple[list[ParsedVocabularyRow], list[str]]:
+def parse_whitespace_document_text(text: str, fill_standard_from_local: bool = False, *, _error_groups: _ErrorGroups | None = None) -> tuple[list[ParsedVocabularyRow], list[str]]:
     rows: list[ParsedVocabularyRow] = []
     errors: list[str] = []
 
@@ -323,9 +353,12 @@ def parse_whitespace_document_text(text: str, fill_standard_from_local: bool = F
                 notes="",
                 row_number=line_number,
                 fill_standard_from_local=True,
+                error_groups=_error_groups,
             )
         elif len(parts) < 2:
             errors.append(f"第 {line_number} 行缺少字段: standard_word")
+            if _error_groups is not None:
+                _error_groups.add(["standard_word"], line_number)
             continue
         else:
             parsed, error, _ = _validate_row(
@@ -335,6 +368,7 @@ def parse_whitespace_document_text(text: str, fill_standard_from_local: bool = F
                 notes=parts[3] if len(parts) > 3 else "",
                 row_number=line_number,
                 fill_standard_from_local=fill_standard_from_local,
+                error_groups=_error_groups,
             )
         if error:
             errors.append(error)
@@ -404,17 +438,19 @@ def parse_document_file(path: Path, parser_mode: str, fill_standard_from_local: 
     else:
         raise ValueError(f"Unsupported document file type: {suffix}")
 
+    error_groups = _ErrorGroups()
     if parser_mode == "doc_bracket":
-        rows, errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local)
+        rows, errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local, _error_groups=error_groups)
     elif parser_mode == "doc_whitespace":
-        rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local)
+        rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local, _error_groups=error_groups)
     else:
-        bracket_rows, bracket_errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local)
+        bracket_rows, bracket_errors = parse_bracket_document_text(text, fill_standard_from_local=fill_standard_from_local, _error_groups=error_groups)
         if bracket_rows and not bracket_errors:
             rows, errors = bracket_rows, bracket_errors
             parser_mode = "doc_bracket"
         else:
-            rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local)
+            error_groups = _ErrorGroups()
+            rows, errors = parse_whitespace_document_text(text, fill_standard_from_local=fill_standard_from_local, _error_groups=error_groups)
             parser_mode = "doc_whitespace"
 
     return VocabularyParseResult(
@@ -422,6 +458,7 @@ def parse_document_file(path: Path, parser_mode: str, fill_standard_from_local: 
         errors=errors,
         skipped_count=0,
         parser_mode=parser_mode,
+        error_groups=list(error_groups.groups.values()),
     )
 
 
@@ -519,7 +556,7 @@ def staged_uploaded_vocabulary_file(
                 result = parse_vocabulary_file(temp_path, parser_mode, fill_standard_from_local)
                 for row in result.rows:
                     rows.append(row)
-            result = VocabularyParseResult(rows, result.errors, result.skipped_count, result.parser_mode)
+            result = VocabularyParseResult(rows, result.errors, result.skipped_count, result.parser_mode, result.error_groups)
         finally:
             temp_path.unlink(missing_ok=True)
         yield result

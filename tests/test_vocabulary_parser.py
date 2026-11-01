@@ -113,6 +113,37 @@ def test_parse_table_skips_only_fully_blank_rows(tmp_path: Path) -> None:
     assert result.skipped_count == 2
 
 
+@pytest.mark.parametrize("mode,filename,content,expected", [
+    ("table", "words.csv", "standard_word,local_expression,ipa\n甲,甲,\n乙,,\n丙,,\n,丁,\n,,\n",
+     [("local_expression_or_ipa", [3, 4], [0, 1]), ("standard_word", [5], [2])]),
+    ("doc_bracket", "words.docx", "甲（甲）\n乙\n\n丙\n[tiŋ]",
+     [("local_expression_or_ipa", [3, 7], [0, 1]), ("standard_word", [9], [2])]),
+    ("doc_whitespace", "words.docx", "甲 甲\n乙\n\n丙",
+     [("standard_word", [3, 7], [0, 1])]),
+    ("auto", "words.docx", "甲 甲\n乙",
+     [("standard_word", [3], [0])]),
+])
+def test_structured_error_groups_preserve_legacy_errors(tmp_path, mode, filename, content, expected):
+    path = tmp_path / filename
+    if path.suffix == ".docx":
+        document = Document()
+        for line in content.split("\n"):
+            document.add_paragraph(line)
+        document.save(path)
+    else:
+        path.write_text(content, encoding="utf-8")
+
+    result = parse_vocabulary_file(path, parser_mode=mode)
+    assert result.error_groups == [
+        {"code": "missing_fields", "fields": [field], "row_numbers": rows, "error_indexes": indexes}
+        for field, rows, indexes in expected
+    ]
+    assert len(result.errors) == sum(len(rows) for _, rows, _ in expected)
+    for group in result.error_groups:
+        for row, index in zip(group["row_numbers"], group["error_indexes"]):
+            assert result.errors[index].startswith(f"第 {row} 行缺少字段:")
+
+
 def test_parse_bracket_document_text_extracts_fields() -> None:
     rows, errors = parse_bracket_document_text(
         "太阳（日头）[ȵit2 tʰəu2]{常用}\n"

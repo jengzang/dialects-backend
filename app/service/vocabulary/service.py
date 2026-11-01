@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import BinaryIO
 
@@ -45,6 +45,7 @@ class VocabularyUploadPreviewResult:
     skipped_count: int
     errors: list[str]
     parser_mode: str
+    error_groups: list[dict] = field(default_factory=list)
 
 
 _import_locks_guard = Lock()
@@ -233,6 +234,7 @@ def preview_vocabulary_upload(
             skipped_count=parse_result.skipped_count,
             errors=errors or ([] if parsed_count > 0 else ["No valid vocabulary rows found"]),
             parser_mode=parse_result.parser_mode,
+            error_groups=parse_result.error_groups,
         )
 
 

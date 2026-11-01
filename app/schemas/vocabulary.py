@@ -17,6 +17,13 @@ class VocabularyUploadResponse(BaseModel):
     parser_mode: str
 
 
+class VocabularyImportErrorGroup(BaseModel):
+    code: Literal["missing_fields"]
+    fields: list[Literal["standard_word", "local_expression_or_ipa"]]
+    row_numbers: list[int]
+    error_indexes: list[int] = Field(description="对应旧 errors 数组的下标，供客户端去重")
+
+
 class VocabularyUploadPreviewResponse(BaseModel):
     success: bool = Field(description="是否存在可导入的行")
     location_name: str
@@ -28,6 +35,7 @@ class VocabularyUploadPreviewResponse(BaseModel):
         description="错误行明细（行号 + 原因），这些行在导入时会被跳过",
     )
     parser_mode: str
+    error_groups: list[VocabularyImportErrorGroup] = Field(default_factory=list, description="按原因合并的结构化行错误；errors 字段保持兼容")
 
 
 class VocabularyItemResponse(BaseModel):

@@ -39,6 +39,19 @@ def test_upload_preserves_blank_metadata_and_updates_nonblank_fields(db):
     assert len(result.errors) == 1  # Partial replacement stays supported.
 
 
+def test_preview_returns_structured_groups_through_response_schema(db):
+    from app.schemas.vocabulary import VocabularyUploadPreviewResponse
+    result = preview_vocabulary_upload(**args(db))
+    response = VocabularyUploadPreviewResponse.model_validate(result, from_attributes=True).model_dump()
+    assert response["errors"] == ['第 3 行缺少字段: ipa 或 local_expression（至少需要一个非空）']
+    assert response["error_groups"] == [{
+        "code": "missing_fields", "fields": ["local_expression_or_ipa"],
+        "row_numbers": [3], "error_indexes": [0],
+    }]
+    assert response["parsed_count"] == 1
+    assert response["skipped_count"] == 0
+
+
 def test_explicit_nonblank_metadata_updates_are_kept(db):
     data = args(db)
     data['location_payload'].update(province='广西', t1='33')
