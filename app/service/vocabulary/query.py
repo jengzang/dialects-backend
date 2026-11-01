@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from app.service.vocabulary.models import TONE_COLUMNS
 from app.service.vocabulary.partitions import partition_filter
 from app.service.vocabulary.scope_plan import plan_location_scope
+from app.service.vocabulary.literal_scan import (
+    guarded_literal_like, sparse_literal_sample, supports_literal_prefilter,
+)
 from app.service.vocabulary.script_variants import (
     build_script_variants,
     standard_word_key,
@@ -324,6 +327,7 @@ def _build_filter_clause(
     regions: str | Iterable[str] | None = None,
     region_mode: str = "yindian",
     location_scope_first: bool = False,
+    literal_prefilter: bool = False,
 ) -> tuple[str, list[str]]:
     region_clause, region_values = partition_filter(regions, region_mode, alias='p')
     if region_clause:
@@ -350,13 +354,18 @@ def _build_filter_clause(
             for field in fields
             for column in SEARCH_FIELD_COLUMNS[field]
         ]
-        _append_search_like_group(
-            clauses=search_clauses,
-            values=search_values,
-            columns=search_columns,
-            terms=build_script_variants(q),
-            prefilter_locations=prefilter_locations,
-        )
+        if literal_prefilter:
+            literal, bindings = guarded_literal_like(search_columns, build_script_variants(q))
+            search_clauses.append(literal)
+            search_values.extend(bindings)
+        else:
+            _append_search_like_group(
+                clauses=search_clauses,
+                values=search_values,
+                columns=search_columns,
+                terms=build_script_variants(q),
+                prefilter_locations=prefilter_locations,
+            )
 
     if location_terms:
         _append_search_like_group(
@@ -658,15 +667,33 @@ def query_vocabulary_items(
         province=province, city=city, regions=regions,
     )
 
+    literal_eligible = (
+        page == 1 and not (standard_words or province or city or regions)
+        and set(fields).issubset(DEFAULT_SEARCH_FIELDS)
+        and q and supports_literal_prefilter(build_script_variants(q))
+        and (not location_terms or scoped_eligible
+             or (len(location_terms) > 1 and set(fields) == set(DEFAULT_SEARCH_FIELDS)
+                 and _prefer_location_identity_scan(
+                     q=q, fields=fields, locations=location_terms,
+                     province=province, city=city, regions=regions)))
+    )
+    global_page_first = (
+        page == 1 and not (location_terms or standard_words or province or city or regions)
+        and set(fields) in ({'headword'}, {'definition', 'headword'})
+        and q and supports_literal_prefilter(build_script_variants(q))
+    )
+
     def execute_count():
         nonlocal rows, page_sql, page_values
-        if page_first or scoped_eligible:
+        if page_first or scoped_eligible or literal_eligible:
             # Legacy sqlite3 transaction mode does not begin on SELECT. A read
             # savepoint gives the page and a full-page COUNT the same snapshot,
             # including when another connection commits between the two reads.
             cursor.execute('SAVEPOINT vocabulary_first_page')
             try:
                 actual_count_sql, actual_count_values = count_sql, count_values
+                scope = None
+                read_first = page_first
                 if scoped_eligible:
                     scope = _resolve_location_scope(cursor, location_terms)
                     if scope is not None:
@@ -685,7 +712,29 @@ def query_vocabulary_items(
                             f'SELECT COUNT(*) c FROM {first} UNION ALL SELECT COUNT(*) c FROM {second})'
                         )
                         actual_count_values = bindings + content_values * 2
-                if page_first:
+                if literal_eligible and scope is None:
+                    content, content_values = _build_filter_clause(
+                        q=q, search_fields=fields, locations=[],
+                    )
+                    columns = [column for field in fields for column in SEARCH_FIELD_COLUMNS[field]]
+                    sparse = sparse_literal_sample(cursor, columns=columns, where=content, values=content_values)
+                    # Dense global searches keep count-first: reversing scans
+                    # can increase first-call I/O when old rows hold the hits.
+                    read_first = read_first or (global_page_first and sparse is not False)
+                    if sparse:
+                        fast_where, fast_values = _build_filter_clause(
+                            q=q, search_fields=fields, locations=location_terms,
+                            literal_prefilter=True, location_scope_first=location_identity_scan,
+                        )
+                        page_sql = select_sql.replace(
+                            'WHERE ' + combined_where_clause + ' ', 'WHERE ' + fast_where + ' ', 1,
+                        )
+                        page_values = fast_values
+                        actual_count_sql = count_sql.replace(
+                            'WHERE ' + combined_where_clause, 'WHERE ' + fast_where, 1,
+                        )
+                        actual_count_values = fast_values
+                if read_first:
                     rows = read_page()
                     if len(rows) < page_size:
                         return len(rows)

@@ -332,3 +332,37 @@ def test_scoped_first_page_count_hit_skips_planner_with_real_redis(cache,api,mon
     assert second.json()['total']==1
     assert second.json()['items']==first.json()['items']
     assert len(planned)==1
+
+
+def test_global_literal_count_reuse_and_invalidation_with_real_redis(cache, api, monkeypatch):
+    from app.service.vocabulary import query
+    from app.service.vocabulary.models import VocabularyEntry
+    client, factory = api
+    with factory() as session:
+        session.add_all([VocabularyEntry(user_id=1, location_name='甲', standard_word='普通',
+            local_expression='其他', ipa='') for _ in range(2048)])
+        session.commit()
+    cache.invalidate('entries')
+    original = query.sparse_literal_sample
+    planned = []
+    def observe(*args, **kwargs):
+        planned.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(query, 'sparse_literal_sample', observe)
+    params = {'q':'日头', 'search_fields':'headword', 'page_size':50}
+    first = client.get('/vocabulary/search/entries', params=params)
+    assert first.status_code == 200
+    assert first.json()['total'] == len(first.json()['items']) == 1
+    assert len(planned) == 1
+    second = client.get('/vocabulary/search/entries', params=dict(params, page_size=100))
+    assert second.status_code == 200 and second.json()['items'] == first.json()['items']
+    assert second.json()['total'] == 1 and len(planned) == 1
+    with factory() as session:
+        session.add(VocabularyEntry(user_id=1, location_name='甲', standard_word='太阳',
+            local_expression='日头', ipa='b'))
+        session.commit()
+    cache.invalidate('entries')
+    third = client.get('/vocabulary/search/entries', params=params)
+    assert third.status_code == 200
+    assert third.json()['total'] == len(third.json()['items']) == 2
+    assert len(planned) == 2

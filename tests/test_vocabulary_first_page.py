@@ -67,7 +67,7 @@ def test_cached_zero_does_not_load_a_page(database):
 @pytest.mark.parametrize('options', [
     {'search_fields': ['detail']},
     {'search_fields': ['headword', 'location']}, {'search_fields': ['all']},
-    {'locations': []}, {'q': '%'}, {'locations': ['%']},
+    {'q': '%'}, {'locations': ['%']},
     {'q': '贵州'}, {'province': '贵州'}, {'regions': ['官话/西南']},
     {'standard_words': ['太阳']}, {'page': 2},
 ])

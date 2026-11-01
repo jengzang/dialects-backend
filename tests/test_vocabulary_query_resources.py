@@ -106,9 +106,11 @@ def test_entries_page_before_location_join(database, params, expected):
     _, session, statements = database
     result = query_vocabulary_items(session=session, page_size=2, **params)
     assert [item.id for item in result.items] == expected
-    selects = [sql for sql in statements if sql.startswith('SELECT')]
-    assert selects[0].startswith('SELECT COUNT(*)')
-    page_sql = selects[-1]
+    selects = [sql for sql in statements if sql.startswith('SELECT')
+               and 'vocabulary_literal_probe' not in sql]
+    if not params.get('q'):
+        assert selects[0].startswith('SELECT COUNT(*)')
+    page_sql = next(sql for sql in selects if "SELECT e.id, e.standard_word," in sql)
     assert 'FROM (SELECT' in page_sql
     assert page_sql.index('LIMIT') < page_sql.index('LEFT JOIN vocabulary_locations l')
     if expected[0] == 4:
@@ -123,9 +125,10 @@ def test_entries_metadata_filter_stays_before_pagination(database, params, expec
     _, session, statements = database
     result = query_vocabulary_items(session=session, page_size=1, **params)
     assert [item.id for item in result.items] == expected
-    selects = [sql for sql in statements if sql.startswith('SELECT')]
+    selects = [sql for sql in statements if sql.startswith('SELECT')
+               and 'vocabulary_literal_probe' not in sql]
     assert selects[0].startswith('SELECT COUNT(*)')
-    page_sql = selects[-1]
+    page_sql = next(sql for sql in selects if "SELECT e.id, e.standard_word," in sql)
     assert page_sql.index('LEFT JOIN vocabulary_locations l') < page_sql.index('LIMIT')
 
 
@@ -140,7 +143,8 @@ def test_entries_empty_or_out_of_range_only_counts(database, params, total):
     result = query_vocabulary_items(session=session, **params)
     assert result.items == []
     assert result.total == total
-    assert [sql for sql in statements if sql.startswith('SELECT')] == [
+    assert [sql for sql in statements if sql.startswith('SELECT')
+            and 'vocabulary_literal_probe' not in sql] == [
         next(sql for sql in statements if sql.startswith('SELECT COUNT(*)'))
     ]
 
