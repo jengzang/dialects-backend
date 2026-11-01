@@ -310,3 +310,25 @@ def test_inferred_first_page_count_is_reused_and_invalidated(cache, api):
     finally:
         with factory() as session:
             session.connection().connection.set_trace_callback(None)
+
+
+def test_scoped_first_page_count_hit_skips_planner_with_real_redis(cache,api,monkeypatch):
+    from app.service.vocabulary import query
+    client,_=api
+    original=query.plan_location_scope
+    planned=[]
+    def observe(*args,**kwargs):
+        planned.append(kwargs['locations'])
+        return original(*args,**kwargs)
+    monkeypatch.setattr(query,'plan_location_scope',observe)
+    params={'q':'日头','search_fields':'headword','locations':'甲','page_size':1}
+    first=client.get('/vocabulary/search/entries',params=params)
+    assert first.status_code==200
+    assert first.json()['total']==len(first.json()['items'])==1
+    assert len(planned)==1
+    # Different page size misses the response cache, reuses the exact count key.
+    second=client.get('/vocabulary/search/entries',params=dict(params,page_size=2))
+    assert second.status_code==200
+    assert second.json()['total']==1
+    assert second.json()['items']==first.json()['items']
+    assert len(planned)==1

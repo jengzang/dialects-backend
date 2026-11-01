@@ -75,3 +75,21 @@ def test_aggregate_scope_preserves_callers_transaction(database,endpoint,fails):
     assert conn.in_transaction
     conn.rollback()
     assert conn.execute('SELECT COUNT(*) FROM vocabulary_entries').fetchone()[0]==4
+
+
+def test_scoped_map_returns_all_user_identities_without_point_limit(database,monkeypatch):
+    conn,session,sql=database
+    conn.executemany('INSERT INTO vocabulary_locations(user_id,location_name,coordinates) VALUES(?,?,?)',
+        ((i+100,'同名','106,27') for i in range(700)))
+    conn.executemany('INSERT INTO vocabulary_entries(user_id,location_name,standard_word,local_expression,ipa) VALUES(?,?,?,?,?)',
+        ((i+100,'同名','共同','共同','a') for i in range(700)))
+    conn.executemany('INSERT INTO vocabulary_entries(user_id,location_name,standard_word,local_expression,ipa) VALUES(?,?,?,?,?)',
+        ((1,'范围外','无关','无关','a') for _ in range(10000)))
+    conn.commit();sql.clear()
+    params=dict(session=session,q='共同',search_fields=['headword'],locations=['同名'])
+    actual=query.query_vocabulary_map_points(**params)
+    assert planned(sql)
+    assert any('CROSS JOIN vocabulary_entries' in s and 'vocabulary_scope_plan' not in s for s in sql)
+    assert actual.total_entries==actual.total_points==len(actual.points)==700
+    monkeypatch.setattr(query,'_can_plan_location_scope',lambda **_:False)
+    assert actual==query.query_vocabulary_map_points(**params)
