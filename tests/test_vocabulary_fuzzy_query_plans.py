@@ -37,11 +37,12 @@ def test_default_fuzzy_location_count_uses_identity_before_content(database, par
     {'q': '日头', 'locations': ['%']}, {'q': '日头', 'locations': ['贵_']},
     {'q': '日\0头', 'locations': ['贵州']}, {'q': '日头', 'locations': ['贵\0州']},
 ])
-def test_entries_other_shapes_keep_automatic_count_plan(database, params):
-    _, session, statements = database
-    # Force a full first page for the headword shape, which can otherwise infer
-    # its exact total without executing COUNT at all.
-    query.query_vocabulary_items(session=session, page_size=1, **params)
+def test_legacy_entries_other_shapes_keep_automatic_count_plan(database, params):
+    conn, session, statements = database
+    # New bounded plans run only inside the lazy miss callback. Legacy loaders
+    # retain their original count/page SQL, including these content shapes.
+    query.query_vocabulary_items(session=session, page_size=1,
+        _count_loader=lambda sql, values: conn.execute(sql, values).fetchone()[0], **params)
     count = next(s for s in statements if s.startswith('SELECT COUNT(*)'))
     assert 'INDEXED BY' not in count
 

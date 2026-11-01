@@ -905,21 +905,35 @@ def query_vocabulary_map_points(
         ).fetchone()
         table_scan = not sampled or (matches or 0) * 4 < sampled * 3
     entry_source = 'vocabulary_entries e NOT INDEXED ' if table_scan else 'vocabulary_entries e '
-    select_sql = (
+    outer_select = (
         'SELECT e.location_name, l.coordinates, l.province, l.city, l.county, l.town, '
         'l.administrative_village, l.natural_village, l.yindian_region, l.atlas_region, '
         'l.vocabulary_source, l.description, l.other, '
         + ', '.join(f'l.{column}' for column in TONE_COLUMNS) + ', '
         'e.entry_count, e.first_entry_id FROM ('
-        'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
-        f'FROM {entry_source}'
-        f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
+    )
+    outer_join = (
         ') e LEFT JOIN vocabulary_locations l '
         'ON l.user_id = e.user_id AND l.location_name = e.location_name '
         'ORDER BY e.first_entry_id ASC'
     )
+    select_sql = (outer_select +
+        'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, MIN(e.id) AS first_entry_id '
+        f'FROM {entry_source}'
+        f'{inner_join}WHERE {where_clause} GROUP BY e.user_id, e.location_name'
+        + outer_join
+    )
 
-    cursor.execute(select_sql, values)
+    _execute_scoped_aggregate(
+        conn, cursor, q=q, fields=fields, locations=location_terms,
+        province=province, city=city, regions=regions, select_sql=select_sql, values=values,
+        columns='e.id, e.user_id, e.location_name',
+        scoped_select=lambda union: (
+            outer_select + 'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, '
+            f'MIN(e.id) AS first_entry_id FROM ({union}) e GROUP BY e.user_id, e.location_name'
+            + outer_join
+        ),
+    )
     column_names = [description[0] for description in cursor.description]
     rows = [
         {column_names[index]: value for index, value in enumerate(row)}

@@ -5,7 +5,7 @@ from tests.test_vocabulary_query_resources import database
 from tests.test_vocabulary_scope_plan import PARAMS, planned
 
 
-@pytest.mark.parametrize('endpoint',['standard'])
+@pytest.mark.parametrize('endpoint',['standard','map'])
 @pytest.mark.parametrize('qvalue',['日头','太阳','无命中'])
 def test_aggregate_scope_result_equals_original(database,monkeypatch,endpoint,qvalue):
     _,session,sql=database
@@ -36,7 +36,7 @@ def test_unlimited_standard_scope_returns_every_group(database,monkeypatch):
     assert result==query.query_vocabulary_standard_words(session=session,**PARAMS,limit=None)
 
 
-@pytest.mark.parametrize('endpoint',['standard'])
+@pytest.mark.parametrize('endpoint',['standard','map'])
 def test_aggregate_planning_and_select_share_snapshot(database,endpoint):
     import sqlite3
     conn,session,sql=database
@@ -58,7 +58,7 @@ def test_aggregate_planning_and_select_share_snapshot(database,endpoint):
     assert not conn.in_transaction
 
 
-@pytest.mark.parametrize('endpoint',['standard'])
+@pytest.mark.parametrize('endpoint',['standard','map'])
 @pytest.mark.parametrize('fails',[False,True])
 def test_aggregate_scope_preserves_callers_transaction(database,endpoint,fails):
     import sqlite3
