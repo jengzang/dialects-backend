@@ -1,0 +1,16 @@
+# 全域及宽范围 entries 模糊搜索优化
+
+Goal: optimize approved server-observed global/wide entries fuzzy paths locally, preserving LIKE, scripts, exact totals, ordering and all results. Baseline 0ff288e (verify actual HEAD in benchmark source metadata). No branch, deployment, schema, result cache, application disk aggregate or concurrency change.
+
+Design alternatives: rejected Python aggregate top-page IDs (high-hit callback cost); rejected blanket instr replacement (ASCII/NUL semantics) and unconditional prefilter (high-hit regression). Use original LIKE with an additional necessary literal instr predicate only for safe literal terms of at least two characters, without ASCII letters. Bounded 8 x 16 row samples spanning ID range determine whether content is sparse (<= 1/16 hits). Sampling is a heuristic, not a guarantee for arbitrary skew. Retain original count cache SQL/parameters and perform planning only in lazy first-page count misses. Only sparse (or small ID span) global non-covering short pages infer exact total; dense global data retains count-first to avoid extra first-call reads on old-hit/new-miss distributions. Single-character searches retain the original SQL because sampling overhead outweighed their gains on current data. Single-field definition keeps covering count-first. Narrow scopes keep existing fast seek path; wide scopes may use prefilter without changing location semantics. All planning/page/count share a read SAVEPOINT.
+
+- [x] Prototype actual SQL on local growth data, reject unstable alternatives.
+- [x] RED: full response/total equality, safe/unsafe literal boundaries, dense/sparse/skew sampling, cached/legacy/later-page bypass, bounded probes, NUL and blob, WAL snapshot/error cleanup; global short page avoids redundant count.
+- [x] GREEN: small isolated literal-prefilter helper and entries integration; no modifications to standard/map in this round.
+- [x] Run targeted and full vocabulary suites; distinguish baseline failures using identical baseline execution.
+- [x] Freeze final/baseline sources and measure actual service functions on current/growth/high-hit/skew. Native SQL replay includes planning and actual SQL; bounded 2 CPU/2 GiB/no swap, serial, read-only fixtures. Separate RSS/heap from time; count cache miss/hit, fields, scopes, rare/common/zero/ASCII/wildcard/empty/later pages. All responses, full ordered matches and exact totals checked independently.
+- [x] Review changes, document CPU/memory/I/O, actual improvements/regressions and evidence limits; separate local commits as appropriate.
+
+Resource boundary: at most128 sample rows, bounded read-only planning, no all-ID buffers; existing page bound <=200 unchanged. No new threads/workers, retries, tasks or services. Errors propagate and release read savepoint while preserving caller transaction. Existing admission policy remains unchanged. Full result equality is required; no performance win by truncating data.
+
+Completed local code commit: 15b3645. Final source hashes and measurements in docs/vocabulary-global-fuzzy-release-2026-11-01.md. 148 focused passed; full Redis suite 676 passed / 6 reproduced baseline failures. 138 native SQL + 138 paired service cases, 12 RSS +12 heap; 3 service cases repeated15 rounds due emulator variation. No server access.
