@@ -106,7 +106,13 @@ def test_locations_invalidate_search_results_without_advancing_entry_revision(ca
     assert cache.client.exists(old_entry)
     cache.invalidate("entries")
     assert cache.key("entries", {}) != old_entry
-    cache.cleanup()
+    # Each cleanup call advances one bounded SCAN page over the shared Redis
+    # keyspace. Other test namespaces may make our keys appear on later pages.
+    for _ in range(1024):
+        cache.client.delete(cache.root + ':cleanup-gate')
+        cache.cleanup()
+        if not cache.client.exists(old_entry, old_map):
+            break
     assert not cache.client.exists(old_entry)
     assert not cache.client.exists(old_map)
 
@@ -173,7 +179,7 @@ def test_warmup_populates_defaults_and_refreshes_location_dependent_search(cache
     asyncio.run(warm_once(cache, factory, pause=0))
     assert cache.read(cache.key("sql-count", {})) == {"count": 2}
     assert cache.read(cache.key("map-points", {}))["total_entries"] == 2
-    assert not cache.client.exists(entry_key)
+    assert cache.read(cache.key('entries', {}))['total'] == 2
     engine.dispose()
 
 

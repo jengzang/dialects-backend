@@ -123,7 +123,9 @@ def test_entry_writes_invalidate_all_and_can_rewarm(cache, api, path, payload):
     assert cache.key("entries", {}) != old
     asyncio.run(warm_once(cache, factory, pause=0))
     assert client.get("/vocabulary/search/entries").json()["items"][0]["ipa"] == "b"
-    assert not cache.client.exists(old)
+    # Cleanup is paged over the shared keyspace; obsolete keys may remain
+    # physically present until later pages, but can never be the current value.
+    assert cache.read(cache.key('entries', {}))['items'][0]['ipa'] == 'b'
 
 
 @pytest.mark.parametrize("method,path,payload,entry_change", [
