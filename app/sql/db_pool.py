@@ -3,7 +3,7 @@
 import sqlite3
 import threading
 from contextlib import contextmanager
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from typing import Iterator
 
 
@@ -15,92 +15,128 @@ class SQLiteConnectionPool:
         self.pool_size = pool_size
         self.timeout = timeout
         self._pool: Queue[sqlite3.Connection] = Queue(maxsize=pool_size)
-        self._lock = threading.Lock()
+        # Creation, return and shutdown share the same lifecycle lock. Helpers
+        # take it too so they cannot race close_all or drift the live count.
+        self._lock = threading.RLock()
         self._created_count = 0
         self._closing = False
         self._all_conns: set[sqlite3.Connection] = set()
 
-        for _ in range(pool_size):
-            self._pool.put(self._create_connection())
-            self._created_count += 1
+        try:
+            for _ in range(pool_size):
+                self._pool.put(self._create_connection())
+        except BaseException:
+            self.close_all()
+            raise
 
     def _create_connection(self) -> sqlite3.Connection:
-        if self._closing:
-            raise RuntimeError("Cannot create SQLite connections while the pool is closing")
+        with self._lock:
+            if self._closing:
+                raise RuntimeError("Cannot create SQLite connections while the pool is closing")
 
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-16000")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        self._all_conns.add(conn)
-        return conn
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            try:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=-16000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+            except BaseException:
+                conn.close()
+                raise
+            self._all_conns.add(conn)
+            self._created_count = len(self._all_conns)
+            return conn
 
     @contextmanager
     def get_connection(self) -> Iterator[sqlite3.Connection]:
-        conn = None
-        try:
+        with self._lock:
             if self._closing:
                 raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
 
-            try:
-                conn = self._pool.get(timeout=self.timeout)
-            except Empty:
-                with self._lock:
-                    if self._closing:
-                        raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
-                    if self._created_count < self.pool_size * 2:
+        # Never hold the lifecycle lock while waiting for a borrower to return.
+        try:
+            conn = self._pool.get(timeout=self.timeout)
+        except Empty:
+            with self._lock:
+                if self._closing:
+                    raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
+                try:
+                    # A return may have won the lock after the timed wait.
+                    conn = self._pool.get_nowait()
+                except Empty:
+                    if len(self._all_conns) < self.pool_size * 2:
                         conn = self._create_connection()
-                        self._created_count += 1
                     else:
                         raise TimeoutError(
                             f"Timed out after {self.timeout} seconds waiting for a SQLite connection"
                         )
 
+        with self._lock:
+            if self._closing:
+                self._discard_connection(conn)
+                raise RuntimeError(f"SQLite connection pool is closing for {self.db_path}")
+        try:
             yield conn
         finally:
-            if conn is None:
-                return
+            # Cleanup must not return from this generator: doing so suppresses
+            # exceptions raised by the caller, including during shutdown.
+            self._return_connection(conn)
 
+    def _return_connection(self, conn: sqlite3.Connection) -> None:
+        with self._lock:
+            if conn not in self._all_conns:
+                return  # close_all already closed this checked-out connection.
             if self._closing:
                 self._discard_connection(conn)
                 return
 
             try:
                 conn.execute("SELECT 1")
-                self._pool.put(conn, block=False)
             except Exception:
                 self._discard_connection(conn)
+                replacement = None
                 try:
-                    if not self._closing:
-                        new_conn = self._create_connection()
-                        self._pool.put(new_conn, block=False)
+                    if not self._pool.full() and len(self._all_conns) < self.pool_size * 2:
+                        replacement = self._create_connection()
+                        self._pool.put_nowait(replacement)
                 except Exception:
-                    pass
+                    if replacement is not None:
+                        self._discard_connection(replacement)
+                return
+
+            try:
+                self._pool.put_nowait(conn)
+            except Full:
+                # Overflow is healthy but no longer needed. Do not create a
+                # replacement for a queue that is already full.
+                self._discard_connection(conn)
 
     def _discard_connection(self, conn: sqlite3.Connection) -> None:
-        try:
-            conn.close()
-        except KeyboardInterrupt:
-            print(f"[WARN] Shutdown interrupted while closing SQLite connection: {self.db_path}")
-        except Exception as exc:
-            print(f"[WARN] Failed to close SQLite connection: {self.db_path}: {exc}")
-        finally:
-            self._all_conns.discard(conn)
+        with self._lock:
+            try:
+                conn.close()
+            except KeyboardInterrupt:
+                print(f"[WARN] Shutdown interrupted while closing SQLite connection: {self.db_path}")
+            except Exception as exc:
+                print(f"[WARN] Failed to close SQLite connection: {self.db_path}: {exc}")
+            else:
+                self._all_conns.discard(conn)
+                self._created_count = len(self._all_conns)
 
     def close_all(self) -> None:
-        self._closing = True
+        with self._lock:
+            self._closing = True
 
-        while not self._pool.empty():
-            try:
-                conn = self._pool.get_nowait()
-            except Empty:
-                break
-            self._discard_connection(conn)
+            while True:
+                try:
+                    conn = self._pool.get_nowait()
+                except Empty:
+                    break
+                self._discard_connection(conn)
 
-        for conn in list(self._all_conns):
-            self._discard_connection(conn)
+            for conn in list(self._all_conns):
+                self._discard_connection(conn)
 
 
 class DatabasePoolManager:
