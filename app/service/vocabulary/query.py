@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.service.vocabulary.models import TONE_COLUMNS
 from app.service.vocabulary.partitions import partition_filter
+from app.service.vocabulary.scope_plan import plan_location_scope
 from app.service.vocabulary.script_variants import (
     build_script_variants,
     standard_word_key,
@@ -413,6 +414,25 @@ def _filter_uses_locations(where_clause: str) -> bool:
     return "l." in where_clause
 
 
+def _can_plan_location_scope(*, q, fields, locations, province, city, regions):
+    return (
+        len(locations) <= 32
+        and set(fields) in ({'definition'}, {'headword'}, {'definition', 'headword'})
+        and _prefer_location_identity_scan(
+            q=q, fields=DEFAULT_SEARCH_FIELDS, locations=locations,
+            province=province, city=city, regions=regions,
+        )
+    )
+
+
+def _resolve_location_scope(cursor, locations):
+    return plan_location_scope(
+        cursor, locations=locations,
+        metadata_columns=[column.replace('l.', 'p.', 1)
+                          for column in SEARCH_FIELD_COLUMNS['location'] if column.startswith('l.')],
+    )
+
+
 def _prefer_scoped_standard_word_scan(*, q, fields, locations, province, city, regions) -> bool:
     """Measured non-covering headword shapes; retain definition's covering scan.
 
@@ -592,9 +612,10 @@ def query_vocabulary_items(
         count_sql, count_values = _location_first_count_sql(location_terms, count_sql, values)
 
     rows = None
+    page_sql, page_values = select_sql, values
 
     def read_page():
-        cursor.execute(select_sql, values + [page_size, offset])
+        cursor.execute(page_sql, page_values + [page_size, offset])
         names = [description[0] for description in cursor.description]
         return [dict(zip(names, row)) for row in cursor.fetchall()]
 
@@ -609,18 +630,46 @@ def query_vocabulary_items(
         )
     )
 
+    scoped_eligible = page == 1 and not standard_words and _can_plan_location_scope(
+        q=q, fields=fields, locations=location_terms,
+        province=province, city=city, regions=regions,
+    )
+
     def execute_count():
-        nonlocal rows
-        if page_first:
+        nonlocal rows, page_sql, page_values
+        if page_first or scoped_eligible:
             # Legacy sqlite3 transaction mode does not begin on SELECT. A read
             # savepoint gives the page and a full-page COUNT the same snapshot,
             # including when another connection commits between the two reads.
             cursor.execute('SAVEPOINT vocabulary_first_page')
             try:
-                rows = read_page()
-                if len(rows) < page_size:
-                    return len(rows)
-                return cursor.execute(count_sql, count_values).fetchone()[0]
+                actual_count_sql, actual_count_values = count_sql, count_values
+                if scoped_eligible:
+                    scope = _resolve_location_scope(cursor, location_terms)
+                    if scope is not None:
+                        content, content_values = _build_filter_clause(
+                            q=q, search_fields=fields, locations=[],
+                        )
+                        cte, union, bindings = scope.rows(entry_columns + ', e.user_id', content, content_values)
+                        page_sql = (cte + f'SELECT {entry_columns}, {location_columns}'
+                                    f'FROM ({union} ORDER BY id DESC LIMIT ? OFFSET ?) e '
+                                    f'{location_join}ORDER BY e.id DESC')
+                        page_values = bindings
+                        cte, bindings = scope.cte()
+                        first, second = scope.branches(content)
+                        actual_count_sql = (
+                            cte + 'SELECT /* vocabulary_scope_count */ SUM(c) FROM ('
+                            f'SELECT COUNT(*) c FROM {first} UNION ALL SELECT COUNT(*) c FROM {second})'
+                        )
+                        actual_count_values = bindings + content_values * 2
+                if page_first:
+                    rows = read_page()
+                    if len(rows) < page_size:
+                        return len(rows)
+                total = cursor.execute(actual_count_sql, actual_count_values).fetchone()[0]
+                if rows is None and offset < total:
+                    rows = read_page()
+                return total
             finally:
                 cursor.execute('RELEASE SAVEPOINT vocabulary_first_page')
         cursor.execute(count_sql, count_values)

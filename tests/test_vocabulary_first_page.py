@@ -8,7 +8,8 @@ from tests.test_vocabulary_query_resources import database
 
 
 def selects(statements):
-    return [sql for sql in statements if sql.startswith('SELECT')]
+    return [sql for sql in statements if sql.startswith(('SELECT', 'WITH'))
+            and 'vocabulary_scope_plan' not in sql]
 
 
 @pytest.mark.parametrize('fields', [['headword'], ['definition', 'headword']])
@@ -64,7 +65,7 @@ def test_cached_zero_does_not_load_a_page(database):
 
 
 @pytest.mark.parametrize('options', [
-    {'search_fields': ['definition']}, {'search_fields': ['detail']},
+    {'search_fields': ['detail']},
     {'search_fields': ['headword', 'location']}, {'search_fields': ['all']},
     {'locations': []}, {'q': '%'}, {'locations': ['%']},
     {'q': '贵州'}, {'province': '贵州'}, {'regions': ['官话/西南']},
@@ -87,7 +88,7 @@ def test_page_and_fallback_count_share_read_snapshot(database):
         def trace(sql):
             nonlocal wrote
             statements.append(sql)
-            if sql.startswith('SELECT COUNT(*)') and not wrote:
+            if (sql.startswith('SELECT COUNT(*)') or 'vocabulary_scope_count' in sql) and not wrote:
                 writer.execute('INSERT INTO vocabulary_entries(user_id,location_name,standard_word,local_expression,ipa) '
                                "VALUES(1,'同名','太阳','日头','z')")
                 writer.commit()
