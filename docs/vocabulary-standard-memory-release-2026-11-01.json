@@ -1,0 +1,4074 @@
+{
+  "implementation_commit": "e7a2e197e16c2e5b709c9b3ce2100297d89c7973",
+  "source": {
+    "baseline": "69cfa47",
+    "fixtures": {
+      "current": {
+        "sha256": "fbbb92cd36feeab9559593d56645e12642d1fa30f5b1d3f758ef0e374147176c",
+        "bytes": 23904256,
+        "entries": 95003,
+        "spellings": 41558,
+        "locations": 29
+      },
+      "row_growth": {
+        "sha256": "70f0b7f9306978f1fa925d2ab2397e7b474a8b61422b070921a59a954b60522f",
+        "bytes": 121937920,
+        "entries": 475015,
+        "spellings": 41558,
+        "locations": 29
+      },
+      "spelling_growth": {
+        "sha256": "8d5ccf9604103056343894d4fa3e98a9c4d80685fd29a041f6a54fbd2458460d",
+        "bytes": 141074432,
+        "entries": 475015,
+        "spellings": 207790,
+        "locations": 29
+      },
+      "location_growth": {
+        "sha256": "a2e9f0e8f37998244b2c65161214638ad9fed1344a8e71db0bd70a925aebcb74",
+        "bytes": 24252416,
+        "entries": 95003,
+        "spellings": 41558,
+        "locations": 1024
+      }
+    },
+    "sha256": {
+      "before.py": "1e004cb8ce6e3fdbab0231fce6e640b9249e446ae191adff8ef9d4f0eb261790",
+      "after.py": "12ee332e257b7718cc3d0ced21791b090716ec3814ec9f3d82d179162442b7f0"
+    }
+  },
+  "python": "3.12.13 (main, Apr  7 2026, 02:23:40) [GCC 14.2.0]",
+  "sqlite": "3.46.1",
+  "platform": "Linux-6.12.76-linuxkit-x86_64-with-glibc2.41",
+  "limits": {
+    "cpu.max": "200000 100000",
+    "memory.max": "2147483648",
+    "memory.swap.max": "0",
+    "memory.peak": "587923456",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+  },
+  "results": [
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            249.22525000874884,
+            220.21779100759886,
+            205.8760829968378,
+            235.5614159896504,
+            217.9597089998424,
+            209.66024999506772,
+            193.98716601426713
+          ],
+          "cpu_ms": [
+            248.91145699999996,
+            220.13641599999988,
+            205.76820699999976,
+            235.4686250000002,
+            217.87258299999968,
+            209.56254200000046,
+            193.90674899999993
+          ],
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 217.9597089998424,
+          "median_cpu_ms": 217.87258299999968
+        },
+        "after": {
+          "samples_ms": [
+            245.77604199294,
+            228.43566702795215,
+            210.0698750000447,
+            214.9026670085732,
+            210.55991598404944,
+            269.6336670196615,
+            196.7645410040859
+          ],
+          "cpu_ms": [
+            245.59266699999992,
+            228.3510390000001,
+            209.96012399999975,
+            214.7979979999999,
+            210.43870700000022,
+            269.53099800000047,
+            196.67012399999973
+          ],
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 214.9026670085732,
+          "median_cpu_ms": 214.7979979999999
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 219.25737499259412,
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 97964,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 97964,
+            "VmRSS": 97140
+          },
+          "rusage_peak_rss_kib": 98332,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "2929891",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 233.95808399072848,
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 87180,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 87180,
+            "VmRSS": 86420
+          },
+          "rusage_peak_rss_kib": 87384,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "2929891",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 1030.236458987929,
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 130204,
+          "pre_query_peak_rss_kib": 74784,
+          "proc_status_before": {
+            "VmHWM": 74784,
+            "VmRSS": 74784
+          },
+          "proc_status_after": {
+            "VmHWM": 130204,
+            "VmRSS": 124244
+          },
+          "rusage_peak_rss_kib": 130204,
+          "python_peak_bytes": 19213141,
+          "query_process_io_delta": {
+            "rchar": "2929891",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 1117.2325840161648,
+          "signature": "edc5e0033c9f8afaea6c1b36ef701a939ce56960bd3272a7edfaeaf25a9bfb2b",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 104796,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 104796,
+            "VmRSS": 100812
+          },
+          "rusage_peak_rss_kib": 104796,
+          "python_peak_bytes": 9510814,
+          "query_process_io_delta": {
+            "rchar": "2929895",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            283.98195799672976,
+            290.56924997712485,
+            284.41120800562203,
+            286.5692079940345,
+            284.1215420048684,
+            259.09412500914186,
+            255.1615000120364
+          ],
+          "cpu_ms": [
+            283.8967889999999,
+            290.44774800000005,
+            284.3210410000001,
+            286.4742489999994,
+            284.0205820000001,
+            259.02716700000104,
+            255.04724900000042
+          ],
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 284.1215420048684,
+          "median_cpu_ms": 284.0205820000001
+        },
+        "after": {
+          "samples_ms": [
+            274.77945902501233,
+            283.127375994809,
+            283.4547500242479,
+            291.3391670153942,
+            272.88299999781884,
+            261.00037500145845,
+            257.4591249867808
+          ],
+          "cpu_ms": [
+            274.66695699999997,
+            283.0206240000006,
+            283.3478729999994,
+            291.1937909999995,
+            272.79137399999877,
+            260.89754300000044,
+            257.3810419999987
+          ],
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 274.77945902501233,
+          "median_cpu_ms": 274.66695699999997
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 266.80454099550843,
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 105492,
+          "pre_query_peak_rss_kib": 74756,
+          "proc_status_before": {
+            "VmHWM": 74756,
+            "VmRSS": 74756
+          },
+          "proc_status_after": {
+            "VmHWM": 105492,
+            "VmRSS": 104760
+          },
+          "rusage_peak_rss_kib": 105688,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "2929895",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 273.9927920047194,
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 90380,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 90380,
+            "VmRSS": 89520
+          },
+          "rusage_peak_rss_kib": 90864,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "2929895",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 1447.3380009876564,
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 146028,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 146028,
+            "VmRSS": 137948
+          },
+          "rusage_peak_rss_kib": 146028,
+          "python_peak_bytes": 26294341,
+          "query_process_io_delta": {
+            "rchar": "2929895",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 1608.8779180136044,
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 111328,
+          "pre_query_peak_rss_kib": 74868,
+          "proc_status_before": {
+            "VmHWM": 74868,
+            "VmRSS": 74868
+          },
+          "proc_status_after": {
+            "VmHWM": 111328,
+            "VmRSS": 107312
+          },
+          "rusage_peak_rss_kib": 111328,
+          "python_peak_bytes": 12741250,
+          "query_process_io_delta": {
+            "rchar": "2929896",
+            "wchar": "0",
+            "syscr": "721",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            237.2911669954192,
+            244.28408400854096,
+            240.81195800681598,
+            240.38466601632535,
+            244.53045800328255,
+            240.4345000104513,
+            238.83304200717248
+          ],
+          "cpu_ms": [
+            237.19629100000006,
+            244.1744159999999,
+            240.718416,
+            240.2736240000003,
+            244.41212399999836,
+            240.34666399999873,
+            238.73249999999933
+          ],
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 240.4345000104513,
+          "median_cpu_ms": 240.34666399999873
+        },
+        "after": {
+          "samples_ms": [
+            241.03708402253687,
+            253.66562500130385,
+            248.43612499535084,
+            246.98129200260155,
+            244.02150098467246,
+            244.88429201301187,
+            245.2974999905564
+          ],
+          "cpu_ms": [
+            240.93878999999953,
+            253.56729099999953,
+            248.3379990000003,
+            246.89591599999972,
+            243.92020800000046,
+            244.78733299999965,
+            245.21258199999886
+          ],
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 245.2974999905564,
+          "median_cpu_ms": 245.21258199999886
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 381.78004199289717,
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 98220,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 98220,
+            "VmRSS": 97528
+          },
+          "rusage_peak_rss_kib": 98268,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 378.61495901597664,
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 87692,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 87692,
+            "VmRSS": 86832
+          },
+          "rusage_peak_rss_kib": 87692,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 1129.2854589992203,
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 130200,
+          "pre_query_peak_rss_kib": 74764,
+          "proc_status_before": {
+            "VmHWM": 74764,
+            "VmRSS": 74764
+          },
+          "proc_status_after": {
+            "VmHWM": 130200,
+            "VmRSS": 124240
+          },
+          "rusage_peak_rss_kib": 130200,
+          "python_peak_bytes": 19213173,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 1212.22691697767,
+          "signature": "10ac77ff7e4a54622be97147982f478d4821d26c39cfd1dc34c5ef90f952c266",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 104700,
+          "pre_query_peak_rss_kib": 74860,
+          "proc_status_before": {
+            "VmHWM": 74860,
+            "VmRSS": 74860
+          },
+          "proc_status_after": {
+            "VmHWM": 104700,
+            "VmRSS": 100816
+          },
+          "rusage_peak_rss_kib": 104700,
+          "python_peak_bytes": 9510846,
+          "query_process_io_delta": {
+            "rchar": "16286954",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            306.80412499350496,
+            300.12258398346603,
+            302.02262598322704,
+            299.00779100717045,
+            301.52116701356135,
+            299.397124996176,
+            310.13920801342465
+          ],
+          "cpu_ms": [
+            306.6997489999999,
+            300.02262400000035,
+            301.8537479999992,
+            298.8879159999982,
+            301.4229579999999,
+            299.29108199999985,
+            310.01970699999856
+          ],
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 301.52116701356135,
+          "median_cpu_ms": 301.4229579999999
+        },
+        "after": {
+          "samples_ms": [
+            308.3168330194894,
+            311.8920410051942,
+            307.1053340099752,
+            304.0386250067968,
+            299.6252500161063,
+            300.0185829878319,
+            349.34300000895746
+          ],
+          "cpu_ms": [
+            308.209166000001,
+            311.7898739999987,
+            307.0088749999975,
+            303.9532069999993,
+            299.5205409999997,
+            299.8951640000023,
+            349.23008200000186
+          ],
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 307.1053340099752,
+          "median_cpu_ms": 307.0088749999975
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 446.9172919925768,
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 105384,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 105384,
+            "VmRSS": 104752
+          },
+          "rusage_peak_rss_kib": 105420,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 427.54004200105555,
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 90764,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 90764,
+            "VmRSS": 89956
+          },
+          "rusage_peak_rss_kib": 90788,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 1602.0355000218842,
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 145908,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 145908,
+            "VmRSS": 137936
+          },
+          "rusage_peak_rss_kib": 145908,
+          "python_peak_bytes": 26294373,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 1764.218375989003,
+          "signature": "d1e0888f88debd9afcdb5c8287bac06f9f6c08a1914eea73e627b3298fbe748c",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 111304,
+          "pre_query_peak_rss_kib": 74864,
+          "proc_status_before": {
+            "VmHWM": 74864,
+            "VmRSS": 74864
+          },
+          "proc_status_after": {
+            "VmHWM": 111304,
+            "VmRSS": 107340
+          },
+          "rusage_peak_rss_kib": 111304,
+          "python_peak_bytes": 13088034,
+          "query_process_io_delta": {
+            "rchar": "16286953",
+            "wchar": "0",
+            "syscr": "3982",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            1203.936417994555,
+            1281.4240840089042,
+            1206.2030840024818,
+            1171.5633340063505,
+            1137.481374986237,
+            1182.7332499960903,
+            1172.7044169965666
+          ],
+          "cpu_ms": [
+            1203.7677880000003,
+            1281.2791639999973,
+            1206.0414950000009,
+            1171.4479530000049,
+            1137.3392050000034,
+            1182.5709119999956,
+            1172.5905369999978
+          ],
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 1182.7332499960903,
+          "median_cpu_ms": 1182.5709119999956
+        },
+        "after": {
+          "samples_ms": [
+            1167.123041988816,
+            1170.0141670007724,
+            1228.1585419841576,
+            1186.298375017941,
+            1155.6071669911034,
+            1201.4125419955235,
+            1204.696292988956
+          ],
+          "cpu_ms": [
+            1166.949829,
+            1169.8888700000011,
+            1228.0295810000011,
+            1186.1723310000016,
+            1155.5054150000003,
+            1201.290078999996,
+            1204.551619
+          ],
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 1186.298375017941,
+          "median_cpu_ms": 1186.1723310000016
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 1491.3837920175865,
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 183976,
+          "pre_query_peak_rss_kib": 74796,
+          "proc_status_before": {
+            "VmHWM": 74796,
+            "VmRSS": 74796
+          },
+          "proc_status_after": {
+            "VmHWM": 183976,
+            "VmRSS": 176564
+          },
+          "rusage_peak_rss_kib": 189696,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "17818857",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 1341.8896670045797,
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 125400,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 125400,
+            "VmRSS": 118076
+          },
+          "rusage_peak_rss_kib": 132384,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "17818857",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 5428.572668984998,
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 330516,
+          "pre_query_peak_rss_kib": 74796,
+          "proc_status_before": {
+            "VmHWM": 74796,
+            "VmRSS": 74796
+          },
+          "proc_status_after": {
+            "VmHWM": 330516,
+            "VmRSS": 306320
+          },
+          "rusage_peak_rss_kib": 330516,
+          "python_peak_bytes": 96514777,
+          "query_process_io_delta": {
+            "rchar": "17818858",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 5694.883086020127,
+          "signature": "d9d11d5bed14c0342859da92277bf202075f82ea559cac170e4fc74902445a66",
+          "total": 199825,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 204644,
+          "pre_query_peak_rss_kib": 74788,
+          "proc_status_before": {
+            "VmHWM": 74788,
+            "VmRSS": 74788
+          },
+          "proc_status_after": {
+            "VmHWM": 204644,
+            "VmRSS": 192448
+          },
+          "rusage_peak_rss_kib": 204644,
+          "python_peak_bytes": 45349335,
+          "query_process_io_delta": {
+            "rchar": "17818858",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            1664.3272090004757,
+            3080.182417994365,
+            1824.5969590207096,
+            1663.9986259979196,
+            1707.9813749878667,
+            1639.2129590094555,
+            1665.0010839803144
+          ],
+          "cpu_ms": [
+            1664.1430769999986,
+            3079.7734449999934,
+            1824.3894920000016,
+            1663.8140749999907,
+            1707.7597419999934,
+            1639.0546180000028,
+            1664.8655340000005
+          ],
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 1665.0010839803144,
+          "median_cpu_ms": 1664.8655340000005
+        },
+        "after": {
+          "samples_ms": [
+            1625.079376011854,
+            2638.9024179952685,
+            1533.1103760108817,
+            1542.0810429786798,
+            1632.0669180131517,
+            1560.5662090238184,
+            1572.6911679957993
+          ],
+          "cpu_ms": [
+            1624.917035000003,
+            2638.5819479999955,
+            1532.9353660000038,
+            1541.925954000007,
+            1631.923369000006,
+            1560.4457839999952,
+            1572.500367999993
+          ],
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 1572.6911679957993,
+          "median_cpu_ms": 1572.500367999993
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 1841.9995840231422,
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 224944,
+          "pre_query_peak_rss_kib": 74788,
+          "proc_status_before": {
+            "VmHWM": 74788,
+            "VmRSS": 74788
+          },
+          "proc_status_after": {
+            "VmHWM": 224944,
+            "VmRSS": 217536
+          },
+          "rusage_peak_rss_kib": 227076,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "17818857",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 2165.187668026192,
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 144916,
+          "pre_query_peak_rss_kib": 74784,
+          "proc_status_before": {
+            "VmHWM": 74784,
+            "VmRSS": 74784
+          },
+          "proc_status_after": {
+            "VmHWM": 144916,
+            "VmRSS": 137824
+          },
+          "rusage_peak_rss_kib": 148340,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "17818857",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 9142.27950500208,
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 416632,
+          "pre_query_peak_rss_kib": 74768,
+          "proc_status_before": {
+            "VmHWM": 74768,
+            "VmRSS": 74768
+          },
+          "proc_status_after": {
+            "VmHWM": 416632,
+            "VmRSS": 384128
+          },
+          "rusage_peak_rss_kib": 416632,
+          "python_peak_bytes": 133054649,
+          "query_process_io_delta": {
+            "rchar": "17818858",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 15295.875798008638,
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 240440,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 240440,
+            "VmRSS": 224312
+          },
+          "rusage_peak_rss_kib": 240440,
+          "python_peak_bytes": 62485387,
+          "query_process_io_delta": {
+            "rchar": "17818858",
+            "wchar": "0",
+            "syscr": "4356",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            580.9387500048615,
+            422.30354200000875,
+            494.17412499315105,
+            414.33633398264647,
+            616.7996659933124,
+            469.41683400655165,
+            447.97945898608305
+          ],
+          "cpu_ms": [
+            580.6304560000086,
+            422.13358200000073,
+            493.99674899999013,
+            414.2107050000021,
+            616.60178999999,
+            469.2236639999976,
+            447.8219159999952
+          ],
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 469.41683400655165,
+          "median_cpu_ms": 469.2236639999976
+        },
+        "after": {
+          "samples_ms": [
+            409.75512500153854,
+            405.2962080168072,
+            449.8612080060411,
+            442.9842090175953,
+            767.2847920039203,
+            550.9613750036806,
+            466.4706669864245
+          ],
+          "cpu_ms": [
+            409.5742909999984,
+            405.1551649999965,
+            449.67645699999537,
+            442.83066500000245,
+            766.8679559999987,
+            550.7524570000015,
+            466.3126629999965
+          ],
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 449.8612080060411,
+          "median_cpu_ms": 449.67645699999537
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 505.1729590049945,
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 102064,
+          "pre_query_peak_rss_kib": 74796,
+          "proc_status_before": {
+            "VmHWM": 74796,
+            "VmRSS": 74796
+          },
+          "proc_status_after": {
+            "VmHWM": 102064,
+            "VmRSS": 101220
+          },
+          "rusage_peak_rss_kib": 119164,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "3044584",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 478.1107919989154,
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 99624,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 99624,
+            "VmRSS": 98792
+          },
+          "rusage_peak_rss_kib": 119164,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "3044584",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": 1000
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 2051.856667007087,
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 136684,
+          "pre_query_peak_rss_kib": 74800,
+          "proc_status_before": {
+            "VmHWM": 74800,
+            "VmRSS": 74800
+          },
+          "proc_status_after": {
+            "VmHWM": 136684,
+            "VmRSS": 130644
+          },
+          "rusage_peak_rss_kib": 136684,
+          "python_peak_bytes": 23336807,
+          "query_process_io_delta": {
+            "rchar": "3044585",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 2806.768042006297,
+          "signature": "62787ffee222d3d0de2706ac87baf3df0757b9dec81103d6b7534dffe9ae23c6",
+          "total": 39965,
+          "returned": 1000,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 125576,
+          "pre_query_peak_rss_kib": 74796,
+          "proc_status_before": {
+            "VmHWM": 74796,
+            "VmRSS": 74796
+          },
+          "proc_status_after": {
+            "VmHWM": 125576,
+            "VmRSS": 121608
+          },
+          "rusage_peak_rss_kib": 125576,
+          "python_peak_bytes": 21602930,
+          "query_process_io_delta": {
+            "rchar": "3044585",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            505.6009159889072,
+            590.8723339962307,
+            572.2731669957284,
+            520.6657499948051,
+            511.254333978286,
+            516.3367509958334,
+            522.1437080181204
+          ],
+          "cpu_ms": [
+            505.4583729999962,
+            590.67224799999,
+            570.5825830000038,
+            520.5037059999995,
+            511.0837069999974,
+            515.9177899999889,
+            521.9681650000041
+          ],
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 520.6657499948051,
+          "median_cpu_ms": 520.5037059999995
+        },
+        "after": {
+          "samples_ms": [
+            530.0309579761233,
+            682.4419589829631,
+            546.6991260182112,
+            619.9659169942606,
+            516.9648340088315,
+            556.7217509960756,
+            645.1259170135017
+          ],
+          "cpu_ms": [
+            529.8482070000006,
+            682.2919560000003,
+            546.5374139999994,
+            619.7437059999942,
+            516.8227479999956,
+            556.5426240000022,
+            644.9603729999893
+          ],
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 556.7217509960756,
+          "median_cpu_ms": 556.5426240000022
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "rss",
+      "results": {
+        "before": {
+          "median_ms": 537.1733340143692,
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 109740,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 109740,
+            "VmRSS": 108968
+          },
+          "rusage_peak_rss_kib": 118156,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "3044584",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 540.2620829991065,
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 102436,
+          "pre_query_peak_rss_kib": 74788,
+          "proc_status_before": {
+            "VmHWM": 74788,
+            "VmRSS": 74788
+          },
+          "proc_status_after": {
+            "VmHWM": 102436,
+            "VmRSS": 101704
+          },
+          "rusage_peak_rss_kib": 118156,
+          "python_peak_bytes": null,
+          "query_process_io_delta": {
+            "rchar": "3044584",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "limit": null
+      },
+      "resources": true,
+      "mode": "heap",
+      "results": {
+        "before": {
+          "median_ms": 2764.224501006538,
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 152720,
+          "pre_query_peak_rss_kib": 74792,
+          "proc_status_before": {
+            "VmHWM": 74792,
+            "VmRSS": 74792
+          },
+          "proc_status_after": {
+            "VmHWM": 152720,
+            "VmRSS": 144616
+          },
+          "rusage_peak_rss_kib": 152720,
+          "python_peak_bytes": 30546047,
+          "query_process_io_delta": {
+            "rchar": "3044585",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        },
+        "after": {
+          "median_ms": 2881.912626005942,
+          "signature": "43bd7fd91cb604ac3da49432660ba5bca82c30a3c67701390ccf65e47eef90a7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE 1=1 AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "peak_rss_kib": 134208,
+          "pre_query_peak_rss_kib": 74788,
+          "proc_status_before": {
+            "VmHWM": 74788,
+            "VmRSS": 74788
+          },
+          "proc_status_after": {
+            "VmHWM": 134208,
+            "VmRSS": 126216
+          },
+          "rusage_peak_rss_kib": 134208,
+          "python_peak_bytes": 24871478,
+          "query_process_io_delta": {
+            "rchar": "3044585",
+            "wchar": "0",
+            "syscr": "749",
+            "syscw": "0",
+            "read_bytes": "0",
+            "write_bytes": "0",
+            "cancelled_write_bytes": "0"
+          }
+        }
+      }
+    },
+    {
+      "name": "definition",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "太阳",
+        "search_fields": [
+          "definition"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            19.544500013580546,
+            19.308000017190352,
+            18.952750018797815,
+            17.358874989440665,
+            17.616291996091604,
+            17.89195800665766,
+            17.998124996665865
+          ],
+          "cpu_ms": [
+            19.432499999993524,
+            19.199291000006724,
+            18.848375999994005,
+            17.251248999997415,
+            17.528792000007343,
+            17.747833999990803,
+            17.784292000001756
+          ],
+          "signature": "22bb7b23b8819bb074d6edd92201f80f0e7e4123ddbae9cb7c88519af79f3b2b",
+          "total": 17,
+          "returned": 17,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.standard_word, '') LIKE '%太阳%' OR COALESCE(e.standard_word, '') LIKE '%太陽%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 17.998124996665865,
+          "median_cpu_ms": 17.784292000001756
+        },
+        "after": {
+          "samples_ms": [
+            19.3217089981772,
+            19.52691699261777,
+            18.95316698937677,
+            18.437208025716245,
+            17.502666014479473,
+            17.20520798698999,
+            17.361292004352435
+          ],
+          "cpu_ms": [
+            19.210791999995536,
+            19.411082999994278,
+            18.844500000000153,
+            18.329124000004526,
+            17.41625000001079,
+            17.095582999999692,
+            17.263832999987017
+          ],
+          "signature": "22bb7b23b8819bb074d6edd92201f80f0e7e4123ddbae9cb7c88519af79f3b2b",
+          "total": 17,
+          "returned": 17,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.standard_word, '') LIKE '%太阳%' OR COALESCE(e.standard_word, '') LIKE '%太陽%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 18.437208025716245,
+          "median_cpu_ms": 18.329124000004526
+        }
+      }
+    },
+    {
+      "name": "headword",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "日头",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            19.91087500937283,
+            22.138875006930903,
+            21.22625001356937,
+            21.236582979327068,
+            20.78045901726,
+            20.521291997283697,
+            21.205291006481275
+          ],
+          "cpu_ms": [
+            19.82675000000711,
+            22.057707999991294,
+            21.141376000002765,
+            21.135333000003698,
+            20.665581999992355,
+            20.439666000001466,
+            21.118290999993405
+          ],
+          "signature": "89997f83b4cf9116e514c0104b83fc6f6a7407d6c912fc57ceeacdf7109f1768",
+          "total": 22,
+          "returned": 22,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.local_expression, '') LIKE '%日头%' OR COALESCE(e.local_expression, '') LIKE '%日頭%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 21.205291006481275,
+          "median_cpu_ms": 21.118290999993405
+        },
+        "after": {
+          "samples_ms": [
+            20.330250001279637,
+            20.538583979941905,
+            21.498291986063123,
+            21.077833021990955,
+            21.573000005446374,
+            19.75820798543282,
+            21.06808399548754
+          ],
+          "cpu_ms": [
+            20.249207999995633,
+            20.449665000001005,
+            21.398083999997652,
+            20.971958000004065,
+            21.467291999996974,
+            19.661083999992,
+            20.974416999990808
+          ],
+          "signature": "89997f83b4cf9116e514c0104b83fc6f6a7407d6c912fc57ceeacdf7109f1768",
+          "total": 22,
+          "returned": 22,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.local_expression, '') LIKE '%日头%' OR COALESCE(e.local_expression, '') LIKE '%日頭%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 21.06808399548754,
+          "median_cpu_ms": 20.971958000004065
+        }
+      }
+    },
+    {
+      "name": "both-small",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "天柱竹林",
+          "息烽"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            1.5160419861786067,
+            1.5957499854266644,
+            1.5088750224094838,
+            1.5008329937700182,
+            1.506749977124855,
+            1.6097910120151937,
+            1.636000000871718
+          ],
+          "cpu_ms": [
+            1.439082999993957,
+            1.4926249999973606,
+            1.4228749999887214,
+            1.4364580000005844,
+            1.4371670000059567,
+            1.5194180000008828,
+            1.5553749999952515
+          ],
+          "signature": "e311f1437e340414b9865acd881ad140a3253dec367cfdd1f027c9dac637f8f4",
+          "total": 1,
+          "returned": 1,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%天柱竹林%' OR COALESCE(name, '') LIKE '%息烽%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%天柱竹林%' OR COALESCE(p.province, '') LIKE '%天柱竹林%' OR COALESCE(p.city, '') LIKE '%天柱竹林%' OR COALESCE(p.county, '') LIKE '%天柱竹林%' OR COALESCE(p.town, '') LIKE '%天柱竹林%' OR COALESCE(p.administrative_village, '') LIKE '%天柱竹林%' OR COALESCE(p.natural_village, '') LIKE '%天柱竹林%' OR COALESCE(p.yindian_region, '') LIKE '%天柱竹林%' OR COALESCE(p.atlas_region, '') LIKE '%天柱竹林%' OR COALESCE(p.location_name, '') LIKE '%息烽%' OR COALESCE(p.province, '') LIKE '%息烽%' OR COALESCE(p.city, '') LIKE '%息烽%' OR COALESCE(p.county, '') LIKE '%息烽%' OR COALESCE(p.town, '') LIKE '%息烽%' OR COALESCE(p.administrative_village, '') LIKE '%息烽%' OR COALESCE(p.natural_village, '') LIKE '%息烽%' OR COALESCE(p.yindian_region, '') LIKE '%息烽%' OR COALESCE(p.atlas_region, '') LIKE '%息烽%') AND p.location_name NOT IN ('天柱竹林','息烽') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 9501)",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM (SELECT e.standard_word, e.location_name FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%')) UNION ALL SELECT e.standard_word, e.location_name FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%'))) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 1.5160419861786067,
+          "median_cpu_ms": 1.439082999993957
+        },
+        "after": {
+          "samples_ms": [
+            1.6547080012969673,
+            1.640415983274579,
+            1.5623749932274222,
+            1.5145840006880462,
+            1.4942919951863587,
+            1.53645797399804,
+            1.5229170094244182
+          ],
+          "cpu_ms": [
+            1.5834169999919823,
+            1.5631250000041064,
+            1.4902089999964119,
+            1.4345830000053184,
+            1.4219579999945609,
+            1.4720009999962258,
+            1.451873999997133
+          ],
+          "signature": "e311f1437e340414b9865acd881ad140a3253dec367cfdd1f027c9dac637f8f4",
+          "total": 1,
+          "returned": 1,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%天柱竹林%' OR COALESCE(name, '') LIKE '%息烽%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%天柱竹林%' OR COALESCE(p.province, '') LIKE '%天柱竹林%' OR COALESCE(p.city, '') LIKE '%天柱竹林%' OR COALESCE(p.county, '') LIKE '%天柱竹林%' OR COALESCE(p.town, '') LIKE '%天柱竹林%' OR COALESCE(p.administrative_village, '') LIKE '%天柱竹林%' OR COALESCE(p.natural_village, '') LIKE '%天柱竹林%' OR COALESCE(p.yindian_region, '') LIKE '%天柱竹林%' OR COALESCE(p.atlas_region, '') LIKE '%天柱竹林%' OR COALESCE(p.location_name, '') LIKE '%息烽%' OR COALESCE(p.province, '') LIKE '%息烽%' OR COALESCE(p.city, '') LIKE '%息烽%' OR COALESCE(p.county, '') LIKE '%息烽%' OR COALESCE(p.town, '') LIKE '%息烽%' OR COALESCE(p.administrative_village, '') LIKE '%息烽%' OR COALESCE(p.natural_village, '') LIKE '%息烽%' OR COALESCE(p.yindian_region, '') LIKE '%息烽%' OR COALESCE(p.atlas_region, '') LIKE '%息烽%') AND p.location_name NOT IN ('天柱竹林','息烽') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 9501)",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM (SELECT e.standard_word, e.location_name FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%')) UNION ALL SELECT e.standard_word, e.location_name FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%'))) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 1.53645797399804,
+          "median_cpu_ms": 1.4720009999962258
+        }
+      }
+    },
+    {
+      "name": "both-wide",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "廣州",
+          "香港"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            33.51820900570601,
+            33.253250003326684,
+            33.35862499079667,
+            33.49604201503098,
+            34.28970801178366,
+            41.001750010764226,
+            37.19687499688007
+          ],
+          "cpu_ms": [
+            33.440959000003545,
+            33.161792000001356,
+            33.27512299999569,
+            33.374666000000275,
+            34.198833000004925,
+            40.87279099999819,
+            37.10445900000536
+          ],
+          "signature": "b3ad841fbe4354dcfb9246554fa9374478fcaa9b05d31df3292cf0f4108a52b9",
+          "total": 9,
+          "returned": 9,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%廣州%' OR COALESCE(name, '') LIKE '%香港%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%') AND p.location_name NOT IN ('廣州白話','香港圍頭話','香港客家話','香港東平洲','香港汀角話') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('廣州白話'),('香港圍頭話'),('香港客家話'),('香港東平洲'),('香港汀角話')), matched_meta(user_id, location_name) AS (VALUES (7,'從化江埔話'),(7,'從化江埔鳳院話'),(7,'從化太平話'),(7,'從化大凹話'),(7,'從化上香家話'),(7,'從化殷家莊話'),(7,'從化鰲頭話'),(7,'從化溫泉話'),(7,'從化良口話'),(7,'從化呂田水埔本地話')) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 9501)",
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE (COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%') AND ((COALESCE(e.location_name, '') LIKE '%廣州%' OR COALESCE(e.location_name, '') LIKE '%香港%') OR (e.user_id, e.location_name) IN (SELECT p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%'))) AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 33.51820900570601,
+          "median_cpu_ms": 33.440959000003545
+        },
+        "after": {
+          "samples_ms": [
+            34.29574999609031,
+            35.49204100272618,
+            33.43937499448657,
+            32.92370800045319,
+            34.43862497806549,
+            35.48845899058506,
+            38.71504100970924
+          ],
+          "cpu_ms": [
+            34.19420800000239,
+            35.39574900000275,
+            33.35479099999361,
+            32.83354199999167,
+            34.3697499999962,
+            35.39808300000402,
+            38.492458000007446
+          ],
+          "signature": "b3ad841fbe4354dcfb9246554fa9374478fcaa9b05d31df3292cf0f4108a52b9",
+          "total": 9,
+          "returned": 9,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%廣州%' OR COALESCE(name, '') LIKE '%香港%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%') AND p.location_name NOT IN ('廣州白話','香港圍頭話','香港客家話','香港東平洲','香港汀角話') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('廣州白話'),('香港圍頭話'),('香港客家話'),('香港東平洲'),('香港汀角話')), matched_meta(user_id, location_name) AS (VALUES (7,'從化江埔話'),(7,'從化江埔鳳院話'),(7,'從化太平話'),(7,'從化大凹話'),(7,'從化上香家話'),(7,'從化殷家莊話'),(7,'從化鰲頭話'),(7,'從化溫泉話'),(7,'從化良口話'),(7,'從化呂田水埔本地話')) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 9501)",
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE (COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%') AND ((COALESCE(e.location_name, '') LIKE '%廣州%' OR COALESCE(e.location_name, '') LIKE '%香港%') OR (e.user_id, e.location_name) IN (SELECT p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%'))) AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 34.43862497806549,
+          "median_cpu_ms": 34.3697499999962
+        }
+      }
+    },
+    {
+      "name": "all-fields",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "人",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            74.6679579897318,
+            70.26337497518398,
+            70.765291020507,
+            85.09204199071974,
+            86.87450000434183,
+            150.35058298963122,
+            133.80995800253004
+          ],
+          "cpu_ms": [
+            74.57404100000531,
+            70.18945900000517,
+            70.6900419999954,
+            84.99716699999738,
+            86.7640830000056,
+            150.20516700000996,
+            133.67045900000107
+          ],
+          "signature": "708f50384fc9070af49d3895e0f630e4d8699ff99345bc5e9afa2adf18dbc2fb",
+          "total": 8129,
+          "returned": 8129,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%人%' OR COALESCE(e.local_expression, '') LIKE '%人%' OR COALESCE(e.ipa, '') LIKE '%人%' OR COALESCE(e.notes, '') LIKE '%人%' OR COALESCE(e.informations, '') LIKE '%人%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 85.09204199071974,
+          "median_cpu_ms": 84.99716699999738
+        },
+        "after": {
+          "samples_ms": [
+            74.75616602459922,
+            74.44108300842345,
+            72.46012499672361,
+            74.76229200256057,
+            103.77033302211203,
+            155.2756250021048,
+            130.67012498504482
+          ],
+          "cpu_ms": [
+            74.66145799999424,
+            74.34754199999816,
+            72.36541700000032,
+            74.6866669999946,
+            103.5649160000105,
+            155.13941500000783,
+            130.44849999999997
+          ],
+          "signature": "708f50384fc9070af49d3895e0f630e4d8699ff99345bc5e9afa2adf18dbc2fb",
+          "total": 8129,
+          "returned": 8129,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%人%' OR COALESCE(e.local_expression, '') LIKE '%人%' OR COALESCE(e.ipa, '') LIKE '%人%' OR COALESCE(e.notes, '') LIKE '%人%' OR COALESCE(e.informations, '') LIKE '%人%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 74.76229200256057,
+          "median_cpu_ms": 74.6866669999946
+        }
+      }
+    },
+    {
+      "name": "wildcard",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "%",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            441.03058299515396,
+            476.0239589959383,
+            412.77925099711865,
+            377.3762499913573,
+            386.99241701397114,
+            466.4823330240324,
+            881.7188339889981
+          ],
+          "cpu_ms": [
+            440.9081229999998,
+            475.90470600000856,
+            412.678415000002,
+            377.21708099999773,
+            386.9026649999938,
+            466.3622899999922,
+            881.4852889999969
+          ],
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.local_expression, '') LIKE '%%%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 441.03058299515396,
+          "median_cpu_ms": 440.9081229999998
+        },
+        "after": {
+          "samples_ms": [
+            472.7218339976389,
+            399.37108298181556,
+            409.62770802434534,
+            391.38670900138095,
+            385.44625000213273,
+            409.080626006471,
+            711.7375840025488
+          ],
+          "cpu_ms": [
+            472.5947080000026,
+            399.26337199999296,
+            409.5014139999904,
+            391.2746649999974,
+            385.35678899999937,
+            408.97620700000914,
+            710.9444130000071
+          ],
+          "signature": "7e3ab14e5d2f6b07b99373b9048b6d6952fc7cd430210909d18d60318a0e47c7",
+          "total": 39965,
+          "returned": 39965,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.local_expression, '') LIKE '%%%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 409.080626006471,
+          "median_cpu_ms": 408.97620700000914
+        }
+      }
+    },
+    {
+      "name": "empty",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "不存在词零命中",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            95.30870799790137,
+            91.42083299229853,
+            89.16750000207685,
+            82.6919170212932,
+            82.9335419985,
+            82.72175001911819,
+            82.82291700015776
+          ],
+          "cpu_ms": [
+            95.22066499999937,
+            91.32649899999024,
+            89.06716599999243,
+            82.62775000000033,
+            82.8694989999974,
+            82.6412509999983,
+            82.7524169999947
+          ],
+          "signature": "c93b9f99788ebe3474fe05f53297a96935babe2e2d6752b97655a727002a01a8",
+          "total": 0,
+          "returned": 0,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%不存在词零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在词零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在词零命中%' OR COALESCE(e.notes, '') LIKE '%不存在词零命中%' OR COALESCE(e.informations, '') LIKE '%不存在词零命中%' OR COALESCE(e.standard_word, '') LIKE '%不存在詞零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在詞零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在詞零命中%' OR COALESCE(e.notes, '') LIKE '%不存在詞零命中%' OR COALESCE(e.informations, '') LIKE '%不存在詞零命中%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 82.9335419985,
+          "median_cpu_ms": 82.8694989999974
+        },
+        "after": {
+          "samples_ms": [
+            118.84375000954606,
+            97.40366600453854,
+            86.65637599187903,
+            85.05083300406113,
+            82.71554199745879,
+            82.76470898999833,
+            82.54370800568722
+          ],
+          "cpu_ms": [
+            118.75320699999747,
+            97.28316799998993,
+            86.57191700000055,
+            84.97791599999971,
+            82.63291700001218,
+            82.69183299999838,
+            82.46787499999186
+          ],
+          "signature": "c93b9f99788ebe3474fe05f53297a96935babe2e2d6752b97655a727002a01a8",
+          "total": 0,
+          "returned": 0,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%不存在词零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在词零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在词零命中%' OR COALESCE(e.notes, '') LIKE '%不存在词零命中%' OR COALESCE(e.informations, '') LIKE '%不存在词零命中%' OR COALESCE(e.standard_word, '') LIKE '%不存在詞零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在詞零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在詞零命中%' OR COALESCE(e.notes, '') LIKE '%不存在詞零命中%' OR COALESCE(e.informations, '') LIKE '%不存在詞零命中%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 85.05083300406113,
+          "median_cpu_ms": 84.97791599999971
+        }
+      }
+    },
+    {
+      "name": "province",
+      "dataset": "current",
+      "endpoint": "standard_words",
+      "params": {
+        "province": "廣東",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            246.95900100050494,
+            250.81354199210182,
+            251.40741598443128,
+            258.0575419997331,
+            257.545750006102,
+            293.7380840012338,
+            279.0544999879785
+          ],
+          "cpu_ms": [
+            246.8793749999918,
+            250.71770799999626,
+            251.30866499999627,
+            257.9537490000092,
+            257.435080999997,
+            293.63895699999887,
+            278.9734159999995
+          ],
+          "signature": "3eea71698aa31ba513a3178d1642e27c52865ef5ecb08aad83b28c068fee18d8",
+          "total": 33462,
+          "returned": 33462,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e LEFT JOIN vocabulary_locations l ON l.user_id = e.user_id AND l.location_name = e.location_name WHERE l.province = '廣東' AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 257.545750006102,
+          "median_cpu_ms": 257.435080999997
+        },
+        "after": {
+          "samples_ms": [
+            253.365250013303,
+            252.0669170189649,
+            253.55370799661614,
+            263.00870900740847,
+            258.84883300750516,
+            298.6422090034466,
+            269.93754200520925
+          ],
+          "cpu_ms": [
+            253.28391499999725,
+            251.98399900000368,
+            253.47433299999977,
+            262.9124979999915,
+            258.7637080000036,
+            298.5500400000092,
+            269.75566499999104
+          ],
+          "signature": "3eea71698aa31ba513a3178d1642e27c52865ef5ecb08aad83b28c068fee18d8",
+          "total": 33462,
+          "returned": 33462,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e LEFT JOIN vocabulary_locations l ON l.user_id = e.user_id AND l.location_name = e.location_name WHERE l.province = '廣東' AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 258.84883300750516,
+          "median_cpu_ms": 258.7637080000036
+        }
+      }
+    },
+    {
+      "name": "definition",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "太阳",
+        "search_fields": [
+          "definition"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            77.77508298750035,
+            77.8920839948114,
+            77.23524997709319,
+            78.91874999040738,
+            79.0928759961389,
+            90.21816702443175,
+            88.97633300512098
+          ],
+          "cpu_ms": [
+            77.70670700000437,
+            77.81929099999729,
+            77.1551670000008,
+            78.83341600000904,
+            79.01579100000333,
+            90.13637399999652,
+            88.87445799999227
+          ],
+          "signature": "25caa5dfc73eed49936ed026f39b0a92f60de8f8e524c5420ef054adae7745ba",
+          "total": 85,
+          "returned": 85,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.standard_word, '') LIKE '%太阳%' OR COALESCE(e.standard_word, '') LIKE '%太陽%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 78.91874999040738,
+          "median_cpu_ms": 78.83341600000904
+        },
+        "after": {
+          "samples_ms": [
+            77.36045800265856,
+            77.06791698001325,
+            76.47704100236297,
+            79.05724999727681,
+            78.44062501681037,
+            78.82149997749366,
+            95.51674997783266
+          ],
+          "cpu_ms": [
+            77.28520800000638,
+            77.00054199999329,
+            76.40487499999438,
+            78.97420799999111,
+            78.35500000000195,
+            78.7404570000092,
+            95.36879200000214
+          ],
+          "signature": "25caa5dfc73eed49936ed026f39b0a92f60de8f8e524c5420ef054adae7745ba",
+          "total": 85,
+          "returned": 85,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.standard_word, '') LIKE '%太阳%' OR COALESCE(e.standard_word, '') LIKE '%太陽%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 78.44062501681037,
+          "median_cpu_ms": 78.35500000000195
+        }
+      }
+    },
+    {
+      "name": "headword",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "日头",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            228.30570899532177,
+            140.33625001320615,
+            123.3052919851616,
+            98.99570801644586,
+            97.43674998753704,
+            94.0020409761928,
+            93.47145797801204
+          ],
+          "cpu_ms": [
+            228.01491599999224,
+            140.23858299999858,
+            123.19191600001034,
+            98.91895799999872,
+            97.33933299999364,
+            93.92612400000644,
+            93.38983399999279
+          ],
+          "signature": "9794ac42b0375adfece798ec5306ac822d93929528a0a12807d7573ab69c1d63",
+          "total": 110,
+          "returned": 110,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.local_expression, '') LIKE '%日头%' OR COALESCE(e.local_expression, '') LIKE '%日頭%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 98.99570801644586,
+          "median_cpu_ms": 98.91895799999872
+        },
+        "after": {
+          "samples_ms": [
+            196.67654202203266,
+            158.62916599144228,
+            114.95233399909921,
+            105.31675000675023,
+            93.69275000062771,
+            94.02266700635664,
+            91.48858301341534
+          ],
+          "cpu_ms": [
+            196.40812499999072,
+            158.48579100000393,
+            114.8411249999981,
+            105.21608199999832,
+            93.63000000000454,
+            93.93900000000599,
+            91.37245700000562
+          ],
+          "signature": "9794ac42b0375adfece798ec5306ac822d93929528a0a12807d7573ab69c1d63",
+          "total": 110,
+          "returned": 110,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.local_expression, '') LIKE '%日头%' OR COALESCE(e.local_expression, '') LIKE '%日頭%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 105.31675000675023,
+          "median_cpu_ms": 105.21608199999832
+        }
+      }
+    },
+    {
+      "name": "both-small",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "天柱竹林",
+          "息烽"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            4.395125026348978,
+            4.26624997635372,
+            4.223625001031905,
+            4.368666996015236,
+            4.2714579903986305,
+            4.273208003723994,
+            4.219084017677233
+          ],
+          "cpu_ms": [
+            4.338415999995959,
+            4.203957999990848,
+            4.164208999995367,
+            4.3136249999946585,
+            4.211541000003649,
+            4.208165999997959,
+            4.155832999998665
+          ],
+          "signature": "ddaedec302bd59b79049ad92b6bcafdfd1ace9e21d6281c4be22e2de088bf6bf",
+          "total": 5,
+          "returned": 5,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%天柱竹林%' OR COALESCE(name, '') LIKE '%息烽%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%天柱竹林%' OR COALESCE(p.province, '') LIKE '%天柱竹林%' OR COALESCE(p.city, '') LIKE '%天柱竹林%' OR COALESCE(p.county, '') LIKE '%天柱竹林%' OR COALESCE(p.town, '') LIKE '%天柱竹林%' OR COALESCE(p.administrative_village, '') LIKE '%天柱竹林%' OR COALESCE(p.natural_village, '') LIKE '%天柱竹林%' OR COALESCE(p.yindian_region, '') LIKE '%天柱竹林%' OR COALESCE(p.atlas_region, '') LIKE '%天柱竹林%' OR COALESCE(p.location_name, '') LIKE '%息烽%' OR COALESCE(p.province, '') LIKE '%息烽%' OR COALESCE(p.city, '') LIKE '%息烽%' OR COALESCE(p.county, '') LIKE '%息烽%' OR COALESCE(p.town, '') LIKE '%息烽%' OR COALESCE(p.administrative_village, '') LIKE '%息烽%' OR COALESCE(p.natural_village, '') LIKE '%息烽%' OR COALESCE(p.yindian_region, '') LIKE '%息烽%' OR COALESCE(p.atlas_region, '') LIKE '%息烽%') AND p.location_name NOT IN ('天柱竹林','息烽') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 32769)",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM (SELECT e.standard_word, e.location_name FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%')) UNION ALL SELECT e.standard_word, e.location_name FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%'))) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 4.2714579903986305,
+          "median_cpu_ms": 4.208165999997959
+        },
+        "after": {
+          "samples_ms": [
+            4.35129101970233,
+            4.267708980478346,
+            4.324959008954465,
+            4.203249991405755,
+            4.479374998481944,
+            4.345458000898361,
+            4.268832999514416
+          ],
+          "cpu_ms": [
+            4.281415999997762,
+            4.2077920000025415,
+            4.26320699999394,
+            4.14083399999754,
+            4.425999999995156,
+            4.278208000002337,
+            4.21341699998834
+          ],
+          "signature": "ddaedec302bd59b79049ad92b6bcafdfd1ace9e21d6281c4be22e2de088bf6bf",
+          "total": 5,
+          "returned": 5,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%天柱竹林%' OR COALESCE(name, '') LIKE '%息烽%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%天柱竹林%' OR COALESCE(p.province, '') LIKE '%天柱竹林%' OR COALESCE(p.city, '') LIKE '%天柱竹林%' OR COALESCE(p.county, '') LIKE '%天柱竹林%' OR COALESCE(p.town, '') LIKE '%天柱竹林%' OR COALESCE(p.administrative_village, '') LIKE '%天柱竹林%' OR COALESCE(p.natural_village, '') LIKE '%天柱竹林%' OR COALESCE(p.yindian_region, '') LIKE '%天柱竹林%' OR COALESCE(p.atlas_region, '') LIKE '%天柱竹林%' OR COALESCE(p.location_name, '') LIKE '%息烽%' OR COALESCE(p.province, '') LIKE '%息烽%' OR COALESCE(p.city, '') LIKE '%息烽%' OR COALESCE(p.county, '') LIKE '%息烽%' OR COALESCE(p.town, '') LIKE '%息烽%' OR COALESCE(p.administrative_village, '') LIKE '%息烽%' OR COALESCE(p.natural_village, '') LIKE '%息烽%' OR COALESCE(p.yindian_region, '') LIKE '%息烽%' OR COALESCE(p.atlas_region, '') LIKE '%息烽%') AND p.location_name NOT IN ('天柱竹林','息烽') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 32769)",
+            "WITH matched_names(name) AS (VALUES ('天柱竹林'),('息烽')), matched_meta(user_id, location_name) AS (SELECT NULL, NULL WHERE 0) SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM (SELECT e.standard_word, e.location_name FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%')) UNION ALL SELECT e.standard_word, e.location_name FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND ((COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%'))) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 4.324959008954465,
+          "median_cpu_ms": 4.26320699999394
+        }
+      }
+    },
+    {
+      "name": "both-wide",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "廣州",
+          "香港"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            152.10237499559298,
+            156.74600002239458,
+            156.7165830056183,
+            156.6634589980822,
+            156.61249999538995,
+            166.19908300344832,
+            166.32899999967776
+          ],
+          "cpu_ms": [
+            152.01683300000468,
+            156.6412490000033,
+            156.62758400000598,
+            156.585665999998,
+            156.52245699999412,
+            166.1186239999921,
+            166.2336240000002
+          ],
+          "signature": "6a5601fd8e77f9158642c8fbae564ec77041b553c852f0161fb429cb4ea45458",
+          "total": 45,
+          "returned": 45,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%廣州%' OR COALESCE(name, '') LIKE '%香港%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%') AND p.location_name NOT IN ('廣州白話','香港圍頭話','香港客家話','香港東平洲','香港汀角話') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('廣州白話'),('香港圍頭話'),('香港客家話'),('香港東平洲'),('香港汀角話')), matched_meta(user_id, location_name) AS (VALUES (7,'從化江埔話'),(7,'從化江埔鳳院話'),(7,'從化太平話'),(7,'從化大凹話'),(7,'從化上香家話'),(7,'從化殷家莊話'),(7,'從化鰲頭話'),(7,'從化溫泉話'),(7,'從化良口話'),(7,'從化呂田水埔本地話'),(184,'從化江埔話'),(184,'從化江埔鳳院話'),(184,'從化太平話'),(184,'從化大凹話'),(184,'從化上香家話'),(184,'從化殷家莊話'),(184,'從化鰲頭話'),(184,'從化溫泉話'),(184,'從化良口話'),(184,'從化呂田水埔本地話'),(361,'從化江埔話'),(361,'從化江埔鳳院話'),(361,'從化太平話'),(361,'從化大凹話'),(361,'從化上香家話'),(361,'從化殷家莊話'),(361,'從化鰲頭話'),(361,'從化溫泉話'),(361,'從化良口話'),(361,'從化呂田水埔本地話'),(538,'從化江埔話'),(538,'從化江埔鳳院話'),(538,'從化太平話'),(538,'從化大凹話'),(538,'從化上香家話'),(538,'從化殷家莊話'),(538,'從化鰲頭話'),(538,'從化溫泉話'),(538,'從化良口話'),(538,'從化呂田水埔本地話'),(715,'從化江埔話'),(715,'從化江埔鳳院話'),(715,'從化太平話'),(715,'從化大凹話'),(715,'從化上香家話'),(715,'從化殷家莊話'),(715,'從化鰲頭話'),(715,'從化溫泉話'),(715,'從化良口話'),(715,'從化呂田水埔本地話')) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 32769)",
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE (COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%') AND ((COALESCE(e.location_name, '') LIKE '%廣州%' OR COALESCE(e.location_name, '') LIKE '%香港%') OR (e.user_id, e.location_name) IN (SELECT p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%'))) AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 156.7165830056183,
+          "median_cpu_ms": 156.62758400000598
+        },
+        "after": {
+          "samples_ms": [
+            153.5982920031529,
+            155.0032920204103,
+            157.2762920113746,
+            156.5617089800071,
+            156.23812499688938,
+            165.47233401797712,
+            167.80591697897762
+          ],
+          "cpu_ms": [
+            153.49237399999538,
+            154.91033200000004,
+            157.20016699999917,
+            156.48445900001207,
+            156.1255000000017,
+            165.3821249999936,
+            167.71791500001143
+          ],
+          "signature": "6a5601fd8e77f9158642c8fbae564ec77041b553c852f0161fb429cb4ea45458",
+          "total": 45,
+          "returned": 45,
+          "sql": [
+            "SAVEPOINT vocabulary_scope_aggregate",
+            "WITH RECURSIVE location_names(name) AS (SELECT MIN(location_name) FROM vocabulary_entries UNION ALL SELECT (SELECT MIN(location_name) FROM vocabulary_entries WHERE location_name > n.name) FROM location_names n WHERE n.name IS NOT NULL LIMIT 257) SELECT /* vocabulary_scope_plan */ name, (COALESCE(name, '') LIKE '%廣州%' OR COALESCE(name, '') LIKE '%香港%') FROM location_names WHERE name IS NOT NULL",
+            "SELECT /* vocabulary_scope_plan */ p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%') AND p.location_name NOT IN ('廣州白話','香港圍頭話','香港客家話','香港東平洲','香港汀角話') LIMIT 257",
+            "SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries",
+            "WITH matched_names(name) AS (VALUES ('廣州白話'),('香港圍頭話'),('香港客家話'),('香港東平洲'),('香港汀角話')), matched_meta(user_id, location_name) AS (VALUES (7,'從化江埔話'),(7,'從化江埔鳳院話'),(7,'從化太平話'),(7,'從化大凹話'),(7,'從化上香家話'),(7,'從化殷家莊話'),(7,'從化鰲頭話'),(7,'從化溫泉話'),(7,'從化良口話'),(7,'從化呂田水埔本地話'),(184,'從化江埔話'),(184,'從化江埔鳳院話'),(184,'從化太平話'),(184,'從化大凹話'),(184,'從化上香家話'),(184,'從化殷家莊話'),(184,'從化鰲頭話'),(184,'從化溫泉話'),(184,'從化良口話'),(184,'從化呂田水埔本地話'),(361,'從化江埔話'),(361,'從化江埔鳳院話'),(361,'從化太平話'),(361,'從化大凹話'),(361,'從化上香家話'),(361,'從化殷家莊話'),(361,'從化鰲頭話'),(361,'從化溫泉話'),(361,'從化良口話'),(361,'從化呂田水埔本地話'),(538,'從化江埔話'),(538,'從化江埔鳳院話'),(538,'從化太平話'),(538,'從化大凹話'),(538,'從化上香家話'),(538,'從化殷家莊話'),(538,'從化鰲頭話'),(538,'從化溫泉話'),(538,'從化良口話'),(538,'從化呂田水埔本地話'),(715,'從化江埔話'),(715,'從化江埔鳳院話'),(715,'從化太平話'),(715,'從化大凹話'),(715,'從化上香家話'),(715,'從化殷家莊話'),(715,'從化鰲頭話'),(715,'從化溫泉話'),(715,'從化良口話'),(715,'從化呂田水埔本地話')) SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (SELECT 1 FROM matched_names n CROSS JOIN vocabulary_entries e INDEXED BY ix_vocabulary_entries_location_name WHERE e.location_name = n.name AND (1=1) UNION ALL SELECT 1 FROM matched_meta p CROSS JOIN vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE e.user_id = p.user_id AND e.location_name = p.location_name AND (1=1) LIMIT 32769)",
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e INDEXED BY idx_vocabulary_entries_user_location WHERE (COALESCE(e.standard_word, '') LIKE '%蜘蛛%' OR COALESCE(e.local_expression, '') LIKE '%蜘蛛%') AND ((COALESCE(e.location_name, '') LIKE '%廣州%' OR COALESCE(e.location_name, '') LIKE '%香港%') OR (e.user_id, e.location_name) IN (SELECT p.user_id, p.location_name FROM vocabulary_locations p WHERE (COALESCE(p.location_name, '') LIKE '%廣州%' OR COALESCE(p.province, '') LIKE '%廣州%' OR COALESCE(p.city, '') LIKE '%廣州%' OR COALESCE(p.county, '') LIKE '%廣州%' OR COALESCE(p.town, '') LIKE '%廣州%' OR COALESCE(p.administrative_village, '') LIKE '%廣州%' OR COALESCE(p.natural_village, '') LIKE '%廣州%' OR COALESCE(p.yindian_region, '') LIKE '%廣州%' OR COALESCE(p.atlas_region, '') LIKE '%廣州%' OR COALESCE(p.location_name, '') LIKE '%香港%' OR COALESCE(p.province, '') LIKE '%香港%' OR COALESCE(p.city, '') LIKE '%香港%' OR COALESCE(p.county, '') LIKE '%香港%' OR COALESCE(p.town, '') LIKE '%香港%' OR COALESCE(p.administrative_village, '') LIKE '%香港%' OR COALESCE(p.natural_village, '') LIKE '%香港%' OR COALESCE(p.yindian_region, '') LIKE '%香港%' OR COALESCE(p.atlas_region, '') LIKE '%香港%'))) AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name",
+            "RELEASE SAVEPOINT vocabulary_scope_aggregate"
+          ],
+          "median_ms": 156.5617089800071,
+          "median_cpu_ms": 156.48445900001207
+        }
+      }
+    },
+    {
+      "name": "all-fields",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "人",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            566.7461669945624,
+            498.1956249976065,
+            488.12983301468194,
+            500.7058749906719,
+            528.5653760074638,
+            515.409500017995,
+            505.7237089786213
+          ],
+          "cpu_ms": [
+            566.6440409999893,
+            498.0994560000056,
+            488.01495600000067,
+            500.2019150000194,
+            528.4731240000156,
+            515.3200810000271,
+            505.6184149999865
+          ],
+          "signature": "05addd889ea17947a36cca0d1727b514c5f4d25219ef0cf0208b5af27af11a78",
+          "total": 40645,
+          "returned": 40645,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%人%' OR COALESCE(e.local_expression, '') LIKE '%人%' OR COALESCE(e.ipa, '') LIKE '%人%' OR COALESCE(e.notes, '') LIKE '%人%' OR COALESCE(e.informations, '') LIKE '%人%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 505.7237089786213,
+          "median_cpu_ms": 505.6184149999865
+        },
+        "after": {
+          "samples_ms": [
+            525.3315839800052,
+            503.5400420019869,
+            491.30704198614694,
+            502.01870797900483,
+            556.1571670114063,
+            536.2435000133701,
+            509.1090830101166
+          ],
+          "cpu_ms": [
+            525.2075399999967,
+            503.44708100001867,
+            491.197580000005,
+            501.92808199997785,
+            556.0327499999858,
+            536.1558310000021,
+            509.0113310000106
+          ],
+          "signature": "05addd889ea17947a36cca0d1727b514c5f4d25219ef0cf0208b5af27af11a78",
+          "total": 40645,
+          "returned": 40645,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%人%' OR COALESCE(e.local_expression, '') LIKE '%人%' OR COALESCE(e.ipa, '') LIKE '%人%' OR COALESCE(e.notes, '') LIKE '%人%' OR COALESCE(e.informations, '') LIKE '%人%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 509.1090830101166,
+          "median_cpu_ms": 509.0113310000106
+        }
+      }
+    },
+    {
+      "name": "wildcard",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "%",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            2253.749084979063,
+            2292.1090009913314,
+            4671.852169005433,
+            3628.181626991136,
+            5098.773627978517,
+            3383.6417099810205,
+            4624.2083350080065
+          ],
+          "cpu_ms": [
+            2253.5444899999957,
+            2291.9015760000148,
+            3841.730917999996,
+            3627.560195000001,
+            5097.922438000012,
+            3383.166946000017,
+            3826.3689810000014
+          ],
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.local_expression, '') LIKE '%%%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 3628.181626991136,
+          "median_cpu_ms": 3627.560195000001
+        },
+        "after": {
+          "samples_ms": [
+            2102.3371670162305,
+            2052.1025430061854,
+            3667.151127010584,
+            4676.836293976521,
+            3633.1218349805567,
+            2970.229502010625,
+            2902.975293021882
+          ],
+          "cpu_ms": [
+            2102.1761570000026,
+            2051.9268680000096,
+            3666.7526109999926,
+            4676.306858000004,
+            3632.4766970000155,
+            2969.8902800000155,
+            2901.608239000012
+          ],
+          "signature": "ca7e4ceda8751ab5f9080bf6e29caf0111516eee0943177dd7dd2409c3f46b37",
+          "total": 199825,
+          "returned": 199825,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e WHERE (COALESCE(e.local_expression, '') LIKE '%%%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 2970.229502010625,
+          "median_cpu_ms": 2969.8902800000155
+        }
+      }
+    },
+    {
+      "name": "empty",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "q": "不存在词零命中",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            429.1519580001477,
+            578.4034999960568,
+            561.0024589987006,
+            564.1147919814102,
+            530.1384589984082,
+            458.28416699077934,
+            490.06920799729414
+          ],
+          "cpu_ms": [
+            429.054997999998,
+            577.2690379999972,
+            560.8307900000113,
+            563.9478299999894,
+            529.9867479999989,
+            458.17762400000106,
+            489.94516499999463
+          ],
+          "signature": "c93b9f99788ebe3474fe05f53297a96935babe2e2d6752b97655a727002a01a8",
+          "total": 0,
+          "returned": 0,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%不存在词零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在词零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在词零命中%' OR COALESCE(e.notes, '') LIKE '%不存在词零命中%' OR COALESCE(e.informations, '') LIKE '%不存在词零命中%' OR COALESCE(e.standard_word, '') LIKE '%不存在詞零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在詞零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在詞零命中%' OR COALESCE(e.notes, '') LIKE '%不存在詞零命中%' OR COALESCE(e.informations, '') LIKE '%不存在詞零命中%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 530.1384589984082,
+          "median_cpu_ms": 529.9867479999989
+        },
+        "after": {
+          "samples_ms": [
+            624.9736669997219,
+            642.966792016523,
+            589.6744159981608,
+            529.0571259974968,
+            543.1968750199303,
+            470.7075839978643,
+            490.41850000503473
+          ],
+          "cpu_ms": [
+            624.7772039999973,
+            642.7802059999976,
+            589.5271630000138,
+            528.9038739999796,
+            543.0542480000042,
+            470.58683099999143,
+            490.29112299999156
+          ],
+          "signature": "c93b9f99788ebe3474fe05f53297a96935babe2e2d6752b97655a727002a01a8",
+          "total": 0,
+          "returned": 0,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e NOT INDEXED WHERE (COALESCE(e.standard_word, '') LIKE '%不存在词零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在词零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在词零命中%' OR COALESCE(e.notes, '') LIKE '%不存在词零命中%' OR COALESCE(e.informations, '') LIKE '%不存在词零命中%' OR COALESCE(e.standard_word, '') LIKE '%不存在詞零命中%' OR COALESCE(e.local_expression, '') LIKE '%不存在詞零命中%' OR COALESCE(e.ipa, '') LIKE '%不存在詞零命中%' OR COALESCE(e.notes, '') LIKE '%不存在詞零命中%' OR COALESCE(e.informations, '') LIKE '%不存在詞零命中%') AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 543.1968750199303,
+          "median_cpu_ms": 543.0542480000042
+        }
+      }
+    },
+    {
+      "name": "province",
+      "dataset": "spelling_growth",
+      "endpoint": "standard_words",
+      "params": {
+        "province": "廣東",
+        "limit": null
+      },
+      "resources": false,
+      "mode": "time",
+      "results": {
+        "before": {
+          "samples_ms": [
+            1440.5356260249391,
+            1965.9287509857677,
+            2434.2773759854026,
+            3562.232750991825,
+            2008.039792010095,
+            2687.3623759893235,
+            2370.092583994847
+          ],
+          "cpu_ms": [
+            1440.3953710000224,
+            1965.7066190000023,
+            2433.906533999988,
+            3561.498111999981,
+            2007.7512850000119,
+            2687.002652999979,
+            2369.6053230000016
+          ],
+          "signature": "24e9313d3912ae598bd82a26cd46de599e362fada61bd22727022ea6d930ff47",
+          "total": 167310,
+          "returned": 167310,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e LEFT JOIN vocabulary_locations l ON l.user_id = e.user_id AND l.location_name = e.location_name WHERE l.province = '廣東' AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 2370.092583994847,
+          "median_cpu_ms": 2369.6053230000016
+        },
+        "after": {
+          "samples_ms": [
+            1467.434709018562,
+            1629.2827090073843,
+            1647.7715009823442,
+            1534.4488339906093,
+            1949.0817089972552,
+            2092.2387930040713,
+            2913.4533350006677
+          ],
+          "cpu_ms": [
+            1467.3114109999972,
+            1629.1099070000143,
+            1647.5151180000012,
+            1534.2552459999865,
+            1948.8503670000057,
+            2092.0137419999774,
+            2913.1141590000025
+          ],
+          "signature": "24e9313d3912ae598bd82a26cd46de599e362fada61bd22727022ea6d930ff47",
+          "total": 167310,
+          "returned": 167310,
+          "sql": [
+            "SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count FROM vocabulary_entries e LEFT JOIN vocabulary_locations l ON l.user_id = e.user_id AND l.location_name = e.location_name WHERE l.province = '廣東' AND e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+          ],
+          "median_ms": 1647.7715009823442,
+          "median_cpu_ms": 1647.5151180000012
+        }
+      }
+    }
+  ],
+  "summary": [
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 217.9597089998424,
+      "after_ms": 214.9026670085732,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 217.87258299999968,
+      "after_cpu_ms": 214.7979979999999,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "mode": "rss",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 219.25737499259412,
+      "after_ms": 233.95808399072848,
+      "before_rss_mib": 95.66796875,
+      "after_rss_mib": 85.13671875,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "2929891",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "2929891",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "current",
+      "mode": "heap",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 1030.236458987929,
+      "after_ms": 1117.2325840161648,
+      "before_rss_mib": 127.15234375,
+      "after_rss_mib": 102.33984375,
+      "before_heap_mib": 18.323079109191895,
+      "after_heap_mib": 9.070219039916992,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "2929891",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "2929895",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 284.1215420048684,
+      "after_ms": 274.77945902501233,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 284.0205820000001,
+      "after_cpu_ms": 274.66695699999997,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "mode": "rss",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 266.80454099550843,
+      "after_ms": 273.9927920047194,
+      "before_rss_mib": 103.01953125,
+      "after_rss_mib": 88.26171875,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "2929895",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "2929895",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "current",
+      "mode": "heap",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 1447.3380009876564,
+      "after_ms": 1608.8779180136044,
+      "before_rss_mib": 142.60546875,
+      "after_rss_mib": 108.71875,
+      "before_heap_mib": 25.076237678527832,
+      "after_heap_mib": 12.151002883911133,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "2929895",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "2929896",
+        "wchar": "0",
+        "syscr": "721",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "mode": "time",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 240.4345000104513,
+      "after_ms": 245.2974999905564,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 240.34666399999873,
+      "after_cpu_ms": 245.21258199999886,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "mode": "rss",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 381.78004199289717,
+      "after_ms": 378.61495901597664,
+      "before_rss_mib": 95.91796875,
+      "after_rss_mib": 85.63671875,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "row_growth",
+      "mode": "heap",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 1129.2854589992203,
+      "after_ms": 1212.22691697767,
+      "before_rss_mib": 127.1484375,
+      "after_rss_mib": 102.24609375,
+      "before_heap_mib": 18.32310962677002,
+      "after_heap_mib": 9.070249557495117,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "16286954",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "mode": "time",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 301.52116701356135,
+      "after_ms": 307.1053340099752,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 301.4229579999999,
+      "after_cpu_ms": 307.0088749999975,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "mode": "rss",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 446.9172919925768,
+      "after_ms": 427.54004200105555,
+      "before_rss_mib": 102.9140625,
+      "after_rss_mib": 88.63671875,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "row_growth",
+      "mode": "heap",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 1602.0355000218842,
+      "after_ms": 1764.218375989003,
+      "before_rss_mib": 142.48828125,
+      "after_rss_mib": 108.6953125,
+      "before_heap_mib": 25.076268196105957,
+      "after_heap_mib": 12.481721878051758,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "16286953",
+        "wchar": "0",
+        "syscr": "3982",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "limit": 1000
+      },
+      "total": 199825,
+      "returned": 1000,
+      "before_ms": 1182.7332499960903,
+      "after_ms": 1186.298375017941,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 1182.5709119999956,
+      "after_cpu_ms": 1186.1723310000016,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "mode": "rss",
+      "params": {
+        "limit": 1000
+      },
+      "total": 199825,
+      "returned": 1000,
+      "before_ms": 1491.3837920175865,
+      "after_ms": 1341.8896670045797,
+      "before_rss_mib": 179.6640625,
+      "after_rss_mib": 122.4609375,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "17818857",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "17818857",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "spelling_growth",
+      "mode": "heap",
+      "params": {
+        "limit": 1000
+      },
+      "total": 199825,
+      "returned": 1000,
+      "before_ms": 5428.572668984998,
+      "after_ms": 5694.883086020127,
+      "before_rss_mib": 322.76953125,
+      "after_rss_mib": 199.84765625,
+      "before_heap_mib": 92.04366397857666,
+      "after_heap_mib": 43.24849605560303,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "17818858",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "17818858",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "limit": null
+      },
+      "total": 199825,
+      "returned": 199825,
+      "before_ms": 1665.0010839803144,
+      "after_ms": 1572.6911679957993,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 1664.8655340000005,
+      "after_cpu_ms": 1572.500367999993,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "mode": "rss",
+      "params": {
+        "limit": null
+      },
+      "total": 199825,
+      "returned": 199825,
+      "before_ms": 1841.9995840231422,
+      "after_ms": 2165.187668026192,
+      "before_rss_mib": 219.671875,
+      "after_rss_mib": 141.51953125,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "17818857",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "17818857",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "spelling_growth",
+      "mode": "heap",
+      "params": {
+        "limit": null
+      },
+      "total": 199825,
+      "returned": 199825,
+      "before_ms": 9142.27950500208,
+      "after_ms": 15295.875798008638,
+      "before_rss_mib": 406.8671875,
+      "after_rss_mib": 234.8046875,
+      "before_heap_mib": 126.89080142974854,
+      "after_heap_mib": 59.59070873260498,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "17818858",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "17818858",
+        "wchar": "0",
+        "syscr": "4356",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "mode": "time",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 469.41683400655165,
+      "after_ms": 449.8612080060411,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 469.2236639999976,
+      "after_cpu_ms": 449.67645699999537,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "mode": "rss",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 505.1729590049945,
+      "after_ms": 478.1107919989154,
+      "before_rss_mib": 99.671875,
+      "after_rss_mib": 97.2890625,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "3044584",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "3044584",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-1000",
+      "dataset": "location_growth",
+      "mode": "heap",
+      "params": {
+        "limit": 1000
+      },
+      "total": 39965,
+      "returned": 1000,
+      "before_ms": 2051.856667007087,
+      "after_ms": 2806.768042006297,
+      "before_rss_mib": 133.48046875,
+      "after_rss_mib": 122.6328125,
+      "before_heap_mib": 22.25571346282959,
+      "after_heap_mib": 20.60215950012207,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "3044585",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "3044585",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "mode": "time",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 520.6657499948051,
+      "after_ms": 556.7217509960756,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 520.5037059999995,
+      "after_cpu_ms": 556.5426240000022,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "mode": "rss",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 537.1733340143692,
+      "after_ms": 540.2620829991065,
+      "before_rss_mib": 107.16796875,
+      "after_rss_mib": 100.03515625,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "3044584",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "3044584",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "all-None",
+      "dataset": "location_growth",
+      "mode": "heap",
+      "params": {
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 2764.224501006538,
+      "after_ms": 2881.912626005942,
+      "before_rss_mib": 149.140625,
+      "after_rss_mib": 131.0625,
+      "before_heap_mib": 29.130980491638184,
+      "after_heap_mib": 23.719289779663086,
+      "before_cpu_ms": null,
+      "after_cpu_ms": null,
+      "before_io": {
+        "rchar": "3044585",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      },
+      "after_io": {
+        "rchar": "3044585",
+        "wchar": "0",
+        "syscr": "749",
+        "syscw": "0",
+        "read_bytes": "0",
+        "write_bytes": "0",
+        "cancelled_write_bytes": "0"
+      }
+    },
+    {
+      "name": "definition",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "太阳",
+        "search_fields": [
+          "definition"
+        ],
+        "limit": null
+      },
+      "total": 17,
+      "returned": 17,
+      "before_ms": 17.998124996665865,
+      "after_ms": 18.437208025716245,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 17.784292000001756,
+      "after_cpu_ms": 18.329124000004526,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "headword",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "日头",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "total": 22,
+      "returned": 22,
+      "before_ms": 21.205291006481275,
+      "after_ms": 21.06808399548754,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 21.118290999993405,
+      "after_cpu_ms": 20.971958000004065,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "both-small",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "天柱竹林",
+          "息烽"
+        ],
+        "limit": null
+      },
+      "total": 1,
+      "returned": 1,
+      "before_ms": 1.5160419861786067,
+      "after_ms": 1.53645797399804,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 1.439082999993957,
+      "after_cpu_ms": 1.4720009999962258,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "both-wide",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "廣州",
+          "香港"
+        ],
+        "limit": null
+      },
+      "total": 9,
+      "returned": 9,
+      "before_ms": 33.51820900570601,
+      "after_ms": 34.43862497806549,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 33.440959000003545,
+      "after_cpu_ms": 34.3697499999962,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-fields",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "人",
+        "limit": null
+      },
+      "total": 8129,
+      "returned": 8129,
+      "before_ms": 85.09204199071974,
+      "after_ms": 74.76229200256057,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 84.99716699999738,
+      "after_cpu_ms": 74.6866669999946,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "wildcard",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "%",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "total": 39965,
+      "returned": 39965,
+      "before_ms": 441.03058299515396,
+      "after_ms": 409.080626006471,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 440.9081229999998,
+      "after_cpu_ms": 408.97620700000914,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "empty",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "q": "不存在词零命中",
+        "limit": null
+      },
+      "total": 0,
+      "returned": 0,
+      "before_ms": 82.9335419985,
+      "after_ms": 85.05083300406113,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 82.8694989999974,
+      "after_cpu_ms": 84.97791599999971,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "province",
+      "dataset": "current",
+      "mode": "time",
+      "params": {
+        "province": "廣東",
+        "limit": null
+      },
+      "total": 33462,
+      "returned": 33462,
+      "before_ms": 257.545750006102,
+      "after_ms": 258.84883300750516,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 257.435080999997,
+      "after_cpu_ms": 258.7637080000036,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "definition",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "太阳",
+        "search_fields": [
+          "definition"
+        ],
+        "limit": null
+      },
+      "total": 85,
+      "returned": 85,
+      "before_ms": 78.91874999040738,
+      "after_ms": 78.44062501681037,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 78.83341600000904,
+      "after_cpu_ms": 78.35500000000195,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "headword",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "日头",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "total": 110,
+      "returned": 110,
+      "before_ms": 98.99570801644586,
+      "after_ms": 105.31675000675023,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 98.91895799999872,
+      "after_cpu_ms": 105.21608199999832,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "both-small",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "天柱竹林",
+          "息烽"
+        ],
+        "limit": null
+      },
+      "total": 5,
+      "returned": 5,
+      "before_ms": 4.2714579903986305,
+      "after_ms": 4.324959008954465,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 4.208165999997959,
+      "after_cpu_ms": 4.26320699999394,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "both-wide",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "蜘蛛",
+        "search_fields": [
+          "definition",
+          "headword"
+        ],
+        "locations": [
+          "廣州",
+          "香港"
+        ],
+        "limit": null
+      },
+      "total": 45,
+      "returned": 45,
+      "before_ms": 156.7165830056183,
+      "after_ms": 156.5617089800071,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 156.62758400000598,
+      "after_cpu_ms": 156.48445900001207,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "all-fields",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "人",
+        "limit": null
+      },
+      "total": 40645,
+      "returned": 40645,
+      "before_ms": 505.7237089786213,
+      "after_ms": 509.1090830101166,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 505.6184149999865,
+      "after_cpu_ms": 509.0113310000106,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "wildcard",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "%",
+        "search_fields": [
+          "headword"
+        ],
+        "limit": null
+      },
+      "total": 199825,
+      "returned": 199825,
+      "before_ms": 3628.181626991136,
+      "after_ms": 2970.229502010625,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 3627.560195000001,
+      "after_cpu_ms": 2969.8902800000155,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "empty",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "q": "不存在词零命中",
+        "limit": null
+      },
+      "total": 0,
+      "returned": 0,
+      "before_ms": 530.1384589984082,
+      "after_ms": 543.1968750199303,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 529.9867479999989,
+      "after_cpu_ms": 543.0542480000042,
+      "before_io": null,
+      "after_io": null
+    },
+    {
+      "name": "province",
+      "dataset": "spelling_growth",
+      "mode": "time",
+      "params": {
+        "province": "廣東",
+        "limit": null
+      },
+      "total": 167310,
+      "returned": 167310,
+      "before_ms": 2370.092583994847,
+      "after_ms": 1647.7715009823442,
+      "before_rss_mib": null,
+      "after_rss_mib": null,
+      "before_heap_mib": null,
+      "after_heap_mib": null,
+      "before_cpu_ms": 2369.6053230000016,
+      "after_cpu_ms": 1647.5151180000012,
+      "before_io": null,
+      "after_io": null
+    }
+  ]
+}
