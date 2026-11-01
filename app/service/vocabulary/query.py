@@ -433,6 +433,29 @@ def _resolve_location_scope(cursor, locations):
     )
 
 
+def _execute_scoped_aggregate(conn, cursor, *, q, fields, locations, province, city,
+                              regions, select_sql, values, columns, scoped_select):
+    if not _can_plan_location_scope(
+        q=q, fields=fields, locations=locations, province=province, city=city, regions=regions,
+    ):
+        cursor.execute(select_sql, values)
+        return
+    # Separate control cursor: RELEASE must not replace pending aggregate rows.
+    # The SELECT retains its read snapshot while the caller consumes the cursor.
+    control = conn.cursor()
+    control.execute('SAVEPOINT vocabulary_scope_aggregate')
+    try:
+        scope = _resolve_location_scope(control, locations)
+        if scope is not None:
+            content, content_values = _build_filter_clause(q=q, search_fields=fields, locations=[])
+            cte, union, values = scope.rows(columns, content, content_values)
+            select_sql = cte + scoped_select(union)
+        cursor.execute(select_sql, values)
+    finally:
+        control.execute('RELEASE SAVEPOINT vocabulary_scope_aggregate')
+        control.close()
+
+
 def _prefer_scoped_standard_word_scan(*, q, fields, locations, province, city, regions) -> bool:
     """Measured non-covering headword shapes; retain definition's covering scan.
 
@@ -761,7 +784,15 @@ def query_vocabulary_standard_words(
         "GROUP BY e.standard_word, e.location_name"
     )
 
-    cursor.execute(select_sql, values)
+    _execute_scoped_aggregate(
+        conn, cursor, q=q, fields=fields, locations=location_terms,
+        province=province, city=city, regions=regions, select_sql=select_sql, values=values,
+        columns='e.standard_word, e.location_name',
+        scoped_select=lambda union: (
+            'SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count '
+            f"FROM ({union}) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
+        ),
+    )
     # GROUP BY yields contiguous rows for each spelling; retain only its last key.
     previous_word = previous_key = None
     grouped: dict[str, list] = {}
