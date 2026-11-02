@@ -82,6 +82,7 @@ RECORD_API = [
     "/api/villages/*",
     "/api/yubao/*",
     "/api/vocabulary/*",
+    "/api/toponyms/*",
 ]
 
 # auth.db usage 排除规则：带 * 才通配，不带 * 则精确匹配
@@ -229,6 +230,12 @@ API_ROUTE_CONFIG = {
         "require_login": True,   # 公开查询，同 /api/get_coordinates
         "log_params": True,       # 记录查询参数（分析用户搜的地点）
         "log_body": False,        # GET 请求无 body
+    },
+    "/api/toponyms/*": {
+        "rate_limit": True,
+        "require_login": True,
+        "log_params": True,
+        "log_body": False,
     },
     "/api/get_coordinates": {
         "rate_limit": False,  # 不限流（查询类 API）
