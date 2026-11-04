@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
+from sqlalchemy import or_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -55,6 +56,7 @@ from app.service.vocabulary.service import preview_vocabulary_upload
 from app.service.vocabulary.service import VocabularyImportConflictError
 from app.service.vocabulary.partitions import query_vocabulary_partition_options
 from app.service.vocabulary.cache import cached_search, finish_on_cancel, notify_vocabulary_change
+from app.service.vocabulary.script_variants import build_script_variants
 
 
 router = APIRouter()
@@ -352,12 +354,16 @@ def get_vocabulary_locations(
     permission_level = get_effective_permission_level(db, current_user)
     query = db.query(VocabularyLocation)
 
-    if username is not None:
+    username = username.strip() if username else None
+    if permission_level in SELF_SCOPED_LEVELS and user_id is not None and user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
+
+    if username:
         auth_db = AuthSessionLocal()
         try:
             resolved_ids = [
                 row.id for row in
-                auth_db.query(User.id).filter(User.username == username).all()
+                auth_db.query(User.id).filter(User.username.contains(username, autoescape=True)).all()
             ]
         finally:
             auth_db.close()
@@ -370,7 +376,7 @@ def get_vocabulary_locations(
                 raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
             query = query.filter(VocabularyLocation.user_id == current_user.id)
         else:
-            query = query.filter(VocabularyLocation.user_id.in_(resolved_ids))
+            query = query.filter(VocabularyLocation.user_id == user_id) if user_id is not None else query.filter(VocabularyLocation.user_id.in_(resolved_ids))
     elif permission_level in SELF_SCOPED_LEVELS:
         if user_id is not None and user_id != current_user.id:
             raise HTTPException(status_code=403, detail="只能读取自己的地点信息")
@@ -378,8 +384,9 @@ def get_vocabulary_locations(
     elif user_id is not None:
         query = query.filter(VocabularyLocation.user_id == user_id)
 
-    if location_name:
-        query = query.filter(VocabularyLocation.location_name == location_name)
+    variants = build_script_variants(location_name or "")
+    if variants:
+        query = query.filter(or_(*(VocabularyLocation.location_name.contains(value, autoescape=True) for value in variants)))
 
     total = query.count()
     rows = (

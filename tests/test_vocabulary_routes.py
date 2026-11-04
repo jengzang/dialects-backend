@@ -845,6 +845,59 @@ def test_manage_locations_list_can_filter_by_user_id_and_location_name(tmp_path:
         session.close()
 
 
+def test_location_username_substring_respects_user_id_and_scope(tmp_path: Path, monkeypatch) -> None:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.routes import vocabulary as vocabulary_routes
+    from app.service.auth.database.models import User
+
+    engine = create_engine("sqlite:///:memory:")
+    User.__table__.create(engine)
+    auth_factory = sessionmaker(bind=engine)
+    with auth_factory() as auth:
+        auth.add_all([User(id=uid, username=name, email=f"{uid}@example.com", hashed_password="x")
+                      for uid, name in [(7, "alice"), (8, "malice"), (9, "a_ice")]])
+        auth.commit()
+    monkeypatch.setattr(vocabulary_routes, "AuthSessionLocal", auth_factory)
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all([VocabularyLocation(user_id=uid, location_name="地点", coordinates="1,2") for uid in (7, 8, 9)])
+        session.commit()
+        def search(username, user_id=None, user=None):
+            return get_vocabulary_locations(user_id=user_id, username=username, location_name=None,
+                page=1, page_size=50, current_user=user or _User(1, role="admin"), db=session)
+        assert {x.user_id for x in search("lice").locations} == {7, 8}
+        assert [x.user_id for x in search("lice", user_id=7).locations] == [7]
+        assert [x.user_id for x in search("_").locations] == [9]
+        assert [x.user_id for x in search("lice", user=_User(7)).locations] == [7]
+        with pytest.raises(HTTPException):
+            search("mal", user=_User(7))
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def test_location_name_matches_variants_literally_and_respects_scope(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="edit"))
+        session.add_all([VocabularyLocation(user_id=uid, location_name=name, coordinates="1,2") for uid, name in [
+            (7, "东莞城区"), (7, "東莞話"), (8, "東莞其他"), (7, "东_莞"),
+        ]])
+        session.commit()
+        def search(keyword, page=1, size=1):
+            return get_vocabulary_locations(user_id=None, username=None, location_name=keyword,
+                page=page, page_size=size, current_user=_User(7), db=session)
+        first, second = search("东莞"), search("东莞", 2)
+        assert first.total == second.total == 2
+        assert {first.locations[0].location_name, second.locations[0].location_name} == {"东莞城区", "東莞話"}
+        assert search("_").total == 1
+        assert search("%", size=20).total == 0
+    finally:
+        session.close()
+
+
 def test_edit_location_patch_updates_own_location_and_logs(tmp_path: Path) -> None:
     from app.schemas.vocabulary import VocabularyLocationUpdateRequest
 

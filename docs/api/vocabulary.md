@@ -894,7 +894,8 @@ curl -X POST "http://localhost:8000/api/vocabulary/imports/preview" \
 | 参数 | 类型 | 默认值 | 限制 | 说明 |
 | --- | --- | --- | --- | --- |
 | `user_id` | number | null | 可选 | `manage`/admin 可用来过滤某个用户；`edit` 只能传自己的 user_id 或不传。 |
-| `location_name` | string | null | 可选 | 精确匹配地点简称。 |
+| `username` | string | null | 可选 | 用户名包含匹配，空白值不筛选；与 `user_id` 同时提供时取交集。 |
+| `location_name` | string | null | 可选 | 地点简称包含匹配，支持简繁转换；与其他过滤条件同时生效，空白值不筛选。 |
 | `page` | number | `1` | `>= 1` | 页码。 |
 | `page_size` | number | `50` | `1..200` | 每页条数。 |
 
