@@ -26,7 +26,9 @@ def snapshot():
             'load1': os.getloadavg()[0]}
 
 
-def supervise(source, container, database, nginx_log):
+def supervise(source, container, database, nginx_log, max_seconds=4.0):
+    if not 0 < max_seconds <= 8:
+        raise ValueError('Migration budget must be >0 and <=8 seconds')
     os.nice(19)
     baseline = snapshot()
     if baseline['available_mib'] < 192:
@@ -37,7 +39,8 @@ def supervise(source, container, database, nginx_log):
     log.seek(0, os.SEEK_END)
     token = uuid.uuid4().hex
     process = subprocess.Popen(['docker', 'exec', '-i', container, 'python', '-', database,
-                                '--require-watchdog', '--watchdog-token', token],
+                                '--require-watchdog', '--watchdog-token', token,
+                                '--max-seconds', str(max_seconds)],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)
     started = time.monotonic()
@@ -114,6 +117,16 @@ def supervise(source, container, database, nginx_log):
             now = time.monotonic()
             state = snapshot()
             state['elapsed_s'] = now - started
+            if alive():
+                try:
+                    with open('/proc/%s/stat' % identity[0]) as stream:
+                        stat = stream.read().rsplit(')', 1)[1].split()
+                    state['target_cpu_s'] = (int(stat[11]) + int(stat[12])) / os.sysconf('SC_CLK_TCK')
+                    with open('/proc/%s/status' % identity[0]) as stream:
+                        rss = next(line for line in stream if line.startswith('VmRSS:'))
+                    state['target_rss_kib'] = int(rss.split()[1])
+                except (OSError, StopIteration, ValueError):
+                    pass
             if len(samples) < 80:
                 samples.append(state)
             new_log = log.read(65536)
@@ -123,7 +136,7 @@ def supervise(source, container, database, nginx_log):
                 reason = reason or 'swap usage increased by more than 4 MiB'
             if re.search(rb'"(?:POST|PUT|PATCH|DELETE) /api/vocabulary/', new_log):
                 reason = reason or 'vocabulary write request observed'
-            if now - started > 5:
+            if now - started > max_seconds + 1:
                 reason = reason or 'external watchdog deadline'
             if reason and not interrupted:
                 interrupted = True
@@ -135,7 +148,7 @@ def supervise(source, container, database, nginx_log):
             if interrupted and not killed and now - interrupt_time > 1:
                 killed = True
                 stop('KILL')
-            if now - started > 8:
+            if now - started > max_seconds + 4:
                 process.kill()
                 break
         process.wait(timeout=1)

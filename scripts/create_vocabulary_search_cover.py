@@ -151,8 +151,8 @@ def main():
     args = parser.parse_args()
     if args.require_watchdog and not args.watchdog_token:
         parser.error('require-watchdog also requires watchdog-token')
-    if not 0 < args.max_seconds <= 4:
-        parser.error('max-seconds must be >0 and <=4')
+    if not 0 < args.max_seconds <= 8:
+        parser.error('max-seconds must be >0 and <=8')
     try:
         print(json.dumps(migrate(args.database, args.max_seconds, args.require_watchdog)), flush=True)
     except Exception as exc:
