@@ -26,9 +26,11 @@ def snapshot():
             'load1': os.getloadavg()[0]}
 
 
-def supervise(source, container, database, nginx_log, max_seconds=4.0):
+def supervise(source, container, database, nginx_log, max_seconds=4.0, io_class='idle'):
     if not 0 < max_seconds <= 8:
         raise ValueError('Migration budget must be >0 and <=8 seconds')
+    if io_class not in ('idle', 'best-effort'):
+        raise ValueError('Unsupported I/O class')
     os.nice(19)
     baseline = snapshot()
     if baseline['available_mib'] < 192:
@@ -40,7 +42,7 @@ def supervise(source, container, database, nginx_log, max_seconds=4.0):
     token = uuid.uuid4().hex
     process = subprocess.Popen(['docker', 'exec', '-i', container, 'python', '-', database,
                                 '--require-watchdog', '--watchdog-token', token,
-                                '--max-seconds', str(max_seconds)],
+                                '--max-seconds', str(max_seconds), '--io-class', io_class],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)
     started = time.monotonic()

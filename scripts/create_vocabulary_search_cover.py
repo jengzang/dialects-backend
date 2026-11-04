@@ -27,6 +27,19 @@ def available_mib():
     raise RuntimeError('MemAvailable unavailable; refusing migration')
 
 
+def cgroup_headroom_mib():
+    for limit_path, usage_path in (
+        ('/sys/fs/cgroup/memory/memory.limit_in_bytes', '/sys/fs/cgroup/memory/memory.usage_in_bytes'),
+        ('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current'),
+    ):
+        if os.path.exists(limit_path):
+            limit = Path(limit_path).read_text().strip()
+            if limit == 'max' or int(limit) >= 1 << 60:
+                return None
+            return (int(limit) - int(Path(usage_path).read_text())) / (1024 * 1024)
+    return None
+
+
 def index_ready(conn):
     indexes = conn.execute('PRAGMA main.index_list(vocabulary_entries)')
     row = next((row for row in indexes if row[1] == NAME), None)
@@ -45,23 +58,24 @@ def sizes(path):
             if Path(str(path) + suffix).exists() else 0 for suffix in ('', '-wal', '-shm')}
 
 
-def migrate(path, max_seconds, require_watchdog=False):
+def migrate(path, max_seconds, require_watchdog=False, io_class='idle'):
     if not sys.platform.startswith('linux'):
         raise RuntimeError('Resource guards require Linux')
     path = path.resolve(strict=True)
     os.nice(19)
     # Process-local scheduling only; use the libc wrapper, not arch-specific syscall IDs.
     libc = ctypes.CDLL(None, use_errno=True)
-    idle_io = False
+    priority = (3 << 13) if io_class == 'idle' else (2 << 13) | 7
+    priority_set = False
     if hasattr(libc, 'ioprio_set'):
-        idle_io = libc.ioprio_set(1, 0, 3 << 13) == 0
+        priority_set = libc.ioprio_set(1, 0, priority) == 0
     elif os.uname().machine in ('x86_64', 'aarch64'):
         syscall = 251 if os.uname().machine == 'x86_64' else 30
-        idle_io = libc.syscall(syscall, 1, 0, 3 << 13) == 0
-    if not idle_io:
-        raise RuntimeError('Unable to set idle I/O priority; refusing migration')
-    if hasattr(os, 'sched_getaffinity'):
-        os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+        priority_set = libc.syscall(syscall, 1, 0, priority) == 0
+    if not priority_set:
+        raise RuntimeError('Unable to set low I/O priority; refusing migration')
+    # SQLite threads=0 below keeps one execution thread. Let the scheduler move
+    # it to an idle CPU rather than forcing contention on CPU 0.
     resource.setrlimit(resource.RLIMIT_AS, (96 * 1024 * 1024, 96 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_CPU, (10, 12))
     before = sizes(path)
@@ -71,6 +85,9 @@ def migrate(path, max_seconds, require_watchdog=False):
     initial_available = available_mib()
     if initial_available < 192:
         raise RuntimeError(f'Only {initial_available:.1f} MiB available; need 192 MiB to start')
+    initial_headroom = cgroup_headroom_mib()
+    if initial_headroom is not None and initial_headroom < 128:
+        raise RuntimeError('Container memory headroom below 128 MiB')
     acknowledged = False
     def acknowledge(signum, frame):
         nonlocal acknowledged
@@ -108,6 +125,9 @@ def migrate(path, max_seconds, require_watchdog=False):
                 try:
                     if available_mib() < 128:
                         stopped.append('available memory below 128 MiB'); return 1
+                    headroom = cgroup_headroom_mib()
+                    if headroom is not None and headroom < 64:
+                        stopped.append('container headroom below 64 MiB'); return 1
                 except OSError:
                     stopped.append('memory guard unavailable'); return 1
             return 0
@@ -136,7 +156,10 @@ def migrate(path, max_seconds, require_watchdog=False):
                 'rss_peak_kib': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                 'available_mib_before': initial_available,
                 'available_mib_after': available_mib(), 'nice': os.nice(0),
-                'idle_io': idle_io, 'max_seconds': max_seconds,
+                'io_class': io_class, 'io_priority': None if io_class == 'idle' else 7,
+                'cgroup_headroom_mib_before': initial_headroom,
+                'cgroup_headroom_mib_after': cgroup_headroom_mib(),
+                'max_seconds': max_seconds,
                 'cache_kib': 1024, 'virtual_memory_cap_mib': 96}
     finally:
         conn.close()
@@ -148,13 +171,14 @@ def main():
     parser.add_argument('--max-seconds', type=float, default=4.0)
     parser.add_argument('--require-watchdog', action='store_true')
     parser.add_argument('--watchdog-token', default='')
+    parser.add_argument('--io-class', choices=('idle', 'best-effort'), default='idle')
     args = parser.parse_args()
     if args.require_watchdog and not args.watchdog_token:
         parser.error('require-watchdog also requires watchdog-token')
     if not 0 < args.max_seconds <= 8:
         parser.error('max-seconds must be >0 and <=8')
     try:
-        print(json.dumps(migrate(args.database, args.max_seconds, args.require_watchdog)), flush=True)
+        print(json.dumps(migrate(args.database, args.max_seconds, args.require_watchdog, args.io_class)), flush=True)
     except Exception as exc:
         print(json.dumps({'status': 'stopped', 'error': str(exc)}), flush=True)
         return 1
