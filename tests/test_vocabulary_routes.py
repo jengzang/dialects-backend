@@ -1628,6 +1628,28 @@ def test_edit_user_cannot_read_vocabulary_logs_endpoint(tmp_path: Path) -> None:
         session.close()
 
 
+def test_logs_filters_multiple_values_fuzzy_sort_and_permissions(tmp_path: Path) -> None:
+    session = _make_session(tmp_path)
+    try:
+        session.add(VocabularyPermission(user_id=7, permission_level="manage"))
+        for index, action in enumerate(("create", "batch_create", "set_permission")):
+            session.add(VocabularyLog(operation_id=f"op-{index}", user_id=7, permission_level="manage",
+                source="sql_editor", action=action, table_name="vocabulary_entries", status="success"))
+        session.commit()
+        def search(**kwargs):
+            params = dict(user_id=None, permission_level=None, source=None, action=None, table_name=None,
+                          status=None, page=1, page_size=50, current_user=_User(7), db=session)
+            params.update(kwargs)
+            return get_vocabulary_logs(**params)
+        assert search(action="create").total == 2
+        assert [log.action for log in search(actions="create,set_permission").logs] == ["create"]
+        assert search(source="sql", table_name="entries").total == 2
+        assert search(action="%").total == 0
+        assert [log.action for log in search(sort_by="action", sort_order="asc").logs] == ["batch_create", "create"]
+    finally:
+        session.close()
+
+
 def test_manage_user_can_read_vocabulary_logs_endpoint(tmp_path: Path) -> None:
     session = _make_session(tmp_path)
     try:

@@ -1035,11 +1035,10 @@ GET /api/vocabulary/locations?user_id=7&location_name=息烽
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `user_id` | number | null | 按操作者过滤。 |
-| `permission_level` | string | null | 按操作时权限过滤。 |
-| `source` | string | null | 按来源过滤。 |
-| `action` | string | null | 按动作过滤。 |
-| `table_name` | string | null | 按表名过滤。 |
-| `status` | string | null | 按状态过滤。当前成功日志为 `success`。 |
+| `permission_level`、`source`、`action`、`table_name`、`status` | string | null | 对对应字段进行包含匹配，通配符按普通字符处理。 |
+| `permission_levels`、`sources`、`actions`、`table_names`、`statuses` | string | null | 对应字段的精确多选值，逗号分隔；同字段为 OR，不同字段为 AND，最多 50 项及 2000 字符。 |
+| `sort_by` | string | `created_at` | 支持 `action`、`created_at`、`user_id`、`source`、`table_name`、`status`、`affected_rows`。 |
+| `sort_order` | string | `desc` | `asc` 或 `desc`。 |
 | `page` | number | `1` | 页码，`>= 1`。 |
 | `page_size` | number | `50` | 每页条数，`1..200`。 |
 

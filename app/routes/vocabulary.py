@@ -789,6 +789,13 @@ def get_vocabulary_logs(
     page_size: int = Query(50, ge=1, le=200),
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_vocabulary_db),
+    permission_levels: Optional[str] = None,
+    sources: Optional[str] = None,
+    actions: Optional[str] = None,
+    table_names: Optional[str] = None,
+    statuses: Optional[str] = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
 ):
     effective_permission = get_effective_permission_level(db, current_user)
     if effective_permission != "manage":
@@ -799,20 +806,32 @@ def get_vocabulary_logs(
         query = query.filter(VocabularyLog.action != "set_permission")
     if user_id is not None:
         query = query.filter(VocabularyLog.user_id == user_id)
-    if permission_level:
-        query = query.filter(VocabularyLog.permission_level == permission_level)
-    if source:
-        query = query.filter(VocabularyLog.source == source)
-    if action:
-        query = query.filter(VocabularyLog.action == action)
-    if table_name:
-        query = query.filter(VocabularyLog.table_name == table_name)
-    if status:
-        query = query.filter(VocabularyLog.status == status)
+    for column, term, selected in (
+        (VocabularyLog.permission_level, permission_level, permission_levels),
+        (VocabularyLog.source, source, sources),
+        (VocabularyLog.action, action, actions),
+        (VocabularyLog.table_name, table_name, table_names),
+        (VocabularyLog.status, status, statuses),
+    ):
+        if term and term.strip():
+            query = query.filter(column.contains(term.strip(), autoescape=True))
+        if selected:
+            values = [value.strip() for value in selected.split(",") if value.strip()]
+            if len(values) > 50 or len(selected) > 2000:
+                raise HTTPException(status_code=400, detail="筛选选项过多")
+            if values:
+                query = query.filter(column.in_(values))
+
+    sort_columns = {name: getattr(VocabularyLog, name) for name in (
+        "action", "created_at", "user_id", "source", "table_name", "status", "affected_rows"
+    )}
+    if sort_by not in sort_columns or sort_order not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="无效的排序参数")
+    sort_column = sort_columns[sort_by]
 
     total = query.count()
     rows = (
-        query.order_by(VocabularyLog.created_at.desc(), VocabularyLog.id.desc())
+        query.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc(), VocabularyLog.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
