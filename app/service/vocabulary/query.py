@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from heapq import nsmallest
+import sqlite3
 from typing import Iterable
 
 from sqlalchemy.orm import Session
@@ -424,6 +425,34 @@ def _filter_uses_locations(where_clause: str) -> bool:
     return "l." in where_clause
 
 
+SEARCH_COVER_INDEX = 'idx_vocabulary_entries_search_cover'
+
+
+def _global_search_cover(cursor, *, q, fields, locations, province, city, regions):
+    """Optional, explicitly migrated index; inspect only small schema metadata.
+
+    Do not retain per-connection/index state: a later migration may add or remove
+    the index without restarting workers. Never build it in a request/startup.
+    """
+    if not (q and q.strip() and not any(char in q for char in '%_\x00')
+            and not (locations or province or city or regions)
+            and set(fields) in ({'definition'}, {'headword'}, {'definition', 'headword'})):
+        return False
+    for row in cursor.execute('PRAGMA main.index_list(vocabulary_entries)', ()):
+        if row[1] == SEARCH_COVER_INDEX:
+            if row[2] or row[4]:  # Unique or partial indexes are not this plan.
+                return False
+            break
+    else:
+        return False
+    columns = [(row[2], row[3], row[4]) for row in cursor.execute(
+        f'PRAGMA main.index_xinfo({SEARCH_COVER_INDEX})', (),
+    ) if row[5]]
+    return columns == [(column, 0, 'BINARY') for column in (
+        'standard_word', 'location_name', 'local_expression', 'user_id',
+    )]
+
+
 def _can_plan_location_scope(*, q, fields, locations, province, city, regions):
     return (
         len(locations) <= 32
@@ -448,11 +477,19 @@ def _resolve_location_scope(cursor, locations, *, for_entries=False):
 
 
 def _execute_scoped_aggregate(conn, cursor, *, q, fields, locations, province, city,
-                              regions, select_sql, values, columns, scoped_select):
+                              regions, select_sql, values, columns, scoped_select,
+                              fallback_sql=None):
     if not _can_plan_location_scope(
         q=q, fields=fields, locations=locations, province=province, city=city, regions=regions,
     ):
-        cursor.execute(select_sql, values)
+        try:
+            cursor.execute(select_sql, values)
+        except sqlite3.OperationalError as exc:
+            # A concurrent DROP can occur after the schema probe. Retry only
+            # this missing-index preparation failure, once, with the old plan.
+            if fallback_sql is None or str(exc) != f'no such index: {SEARCH_COVER_INDEX}':
+                raise
+            cursor.execute(fallback_sql, values)
         return
     # Separate control cursor: RELEASE must not replace pending aggregate rows.
     # The SELECT retains its read snapshot while the caller consumes the cursor.
@@ -864,10 +901,20 @@ def query_vocabulary_standard_words(
         "GROUP BY e.standard_word, e.location_name"
     )
 
+    fallback_sql = None
+    if _global_search_cover(cursor, q=q, fields=fields, locations=location_terms,
+                            province=province, city=city, regions=regions):
+        fallback_sql = select_sql
+        select_sql = select_sql.replace(
+            f'FROM {entry_source}',
+            f'FROM vocabulary_entries e INDEXED BY {SEARCH_COVER_INDEX} ', 1,
+        )
+
     _execute_scoped_aggregate(
         conn, cursor, q=q, fields=fields, locations=location_terms,
         province=province, city=city, regions=regions, select_sql=select_sql, values=values,
         columns='e.standard_word, e.location_name',
+        fallback_sql=fallback_sql,
         scoped_select=lambda union: (
             'SELECT e.standard_word, e.location_name, COUNT(*) AS entry_count '
             f"FROM ({union}) e WHERE e.standard_word <> '' GROUP BY e.standard_word, e.location_name"
@@ -1055,10 +1102,23 @@ def query_vocabulary_map_points(
         + outer_join
     )
 
+    fallback_sql = None
+    # Keep the existing >=75%-dense sample path and scoped/default plans.
+    if table_scan and _global_search_cover(
+        cursor, q=q, fields=fields, locations=location_terms,
+        province=province, city=city, regions=regions,
+    ):
+        fallback_sql = select_sql
+        select_sql = select_sql.replace(
+            'vocabulary_entries e NOT INDEXED ',
+            f'vocabulary_entries e INDEXED BY {SEARCH_COVER_INDEX} ', 1,
+        )
+
     _execute_scoped_aggregate(
         conn, cursor, q=q, fields=fields, locations=location_terms,
         province=province, city=city, regions=regions, select_sql=select_sql, values=values,
         columns='e.id, e.user_id, e.location_name',
+        fallback_sql=fallback_sql,
         scoped_select=lambda union: (
             outer_select + 'SELECT e.user_id, e.location_name, COUNT(*) AS entry_count, '
             f'MIN(e.id) AS first_entry_id FROM ({union}) e GROUP BY e.user_id, e.location_name'
