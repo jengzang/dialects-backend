@@ -69,7 +69,7 @@ def test_cached_zero_does_not_load_a_page(database):
     {'search_fields': ['headword', 'location']}, {'search_fields': ['all']},
     {'q': '%'}, {'locations': ['%']},
     {'q': '贵州'}, {'province': '贵州'}, {'regions': ['官话/西南']},
-    {'standard_words': ['太阳']}, {'page': 2},
+    {'standard_words': ['太阳']},
 ])
 def test_unmeasured_shapes_keep_count_first(database, options):
     _, session, statements = database

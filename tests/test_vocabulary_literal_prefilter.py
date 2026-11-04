@@ -88,14 +88,14 @@ def test_unsafe_or_unmeasured_modes_do_not_probe(database, params):
 
 
 @pytest.mark.parametrize('cached_total', [0,2])
-def test_count_hit_skips_planning_and_preserves_signature(database, cached_total):
+def test_count_hit_prepares_nonempty_page_and_preserves_signature(database, cached_total):
     conn, session, sql = database
     fill(conn);sql.clear();keys=[]
     def hit(statement, bindings, compute):
         keys.append((statement, tuple(bindings)));return cached_total
     options=dict(session=session,q='日头',search_fields=['headword'])
     result=query.query_vocabulary_items(**options,_count_resolver=hit)
-    assert not any('vocabulary_literal_probe' in s for s in sql)
+    assert any('vocabulary_literal_probe' in s for s in sql) == bool(cached_total)
     def miss(statement, bindings, compute):
         keys.append((statement, tuple(bindings)));return compute()
     query.query_vocabulary_items(**options,_count_resolver=miss)
@@ -139,7 +139,7 @@ def test_prefilter_failure_releases_savepoint(database, caller_transaction):
     conn.rollback()
 
 
-def test_wide_scope_prefilter_preserves_names_metadata_users_and_all_pages(database):
+def test_wide_scope_preserves_names_metadata_users_and_all_pages(database):
     conn, session, sql=database
     fill(conn)
     conn.executemany('INSERT INTO vocabulary_entries(user_id,location_name,standard_word,local_expression,ipa) VALUES(?,?,?,?,?)',
@@ -149,7 +149,7 @@ def test_wide_scope_prefilter_preserves_names_metadata_users_and_all_pages(datab
     expected=query.query_vocabulary_items(**options,_count_loader=lambda s,v:conn.execute(s,v).fetchone()[0])
     actual=query.query_vocabulary_items(**options)
     assert actual==expected and actual.total==162
-    assert any('instr(' in s for s in sql)
+    assert any('CROSS JOIN vocabulary_entries' in s and 'vocabulary_scope_plan' not in s for s in sql)
     ids=[]
     for page in range(1,5):ids.extend(i.id for i in query.query_vocabulary_items(**options,page=page).items)
     assert len(ids)==len(set(ids))==actual.total and ids==sorted(ids,reverse=True)

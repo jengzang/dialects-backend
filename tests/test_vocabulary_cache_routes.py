@@ -306,13 +306,13 @@ def test_inferred_first_page_count_is_reused_and_invalidated(cache, api):
         response = client.get('/vocabulary/search/entries', params={**params, 'page': 2, 'page_size': 1})
         assert response.json()['total'] == 2
         assert len(response.json()['items']) == 1
-        assert any(sql.startswith('SELECT COUNT(*)') for sql in statements)
+        assert any(sql.startswith('SELECT COUNT(*)') or 'vocabulary_scope_count' in sql for sql in statements)
     finally:
         with factory() as session:
             session.connection().connection.set_trace_callback(None)
 
 
-def test_scoped_first_page_count_hit_skips_planner_with_real_redis(cache,api,monkeypatch):
+def test_scoped_first_page_count_hit_still_plans_with_real_redis(cache,api,monkeypatch):
     from app.service.vocabulary import query
     client,_=api
     original=query.plan_location_scope
@@ -331,7 +331,7 @@ def test_scoped_first_page_count_hit_skips_planner_with_real_redis(cache,api,mon
     assert second.status_code==200
     assert second.json()['total']==1
     assert second.json()['items']==first.json()['items']
-    assert len(planned)==1
+    assert len(planned)==2
 
 
 def test_global_literal_count_reuse_and_invalidation_with_real_redis(cache, api, monkeypatch):
@@ -356,7 +356,7 @@ def test_global_literal_count_reuse_and_invalidation_with_real_redis(cache, api,
     assert len(planned) == 1
     second = client.get('/vocabulary/search/entries', params=dict(params, page_size=100))
     assert second.status_code == 200 and second.json()['items'] == first.json()['items']
-    assert second.json()['total'] == 1 and len(planned) == 1
+    assert second.json()['total'] == 1 and len(planned) == 2
     with factory() as session:
         session.add(VocabularyEntry(user_id=1, location_name='甲', standard_word='太阳',
             local_expression='日头', ipa='b'))
@@ -365,4 +365,4 @@ def test_global_literal_count_reuse_and_invalidation_with_real_redis(cache, api,
     third = client.get('/vocabulary/search/entries', params=params)
     assert third.status_code == 200
     assert third.json()['total'] == len(third.json()['items']) == 2
-    assert len(planned) == 2
+    assert len(planned) == 3

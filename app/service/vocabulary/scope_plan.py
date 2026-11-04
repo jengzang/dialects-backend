@@ -41,12 +41,52 @@ class LocationScope:
         return cte, f'SELECT {columns} FROM {first} UNION ALL SELECT {columns} FROM {second}', bindings + list(values) * 2
 
 
-def plan_location_scope(cursor, *, locations, metadata_columns):
+def _candidate_budget(cursor, max_candidates, coverage_divisor):
+    """Use existing estimates for cost only; never count the whole entry table.
+
+    Without usable ANALYZE data, a <=4097-row probe distinguishes small tables
+    from unknown large ones. Unknown large tables keep the old conservative cap.
+    Stale estimates may change the chosen plan, never the matching rows.
+    """
+    total = rows_per_name = None
+    if cursor.execute(
+        "SELECT /* vocabulary_scope_plan */ 1 FROM sqlite_schema "
+        "WHERE type = 'table' AND name = 'sqlite_stat1'"
+    ).fetchone():
+        row = cursor.execute(
+            "SELECT /* vocabulary_scope_plan */ stat FROM sqlite_stat1 "
+            "WHERE tbl = 'vocabulary_entries' "
+            "AND idx = 'ix_vocabulary_entries_location_name' LIMIT 1"
+        ).fetchone()
+        stat = row[0] if row and isinstance(row[0], str) else ''
+        parts = stat.split()
+        try:
+            total = int(parts[0])
+        except (ValueError, IndexError):
+            pass
+        try:
+            rows_per_name = int(parts[1])
+        except (ValueError, IndexError):
+            pass
+    if total is None or total < 0:
+        total = cursor.execute(
+            'SELECT /* vocabulary_scope_plan */ COUNT(*) FROM '
+            '(SELECT 1 FROM vocabulary_entries LIMIT 4097)'
+        ).fetchone()[0]
+        if total == 4097:
+            return min(max_candidates, 32768), None
+        rows_per_name = None
+    return min(max_candidates, max(1024, total // coverage_divisor)), rows_per_name
+
+
+def plan_location_scope(cursor, *, locations, metadata_columns,
+                        max_candidates=32768, coverage_divisor=10):
     """Return a small exact scope, or None to retain the original full query.
 
     Collect <=257 names/extra identities; overflow falls back. Candidate-count
-    probe reads <=32769 matching index rows. Location metadata filtering still
-    scans its table, with a bounded returned buffer (not constant total I/O).
+    probe reads <=max_candidates+1 matching index rows (entries use 65536,
+    aggregates keep 32768). Location metadata filtering still scans its table,
+    with a bounded returned buffer (not constant total I/O).
     """
     patterns = ['%' + term + '%' for term in locations]
     name_filter = ' OR '.join("COALESCE(name, '') LIKE ?" for _ in patterns)
@@ -76,8 +116,13 @@ def plan_location_scope(cursor, *, locations, metadata_columns):
     scope = LocationScope(matched_names, tuple(identities))
     if not matched_names and not identities:
         return scope
-    total = cursor.execute('SELECT /* vocabulary_scope_plan */ COUNT(*) FROM vocabulary_entries').fetchone()[0]
-    budget = min(32768, max(1024, total // 10))
+    budget, rows_per_name = _candidate_budget(cursor, max_candidates, coverage_divisor)
+    # Avoid walking the entire candidate cap just to reject obviously wide
+    # scopes, especially when the result count is cached. Leave a 2x margin:
+    # ANALYZE averages are approximate and locality can be highly uneven.
+    if rows_per_name and rows_per_name > 0:
+        if (len(matched_names) + len(identities)) * rows_per_name > budget * 2:
+            return None
     cte, rows, values = scope.rows('1', '1=1', [])
     matched = cursor.execute(
         cte + 'SELECT /* vocabulary_scope_plan */ COUNT(*) FROM (' + rows + ' LIMIT ?)',

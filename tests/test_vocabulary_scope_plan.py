@@ -30,14 +30,15 @@ def test_entries_cold_scope_seeks_existing_indexes_and_exact_total(database,fiel
         assert result.total==0 and result.items==[]
 
 
-def test_entries_count_hit_does_not_probe_or_change_cache_signature(database,monkeypatch):
+def test_entries_count_hit_plans_page_without_changing_cache_signature(database):
     _,session,sql=database
     keys=[]
     def hit(statement,values,compute):
         keys.append((statement,tuple(values)))
         return 2
     actual=query.query_vocabulary_items(session=session,**PARAMS,_count_resolver=hit)
-    assert not planned(sql)
+    assert planned(sql)
+    assert not any('vocabulary_scope_count' in s for s in sql)
     assert [i.id for i in actual.items]==[2,1]
     def miss(statement,values,compute):
         keys.append((statement,tuple(values)))
@@ -49,13 +50,13 @@ def test_entries_count_hit_does_not_probe_or_change_cache_signature(database,mon
     assert actual==cold
 
 
-def test_legacy_count_loader_and_later_pages_keep_original_path(database):
+def test_legacy_loader_keeps_original_path_but_later_pages_plan(database):
     _,session,sql=database
     query.query_vocabulary_items(session=session,**PARAMS,_count_loader=lambda *_:2)
     assert not planned(sql)
     sql.clear()
     query.query_vocabulary_items(session=session,**PARAMS,page=2,page_size=1)
-    assert not planned(sql)
+    assert planned(sql)
 
 
 @pytest.mark.parametrize('options',[

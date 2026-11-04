@@ -434,11 +434,15 @@ def _can_plan_location_scope(*, q, fields, locations, province, city, regions):
     )
 
 
-def _resolve_location_scope(cursor, locations):
+def _resolve_location_scope(cursor, locations, *, for_entries=False):
+    # Entries' bounded pages can profit from a wider scope than full aggregates.
+    # Keep both the absolute probe bound and the estimated coverage guard.
+    options = dict(max_candidates=65536, coverage_divisor=4) if for_entries else {}
     return plan_location_scope(
         cursor, locations=locations,
         metadata_columns=[column.replace('l.', 'p.', 1)
                           for column in SEARCH_FIELD_COLUMNS['location'] if column.startswith('l.')],
+        **options,
     )
 
 
@@ -647,6 +651,7 @@ def query_vocabulary_items(
     page_sql, page_values = select_sql, values
 
     def read_page():
+        prepare()
         cursor.execute(page_sql, page_values + [page_size, offset])
         names = [description[0] for description in cursor.description]
         return [dict(zip(names, row)) for row in cursor.fetchall()]
@@ -654,7 +659,7 @@ def query_vocabulary_items(
     # Only measured non-covering content shapes may infer a cold first-page
     # count. In particular, definition-only COUNT has a cheaper covering scan.
     page_first = (
-        page == 1 and not standard_words
+        _count_loader is None and page == 1 and not standard_words
         and set(fields) in ({'headword'}, {'definition', 'headword'})
         and _prefer_location_identity_scan(
             q=q, fields=DEFAULT_SEARCH_FIELDS, locations=location_terms,
@@ -662,13 +667,13 @@ def query_vocabulary_items(
         )
     )
 
-    scoped_eligible = page == 1 and not standard_words and _can_plan_location_scope(
+    scoped_eligible = _count_loader is None and not standard_words and _can_plan_location_scope(
         q=q, fields=fields, locations=location_terms,
         province=province, city=city, regions=regions,
     )
 
     literal_eligible = (
-        page == 1 and not (standard_words or province or city or regions)
+        _count_loader is None and page == 1 and not (standard_words or province or city or regions)
         and set(fields).issubset(DEFAULT_SEARCH_FIELDS)
         and q and supports_literal_prefilter(build_script_variants(q))
         and (not location_terms or scoped_eligible
@@ -683,90 +688,95 @@ def query_vocabulary_items(
         and q and supports_literal_prefilter(build_script_variants(q))
     )
 
+    prepared = False
+    needs_plan = page_first or scoped_eligible or literal_eligible
+    actual_count_sql, actual_count_values = count_sql, count_values
+    read_first = page_first
+
+    def prepare():
+        """Prepare this page once, regardless of whether its total is cached."""
+        nonlocal prepared, page_sql, page_values, actual_count_sql, actual_count_values, read_first
+        if prepared or not needs_plan:
+            return
+        prepared = True
+        scope = None
+        if scoped_eligible:
+            scope = _resolve_location_scope(cursor, location_terms, for_entries=True)
+            if scope is not None:
+                content, content_values = _build_filter_clause(q=q, search_fields=fields, locations=[])
+                cte, union, bindings = scope.rows(entry_columns + ', e.user_id', content, content_values)
+                page_sql = (cte + f'SELECT {entry_columns}, {location_columns}'
+                            f'FROM ({union} ORDER BY id DESC LIMIT ? OFFSET ?) e '
+                            f'{location_join}ORDER BY e.id DESC')
+                page_values = bindings
+                cte, bindings = scope.cte()
+                first, second = scope.branches(content)
+                actual_count_sql = (
+                    cte + 'SELECT /* vocabulary_scope_count */ SUM(c) FROM ('
+                    f'SELECT COUNT(*) c FROM {first} UNION ALL SELECT COUNT(*) c FROM {second})'
+                )
+                actual_count_values = bindings + content_values * 2
+        if literal_eligible and scope is None:
+            content, content_values = _build_filter_clause(q=q, search_fields=fields, locations=[])
+            columns = [column for field in fields for column in SEARCH_FIELD_COLUMNS[field]]
+            sparse = sparse_literal_sample(cursor, columns=columns, where=content, values=content_values)
+            # Dense global searches keep count-first: reversing scans can
+            # increase first-call I/O when old rows hold the hits.
+            read_first = read_first or (global_page_first and sparse is not False)
+            if sparse:
+                fast_where, fast_values = _build_filter_clause(
+                    q=q, search_fields=fields, locations=location_terms,
+                    literal_prefilter=True, location_scope_first=location_identity_scan,
+                )
+                page_sql = select_sql.replace(
+                    'WHERE ' + combined_where_clause + ' ', 'WHERE ' + fast_where + ' ', 1,
+                )
+                page_values = fast_values
+                actual_count_sql = count_sql.replace(
+                    'WHERE ' + combined_where_clause, 'WHERE ' + fast_where, 1,
+                )
+                actual_count_values = fast_values
+
     def execute_count():
-        nonlocal rows, page_sql, page_values
-        if page_first or scoped_eligible or literal_eligible:
-            # Legacy sqlite3 transaction mode does not begin on SELECT. A read
-            # savepoint gives the page and a full-page COUNT the same snapshot,
-            # including when another connection commits between the two reads.
-            cursor.execute('SAVEPOINT vocabulary_first_page')
-            try:
-                actual_count_sql, actual_count_values = count_sql, count_values
-                scope = None
-                read_first = page_first
-                if scoped_eligible:
-                    scope = _resolve_location_scope(cursor, location_terms)
-                    if scope is not None:
-                        content, content_values = _build_filter_clause(
-                            q=q, search_fields=fields, locations=[],
-                        )
-                        cte, union, bindings = scope.rows(entry_columns + ', e.user_id', content, content_values)
-                        page_sql = (cte + f'SELECT {entry_columns}, {location_columns}'
-                                    f'FROM ({union} ORDER BY id DESC LIMIT ? OFFSET ?) e '
-                                    f'{location_join}ORDER BY e.id DESC')
-                        page_values = bindings
-                        cte, bindings = scope.cte()
-                        first, second = scope.branches(content)
-                        actual_count_sql = (
-                            cte + 'SELECT /* vocabulary_scope_count */ SUM(c) FROM ('
-                            f'SELECT COUNT(*) c FROM {first} UNION ALL SELECT COUNT(*) c FROM {second})'
-                        )
-                        actual_count_values = bindings + content_values * 2
-                if literal_eligible and scope is None:
-                    content, content_values = _build_filter_clause(
-                        q=q, search_fields=fields, locations=[],
-                    )
-                    columns = [column for field in fields for column in SEARCH_FIELD_COLUMNS[field]]
-                    sparse = sparse_literal_sample(cursor, columns=columns, where=content, values=content_values)
-                    # Dense global searches keep count-first: reversing scans
-                    # can increase first-call I/O when old rows hold the hits.
-                    read_first = read_first or (global_page_first and sparse is not False)
-                    if sparse:
-                        fast_where, fast_values = _build_filter_clause(
-                            q=q, search_fields=fields, locations=location_terms,
-                            literal_prefilter=True, location_scope_first=location_identity_scan,
-                        )
-                        page_sql = select_sql.replace(
-                            'WHERE ' + combined_where_clause + ' ', 'WHERE ' + fast_where + ' ', 1,
-                        )
-                        page_values = fast_values
-                        actual_count_sql = count_sql.replace(
-                            'WHERE ' + combined_where_clause, 'WHERE ' + fast_where, 1,
-                        )
-                        actual_count_values = fast_values
-                if read_first:
-                    rows = read_page()
-                    if len(rows) < page_size:
-                        return len(rows)
-                total = cursor.execute(actual_count_sql, actual_count_values).fetchone()[0]
-                if rows is None and offset < total:
-                    rows = read_page()
-                return total
-            finally:
-                cursor.execute('RELEASE SAVEPOINT vocabulary_first_page')
-        cursor.execute(count_sql, count_values)
-        return cursor.fetchone()[0]
+        nonlocal rows
+        prepare()
+        if read_first:
+            rows = read_page()
+            if len(rows) < page_size:
+                return len(rows)
+        total = cursor.execute(actual_count_sql, actual_count_values).fetchone()[0]
+        if needs_plan and rows is None and offset < total:
+            rows = read_page()
+        return total
 
-    # Resolve the existing independent count cache before computing anything.
-    # Its miss callback may infer an exact total from a short first page. Keep
-    # legacy two-argument loaders count-first for existing service callers.
-    if _count_resolver is not None:
-        total = _count_resolver(count_sql, count_values, execute_count)
-    elif _count_loader is not None:
-        total = _count_loader(count_sql, count_values)
-    else:
-        total = execute_count()
-    if offset >= total:
-        return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
+    def resolve_result():
+        nonlocal rows
+        # Preserve the raw count SQL/values as the existing Redis key signature.
+        # A cached zero/out-of-range page returns before doing any planning.
+        if _count_resolver is not None:
+            total = _count_resolver(count_sql, count_values, execute_count)
+        elif _count_loader is not None:
+            total = _count_loader(count_sql, count_values)
+        else:
+            total = execute_count()
+        if offset >= total:
+            return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
+        if rows is None:
+            rows = read_page()
+        return VocabularyItemsResult(
+            items=[_row_to_vocabulary_item(row) for row in rows],
+            total=total, page=page, page_size=page_size,
+        )
 
-    if rows is None:
-        rows = read_page()
-    return VocabularyItemsResult(
-        items=[_row_to_vocabulary_item(row) for row in rows],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    if not needs_plan:
+        return resolve_result()
+    # SELECT does not start a transaction in sqlite3 legacy mode. Keep scope
+    # discovery and page/count reads in one snapshot, including count-cache hits.
+    cursor.execute('SAVEPOINT vocabulary_first_page')
+    try:
+        return resolve_result()
+    finally:
+        cursor.execute('RELEASE SAVEPOINT vocabulary_first_page')
 
 
 def query_vocabulary_standard_words(
