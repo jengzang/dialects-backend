@@ -57,7 +57,7 @@ def test_background_lifecycle_retains_services_without_cluster_executor():
             'app.service.logging.core.workers':
                 ('start_api_logger_workers', 'stop_api_logger_workers'),
             'app.service.logging.tasks': ('start_scheduler', 'stop_scheduler'),
-            'app.service.vocabulary.backup':
+            'app.lifecycle.db_backup':
                 ('start_backup_scheduler', 'stop_backup_scheduler'),
         }
         modules = {}

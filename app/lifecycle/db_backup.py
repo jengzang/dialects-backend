@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ class _Config:
 
 
 CONFIGS = [
-    _Config("vocabulary", VOCABULARY_DB_PATH, interval_seconds=3 * 3600, retention_days=7),
+    _Config("vocabulary", VOCABULARY_DB_PATH, interval_seconds=6 * 3600, retention_days=7),
     _Config("auth", USER_DATABASE_PATH, interval_seconds=24 * 3600, retention_days=7),
     _Config("supplements", SUPPLE_DB_PATH, interval_seconds=24 * 3600, retention_days=7),
 ]
@@ -36,36 +37,70 @@ def _backup_one(cfg: _Config) -> None:
     cfg.dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = cfg.dir / f"{cfg.name}_{timestamp}.db"
+    tmp = cfg.dir / f".{cfg.name}_{timestamp}_{os.getpid()}.db.tmp"
 
-    src = sqlite3.connect(cfg.db_path)
     try:
-        dst_conn = sqlite3.connect(str(dst))
+        src = sqlite3.connect(cfg.db_path)
         try:
-            src.backup(dst_conn)
+            tmp_conn = sqlite3.connect(str(tmp))
+            try:
+                src.backup(tmp_conn)
+            finally:
+                tmp_conn.close()
         finally:
-            dst_conn.close()
-    finally:
-        src.close()
+            src.close()
+        os.replace(tmp, dst)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
     print(f"[backup:{cfg.name}] {dst.name} ({dst.stat().st_size} bytes)")
 
 
-def _cleanup_one(cfg: _Config) -> None:
-    cutoff = datetime.now() - timedelta(days=cfg.retention_days)
-    removed = 0
-    for f in sorted(cfg.dir.glob(f"{cfg.name}_*.db")):
+def _latest_backup_mtime(cfg: _Config) -> datetime | None:
+    latest = None
+    for f in cfg.dir.glob(f"{cfg.name}_*.db"):
         try:
-            if datetime.fromtimestamp(f.stat().st_mtime) < cutoff:
+            stat = f.stat()
+            if stat.st_size == 0:
+                continue
+            mtime = datetime.fromtimestamp(stat.st_mtime)
+        except (OSError, OverflowError, ValueError):
+            continue
+        if latest is None or mtime > latest:
+            latest = mtime
+    return latest
+
+
+def _initial_next_run(cfg: _Config, now: datetime) -> datetime:
+    last = _latest_backup_mtime(cfg)
+    if last is None:
+        return now
+    last = min(last, now)
+    return max(now, last + timedelta(seconds=cfg.interval_seconds))
+
+
+def _cleanup_one(cfg: _Config) -> None:
+    now = datetime.now()
+    removed = 0
+    stale = [(f, cfg.retention_days) for f in cfg.dir.glob(f"{cfg.name}_*.db")]
+    stale += [(f, 1) for f in cfg.dir.glob(f".{cfg.name}_*.db.tmp*")]
+    for f, max_age_days in stale:
+        try:
+            if datetime.fromtimestamp(f.stat().st_mtime) < now - timedelta(days=max_age_days):
                 f.unlink()
                 removed += 1
-        except OSError:
+        except (OSError, OverflowError, ValueError):
             pass
     if removed:
         print(f"[backup:{cfg.name}] cleaned up {removed} old backup(s)")
 
 
 def _periodic_backup(stop_event: threading.Event) -> None:
-    next_run = {c.name: datetime.now() for c in CONFIGS}
+    next_run = {c.name: _initial_next_run(c, datetime.now()) for c in CONFIGS}
     while not stop_event.wait(60):
         now = datetime.now()
         for c in CONFIGS:

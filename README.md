@@ -354,7 +354,7 @@ VillagesML 提供村名搜索、字频、语义、空间、N-gram 模式、区�
 | APScheduler | 执行日志、统计及认证相关定时维护任务。 |
 | Cluster executor | 单实例串行线程从文件队列领取任务，执行普通聚类及分阶段准备、距离、聚类计算；启动时将遗留 processing 任务重新排队。 |
 | 工具清理线程 | 定期调用 `file_manager.cleanup_once()`，按各工具 TTL、清理策略和容量限制处理任务与产物。 |
-| 数据库备份线程 | 通过 SQLite backup API 备份 vocabulary、auth、supplements 到 `data/backups/` 下的对应子目录，并清理过期备份。当前 vocabulary 间隔 3 小时，auth/supplements 间隔 24 小时，保留 7 天。 |
+| 数据库备份线程 | 通过 SQLite backup API 备份 vocabulary、auth、supplements 到 `data/backups/` 下的对应子目录，并清理过期备份。实现位于 [app/lifecycle/db_backup.py](app/lifecycle/db_backup.py)。当前 vocabulary 间隔 6 小时，auth/supplements 间隔 24 小时，保留 7 天。下次执行时间按最新备份文件的 mtime 推算，进程重启不会立即重做备份（仅逾期或从未备份时立即执行）；备份先写临时文件再原子改名。 |
 
 使用当前 [gunicorn_config.py](gunicorn_config.py)时，master 的 `on_starting` / `on_exit` 管理后台服务；workers 承接请求，通过共享日志队列和工具文件目录与后台链路协作。多套独立 Gunicorn master 的队列与后台线程不会自动合并，部署拆分时需要明确每套服务的归属。
 
