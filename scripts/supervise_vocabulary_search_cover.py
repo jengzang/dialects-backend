@@ -27,8 +27,8 @@ def snapshot():
 
 
 def supervise(source, container, database, nginx_log, max_seconds=4.0, io_class='idle'):
-    if not 0 < max_seconds <= 8:
-        raise ValueError('Migration budget must be >0 and <=8 seconds')
+    if not 0 < max_seconds <= 180:
+        raise ValueError('Migration budget must be >0 and <=180 seconds')
     if io_class not in ('idle', 'best-effort'):
         raise ValueError('Unsupported I/O class')
     os.nice(19)
@@ -51,6 +51,9 @@ def supervise(source, container, database, nginx_log, max_seconds=4.0, io_class=
     pid = None
     identity = None
     events, samples = [], []
+    summary = {'minimum_available_mib': baseline['available_mib'],
+               'maximum_swap_used_mib': baseline['swap_used_mib'],
+               'maximum_target_rss_kib': 0, 'maximum_target_cpu_s': 0}
     reason = None
     interrupted = killed = False
     interrupt_time = None
@@ -131,6 +134,10 @@ def supervise(source, container, database, nginx_log, max_seconds=4.0, io_class=
                     pass
             if len(samples) < 80:
                 samples.append(state)
+            summary['minimum_available_mib'] = min(summary['minimum_available_mib'], state['available_mib'])
+            summary['maximum_swap_used_mib'] = max(summary['maximum_swap_used_mib'], state['swap_used_mib'])
+            summary['maximum_target_rss_kib'] = max(summary['maximum_target_rss_kib'], state.get('target_rss_kib', 0))
+            summary['maximum_target_cpu_s'] = max(summary['maximum_target_cpu_s'], state.get('target_cpu_s', 0))
             new_log = log.read(65536)
             if state['available_mib'] < 128:
                 reason = reason or 'available memory below 128 MiB'
@@ -174,7 +181,7 @@ def supervise(source, container, database, nginx_log, max_seconds=4.0, io_class=
                 'interrupted': interrupted, 'killed': killed,
                 'elapsed_s': time.monotonic() - started,
                 'baseline': baseline, 'final': snapshot(),
-                'samples': samples, 'events': events}
+                'samples': samples, 'summary': summary, 'events': events}
     finally:
         log.close()
         if alive():

@@ -77,7 +77,7 @@ def migrate(path, max_seconds, require_watchdog=False, io_class='idle'):
     # SQLite threads=0 below keeps one execution thread. Let the scheduler move
     # it to an idle CPU rather than forcing contention on CPU 0.
     resource.setrlimit(resource.RLIMIT_AS, (96 * 1024 * 1024, 96 * 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_CPU, (10, 12))
+    resource.setrlimit(resource.RLIMIT_CPU, (60, 65))
     before = sizes(path)
     free = os.statvfs(path.parent)
     if free.f_bavail * free.f_frsize < 512 * 1024 * 1024:
@@ -175,8 +175,8 @@ def main():
     args = parser.parse_args()
     if args.require_watchdog and not args.watchdog_token:
         parser.error('require-watchdog also requires watchdog-token')
-    if not 0 < args.max_seconds <= 8:
-        parser.error('max-seconds must be >0 and <=8')
+    if not 0 < args.max_seconds <= 180:
+        parser.error('max-seconds must be >0 and <=180')
     try:
         print(json.dumps(migrate(args.database, args.max_seconds, args.require_watchdog, args.io_class)), flush=True)
     except Exception as exc:
