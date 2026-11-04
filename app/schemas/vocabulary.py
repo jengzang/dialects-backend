@@ -53,9 +53,10 @@ class VocabularyItemResponse(BaseModel):
 
 class VocabularyItemsResponse(BaseModel):
     items: list[VocabularyItemResponse]
-    total: int
+    total: int | None
     page: int
     page_size: int
+    has_more: bool | None = None
 
 
 class VocabularyStandardWordResponse(BaseModel):

@@ -5,7 +5,7 @@ from tempfile import mkstemp
 from typing import Annotated, Any, Iterable, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -165,6 +165,7 @@ def _log_response(log: VocabularyLog) -> VocabularyLogResponse:
 
 @router.get("/search/entries", response_model=VocabularyItemsResponse)
 async def get_vocabulary_items(
+    background_tasks: BackgroundTasks,
     q: Optional[str] = Query(default=None),
     search_fields: Optional[list[str]] = Query(default=None),
     locations: Optional[list[str]] = Query(default=None),
@@ -175,9 +176,18 @@ async def get_vocabulary_items(
     standard_words: Optional[list[str]] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    defer_total: bool = Query(False),
     db: Session = Depends(get_vocabulary_db),
 ):
     try:
+        if defer_total:
+            from app.service.vocabulary.deferred_count import cached_deferred_entries
+            return await cached_deferred_entries(
+                db, background_tasks, q=q, search_fields=search_fields,
+                locations=locations, province=province, city=city, regions=regions,
+                region_mode=region_mode, standard_words=standard_words,
+                page=page, page_size=page_size,
+            )
         return await cached_search(
             "entries", db, query_vocabulary_items,
             q=q,

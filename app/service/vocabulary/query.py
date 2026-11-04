@@ -33,9 +33,10 @@ class VocabularyItem:
 @dataclass(frozen=True)
 class VocabularyItemsResult:
     items: list[VocabularyItem]
-    total: int
+    total: int | None
     page: int
     page_size: int
+    has_more: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -563,8 +564,10 @@ def query_vocabulary_items(
     standard_words: str | Iterable[str] | None = None,
     page: int = 1,
     page_size: int = 50,
+    defer_total: bool = False,
     _count_loader=None,
     _count_resolver=None,
+    _count_only=False,
 ) -> VocabularyItemsResult:
     if page < 1:
         raise ValueError("page must be at least 1")
@@ -652,7 +655,7 @@ def query_vocabulary_items(
 
     def read_page():
         prepare()
-        cursor.execute(page_sql, page_values + [page_size, offset])
+        cursor.execute(page_sql, page_values + [page_size + int(defer_total), offset])
         names = [description[0] for description in cursor.description]
         return [dict(zip(names, row)) for row in cursor.fetchall()]
 
@@ -740,12 +743,12 @@ def query_vocabulary_items(
     def execute_count():
         nonlocal rows
         prepare()
-        if read_first:
+        if read_first and not _count_only:
             rows = read_page()
             if len(rows) < page_size:
                 return len(rows)
         total = cursor.execute(actual_count_sql, actual_count_values).fetchone()[0]
-        if needs_plan and rows is None and offset < total:
+        if needs_plan and not _count_only and rows is None and offset < total:
             rows = read_page()
         return total
 
@@ -757,8 +760,26 @@ def query_vocabulary_items(
             total = _count_resolver(count_sql, count_values, execute_count)
         elif _count_loader is not None:
             total = _count_loader(count_sql, count_values)
+        elif defer_total:
+            total = None
         else:
             total = execute_count()
+        if _count_only:
+            return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
+        if defer_total:
+            if total is not None and offset >= total:
+                return VocabularyItemsResult(items=[], total=total, page=page,
+                                             page_size=page_size, has_more=False)
+            rows = read_page() if rows is None else rows
+            has_more = len(rows) > page_size
+            # An empty deep page only proves total <= offset. Never invent an
+            # exact count for it; a nonempty last page does prove offset + size.
+            if total is None and not has_more and (offset == 0 or rows):
+                total = offset + len(rows)
+            return VocabularyItemsResult(
+                items=[_row_to_vocabulary_item(row) for row in rows[:page_size]],
+                total=total, page=page, page_size=page_size, has_more=has_more,
+            )
         if offset >= total:
             return VocabularyItemsResult(items=[], total=total, page=page, page_size=page_size)
         if rows is None:

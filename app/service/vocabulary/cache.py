@@ -257,6 +257,11 @@ class VocabularyCache:
             return None
 
     def store(self, kind, params, value, state):
+        # Unknown totals must not hide a subsequently completed scalar count.
+        if kind == 'entries' and params.get('defer_total'):
+            total = value.get('total') if isinstance(value, dict) else value.total
+            if total is None:
+                return
         key, permanent, _ = self.describe(kind, params, state)
         payload = encoded(value) if permanent else bounded_encoded(value, self.max_bytes)
         if payload is None:
