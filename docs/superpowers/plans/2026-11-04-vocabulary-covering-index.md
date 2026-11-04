@@ -10,3 +10,5 @@
 生产首次 4 秒执行预算触发，已核对索引不存在、DB/WAL 大小未变，服务运行且最近 10 分钟无内核 OOM 记录；可用内存最低 327 MiB、swap 未增加。基于该测量，允许一次人工调整为 8 秒的尝试；仍单核、nice19、idle I/O、1 MiB cache、96 MiB 虚拟内存上限、100ms 争锁等待和 128 MiB 可用内存退出线。看护在预算+1秒发 INT，1秒后仍在则发 KILL，并通过 nonce/NSpid/starttime 直接确认宿主目标，不依赖 Docker 信号转发。没有循环重试。
 
 8 秒 idle-I/O 尝试同样超时并回滚，采样 CPU 0.85 秒、RSS 17484 KiB，可用内存最低 306.9 MiB。只读检查容器限制 1.5 CPU / 1.5 GiB，内存使用约 1136 MiB、failcnt=0；即时宿主 CPU 大部分空闲、磁盘约7ms/s忙碌。最后一次策略验证保持8秒窗口，改用 best-effort 最低I/O优先级7，保留 nice19，SQLite threads=0但不强制固定CPU0。新增容器可用余量128MiB启动/64MiB退出保护。不得再无限扩大预算或循环在线重试。
+
+最终 best-effort7 尝试仍在8秒预算回滚。已停止在线操作，生产新索引不存在，DB/WAL大小及代表性原执行计划不变；最终19:51只读核对容器running。详见 docs/vocabulary-covering-index-release-2026-11-04.md。生产建索引步骤仍未完成，需先明确更长词表写锁维护窗口。
