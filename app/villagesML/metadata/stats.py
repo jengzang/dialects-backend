@@ -14,6 +14,9 @@ from ..schema_runtime import qcolumn, qtable, quote_identifier, resolve_db_path
 from ..schema_keys import C, T, REGION_LEVELS
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
 from ..cache_utils import api_cache
+from app.common.fixed_default_cache import call as fixed_call
+from ..schema_config import DEFAULT_DATABASE_KEY
+from contextlib import nullcontext
 
 router = APIRouter(prefix="/metadata/stats")
 
@@ -138,13 +141,13 @@ async def get_system_overview(dbpath: str = Depends(get_dbpath)):
     return await run_in_threadpool(_get_system_overview_sync, dbpath)
 
 
-def _get_table_info_sync(dbpath: str):
+def _get_table_info_sync(dbpath: str, connection=None):
     """
     同步获取数据库表信息（在线程池中执行）
     Synchronous function to get table info (runs in thread pool)
     """
     db_file = resolve_db_path(dbpath)
-    with get_db_connection(dbpath) as db:
+    with (nullcontext(connection) if connection is not None else get_db_connection(dbpath)) as db:
         sqlite_master_table = qtable(dbpath, T.SQLITE_MASTER)
         sqlite_master_name = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.NAME)
         sqlite_master_table_name = qcolumn(dbpath, T.SQLITE_MASTER, C.SQLITE_MASTER.TABLE_NAME)
@@ -323,7 +326,6 @@ def _get_table_info_sync(dbpath: str):
 
 
 @router.get("/tables", response_model=List[TableInfo])
-@api_cache(ttl=300, prefix="metadata_tables")
 async def get_table_info(dbpath: str = Depends(get_dbpath)):
     """
     获取数据库表信息
@@ -332,6 +334,11 @@ async def get_table_info(dbpath: str = Depends(get_dbpath)):
     Returns:
         List[TableInfo]: 表信息列表
     """
+    if dbpath == DEFAULT_DATABASE_KEY:
+        return await run_in_threadpool(
+            fixed_call, "villages:gd:tables", resolve_db_path(dbpath),
+            lambda: _get_table_info_sync(dbpath),
+        )
     return await run_in_threadpool(_get_table_info_sync, dbpath)
 
 

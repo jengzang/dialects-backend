@@ -12,12 +12,12 @@ class YubaoService:
 
     def get_vocabulary_words(self, q: str | None, limit: int, all_items: bool) -> YubaoSuggestionResponse:
         items = self.repository.list_distinct_words(q=q, limit=limit, all_items=all_items)
-        total = self.repository.count_distinct_words(q=q)
+        total = len(items) if all_items and not q else self.repository.count_distinct_words(q=q)
         return YubaoSuggestionResponse(items=items, total=total)
 
     def get_grammar_sentences(self, q: str | None, limit: int, all_items: bool) -> YubaoSuggestionResponse:
         items = self.repository.list_distinct_sentences(q=q, limit=limit, all_items=all_items)
-        total = self.repository.count_distinct_sentences(q=q)
+        total = len(items) if all_items and not q else self.repository.count_distinct_sentences(q=q)
         return YubaoSuggestionResponse(items=items, total=total)
 
     def get_vocabulary_items(self, word: str, page: int, page_size: int, sort_by: str | None, sort_desc: bool) -> YubaoVocabularyItemsResponse:

@@ -16,6 +16,25 @@ from app.redis_client import redis_client
 from app.common.config import _RUN_TYPE
 
 
+async def _clear_unprotected_redis(pattern):
+    """Keep fixed version results; bound temporary key storage and DELETE batches."""
+    from app.common.fixed_default_cache import PREFIX
+    batch = []
+    deleted = preserved = 0
+    async for key in redis_client.scan_iter(match=pattern):
+        normalized = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else key
+        if normalized.startswith(PREFIX):
+            preserved += 1
+            continue
+        batch.append(key)
+        if len(batch) == 100:
+            deleted += await redis_client.delete(*batch)
+            batch.clear()
+    if batch:
+        deleted += await redis_client.delete(*batch)
+    return {"deleted_count": deleted, "preserved_count": preserved}
+
+
 def get_size_mb(obj: Any) -> float:
     """
     递归计算对象占用的内存大小（MB）
@@ -76,22 +95,13 @@ async def clear_redis_cache_logic(pattern: str = "*") -> Dict[str, Any]:
                 "message": f"Redis未启用（{_RUN_TYPE}模式）"
             }
 
-        # 获取匹配的键
-        keys = []
-        async for key in redis_client.scan_iter(match=pattern):
-            keys.append(key)
-
-        # 删除键
-        if keys:
-            deleted = await redis_client.delete(*keys)
-        else:
-            deleted = 0
-
+        counts = await _clear_unprotected_redis(pattern)
         return {
             "success": True,
-            "message": f"Redis缓存已清除: {deleted} 个键",
-            "deleted_count": deleted
+            "message": f"Redis缓存已清除: {counts['deleted_count']} 个键，保留版本缓存: {counts['preserved_count']} 个键",
+            **counts,
         }
+
     except Exception as e:
         return {
             "success": False,
@@ -118,14 +128,10 @@ async def clear_all_cache_logic() -> Dict[str, Any]:
     # 清除Redis缓存
     try:
         if _RUN_TYPE == 'WEB':
-            keys = []
-            async for key in redis_client.scan_iter(match="*"):
-                keys.append(key)
-            if keys:
-                deleted = await redis_client.delete(*keys)
-            else:
-                deleted = 0
-            results.append({"type": "redis_cache", "success": True, "message": f"Redis缓存已清除: {deleted} 个键"})
+            counts = await _clear_unprotected_redis("*")
+            results.append({"type": "redis_cache", "success": True,
+                            "message": f"Redis缓存已清除: {counts['deleted_count']} 个键，保留版本缓存: {counts['preserved_count']} 个键",
+                            **counts})
         else:
             results.append({"type": "redis_cache", "success": True, "message": f"Redis未启用（{_RUN_TYPE}模式）"})
     except Exception as e:

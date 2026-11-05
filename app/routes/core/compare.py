@@ -3,8 +3,6 @@
 """
 
 import asyncio
-import hashlib
-import json
 
 from fastapi import APIRouter, Query, Depends, HTTPException
 from typing import List, Optional
@@ -216,19 +214,6 @@ async def compare_zhonggu(
             return fresh_result
 
         async def _resolve_stats(chars_unique, locations, features):
-            stats_payload = {
-                "chars": chars_unique,
-                "locations": list(dict.fromkeys(locations)),
-                "features": list(dict.fromkeys(features)),
-                "db_path": dialects_db
-            }
-            stats_key = "compare_zhonggu_stats:" + hashlib.sha256(
-                json.dumps(stats_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            cached_stats = await get_cache(stats_key)
-            if isinstance(cached_stats, dict):
-                return cached_stats
-
             fresh_stats = await run_in_threadpool(
                 query_by_status_stats_only,
                 char_list=chars_unique,
@@ -236,24 +221,9 @@ async def compare_zhonggu(
                 features=features,
                 db_path=dialects_db
             )
-            if fresh_stats:
-                await set_cache(stats_key, fresh_stats, expire_seconds=120)
             return fresh_stats or {}
 
         async def _resolve_locations():
-            location_payload = {
-                "regions": payload.regions,
-                "locations": payload.locations,
-                "region_mode": payload.region_mode,
-                "query_db": query_db
-            }
-            location_key = "compare_zhonggu_locations:path-v2:" + hashlib.sha256(
-                json.dumps(location_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            ).hexdigest()
-            cached_locations = await get_cache(location_key)
-            if isinstance(cached_locations, list):
-                return cached_locations
-
             fresh_locations = await run_in_threadpool(
                 query_dialect_abbreviations,
                 payload.regions,
@@ -261,8 +231,6 @@ async def compare_zhonggu(
                 db_path=query_db,
                 region_mode=payload.region_mode
             )
-            if fresh_locations:
-                await set_cache(location_key, fresh_locations, expire_seconds=60)
             return fresh_locations or []
 
         # === Step 1 & 2: 并行查询两组汉字（含缓存） ===
@@ -330,7 +298,7 @@ async def compare_zhonggu(
         chars1_unique = list(dict.fromkeys(chars1))
         chars2_unique = list(dict.fromkeys(chars2))
 
-        # === Step 5 & 6: 轻量级统计查询（含短TTL缓存） ===
+        # === Step 5 & 6: 轻量级统计查询 ===
         stats1, stats2 = await asyncio.gather(
             _resolve_stats(chars1_unique, locations_processed, features_processed),
             _resolve_stats(chars2_unique, locations_processed, features_processed)

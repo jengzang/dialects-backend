@@ -25,6 +25,13 @@ def get_db_connection(
     Raises:
         HTTPException: 权限不足或数据库不存在
     """
+    db_path = validate_db_access(db_key, user, operation, auth_db)
+    pool = get_db_pool(db_path)
+    return pool.get_connection()
+
+
+def validate_db_access(db_key, user=None, operation="read", auth_db=None):
+    """Resolve and authorize before optional caches, without opening a connection."""
     db_path = DB_MAPPING.get(db_key)
 
     if not db_path:
@@ -41,8 +48,7 @@ def get_db_connection(
         if not _check_write_permission(auth_db, user, db_key):
             raise HTTPException(status_code=403, detail=f"无权限修改数据库: {db_key}")
 
-    pool = get_db_pool(db_path)
-    return pool.get_connection()
+    return db_path
 
 
 def _check_read_permission(user: Optional["User"], db_key: str) -> bool:

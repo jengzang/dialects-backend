@@ -6,7 +6,7 @@ from typing import Optional, Iterable
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from app.sql.choose_db import get_db_connection
+from app.sql.choose_db import get_db_connection, validate_db_access
 from app.sql.sql_schemas import (
     QueryParams, DistinctQueryRequest
 )
@@ -16,7 +16,7 @@ from app.service.auth.database.connection import get_db as get_auth_db
 from app.service.auth.database.models import User
 from app.common.config import SQL_QUERY_MAX_PAGE
 from app.common.path import DB_MAPPING
-from app.redis_client import redis_client
+from app.common.fixed_default_cache import call as fixed_call
 
 router = APIRouter()
 
@@ -196,23 +196,26 @@ def _get_table_count_sync(
     auth_db: Session,
 ) -> int:
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
-        cursor = conn.cursor()
-        table_q = _quote_identifier(table_name)
-        try:
-            if filter_column is not None:
-                col_q = _quote_identifier(filter_column)
-                if filter_value is None:
-                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} IS NULL"
-                    cursor.execute(sql)
-                else:
-                    sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} = ?"
-                    cursor.execute(sql, (filter_value,))
-            else:
-                cursor.execute(f"SELECT COUNT(*) FROM {table_q}")
-            return cursor.fetchone()[0]
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
+        return _count_on_connection(conn, table_name, filter_column, filter_value)
 
+
+def _count_on_connection(conn, table_name, filter_column, filter_value):
+    cursor = conn.cursor()
+    table_q = _quote_identifier(table_name)
+    try:
+        if filter_column is not None:
+            col_q = _quote_identifier(filter_column)
+            if filter_value is None:
+                sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} IS NULL"
+                cursor.execute(sql)
+            else:
+                sql = f"SELECT COUNT(*) FROM {table_q} WHERE {col_q} = ?"
+                cursor.execute(sql, (filter_value,))
+        else:
+            cursor.execute(f"SELECT COUNT(*) FROM {table_q}")
+        return cursor.fetchone()[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"查询失败: {str(e)}")
 
 def _get_distinct_path_values_sync(db_key: str, table_name: str, column: str, user: Optional[User], auth_db: Session) -> list:
     with get_db_connection(db_key, user=user, operation="read", auth_db=auth_db) as conn:
@@ -292,30 +295,9 @@ async def query_table(
             None,
         )
 
-        total = None
-        if count_cacheable:
-            cache_key = f"sql_query_count:{params.db_key}:{params.table_name}"
-            try:
-                cached_total = await redis_client.get(cache_key)
-                if cached_total is not None:
-                    total = int(cached_total)
-            except Exception:
-                pass
-
-        if total is None:
-            total = await asyncio.to_thread(
-                _query_table_count_sync,
-                params,
-                user,
-                None,
-                table_q,
-                count_values,
-            )
-            if count_cacheable:
-                try:
-                    await redis_client.setex(cache_key, 3600, str(total))
-                except Exception:
-                    pass
+        total = await asyncio.to_thread(
+            _query_table_count_sync, params, user, None, table_q, count_values,
+        )
 
         return {"data": rows, "total": total, "page": params.page}
     except HTTPException:
@@ -349,32 +331,25 @@ async def get_table_count(
     if filter_column is not None:
         await asyncio.to_thread(_validate_columns, db_key, table_name, [filter_column], "filter_column")
 
-    cache_key = f"sql_count:{db_key}:{table_name}"
-    if filter_column is not None:
-        cache_key += f":{filter_column}:{filter_value}"
+    db_path = await asyncio.to_thread(validate_db_access, db_key, user)
+    slot = None
+    if table_name == "dialects":
+        if db_key == "query" and filter_column == "存儲標記" and filter_value == "1":
+            slot = "sql:query_stored_count"
+        elif db_key == "dialects" and filter_column is None and filter_value is None:
+            slot = "sql:dialects_count"
 
-    try:
-        cached = await redis_client.get(cache_key)
-        if cached is not None:
-            return {"count": int(cached)}
-    except Exception:
-        pass
+    def load():
+        return {"count": _get_table_count_sync(
+            db_key, table_name, filter_column, filter_value, user, None,
+        )}
 
+    if slot:
+        return await asyncio.to_thread(fixed_call, slot, db_path, load)
+    # Preserve the existing offload boundary for dynamic counts.
     count = await asyncio.to_thread(
-        _get_table_count_sync,
-        db_key,
-        table_name,
-        filter_column,
-        filter_value,
-        user,
-        None,
+        _get_table_count_sync, db_key, table_name, filter_column, filter_value, user, None,
     )
-
-    try:
-        await redis_client.setex(cache_key, 3600, str(count))
-    except Exception:
-        pass
-
     return {"count": count}
 
 

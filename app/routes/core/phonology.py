@@ -5,7 +5,6 @@
 """
 
 import asyncio
-import json
 from typing import List
 
 import pandas as pd
@@ -20,14 +19,12 @@ from app.schemas import AnalysisPayload, FeatureStatsRequest, SyllableCountsRequ
 from app.service.core.feature_stats import (
     get_feature_counts_for_request,
     get_feature_statistics,
-    generate_cache_key,
     get_syllable_counts,
     resolve_feature_locations,
 )
 from app.service.core.phonology2status import pho2sta
 from app.service.core.status_arrange_pho import sta2pho
 from app.common.path import QUERY_DB_USER, DIALECTS_DB_ADMIN, DIALECTS_DB_USER
-from app.redis_client import redis_client
 
 router = APIRouter()
 
@@ -188,26 +185,8 @@ async def feature_stats(
     payload: FeatureStatsRequest,
     dialects_db: str = Depends(get_dialects_db)
 ):
-    """Get feature statistics with cache support."""
+    """Get feature statistics."""
     try:
-        db_type = "admin" if dialects_db == DIALECTS_DB_ADMIN else "user"
-
-        cache_key = generate_cache_key(
-            db_type=db_type,
-            locations=payload.locations,
-            chars=payload.chars,
-            features=payload.features,
-            filters=payload.filters,
-        )
-
-        try:
-            cached_data = await redis_client.get(cache_key)
-            if cached_data:
-                return json.loads(cached_data)
-        except Exception:
-            # Redis unavailable should not break API path
-            cached_data = None
-
         result = await asyncio.to_thread(
             get_feature_statistics,
             locations=payload.locations,
@@ -222,16 +201,6 @@ async def feature_stats(
                 status_code=404,
                 detail="No data found for the specified locations",
             )
-
-        try:
-            await redis_client.setex(
-                cache_key,
-                3600,
-                json.dumps(result, ensure_ascii=False),
-            )
-        except Exception:
-            # Cache write failure should not affect business response
-            pass
 
         return result
     except HTTPException:

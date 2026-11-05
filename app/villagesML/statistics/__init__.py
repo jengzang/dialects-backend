@@ -7,8 +7,10 @@ from fastapi.concurrency import run_in_threadpool
 import sqlite3
 from typing import Dict, Any
 
-from ..dependencies import get_db, get_dbpath
-from ..cache_utils import api_cache
+from ..dependencies import get_db, get_dbpath, get_db_connection
+from app.common.fixed_default_cache import call as fixed_call
+from ..schema_runtime import resolve_db_path
+from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import column_name, configured_table_list, qcolumn, qtable, table_name
 from ..schema_keys import C, T, TABLE_LISTS
 
@@ -117,20 +119,19 @@ def _get_ngram_statistics_sync(db: sqlite3.Connection, dbpath: str) -> Dict[str,
     return result
 
 
-@router.get("/ngrams")
-@api_cache(ttl=300, prefix="ngrams_stats")
-async def get_ngram_statistics(
-    db: sqlite3.Connection = Depends(get_db),
-    dbpath: str = Depends(get_dbpath),
-) -> Dict[str, Any]:
-    """
-    获取 N-gram 统计信息
-    Get N-gram statistics
+def _load_ngram_statistics_sync(dbpath):
+    with get_db_connection(dbpath) as db:
+        return _get_ngram_statistics_sync(db, dbpath)
 
-    Returns:
-        dict: N-gram 统计数据
-    """
-    return await run_in_threadpool(_get_ngram_statistics_sync, db, dbpath)
+
+@router.get("/ngrams")
+async def get_ngram_statistics(dbpath: str = Depends(get_dbpath)) -> Dict[str, Any]:
+    if dbpath == DEFAULT_DATABASE_KEY:
+        return await run_in_threadpool(
+            fixed_call, "villages:gd:ngrams", resolve_db_path(dbpath),
+            lambda: _load_ngram_statistics_sync(dbpath),
+        )
+    return await run_in_threadpool(_load_ngram_statistics_sync, dbpath)
 
 
 @router.get("/database")
