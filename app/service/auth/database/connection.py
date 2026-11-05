@@ -1,36 +1,10 @@
-from sqlalchemy import create_engine, event  # [NEW] 新增 event
-from sqlalchemy.orm import sessionmaker
+from app.common.sqlite_orm import POLICIES, create_engine_and_session
 from app.service.auth.database.models import Base
 from app.common.path import USER_DATABASE_URL
 
 # Keep request-side waits bounded; background auth writers retry confirmed lock errors.
-SQLITE_BUSY_TIMEOUT_MS = 5000
-
-engine = create_engine(
-    USER_DATABASE_URL,
-    connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_MS / 1000},
-    pool_pre_ping=True  # [NEW] 建议
-)
-
-
-# [NEW] 新增：为每个新连接开启 WAL / 外键 / 同步级别
-def _sqlite_pragmas(dbapi_conn, _):
-    cur = dbapi_conn.cursor()
-    cur.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS};")
-    # WAL 模式在某些只读挂载场景下可能失败，改用 DELETE 模式
-    try:
-        cur.execute("PRAGMA journal_mode=WAL;")
-    except Exception as e:
-        print(f"[!] auth.db 无法设置 WAL 模式: {e}，使用默认 DELETE 模式")
-        cur.execute("PRAGMA journal_mode=DELETE;")
-    cur.execute("PRAGMA synchronous=NORMAL;")
-    cur.execute("PRAGMA foreign_keys=ON;")
-    cur.close()
-
-
-event.listen(engine, "connect", _sqlite_pragmas)  # [NEW] 新增
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SQLITE_BUSY_TIMEOUT_MS = POLICIES['auth'].busy_timeout_ms
+engine, SessionLocal = create_engine_and_session('auth', USER_DATABASE_URL)
 
 # 建表（处理多worker竞争）
 try:

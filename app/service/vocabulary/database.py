@@ -2,14 +2,13 @@ from pathlib import Path
 import sqlite3
 
 from fastapi import HTTPException
-from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+from app.common.sqlite_orm import POLICIES, create_engine_and_session
 
 from app.common.path import VOCABULARY_DB_PATH
 from app.service.vocabulary.models import TONE_COLUMNS, Base
 
-VOCABULARY_SQLITE_BUSY_TIMEOUT_MS = 10000
+VOCABULARY_SQLITE_BUSY_TIMEOUT_MS = POLICIES['vocabulary'].busy_timeout_ms
 LOCATION_METADATA_COLUMNS = {
     "vocabulary_source": "TEXT DEFAULT ''",
     "description": "TEXT DEFAULT ''",
@@ -17,31 +16,8 @@ LOCATION_METADATA_COLUMNS = {
 }
 
 
-def _sqlite_pragmas(dbapi_conn, _) -> None:
-    cursor = dbapi_conn.cursor()
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL;")
-    except Exception as exc:
-        print(f"[!] vocabulary.db 无法设置 WAL 模式: {exc}，使用默认 DELETE 模式")
-        cursor.execute("PRAGMA journal_mode=DELETE;")
-    cursor.execute("PRAGMA synchronous=NORMAL;")
-    cursor.execute("PRAGMA foreign_keys=ON;")
-    cursor.execute(f"PRAGMA busy_timeout={VOCABULARY_SQLITE_BUSY_TIMEOUT_MS};")
-    cursor.close()
-
-
 def create_vocabulary_engine_and_session(db_path: str | Path = VOCABULARY_DB_PATH):
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={
-            "check_same_thread": False,
-            "timeout": VOCABULARY_SQLITE_BUSY_TIMEOUT_MS / 1000,
-        },
-        pool_pre_ping=True,
-    )
-    event.listen(engine, "connect", _sqlite_pragmas)
-    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return engine, session_factory
+    return create_engine_and_session('vocabulary', f"sqlite:///{db_path}")
 
 
 engine, SessionLocal = create_vocabulary_engine_and_session(VOCABULARY_DB_PATH)

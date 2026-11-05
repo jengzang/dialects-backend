@@ -203,5 +203,9 @@ async def shutdown_process_resources() -> None:
         await close_redis()
     finally:
         print("[DB] Closing database pools...")
-        close_all_pools()
+        from app.common.sqlite_orm import dispose_all_orm_engines
+        try:
+            await asyncio.to_thread(dispose_all_orm_engines)
+        finally:
+            close_all_pools()
         print("[OK] Database pools closed")

@@ -10,7 +10,7 @@ import time
 import uuid
 
 from redis.exceptions import RedisError
-from sqlalchemy.orm import sessionmaker
+from app.common.sqlite_orm import make_session_factory
 
 from . import cache as cache_module
 from .cache import _UNLOCK, finish_on_cancel
@@ -78,7 +78,7 @@ async def cached_deferred_entries(session, background_tasks, **params):
     total = result.get('total') if isinstance(result, dict) else result.total
     if total is None and cache is not None and state is not None:
         # Capture only the engine/factory, never the request's Session/connection.
-        factory = sessionmaker(bind=session.get_bind(), autoflush=False)
+        factory = make_session_factory(session.get_bind())
         background_tasks.add_task(complete_count, cache, factory, dict(params), state)
     return result
 

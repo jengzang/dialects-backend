@@ -1,36 +1,10 @@
-# logs/database.py
-"""
-日志数据库配置
-"""
-from sqlalchemy import create_engine, event, text, inspect
-from sqlalchemy.orm import sessionmaker
+"""日志数据库配置；模型和迁移仍由此模块管理。"""
+from sqlalchemy import text, inspect
+from app.common.sqlite_orm import create_engine_and_session
 from app.common.path import LOGS_DATABASE_URL
 from app.service.logging.core.models import ApiDiagnosticEvent, Base
 
-engine = create_engine(
-    LOGS_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    pool_pre_ping=True
-)
-
-
-# SQLite 优化设置
-def _sqlite_pragmas(dbapi_conn, _):
-    cur = dbapi_conn.cursor()
-    # WAL 模式在某些只读挂载场景下可能失败，改用 DELETE 模式
-    try:
-        cur.execute("PRAGMA journal_mode=WAL;")
-    except Exception as e:
-        print(f"[!] 无法设置 WAL 模式: {e}，使用默认 DELETE 模式")
-        cur.execute("PRAGMA journal_mode=DELETE;")
-    cur.execute("PRAGMA synchronous=NORMAL;")
-    cur.execute("PRAGMA cache_size=-64000;")  # 64MB 缓存
-    cur.close()
-
-
-event.listen(engine, "connect", _sqlite_pragmas)
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine, SessionLocal = create_engine_and_session('logs', LOGS_DATABASE_URL)
 
 
 def migrate_api_visit_log_table():
