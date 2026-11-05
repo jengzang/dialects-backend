@@ -1,19 +1,44 @@
 from typing import Any, Iterable, Optional
 from contextlib import nullcontext
+import json
 
 from app.common.path import DB_MAPPING
 from app.sql.db_pool import get_db_pool
 
 
 YUBAO_DB_PATH = DB_MAPPING['yubao']
+WARMUP_MAX_ITEMS = 20000
+WARMUP_MAX_BYTES = 1024 * 1024 - 128
 
 
 class YubaoRepository:
-    def __init__(self, connection=None):
+    def __init__(self, connection=None, bounded_warmup=False):
         self.connection = connection
+        self.bounded_warmup = bounded_warmup
 
     def _connection(self):
         return nullcontext(self.connection) if self.connection is not None else get_db_pool(YUBAO_DB_PATH).get_connection()
+
+    def _suggestions(self, sql, params, field):
+        with self._connection() as conn:
+            if not self.bounded_warmup:
+                return [row[field] for row in conn.execute(sql, params).fetchall()]
+            # Do not transfer an oversized field from SQLite into Python.
+            bounded_sql = (
+                f"SELECT CASE WHEN length(CAST({field} AS BLOB)) > ? "
+                f"THEN NULL ELSE {field} END AS {field} FROM ({sql}) LIMIT ?"
+            )
+            cursor = conn.execute(bounded_sql, [WARMUP_MAX_BYTES, *params, WARMUP_MAX_ITEMS + 1])
+            items, size = [], 32  # response envelope, commas and total
+            for row in cursor:
+                value = row[field]
+                if value is None or len(items) >= WARMUP_MAX_ITEMS:
+                    raise ValueError("yubao warmup result exceeds row/field budget")
+                size += len(json.dumps(value, ensure_ascii=False).encode("utf-8")) + 1
+                if size > WARMUP_MAX_BYTES:
+                    raise ValueError("yubao warmup result exceeds byte budget")
+                items.append(value)
+            return items
 
     VOCABULARY_SORTABLE_FIELDS = {
         'id', 'no', 'province', 'city', 'county', 'village', 'location',
@@ -61,9 +86,7 @@ class YubaoRepository:
         if normalized_limit is not None:
             sql += ' LIMIT ?'
             params.append(normalized_limit)
-        with self._connection() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [row['word'] for row in rows]
+        return self._suggestions(sql, params, "word")
 
     def count_distinct_words(self, q: Optional[str]) -> int:
         where_parts = ["word IS NOT NULL", "TRIM(word) != ''"]
@@ -88,9 +111,7 @@ class YubaoRepository:
         if normalized_limit is not None:
             sql += ' LIMIT ?'
             params.append(normalized_limit)
-        with self._connection() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [row['sentence'] for row in rows]
+        return self._suggestions(sql, params, "sentence")
 
     def count_distinct_sentences(self, q: Optional[str]) -> int:
         where_parts = ["sentence IS NOT NULL", "TRIM(sentence) != ''"]

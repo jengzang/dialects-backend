@@ -3,6 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from app.common.path import DB_MAPPING
 from app.common.fixed_default_cache import call as fixed_call
+from app.service.fixed_defaults import load as load_default
 
 from app.schemas.yubao import (
     YubaoGrammarItemsResponse,
@@ -25,7 +26,7 @@ async def get_vocabulary_words(
     if all and not q:
         return await asyncio.to_thread(
             fixed_call, "yubao:vocabulary_all", DB_MAPPING["yubao"],
-            lambda: service.get_vocabulary_words(q=q, limit=limit, all_items=True).model_dump(mode="json"),
+            lambda: load_default("yubao:vocabulary_all", DB_MAPPING["yubao"]),
         )
     return await asyncio.to_thread(service.get_vocabulary_words, q=q, limit=limit, all_items=all)
 
@@ -39,7 +40,7 @@ async def get_grammar_sentences(
     if all and not q:
         return await asyncio.to_thread(
             fixed_call, "yubao:grammar_all", DB_MAPPING["yubao"],
-            lambda: service.get_grammar_sentences(q=q, limit=limit, all_items=True).model_dump(mode="json"),
+            lambda: load_default("yubao:grammar_all", DB_MAPPING["yubao"]),
         )
     return await asyncio.to_thread(service.get_grammar_sentences, q=q, limit=limit, all_items=all)
 

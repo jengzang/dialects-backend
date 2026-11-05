@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from ..dependencies import get_db, get_dbpath, get_db_connection
 from app.common.fixed_default_cache import call as fixed_call
+from app.service.fixed_defaults import load as load_default
 from ..schema_runtime import resolve_db_path
 from ..schema_config import DEFAULT_DATABASE_KEY
 from ..schema_runtime import column_name, configured_table_list, qcolumn, qtable, table_name
@@ -129,7 +130,7 @@ async def get_ngram_statistics(dbpath: str = Depends(get_dbpath)) -> Dict[str, A
     if dbpath == DEFAULT_DATABASE_KEY:
         return await run_in_threadpool(
             fixed_call, "villages:gd:ngrams", resolve_db_path(dbpath),
-            lambda: _load_ngram_statistics_sync(dbpath),
+            lambda: load_default("villages:gd:ngrams", resolve_db_path(dbpath)),
         )
     return await run_in_threadpool(_load_ngram_statistics_sync, dbpath)
 

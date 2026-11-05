@@ -77,7 +77,9 @@ def test_villages_defaults_only_and_no_connection_on_hit(tmp_path, monkeypatch, 
     load_tables = Mock(return_value=[{'table_name': 'demo'}])
     for module in (statistics, stats):
         monkeypatch.setattr(module, 'resolve_db_path', lambda key: str(path))
-    monkeypatch.setattr(statistics, '_load_ngram_statistics_sync', load_ngrams)
+    monkeypatch.setattr(statistics, '_get_ngram_statistics_sync', load_ngrams)
+    from app.service.fixed_defaults import readonly
+    monkeypatch.setattr(statistics, 'get_db_connection', lambda key: readonly(str(path)))
     monkeypatch.setattr(stats, '_get_table_info_sync', load_tables)
     async def run():
         for _ in range(2):
@@ -139,4 +141,26 @@ def test_compare_keeps_only_charlist_cache(monkeypatch):
         assert chars.call_count == 2
         assert stats.call_count == 4
         assert locations.call_count == 2
+    asyncio.run(run())
+
+
+def test_replaced_database_does_not_publish_old_pooled_rows(tmp_path, monkeypatch, redis):
+    from app.sql import sql_routes as routes, choose_db
+    path = tmp_path / 'current.db'
+    replacement = tmp_path / 'replacement.db'
+    for file, count in [(path, 1), (replacement, 2)]:
+        with sqlite3.connect(file) as db:
+            db.execute('create table dialects(n)')
+            db.executemany('insert into dialects values (?)', [(i,) for i in range(count)])
+    monkeypatch.setitem(routes.DB_MAPPING, 'dialects', str(path))
+    monkeypatch.setitem(choose_db.DB_MAPPING, 'dialects', str(path))
+    routes._SCHEMA_CACHE.clear()
+    # Hold an old pooled connection across the atomic publication of a new file.
+    with choose_db.get_db_connection('dialects') as old:
+        assert old.execute('select count(*) from dialects').fetchone()[0] == 1
+    import os
+    os.replace(replacement, path)
+    async def run():
+        for _ in range(2):
+            assert await routes.get_table_count('dialects', 'dialects', user=None, auth_db=None) == {'count': 2}
     asyncio.run(run())

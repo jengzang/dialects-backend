@@ -71,14 +71,20 @@ def _build_lifespan(
         else:
             print("[SKIP] App profile disables background service startup")
 
+        fixed_warmup = None
         vocabulary_warmup = None
-        if enable_background_services:
-            from app.service.vocabulary.cache_warmup import start_vocabulary_warmup
-            vocabulary_warmup = await start_vocabulary_warmup()
-
         try:
+            if enable_background_services and _RUN_TYPE == "WEB":
+                from app.lifecycle.fixed_cache_warmup import start as start_fixed_warmup
+                fixed_warmup = start_fixed_warmup()
+            if enable_background_services:
+                from app.service.vocabulary.cache_warmup import start_vocabulary_warmup
+                vocabulary_warmup = await start_vocabulary_warmup()
             yield
         finally:
+            if fixed_warmup is not None:
+                from app.lifecycle.fixed_cache_warmup import stop as stop_fixed_warmup
+                await stop_fixed_warmup(fixed_warmup)
             if enable_background_services:
                 from app.service.vocabulary.cache_warmup import stop_vocabulary_warmup
                 await stop_vocabulary_warmup(vocabulary_warmup)

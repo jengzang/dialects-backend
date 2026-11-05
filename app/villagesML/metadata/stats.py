@@ -13,8 +13,8 @@ from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable, quote_identifier, resolve_db_path
 from ..schema_keys import C, T, REGION_LEVELS
 from ..models import SystemOverview, TableInfo, RegionInfo, TableColumn
-from ..cache_utils import api_cache
 from app.common.fixed_default_cache import call as fixed_call
+from app.service.fixed_defaults import load as load_default
 from ..schema_config import DEFAULT_DATABASE_KEY
 from contextlib import nullcontext
 
@@ -337,7 +337,7 @@ async def get_table_info(dbpath: str = Depends(get_dbpath)):
     if dbpath == DEFAULT_DATABASE_KEY:
         return await run_in_threadpool(
             fixed_call, "villages:gd:tables", resolve_db_path(dbpath),
-            lambda: _get_table_info_sync(dbpath),
+            lambda: load_default("villages:gd:tables", resolve_db_path(dbpath)),
         )
     return await run_in_threadpool(_get_table_info_sync, dbpath)
 

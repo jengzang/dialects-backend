@@ -102,3 +102,51 @@ def test_wal_and_file_replacement_change_version(setup_cache):
     with sqlite3.connect(path) as db:
         db.execute('create table replacement (n)')
     assert cache.version(path) != before
+
+
+def test_slot_revision_only_invalidates_affected_result(setup_cache, monkeypatch):
+    path, client = setup_cache
+    a, b = Mock(return_value=1), Mock(return_value=2)
+    cache.call('sql:dialects_count', path, a, client=client)
+    cache.call('sql:query_stored_count', path, b, client=client)
+    monkeypatch.setitem(cache.REVISIONS, 'sql:dialects_count', 2)
+    cache.call('sql:dialects_count', path, a, client=client)
+    cache.call('sql:query_stored_count', path, b, client=client)
+    assert a.call_count == 2
+    assert b.call_count == 1
+
+
+def test_fixed_cache_redis_has_bounded_connections_timeouts_and_no_retries(monkeypatch):
+    import app.redis_client as redis_module
+    class Original:
+        class connection_pool:
+            from redis.connection import Connection
+            connection_class = Connection
+            connection_kwargs = {'host': '127.0.0.1', 'port': 16379, 'decode_responses': True}
+    monkeypatch.setattr(redis_module, 'sync_redis_client', Original())
+    monkeypatch.setattr(redis_module, '_RUN_TYPE', 'WEB')
+    monkeypatch.setattr(cache, '_client', None)
+    client = cache.client_or_default()
+    try:
+        options = client.connection_pool.connection_kwargs
+        assert options['socket_timeout'] <= 0.2
+        assert options['socket_connect_timeout'] <= 0.2
+        assert options['retry'].get_retries() == 0
+        assert client.connection_pool.max_connections == 2
+    finally:
+        cache.close_client()
+
+
+def test_platform_without_flock_keeps_normal_database_fallback(setup_cache, monkeypatch):
+    import builtins
+    path, client = setup_cache
+    original = builtins.__import__
+    def platform_import(name, *args, **kwargs):
+        if name == 'fcntl':
+            raise ImportError('fcntl unavailable on this platform')
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', platform_import)
+    with cache.publication_lock() as acquired:
+        assert not acquired
+    assert cache.call('sql:dialects_count', path, lambda: {'count': 4}, client=client) == {'count': 4}
+    assert not client.values

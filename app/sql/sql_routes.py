@@ -17,6 +17,7 @@ from app.service.auth.database.models import User
 from app.common.config import SQL_QUERY_MAX_PAGE
 from app.common.path import DB_MAPPING
 from app.common.fixed_default_cache import call as fixed_call
+from app.service.fixed_defaults import load as load_default
 
 router = APIRouter()
 
@@ -339,13 +340,9 @@ async def get_table_count(
         elif db_key == "dialects" and filter_column is None and filter_value is None:
             slot = "sql:dialects_count"
 
-    def load():
-        return {"count": _get_table_count_sync(
-            db_key, table_name, filter_column, filter_value, user, None,
-        )}
-
     if slot:
-        return await asyncio.to_thread(fixed_call, slot, db_path, load)
+        return await asyncio.to_thread(fixed_call, slot, db_path,
+                                       lambda: load_default(slot, db_path))
     # Preserve the existing offload boundary for dynamic counts.
     count = await asyncio.to_thread(
         _get_table_count_sync, db_key, table_name, filter_column, filter_value, user, None,

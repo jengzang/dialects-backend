@@ -32,6 +32,11 @@ async def run_bounded(db_path, operation, *args, write=False, expensive=False, b
             slots.enter_context(_slot(TOPONYMS_DB_PATH, 'heavy', 2))
 
         if background:
+            # Startup cache builders share a host-wide background allowance.
+            # Online requests do not acquire this lock.
+            from app.common.fixed_default_cache import publication_lock
+            if not slots.enter_context(publication_lock()):
+                raise BackgroundBusy("Fixed default startup warmup is running")
             # One attempt; never occupy an online waiter or a polling thread.
             acquire()
         else:

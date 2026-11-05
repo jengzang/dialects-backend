@@ -1,3 +1,4 @@
+import asyncio
 from typing import Callable
 
 from app.common.config import AUTO_DB_MAINTENANCE, AUTO_INDEX, AUTO_MIGRATE
@@ -197,6 +198,8 @@ def run_gis_startup() -> None:
 
 async def shutdown_process_resources() -> None:
     try:
+        from app.common.fixed_default_cache import close_client
+        await asyncio.to_thread(close_client)
         await close_redis()
     finally:
         print("[DB] Closing database pools...")
