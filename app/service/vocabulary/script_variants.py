@@ -2,8 +2,11 @@ from functools import lru_cache
 
 from opencc import OpenCC
 
+from app.common.s2t import opencc_s2t
 
-_S2T = OpenCC("s2t.json")
+
+# Reuse the identical converter instead of retaining another dictionary copy.
+_S2T = opencc_s2t
 _T2S = OpenCC("t2s.json")
 
 
