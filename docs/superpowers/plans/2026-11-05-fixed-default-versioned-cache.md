@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本计划顺序执行，无需新增 agent。
 
+**执行状态（2026-11-05）：** Task 1–6 与启动预热已实现；相关新增测试合并在四个 fixed cache 测试文件中。Task 7 完成本地真实数据库串行测量，真实 Redis 和生产混合负载未测，详见 docs/fixed-default-cache-validation-2026-11-05.md。六份前台回源改用当前文件的新只读连接，另为 yubao 自动预热增加读取阶段行数/字节预算，修复复核发现的版本与内存边界问题。
+
 **Goal:** 根据前端实际请求，仅保留六份固定结果的跨 worker 版本缓存，取消 compare 的额外缓存及 feature_stats 结果缓存。
 
 **Architecture:** 复用现有 Redis，六个固定槽位保存版本和完整响应；数据库版本变化才重算并覆盖，不使用时间过期。启动后主动串行预热缺失结果，不阻塞服务就绪；用户未命中时直接走原查询，不等待预热。复用现有线程卸载，不增加常驻服务或 worker。
