@@ -34,30 +34,25 @@ def check_deadline():
 
 @contextmanager
 def connection(path, timeout=QUERY_TIMEOUT_SECONDS):
-    """No WAL changes, pooled caches or surviving queries after close."""
+    """Borrow read-only handles; query deadlines remain request-local."""
+    from app.sql.db_pool import get_readonly_db_pool
     deadline = _deadline.get()
     if timeout is not None:
         deadline = min(deadline, time.monotonic() + timeout) if deadline else time.monotonic() + timeout
     token = _deadline.set(deadline)
-    conn = None
     try:
-        conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=0.1)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA query_only=ON")
-        conn.execute("PRAGMA cache_size=-4096")
-        conn.execute("PRAGMA temp_store=FILE")
-        conn.set_progress_handler(lambda: deadline is not None and time.monotonic() >= deadline, 1000)
-        check_deadline()
-        yield conn
-        check_deadline()
+        with get_readonly_db_pool(path, 'toponyms').get_connection() as conn:
+            conn.set_progress_handler(lambda: deadline is not None and time.monotonic() >= deadline, 1000)
+            check_deadline()
+            yield conn
+            check_deadline()
+    except TimeoutError as exc:
+        raise QueryBusy('Toponym connection slots are occupied') from exc
     except sqlite3.OperationalError as exc:
         if getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_INTERRUPT:
             raise QueryTimedOut("Toponym SQL exceeded its execution budget") from exc
         raise
     finally:
-        if conn is not None:
-            conn.set_progress_handler(None, 0)
-            conn.close()
         _deadline.reset(token)
 
 

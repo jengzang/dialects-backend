@@ -2,8 +2,6 @@
 import asyncio
 from contextlib import ExitStack
 import json
-from pathlib import Path
-import sqlite3
 import threading
 
 import anyio
@@ -40,13 +38,9 @@ class QueryStream:
             self.stack.enter_context(execution_slot(self.path, "heavy"))
             # Sequential batches may run on different pool threads. No two
             # operations on this connection are allowed to overlap.
-            self.conn = sqlite3.connect(Path(self.path).resolve().as_uri() + "?mode=ro",
-                                        uri=True, timeout=0.1, check_same_thread=False)
-            self.stack.callback(self.conn.close)
-            self.conn.row_factory = sqlite3.Row
-            self.conn.execute("PRAGMA query_only=ON")
-            self.conn.execute("PRAGMA cache_size=-4096")
-            self.conn.execute("PRAGMA temp_store=FILE")
+            from app.sql.db_pool import get_readonly_db_pool
+            self.conn = self.stack.enter_context(
+                get_readonly_db_pool(self.path, 'toponyms').get_connection())
             # Unlimited is a real full-result contract: no total-duration
             # deadline which would implicitly truncate a legitimate long scan.
             self.conn.set_progress_handler(self.cancelled.is_set, 1000)
@@ -58,6 +52,9 @@ class QueryStream:
                 sql, params = names_query(**self.kwargs)
             self.cursor = self.conn.execute(sql, params)
             return self.read()
+        except TimeoutError as exc:
+            self.close()
+            raise QueryBusy('Toponym connection slots are occupied') from exc
         except BaseException:
             self.close()
             raise
@@ -99,7 +96,12 @@ class QueryStream:
     def close(self):
         self.cancelled.set()
         try:
-            self.stack.close()
+            try:
+                if self.cursor is not None:
+                    self.cursor.close()
+                    self.cursor = None
+            finally:
+                self.stack.close()
         finally:
             callback, self.on_close = self.on_close, None
             if callback:

@@ -24,16 +24,19 @@ class ToponymResourcesTest(unittest.TestCase):
             conn.execute("CREATE TABLE records (value)")
 
     def tearDown(self):
+        from app.sql.db_pool import close_all_pools
+        close_all_pools()
         self.tmp.cleanup()
 
-    def test_connections_are_read_only_and_close(self):
+    def test_connections_are_read_only_and_return_cleanly(self):
         from app.service.toponyms.resources import connection
         with connection(self.path) as conn:
             self.assertEqual(conn.execute("PRAGMA cache_size").fetchone()[0], -4096)
             with self.assertRaises(sqlite3.OperationalError):
                 conn.execute("INSERT INTO records VALUES (1)")
-        with self.assertRaises(sqlite3.ProgrammingError):
-            conn.execute("SELECT 1")
+        with connection(self.path) as reused:
+            self.assertIs(reused, conn)
+            self.assertEqual(reused.execute("SELECT 1").fetchone()[0], 1)
 
     def test_deadline_interrupts_sql_and_next_request_is_healthy(self):
         from app.service.toponyms.resources import connection, QueryTimedOut
@@ -189,8 +192,11 @@ class ToponymResourcesTest(unittest.TestCase):
                     sent.set()
                     await asyncio.sleep(0.01)
             await response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send)
-            with self.assertRaises(sqlite3.ProgrammingError):
-                response.reader.conn.execute("SELECT 1")
+            from app.service.toponyms.resources import connection
+            self.assertIsNone(response.reader.cursor)
+            with connection(self.path) as reused:
+                self.assertIs(reused, response.reader.conn)
+                self.assertEqual(reused.execute("SELECT 1").fetchone()[0], 1)
         asyncio.run(exercise())
         with execution_slot(self.path, "heavy"), execution_slot(self.path, "heavy"):
             pass

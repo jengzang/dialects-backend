@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from pathlib import Path
-from queue import Empty, Queue
 from threading import Lock
-from typing import Callable, Iterator
+from typing import Callable
 
 import sqlite3
 
@@ -28,97 +27,69 @@ WhereFn = Callable[[dict], bool] | None
 _CACHE_SENTINEL = object()
 
 
-class _ReadOnlyPool:
-    """Minimal read-only SQLite connection pool for the GIS index."""
-
-    def __init__(self, db_path: Path, pool_size: int = 3):
-        self._uri = f"file:{db_path}?mode=ro"
-        self._pool: Queue[sqlite3.Connection] = Queue(maxsize=pool_size * 2)
-        self._lock = Lock()
-        self._created = 0
-        self._max_conns = pool_size * 2
-
-        for _ in range(pool_size):
-            self._pool.put(self._create())
-            self._created += 1
-
-    def _create(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._uri, uri=True, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    @contextmanager
-    def get(self) -> Iterator[sqlite3.Connection]:
-        conn = None
-        try:
-            try:
-                conn = self._pool.get(timeout=5)
-            except Empty:
-                with self._lock:
-                    if self._created < self._max_conns:
-                        conn = self._create()
-                        self._created += 1
-                    else:
-                        raise TimeoutError("GIS connection pool exhausted")
-            yield conn
-        finally:
-            if conn is None:
-                return
-            try:
-                conn.execute("SELECT 1")
-                self._pool.put(conn, block=False)
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                try:
-                    self._pool.put(self._create(), block=False)
-                except Exception:
-                    pass
-
-
 class AreaCityQueryPy:
     def __init__(self):
         self.loaded = False
         self._db_path: Path | None = None
-        self._pool: _ReadOnlyPool | None = None
         self.meta: dict = {}
-        self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
+        self._metadata_identity = None
+        self._geometry_cache = LRUCache[tuple, object](GEO_CACHE_MAX_ITEMS)
         self._init_lock = Lock()
 
     def init_store(self, index_db_path: Path = GEO_INDEX_SQLITE_PATH) -> None:
         with self._init_lock:
             if self.loaded:
                 return
-            pool = _ReadOnlyPool(index_db_path)
-            with pool.get() as conn:
+            from app.sql.db_pool import get_readonly_db_pool
+            pool = get_readonly_db_pool(index_db_path, 'gis')
+            with pool.get_connection() as conn:
                 self.meta = load_meta(conn)
+                self._metadata_identity = conn.database_identity
             self._db_path = index_db_path
-            self._pool = pool
-            self._geometry_cache = LRUCache[int, object](GEO_CACHE_MAX_ITEMS)
+            self._geometry_cache = LRUCache[tuple, object](GEO_CACHE_MAX_ITEMS)
             self.loaded = True
 
     def check_init_is_ok(self) -> None:
         if not self.loaded:
             raise RuntimeError("Geo query engine not initialized")
-        if self._pool is None:
+        if self._db_path is None:
             raise RuntimeError("SQLite connection pool unavailable")
 
+    @contextmanager
     def _get_conn(self):
-        assert self._pool is not None
-        return self._pool.get()
+        from app.sql.db_pool import get_readonly_db_pool
+        assert self._db_path is not None
+        with get_readonly_db_pool(self._db_path, 'gis').get_connection() as conn:
+            self._metadata_for(conn)
+            yield conn
+
+    def _metadata_for(self, conn) -> dict:
+        identity = conn.database_identity
+        with self._init_lock:
+            if identity == self._metadata_identity:
+                return self.meta
+            metadata = load_meta(conn)
+            # Do not let an older, already borrowed generation overwrite the
+            # current metadata after another request has switched databases.
+            from app.sql.db_pool import database_file_identity
+            if identity == database_file_identity(self._db_path):
+                self.meta = metadata
+                self._metadata_identity = identity
+            return metadata
 
     def _load_geometry(self, conn: sqlite3.Connection, record: SubGeometryIndexRecord) -> dict | None:
-        cached = self._geometry_cache.get(record.sub_id)
+        # One shared bounded LRU across generations; old active requests may
+        # insert old keys but can never return old geometry for new candidates.
+        key = (conn.database_identity, record.sub_id)
+        cached = self._geometry_cache.get(key)
         if cached is not None:
             return None if cached is _CACHE_SENTINEL else cached
         raw = load_geometry_blob(conn, record.sub_id)
         if raw is None:
-            self._geometry_cache.put(record.sub_id, _CACHE_SENTINEL)
+            self._geometry_cache.put(key, _CACHE_SENTINEL)
             return None
         geometry = json.loads(raw.decode("utf-8"))
-        self._geometry_cache.put(record.sub_id, geometry)
+        self._geometry_cache.put(key, geometry)
         return geometry
 
     def cache_stats(self) -> dict[str, int]:
@@ -320,12 +291,13 @@ class AreaCityQueryPy:
         cache_stats = self.cache_stats()
         with self._get_conn() as conn:
             feature_count = conn.execute("SELECT COUNT(*) FROM features").fetchone()[0]
+            metadata = self._metadata_for(conn)
         return EngineStatus(
             loaded=self.loaded,
             mode="sqlite",
             feature_count=feature_count,
-            subgeometry_count=int(self.meta.get("subgeometry_count", 0)),
-            features_with_multiple_parts=int(self.meta.get("features_with_multiple_parts", 0)),
+            subgeometry_count=int(metadata.get("subgeometry_count", 0)),
+            features_with_multiple_parts=int(metadata.get("features_with_multiple_parts", 0)),
             split_mode="polygon-parts-rtree-v1",
             source_crs="WGS84",
             target_crs="WGS84",

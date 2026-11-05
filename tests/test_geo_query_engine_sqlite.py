@@ -2,10 +2,11 @@ import sqlite3
 from pathlib import Path
 
 from app.geo_query.engine import AreaCityQueryPy
+from app.geo_query.config import GEO_INDEX_SQLITE_PATH
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SQLITE_INDEX = ROOT / "data/dependency/gis.db"
+SQLITE_INDEX = GEO_INDEX_SQLITE_PATH
 
 
 def test_engine_bbox_candidates_and_boundary_rebuild():
@@ -44,7 +45,7 @@ def test_engine_point_and_geometry_queries():
 
 def test_sqlite_index_is_runtime_source_of_truth():
     assert SQLITE_INDEX.exists()
-    conn = sqlite3.connect(SQLITE_INDEX)
+    conn = sqlite3.connect(SQLITE_INDEX.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         feature_count = conn.execute("SELECT COUNT(*) FROM features").fetchone()[0]
         subgeometry_count = conn.execute("SELECT COUNT(*) FROM subgeometries").fetchone()[0]
