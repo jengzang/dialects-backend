@@ -202,3 +202,27 @@ def test_close_failure_remains_tracked_for_shutdown_retry(pool_factory, capsys):
     conn.fail_close = False
     pool.close_all()
     assert_live(pool, pool_factory.connections, 0)
+
+
+def test_page_cache_budget_applies_to_initial_overflow_and_replacement(pool_factory):
+    pool = pool_factory()
+    with pool.get_connection() as first:
+        assert first.execute('PRAGMA cache_size').fetchone()[0] == -2000
+        with pool.get_connection() as overflow:
+            assert overflow.execute('PRAGMA cache_size').fetchone()[0] == -2000
+    # Failed validation on return creates a replacement with the same budget.
+    with pool.get_connection() as retained:
+        retained.close()
+    with pool.get_connection() as replacement:
+        assert replacement is not retained
+        assert replacement.execute('PRAGMA cache_size').fetchone()[0] == -2000
+
+
+def test_attached_schema_keeps_its_own_default_cache_budget(pool_factory, tmp_path):
+    attached = tmp_path / 'characters.db'
+    sqlite3.connect(attached).close()
+    pool = pool_factory()
+    with pool.get_connection() as conn:
+        conn.execute('ATTACH DATABASE ? AS chars_db', (str(attached),))
+        assert conn.execute('PRAGMA chars_db.cache_size').fetchone()[0] == -2000
+        conn.execute('DETACH DATABASE chars_db')

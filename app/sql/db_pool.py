@@ -11,13 +11,17 @@ from contextlib import contextmanager
 from queue import Empty, Full, Queue
 from typing import Iterator
 
+# Per connection, per schema target; allocated on demand, not an RSS limit.
+# Local multi-database sweeps support 2000 KiB for ordinary SQL workloads.
+DEFAULT_CACHE_KIB = 2000
+
 
 class ReadOnlyProfile(NamedTuple):
     idle_connections: int
     max_connections: int
     wait_seconds: float
     busy_seconds: float
-    cache_kib: int = 2000
+    cache_kib: int = DEFAULT_CACHE_KIB
 
 
 READONLY_PROFILES = MappingProxyType({
@@ -129,7 +133,7 @@ class SQLiteConnectionPool:
                 else:
                     conn.execute("PRAGMA journal_mode=WAL")
                     conn.execute("PRAGMA synchronous=NORMAL")
-                    conn.execute("PRAGMA cache_size=-16000")
+                    conn.execute(f"PRAGMA cache_size=-{DEFAULT_CACHE_KIB}")
                     conn.execute("PRAGMA temp_store=MEMORY")
             except BaseException:
                 conn.close()

@@ -1,0 +1,1678 @@
+{
+  "runs": [
+    {
+      "profile": "auth",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 2.765625,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 5.522874998860061,
+            "warm_median_ms": 1.5369169996120036,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 1.1238329971092753,
+            "warm_median_ms": 0.15729200094938278,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.6162499994388781,
+            "warm_median_ms": 0.026416997570777312,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.18887500118580647,
+        "batch_max_ms": 0.23583399888593704,
+        "final_commit_ms": 0.006792000931454822,
+        "rss_delta_mib": 2.53125,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 2.859375,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.87941599910846,
+            "warm_median_ms": 1.5454169988515787,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6219589995453134,
+            "warm_median_ms": 0.15312500181607902,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.37612500091199763,
+            "warm_median_ms": 0.02712499917834066,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.1921875009429641,
+        "batch_max_ms": 0.23549999968963675,
+        "final_commit_ms": 0.007000002369750291,
+        "rss_delta_mib": 2.515625,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 2.984375,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.859500000544358,
+            "warm_median_ms": 1.5448750018549617,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6261669986997731,
+            "warm_median_ms": 0.15495899788220413,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.41612499990151264,
+            "warm_median_ms": 0.027999998565064743,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.19408350090088788,
+        "batch_max_ms": 0.2217090004705824,
+        "final_commit_ms": 0.007334001566050574,
+        "rss_delta_mib": 2.53125,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 2.828125,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.768833001231542,
+            "warm_median_ms": 1.567667000927031,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6286660027399193,
+            "warm_median_ms": 0.15737500143586658,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.43737500163842924,
+            "warm_median_ms": 0.029958002414787188,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.1934790016093757,
+        "batch_max_ms": 0.23862499801907688,
+        "final_commit_ms": 0.007208000170066953,
+        "rss_delta_mib": 2.515625,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 7.1875,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 63.24233399936929,
+            "warm_median_ms": 12.858957998105325,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.4736250013811514,
+            "warm_median_ms": 0.2487500023562461,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4958749977959087,
+        "batch_max_ms": 2.432417000818532,
+        "final_commit_ms": 0.007209000614238903,
+        "rss_delta_mib": 3.6875,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3457289985817624,
+          "max_ms": 2.7912499972444493
+        }
+      },
+      "round": 1
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 13.4375,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.346957999194274,
+            "warm_median_ms": 9.604416001820937,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0654999969119672,
+            "warm_median_ms": 0.2476250010658987,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.47191699923132546,
+        "batch_max_ms": 2.506459000869654,
+        "final_commit_ms": 0.00762500349082984,
+        "rss_delta_mib": 6.171875,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3538545006449567,
+          "max_ms": 2.9167920001782477
+        }
+      },
+      "round": 1
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 13.703125,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.376082999049686,
+            "warm_median_ms": 9.00066699978197,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0669160001270939,
+            "warm_median_ms": 0.2649160014698282,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4791249994013924,
+        "batch_max_ms": 2.5237080008082557,
+        "final_commit_ms": 0.007833998097339645,
+        "rss_delta_mib": 11.109375,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.35954199847765267,
+          "max_ms": 2.9177919968788046
+        }
+      },
+      "round": 1
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 13.6875,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.293042000033893,
+            "warm_median_ms": 9.364708999783034,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0680419982236344,
+            "warm_median_ms": 0.2547919975768309,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4930834984406829,
+        "batch_max_ms": 2.63950000226032,
+        "final_commit_ms": 0.007457998435711488,
+        "rss_delta_mib": 12.515625,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3646869990916457,
+          "max_ms": 2.9707920002692845
+        }
+      },
+      "round": 1
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 64000,
+      "read": {
+        "rss_delta_mib": 13.46875,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.11999999920954,
+            "warm_median_ms": 9.020333000080427,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.065458000084618,
+            "warm_median_ms": 0.2643750012794044,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4807084987987764,
+        "batch_max_ms": 2.5381250015925616,
+        "final_commit_ms": 0.006915997801115736,
+        "rss_delta_mib": 12.59375,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3562085003068205,
+          "max_ms": 2.926917000877438
+        }
+      },
+      "round": 1
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 1.34375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1567920009838417,
+            "warm_median_ms": 0.1326669989794027,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3215420001652092,
+            "warm_median_ms": 0.043707997974706814,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.1283329984289594,
+        "batch_max_ms": 0.14891699902364053,
+        "final_commit_ms": 0.006708000000799075,
+        "rss_delta_mib": 3.546875,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 1.296875,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1658750008791685,
+            "warm_median_ms": 0.1340000017080456,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3137499988952186,
+            "warm_median_ms": 0.04283299858798273,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.1287494997086469,
+        "batch_max_ms": 0.1508329987700563,
+        "final_commit_ms": 0.006958001904422417,
+        "rss_delta_mib": 6.078125,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 1.375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1568749978323467,
+            "warm_median_ms": 0.13112500164425,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3157499995722901,
+            "warm_median_ms": 0.044249998609302565,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.13377049981500022,
+        "batch_max_ms": 0.15350000103353523,
+        "final_commit_ms": 0.00654199902783148,
+        "rss_delta_mib": 7.359375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 1.390625,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.144542002293747,
+            "warm_median_ms": 0.13279199993121438,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.31600000147591345,
+            "warm_median_ms": 0.04466700193006545,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.129604499306879,
+        "batch_max_ms": 0.15845799862290733,
+        "final_commit_ms": 0.006874997779959813,
+        "rss_delta_mib": 7.421875,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 3.890625,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.5949580008746125,
+            "warm_median_ms": 0.1477920013712719,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.43258399819023907,
+            "warm_median_ms": 0.14920899775461294,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 28.636625000217464,
+            "warm_median_ms": 27.863666997291148,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 2.0696880001196405,
+        "batch_max_ms": 2.165541001886595,
+        "final_commit_ms": 9.522250002191868,
+        "rss_delta_mib": 3.5625,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 6.4375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6001669971738011,
+            "warm_median_ms": 0.15016699762782082,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.43495799764059484,
+            "warm_median_ms": 0.14591700164601207,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 29.126833000191255,
+            "warm_median_ms": 28.004791998682776,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9356669999979204,
+        "batch_max_ms": 2.097750002576504,
+        "final_commit_ms": 9.189249998598825,
+        "rss_delta_mib": 6.03125,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 11.375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6261249982344452,
+            "warm_median_ms": 0.14845900295767933,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.43983299838146195,
+            "warm_median_ms": 0.1449169976694975,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 30.644499998743413,
+            "warm_median_ms": 29.171583002607804,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9607085014285985,
+        "batch_max_ms": 2.0127499992668163,
+        "final_commit_ms": 9.779416999663226,
+        "rss_delta_mib": 10.921875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 20.859375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6057919999875594,
+            "warm_median_ms": 0.1547920001030434,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.44208400140632875,
+            "warm_median_ms": 0.14816600014455616,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 31.154708998656133,
+            "warm_median_ms": 28.843083000538172,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9579789986892138,
+        "batch_max_ms": 2.015958998526912,
+        "final_commit_ms": 9.786624999833293,
+        "rss_delta_mib": 11.3125,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 1
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 2.875,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.789042002608767,
+            "warm_median_ms": 1.5628750006726477,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6529999991471414,
+            "warm_median_ms": 0.15450000137207098,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.37933299972792156,
+            "warm_median_ms": 0.026666999474400654,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.18895850007538684,
+        "batch_max_ms": 0.20841600053245202,
+        "final_commit_ms": 0.007165999704739079,
+        "rss_delta_mib": 2.421875,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 2.8125,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.7783330008096527,
+            "warm_median_ms": 1.5596660014125519,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6252080020203721,
+            "warm_median_ms": 0.16395800048485398,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.3795829979935661,
+            "warm_median_ms": 0.027707999834092334,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.1970209996215999,
+        "batch_max_ms": 0.2696660012588836,
+        "final_commit_ms": 0.007457998435711488,
+        "rss_delta_mib": 2.46875,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 2.859375,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.8205420023587067,
+            "warm_median_ms": 1.5785840005264618,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6379590013239067,
+            "warm_median_ms": 0.15758299923618324,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.38529199810000136,
+            "warm_median_ms": 0.031791001674719155,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.19431249893386848,
+        "batch_max_ms": 0.2156670016120188,
+        "final_commit_ms": 0.006999998731771484,
+        "rss_delta_mib": 2.53125,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 2.9375,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.7473750016943086,
+            "warm_median_ms": 1.5782910013513174,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6493750006484333,
+            "warm_median_ms": 0.16179199883481488,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.4019169973616954,
+            "warm_median_ms": 0.027624999347608536,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.19410399909247644,
+        "batch_max_ms": 0.26458299907972105,
+        "final_commit_ms": 0.007541999366367236,
+        "rss_delta_mib": 2.546875,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 64000,
+      "read": {
+        "rss_delta_mib": 13.484375,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.421125000197208,
+            "warm_median_ms": 9.284499999921536,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.074916999641573,
+            "warm_median_ms": 0.2573749989096541,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.48604149924358353,
+        "batch_max_ms": 2.5157499985652976,
+        "final_commit_ms": 0.007415997970383614,
+        "rss_delta_mib": 12.734375,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.37747900205431506,
+          "max_ms": 3.0969170002208557
+        }
+      },
+      "round": 2
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 11.828125,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.48437500160071,
+            "warm_median_ms": 9.076416998141212,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0832499974640086,
+            "warm_median_ms": 0.27004100047633983,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.47297950004576705,
+        "batch_max_ms": 2.496707998943748,
+        "final_commit_ms": 0.007458998879883438,
+        "rss_delta_mib": 12.53125,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.36364549850986805,
+          "max_ms": 2.8696670015051495
+        }
+      },
+      "round": 2
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 13.703125,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.590833000809653,
+            "warm_median_ms": 9.277334000216797,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.1489999997138511,
+            "warm_median_ms": 0.26591599817038514,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.47641700075473636,
+        "batch_max_ms": 2.46566699934192,
+        "final_commit_ms": 0.007541999366367236,
+        "rss_delta_mib": 11.03125,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.35793750066659413,
+          "max_ms": 2.7880839988938533
+        }
+      },
+      "round": 2
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 13.625,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.402916999941226,
+            "warm_median_ms": 9.356165999633959,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.1380420000932645,
+            "warm_median_ms": 0.27195800066692755,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4719790013041347,
+        "batch_max_ms": 2.4777499966148753,
+        "final_commit_ms": 0.0072499969974160194,
+        "rss_delta_mib": 6.203125,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3403960017749341,
+          "max_ms": 2.8035840005031787
+        }
+      },
+      "round": 2
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 7.171875,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 14.46570900225197,
+            "warm_median_ms": 12.933667003380833,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.2507500032370444,
+            "warm_median_ms": 0.2500000009604264,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.499999998282874,
+        "batch_max_ms": 2.469625000230735,
+        "final_commit_ms": 0.01416700251866132,
+        "rss_delta_mib": 3.546875,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3465210011199815,
+          "max_ms": 2.771041999949375
+        }
+      },
+      "round": 2
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 1.328125,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1582090010051616,
+            "warm_median_ms": 0.13379200026975013,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3326250007376075,
+            "warm_median_ms": 0.04266600080882199,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.13287500041769817,
+        "batch_max_ms": 0.15291700037778355,
+        "final_commit_ms": 0.006916998245287687,
+        "rss_delta_mib": 7.359375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 1.359375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1987079997197725,
+            "warm_median_ms": 0.13158300134819,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.32899999860092066,
+            "warm_median_ms": 0.04524999894783832,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.13068750013189856,
+        "batch_max_ms": 0.15241599976434372,
+        "final_commit_ms": 0.007334001566050574,
+        "rss_delta_mib": 7.34375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 1.40625,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1325840023346245,
+            "warm_median_ms": 0.13220799883129075,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3249589972256217,
+            "warm_median_ms": 0.04216700108372606,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.13193749873607885,
+        "batch_max_ms": 0.15754100240883417,
+        "final_commit_ms": 0.00695899871061556,
+        "rss_delta_mib": 5.96875,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 1.34375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1498329986352473,
+            "warm_median_ms": 0.1368750017718412,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.3309579988126643,
+            "warm_median_ms": 0.04358300066087395,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.1265834998775972,
+        "batch_max_ms": 0.1499170030001551,
+        "final_commit_ms": 0.006833997758803889,
+        "rss_delta_mib": 3.4375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 20.984375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6371669987856876,
+            "warm_median_ms": 0.1559589982207399,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.45354200119618326,
+            "warm_median_ms": 0.15466700278921053,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 213.7370420023217,
+            "warm_median_ms": 29.88141600144445,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9966874988313066,
+        "batch_max_ms": 2.087041997583583,
+        "final_commit_ms": 9.581333000824088,
+        "rss_delta_mib": 11.296875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 11.359375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6260420013859402,
+            "warm_median_ms": 0.15387500025099143,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.45079199844622053,
+            "warm_median_ms": 0.15008300033514388,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 30.963208999310154,
+            "warm_median_ms": 29.535458001191728,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9648335000965744,
+        "batch_max_ms": 2.0597909970092587,
+        "final_commit_ms": 10.105624998686835,
+        "rss_delta_mib": 10.921875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 6.390625,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.7264999985636678,
+            "warm_median_ms": 0.30295800024759956,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.6008749987813644,
+            "warm_median_ms": 0.19854100173688494,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 33.806499999627704,
+            "warm_median_ms": 29.853125000954606,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9537499993020901,
+        "batch_max_ms": 2.1319580009731,
+        "final_commit_ms": 9.607166997739114,
+        "rss_delta_mib": 5.96875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 3.75,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6099579986766912,
+            "warm_median_ms": 0.15054200048325583,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.44004200026392937,
+            "warm_median_ms": 0.14699999883305281,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 29.28145799887716,
+            "warm_median_ms": 28.404000000591623,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 2.083270499497303,
+        "batch_max_ms": 2.193958000134444,
+        "final_commit_ms": 10.051708002720261,
+        "rss_delta_mib": 3.46875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 2
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 2.828125,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 5.621540996799013,
+            "warm_median_ms": 1.6322910014423542,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 1.1357090006640647,
+            "warm_median_ms": 0.16533300004084595,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.6256660017243121,
+            "warm_median_ms": 0.027375001081964,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.19527099902916234,
+        "batch_max_ms": 0.23345800218521617,
+        "final_commit_ms": 0.0072500006353948265,
+        "rss_delta_mib": 2.4375,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 2.859375,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.801500002737157,
+            "warm_median_ms": 1.559125001222128,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6202500007930212,
+            "warm_median_ms": 0.1568750012665987,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.36358400029712357,
+            "warm_median_ms": 0.027209000108996406,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.1928744986798847,
+        "batch_max_ms": 0.20200000290060416,
+        "final_commit_ms": 0.007208000170066953,
+        "rss_delta_mib": 2.515625,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 2.78125,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.8601250016654376,
+            "warm_median_ms": 1.5565419998893049,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6289170014497358,
+            "warm_median_ms": 0.1596670008439105,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.3926659992430359,
+            "warm_median_ms": 0.027374997443985194,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.18775000171444844,
+        "batch_max_ms": 0.1994580015889369,
+        "final_commit_ms": 0.007416001608362421,
+        "rss_delta_mib": 2.46875,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "auth",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 2.875,
+        "queries": {
+          "users20_with_joined_summary": {
+            "first_ms": 3.8422079996962566,
+            "warm_median_ms": 1.5599580001435243,
+            "signature": "8cadbfa914854189a3c213790b39952eb7ddfa0b33e393fb502b0192dd167c95"
+          },
+          "usage_latest50": {
+            "first_ms": 0.6277500033320393,
+            "warm_median_ms": 0.1528329994471278,
+            "signature": "087877ec95d4787aa9d0c1bed7038dd194bbc6aedf8efc3e40efa0a5f8f94948"
+          },
+          "usage_count": {
+            "first_ms": 0.42616700011421926,
+            "warm_median_ms": 0.029791000997647643,
+            "signature": "0bf0e862a133e765e215dfc3d1e0be6d6bf2c920609a34aa73e9c8addafa4434"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.18877100046665873,
+        "batch_max_ms": 0.20458299695746973,
+        "final_commit_ms": 0.0072500006353948265,
+        "rss_delta_mib": 2.5,
+        "verified_rows": 13000,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 6.921875,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 62.89370900049107,
+            "warm_median_ms": 13.112000000546686,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.482333002059022,
+            "warm_median_ms": 0.2573329984443262,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.5043340024712961,
+        "batch_max_ms": 2.5229589991795365,
+        "final_commit_ms": 0.007582999387523159,
+        "rss_delta_mib": 3.578125,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.35160450170224067,
+          "max_ms": 2.8764580019924324
+        }
+      },
+      "round": 3
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 13.578125,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.472541998955421,
+            "warm_median_ms": 9.699583999463357,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0787920000439044,
+            "warm_median_ms": 0.2563339985499624,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.48754149975138716,
+        "batch_max_ms": 2.5524590018903837,
+        "final_commit_ms": 0.007334001566050574,
+        "rss_delta_mib": 6.125,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.3525414995237952,
+          "max_ms": 2.9177500000514556
+        }
+      },
+      "round": 3
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 13.640625,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.415125001803972,
+            "warm_median_ms": 9.200000000419095,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.247917000000598,
+            "warm_median_ms": 0.25854100022115745,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4813959985767724,
+        "batch_max_ms": 2.5082079991989303,
+        "final_commit_ms": 0.0075830030255019665,
+        "rss_delta_mib": 11.234375,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.36054150041309185,
+          "max_ms": 2.9362090026552323
+        }
+      },
+      "round": 3
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 13.59375,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.301708000246435,
+            "warm_median_ms": 9.263208998163464,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.0832919979293365,
+            "warm_median_ms": 0.25637499857111834,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.5063545013399562,
+        "batch_max_ms": 2.795832999254344,
+        "final_commit_ms": 0.00758399983169511,
+        "rss_delta_mib": 12.71875,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.35960399873147253,
+          "max_ms": 2.9380420019151643
+        }
+      },
+      "round": 3
+    },
+    {
+      "profile": "logs",
+      "cache_kib": 64000,
+      "read": {
+        "rss_delta_mib": 13.59375,
+        "queries": {
+          "keywords_top10": {
+            "first_ms": 11.421875002270099,
+            "warm_median_ms": 9.014750001369976,
+            "signature": "77c58420ba1fc081f801d65747ba2729efd8d8d5d982080c28b3afe4c8664380"
+          },
+          "diagnostics_latest50": {
+            "first_ms": 1.1006249987985939,
+            "warm_median_ms": 0.275792001048103,
+            "signature": "ce67b7fa05578aa3c643e399583c68318458c3cc9e77170ec55ca74621ee0c20"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 50,
+        "batch_median_ms": 0.4802289986400865,
+        "batch_max_ms": 2.494832999218488,
+        "final_commit_ms": 0.007541002560174093,
+        "rss_delta_mib": 12.609375,
+        "verified_rows": 13000,
+        "diagnostics": {
+          "batch_size": 25,
+          "body_bytes": 2048,
+          "median_ms": 0.36012500095239375,
+          "max_ms": 2.9721249993599486
+        }
+      },
+      "round": 3
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 1.3125,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1312089991406538,
+            "warm_median_ms": 0.13550000221584924,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.5868750013178214,
+            "warm_median_ms": 0.045290998968994245,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.12837549911637325,
+        "batch_max_ms": 0.14975000158301555,
+        "final_commit_ms": 0.006833000952610746,
+        "rss_delta_mib": 3.4375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 1.34375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.189000002341345,
+            "warm_median_ms": 0.13695899906451814,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.33120800071628764,
+            "warm_median_ms": 0.04220800110488199,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.12952100041729864,
+        "batch_max_ms": 0.14691599790239707,
+        "final_commit_ms": 0.006791000487282872,
+        "rss_delta_mib": 5.921875,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 1.34375,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1559159975149669,
+            "warm_median_ms": 0.13495799794327468,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.32662499870639294,
+            "warm_median_ms": 0.043125000956933945,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.12910400073451456,
+        "batch_max_ms": 0.157667000166839,
+        "final_commit_ms": 0.006750000466126949,
+        "rss_delta_mib": 7.34375,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "supplements",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 1.46875,
+        "queries": {
+          "information_page50": {
+            "first_ms": 1.1772910002036951,
+            "warm_median_ms": 0.14087499948800541,
+            "signature": "e5cfca4ecc10ef8fd59b93a139623700293f2f0364ddf27642eda2532c3ee957"
+          },
+          "region_page50": {
+            "first_ms": 0.33266700120293535,
+            "warm_median_ms": 0.043707997974706814,
+            "signature": "a16aea7c80ef3d500933ebaebe8beb83dcf726508d22352a007a98e5a1ee88d2"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 10,
+        "batch_median_ms": 0.1307914990320569,
+        "batch_max_ms": 0.1553330002934672,
+        "final_commit_ms": 0.007167000148911029,
+        "rss_delta_mib": 7.3125,
+        "verified_rows": 12200,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 2000,
+      "read": {
+        "rss_delta_mib": 3.859375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6251670019992162,
+            "warm_median_ms": 0.15537500075879507,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.4468749975785613,
+            "warm_median_ms": 0.14916699728928506,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 29.048832999251317,
+            "warm_median_ms": 29.18879099888727,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 2.0723750021716114,
+        "batch_max_ms": 2.1542499998759013,
+        "final_commit_ms": 9.446874999412103,
+        "rss_delta_mib": 3.453125,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 4096,
+      "read": {
+        "rss_delta_mib": 6.359375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6122499980847351,
+            "warm_median_ms": 0.15429199993377551,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.4464579978957772,
+            "warm_median_ms": 0.15054200048325583,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 29.9672080000164,
+            "warm_median_ms": 29.743208000581944,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9655625001178123,
+        "batch_max_ms": 2.1842499991180375,
+        "final_commit_ms": 9.773416997632012,
+        "rss_delta_mib": 6.046875,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 8192,
+      "read": {
+        "rss_delta_mib": 11.375,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6431250003515743,
+            "warm_median_ms": 0.1596670008439105,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.45708300240221433,
+            "warm_median_ms": 0.1492080009484198,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 31.406792000780115,
+            "warm_median_ms": 29.462709000654286,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9703335001395317,
+        "batch_max_ms": 2.045083001576131,
+        "final_commit_ms": 10.573874998954125,
+        "rss_delta_mib": 11.015625,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 3
+    },
+    {
+      "profile": "vocabulary",
+      "cache_kib": 16000,
+      "read": {
+        "rss_delta_mib": 20.921875,
+        "queries": {
+          "latest50": {
+            "first_ms": 0.6296669998846482,
+            "warm_median_ms": 0.1567920007801149,
+            "signature": "5cf36a4a73442e47682e56fc8a04f0109f4c1cc806aa8e584a34044f0d7ed92e"
+          },
+          "location50": {
+            "first_ms": 0.45145900003262796,
+            "warm_median_ms": 0.1475000026402995,
+            "signature": "984e2827b000fd281107bb31826dcba1f09a3226299bdfd7ae3224ed516dd948"
+          },
+          "contains_count": {
+            "first_ms": 31.532041997706983,
+            "warm_median_ms": 28.842540999903576,
+            "signature": "9f5df8dd5bed469c32ba33ce975067d4b179ff5b1103739a900205b8f63598b5"
+          }
+        }
+      },
+      "write": {
+        "batch_size": 512,
+        "batch_median_ms": 1.9756670008064248,
+        "batch_max_ms": 2.0521670012385584,
+        "final_commit_ms": 10.142458999325754,
+        "rss_delta_mib": 11.375,
+        "verified_rows": 22240,
+        "diagnostics": null
+      },
+      "round": 3
+    }
+  ]
+}
