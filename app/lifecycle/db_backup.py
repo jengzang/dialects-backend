@@ -26,6 +26,8 @@ CONFIGS = [
     _Config("supplements", SUPPLE_DB_PATH, interval_seconds=24 * 3600, retention_days=7),
 ]
 
+_MAX_WAIT_SECONDS = 3600
+
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
 _stop_event: threading.Event | None = None
@@ -101,7 +103,7 @@ def _cleanup_one(cfg: _Config) -> None:
 
 def _periodic_backup(stop_event: threading.Event) -> None:
     next_run = {c.name: _initial_next_run(c, datetime.now()) for c in CONFIGS}
-    while not stop_event.wait(60):
+    while not stop_event.is_set():
         now = datetime.now()
         for c in CONFIGS:
             if now >= next_run[c.name]:
@@ -111,6 +113,10 @@ def _periodic_backup(stop_event: threading.Event) -> None:
                 except Exception as exc:
                     print(f"[backup:{c.name}] error: {exc}")
                 next_run[c.name] = now + timedelta(seconds=c.interval_seconds)
+        # 单次睡眠上限，防止校时或挂起让备份被推迟数小时
+        delay = (min(next_run.values()) - datetime.now()).total_seconds()
+        if stop_event.wait(max(0.0, min(delay, _MAX_WAIT_SECONDS))):
+            return
 
 
 def start_backup_scheduler() -> None:
