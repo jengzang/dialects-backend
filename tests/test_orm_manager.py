@@ -19,13 +19,14 @@ def isolated_registry(monkeypatch):
 
 
 @pytest.mark.parametrize('profile,timeout,foreign_keys,cache_size', [
-    ('auth', 5000, 1, None), ('logs', 5000, 0, -64000),
-    ('supplements', 5000, 1, None), ('vocabulary', 10000, 1, None),
+    ('auth', 5000, 1, -2000), ('logs', 5000, 0, -2000),
+    ('supplements', 5000, 1, -2000), ('vocabulary', 10000, 1, -2000),
 ])
-def test_profiles_preserve_existing_settings_and_create_lazily(tmp_path, profile, timeout, foreign_keys, cache_size):
+def test_profiles_use_2000kib_cache_preserve_other_settings_and_create_lazily(tmp_path, profile, timeout, foreign_keys, cache_size):
     path = tmp_path / (profile + '.db')
     engine, factory = orm.create_engine_and_session(profile, f'sqlite:///{path}')
     assert not path.exists()
+    assert orm.POLICIES[profile].cache_kib == 2000
     assert factory.kw['bind'] is engine
     assert isinstance(engine.pool, QueuePool)
     assert engine.pool.size() == 5

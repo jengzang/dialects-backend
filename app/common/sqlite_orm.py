@@ -1,6 +1,6 @@
 """Shared SQLite ORM construction and process-local resource lifecycle.
 
-Policies preserve existing settings. Engines remain separate per database/worker;
+Policies share a 2000 KiB per-connection page-cache target. Engines remain separate per database/worker;
 registration does not open connections or retain temporary engines permanently.
 Schema creation and migrations belong to the calling database modules.
 """
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class SQLitePolicy:
     busy_timeout_ms: int = 5000
     foreign_keys: bool | None = True
-    cache_kib: int | None = None
+    cache_kib: int | None = 2000
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: int = 30
@@ -31,7 +31,7 @@ class SQLitePolicy:
 POLICIES = MappingProxyType({
     'auth': SQLitePolicy(),
     'supplements': SQLitePolicy(),
-    'logs': SQLitePolicy(foreign_keys=None, cache_kib=64000),
+    'logs': SQLitePolicy(foreign_keys=None),
     'vocabulary': SQLitePolicy(busy_timeout_ms=10000),
 })
 _engines = WeakKeyDictionary()
