@@ -56,3 +56,19 @@ def test_available_apis_filter_is_opt_in(monkeypatch):
     monkeypatch.setattr(leaderboard.leaderboard_service, 'get_available_apis', lambda db: ['/api/search', '/favicon.ico'])
     assert leaderboard.get_available_apis(db=None).apis == ['/api/search', '/favicon.ico']
     assert leaderboard.get_available_apis(exclude_static=True, db=None).apis == ['/api/search']
+
+
+def test_filter_excludes_spa_pages_but_preserves_api_routes(monkeypatch):
+    from app.service.logging.stats.static_paths import is_static_path
+    pages = ['/', '/menu', '/menu/pho/matrix', '/explore/tools/praat', '/intro', '/villagesML/foo', '/auth', '/admin', '/detail']
+    apis = ['/api/search', '/auth/me', '/admin/users/list', '/sql/query', '/logs/visits/today', '/menu-api']
+    conn = sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE api_usage_daily (date TEXT, path TEXT, call_count INTEGER)')
+    conn.executemany('INSERT INTO api_usage_daily VALUES (?, ?, 1)', [('2099-01-01', p) for p in pages + apis])
+    monkeypatch.setattr(stats, 'get_db_pool', lambda _: Pool(conn))
+    assert all(is_static_path(p) for p in pages)
+    assert not any(is_static_path(p) for p in apis)
+    assert stats.get_daily_trend(30)['summary']['total_calls'] == len(pages + apis)
+    assert stats.get_daily_trend(30, exclude_static=True)['summary']['total_calls'] == len(apis)
+    assert {x['path'] for x in stats.get_api_ranking(limit=100, exclude_static=True)['ranking']} == set(apis)
+    assert stats.get_api_history('/menu', exclude_static=True)['summary']['total_calls'] == 0
