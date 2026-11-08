@@ -17,6 +17,7 @@ from app.schemas.admin.analytics import (
     AvailableApisResponse
 )
 from app.service.admin.users import leaderboard as leaderboard_service
+from app.service.logging.stats.static_paths import is_static_path
 
 router = APIRouter()
 
@@ -91,11 +92,11 @@ def get_rankings(
 
 
 @router.get("/available-apis", response_model=AvailableApisResponse)
-def get_available_apis(db: Session = Depends(get_db)):
+def get_available_apis(exclude_static: bool = False, db: Session = Depends(get_db)):
     """
     获取所有可用的API路径列表
 
     返回系统中所有有使用记录的API路径，供前端构建下拉菜单使用。
     """
     apis = leaderboard_service.get_available_apis(db)
-    return AvailableApisResponse(apis=apis)
+    return AvailableApisResponse(apis=[path for path in apis if not is_static_path(path)] if exclude_static else apis)

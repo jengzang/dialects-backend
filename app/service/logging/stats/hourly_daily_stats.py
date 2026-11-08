@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from app.common.path import LOGS_DATABASE_PATH
 from app.common.time_utils import now_shanghai, today_shanghai
 from app.sql.db_pool import get_db_pool
+from app.service.logging.stats.static_paths import non_static_sql
 
 
 def get_hourly_trend(hours: int = 24) -> Dict[str, Any]:
@@ -57,19 +58,20 @@ def get_hourly_trend(hours: int = 24) -> Dict[str, Any]:
     }
 
 
-def get_daily_trend(days: int = 30, path: Optional[str] = None) -> Dict[str, Any]:
+def get_daily_trend(days: int = 30, path: Optional[str] = None, exclude_static: bool = False) -> Dict[str, Any]:
     """Get daily usage trend using Asia/Shanghai dates."""
     start_date = today_shanghai() - timedelta(days=days)
+    static_filter = f" AND {non_static_sql()}" if exclude_static else ""
 
     with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
         cursor = conn.cursor()
 
         if path:
             cursor.execute(
-                """
+                f"""
                 SELECT date, call_count
                 FROM api_usage_daily
-                WHERE date >= ? AND path = ?
+                WHERE date >= ? AND path = ?{static_filter}
                 ORDER BY date ASC
                 """,
                 (start_date, path),
@@ -78,10 +80,10 @@ def get_daily_trend(days: int = 30, path: Optional[str] = None) -> Dict[str, Any
             unique_apis = 1 if rows else 0
         else:
             cursor.execute(
-                """
+                f"""
                 SELECT date, SUM(call_count) as total_calls
                 FROM api_usage_daily
-                WHERE date >= ?
+                WHERE date >= ?{static_filter}
                 GROUP BY date
                 ORDER BY date ASC
                 """,
@@ -90,10 +92,10 @@ def get_daily_trend(days: int = 30, path: Optional[str] = None) -> Dict[str, Any
             rows = cursor.fetchall()
 
             cursor.execute(
-                """
+                f"""
                 SELECT COUNT(DISTINCT path)
                 FROM api_usage_daily
-                WHERE date >= ?
+                WHERE date >= ?{static_filter}
                 """,
                 (start_date,),
             )
@@ -136,6 +138,7 @@ def get_api_ranking(
     date: Optional[str] = None,
     days: Optional[int] = None,
     limit: int = 10,
+    exclude_static: bool = False,
 ) -> Dict[str, Any]:
     """Get API ranking for a date or recent days."""
 
@@ -162,6 +165,9 @@ def get_api_ranking(
         where_clause = ""
         where_params = ()
         period_label = "all_time"
+
+    if exclude_static:
+        where_clause += (" AND " if where_clause else "WHERE ") + non_static_sql()
 
     with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
         cursor = conn.cursor()
@@ -248,17 +254,19 @@ def get_api_ranking(
     }
 
 
-def get_api_history(path: str, days: int = 30) -> Dict[str, Any]:
+def get_api_history(path: str, days: int = 30, exclude_static: bool = False) -> Dict[str, Any]:
     """Get daily history for one API path."""
     start_date = today_shanghai() - timedelta(days=days)
+
+    static_filter = f" AND {non_static_sql()}" if exclude_static else ""
 
     with get_db_pool(LOGS_DATABASE_PATH).get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            """
+            f"""
             SELECT date, call_count
             FROM api_usage_daily
-            WHERE date >= ? AND path = ?
+            WHERE date >= ? AND path = ?{static_filter}
             ORDER BY date ASC
             """,
             (start_date, path),

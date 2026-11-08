@@ -1,17 +1,11 @@
 import re
+
+from app.service.logging.stats.static_paths import STATIC_EXTENSIONS
 from queue import Empty
 
 from app.common.time_utils import now_utc_naive, to_shanghai_bucket_date, to_shanghai_bucket_hour
 from app.service.logging.core.database import SessionLocal as LogsSessionLocal
 from app.service.logging.core.queues import enqueue_with_backpressure, statistics_queue
-
-# Static file extensions served from the app/statics directory.
-_STATIC_EXTENSIONS = frozenset({
-    ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico",
-    ".gif", ".webp", ".avif", ".woff", ".woff2", ".ttf", ".otf",
-    ".map", ".json", ".xml", ".txt", ".xlsx", ".kmz", ".wasm",
-    ".webmanifest",
-})
 
 # Content-hash pattern: name.[8+ base64url chars with >=1 letter].ext
 # The (?!\d+\.) prevents date stamps (20260624) from being treated as hashes.
@@ -19,7 +13,7 @@ _CONTENT_HASH_RE = re.compile(
     r"^(.+?)\.(?!\d+\.)[A-Za-z0-9_-]{8,}\.(%s)$"
     % "|".join(
         ext.lstrip(".")
-        for ext in sorted(_STATIC_EXTENSIONS, key=len, reverse=True)
+        for ext in sorted(STATIC_EXTENSIONS, key=len, reverse=True)
     )
 )
 

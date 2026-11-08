@@ -30,7 +30,8 @@ async def get_hourly_trend_route(
 @router.get("/daily")
 async def get_daily_trend_route(
     days: int = Query(30, ge=1, le=1000),
-    path: Optional[str] = None
+    path: Optional[str] = None,
+    exclude_static: bool = False
 ):
     """
     获取每日调用趋势
@@ -39,7 +40,7 @@ async def get_daily_trend_route(
         days: 最近N天，默认30天，最多365天
         path: 指定API路径（可选），不指定则返回所有API的总和
     """
-    result = hourly_daily_stats.get_daily_trend(days=days, path=path)
+    result = hourly_daily_stats.get_daily_trend(days=days, path=path, exclude_static=exclude_static)
     return result
 
 
@@ -47,7 +48,8 @@ async def get_daily_trend_route(
 async def get_api_ranking_route(
     date: Optional[str] = None,
     days: Optional[int] = Query(None, ge=1, le=1000),
-    limit: int = Query(10, ge=1, le=500)
+    limit: int = Query(10, ge=1, le=500),
+    exclude_static: bool = False
 ):
     """
     获取 API 排行榜
@@ -61,7 +63,8 @@ async def get_api_ranking_route(
         result = hourly_daily_stats.get_api_ranking(
             date=date,
             days=days,
-            limit=limit
+            limit=limit,
+            exclude_static=exclude_static
         )
         return result
     except ValueError as e:
@@ -71,7 +74,8 @@ async def get_api_ranking_route(
 @router.get("/api-history")
 async def get_api_history_route(
     path: str,
-    days: int = Query(30, ge=1, le=1000)
+    days: int = Query(30, ge=1, le=1000),
+    exclude_static: bool = False
 ):
     """
     获取指定 API 的历史趋势
@@ -80,5 +84,5 @@ async def get_api_history_route(
         path: API路径（必填）
         days: 最近N天，默认30天，最多365天
     """
-    result = hourly_daily_stats.get_api_history(path=path, days=days)
+    result = hourly_daily_stats.get_api_history(path=path, days=days, exclude_static=exclude_static)
     return result
