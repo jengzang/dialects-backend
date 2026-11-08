@@ -5,12 +5,13 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from app.schemas.base import ShanghaiBaseModel
 
 
 class InformationBase(ShanghaiBaseModel):
+    id: Optional[int] = None
     簡稱: str
     音典分區: str
     經緯度: str
@@ -23,6 +24,15 @@ class InformationBase(ShanghaiBaseModel):
     created_at: Optional[datetime] = None  # 后端自动生成
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CustomUpdate(InformationBase):
+    id: int
+
+
+class CustomIdentity(ShanghaiBaseModel):
+    username: str
+    id: int
 
 
 class EditRequest(ShanghaiBaseModel):
@@ -52,7 +62,14 @@ class AdminRegionUpdate(ShanghaiBaseModel):
 class AdminRegionDelete(ShanghaiBaseModel):
     """管理员删除任意用户的区域"""
     username: str
-    created_at: str
+    created_at: Optional[str] = None
+    id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def require_identity(self):
+        if self.id is None and not self.created_at:
+            raise ValueError("區域 ID 或創建時間為必填")
+        return self
 
 
 class AdminRegionResponse(ShanghaiBaseModel):

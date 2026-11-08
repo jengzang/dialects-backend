@@ -36,6 +36,7 @@ def get_all_custom_data(db_info: DBSession, db_user: DBSession) -> List[Dict[str
         user = db_user.query(User).filter(User.id == info.user_id).first()
         if user:
             result.append({
+                "id": info.id,
                 "簡稱": info.簡稱,
                 "音典分區": info.音典分區,
                 "經緯度": info.經緯度,
@@ -289,3 +290,42 @@ def get_selected_custom(
         "success": True,
         "data": all_user_data
     }
+
+
+def update_custom_by_admin(db_info, db_user, requests, current_user):
+    """Validate the whole batch before modifying any rows."""
+    if not requests or len({r["id"] for r in requests}) != len(requests):
+        return {"success": False, "error": "數據為空或記錄重複"}
+    rows = []
+    for request in requests:
+        user = db_user.query(User).filter(User.username == request["username"]).first()
+        if not user or (user.role == "admin" and user.username != current_user.username):
+            return {"success": False, "error": "用戶不存在或無權修改"}
+        row = db_info.query(Information).filter(Information.id == request["id"], Information.user_id == user.id).first()
+        if not row or not all(request.get(k) for k in ("簡稱", "音典分區", "經緯度", "特徵", "值")):
+            return {"success": False, "error": "記錄不存在或必填字段為空"}
+        rows.append((row, request))
+    for row, request in rows:
+        for field in ("簡稱", "音典分區", "經緯度", "聲韻調", "特徵", "值", "說明"):
+            setattr(row, field, request.get(field))
+        row.maxValue = get_max_value(row.值)
+    db_info.commit()
+    return {"success": True, "data": [row for row, _ in rows]}
+
+
+def delete_custom_ids(db_info, db_user, requests, current_user):
+    if not requests or len({r["id"] for r in requests}) != len(requests):
+        return {"success": False, "error": "數據為空或記錄重複"}
+    rows = []
+    for request in requests:
+        user = db_user.query(User).filter(User.username == request["username"]).first()
+        if not user or (user.role == "admin" and user.username != current_user.username):
+            return {"success": False, "error": "用戶不存在或無權刪除"}
+        row = db_info.query(Information).filter(Information.id == request["id"], Information.user_id == user.id).first()
+        if not row:
+            return {"success": False, "error": "記錄不存在"}
+        rows.append(row)
+    for row in rows:
+        db_info.delete(row)
+    db_info.commit()
+    return {"success": True}

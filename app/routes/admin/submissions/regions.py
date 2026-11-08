@@ -155,7 +155,7 @@ async def delete_region(
 ):
     """管理员删除任意用户的区域"""
     try:
-        success = region.delete_region_admin(db, data.username, data.created_at)
+        success = region.delete_region_admin(db, data.username, data.created_at, data.id)
         if success:
             return {
                 "success": True,
@@ -165,6 +165,8 @@ async def delete_region(
             }
         else:
             raise HTTPException(status_code=404, detail="区域不存在")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

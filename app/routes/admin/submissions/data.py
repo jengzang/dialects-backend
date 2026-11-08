@@ -19,7 +19,7 @@ from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.auth.database.connection import SessionLocal as SessionLocal_user
 from app.service.auth.database.models import User
 from app.service.auth.core.dependencies import get_current_admin_user
-from app.schemas.admin.submissions import InformationBase, EditRequest
+from app.schemas.admin.submissions import InformationBase, EditRequest, CustomUpdate, CustomIdentity
 from app.service.admin.submissions import management as custom_service
 
 router = APIRouter()
@@ -177,6 +177,38 @@ async def create_custom_by_admin(infos: List[InformationBase]):
     except Exception as e:
         session_info.rollback()
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    finally:
+        session_info.close()
+        session_user.close()
+
+
+@router.put("/update", response_model=List[InformationBase])
+async def update_custom(infos: List[CustomUpdate], current_user: User = Depends(get_current_admin_user)):
+    session_info, session_user = SessionLocal_info(), SessionLocal_user()
+    try:
+        result = custom_service.update_custom_by_admin(session_info, session_user, [item.model_dump() for item in infos], current_user)
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return [InformationBase.model_validate(row) for row in result["data"]]
+    except Exception:
+        session_info.rollback()
+        raise
+    finally:
+        session_info.close()
+        session_user.close()
+
+
+@router.post("/delete-by-id")
+async def delete_custom_by_id(items: List[CustomIdentity], current_user: User = Depends(get_current_admin_user)):
+    session_info, session_user = SessionLocal_info(), SessionLocal_user()
+    try:
+        result = custom_service.delete_custom_ids(session_info, session_user, [item.model_dump() for item in items], current_user)
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except Exception:
+        session_info.rollback()
+        raise
     finally:
         session_info.close()
         session_user.close()

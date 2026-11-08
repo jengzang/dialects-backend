@@ -353,7 +353,7 @@ def update_region_admin(
     return region
 
 
-def delete_region_admin(db: Session, username: str, created_at: str) -> bool:
+def delete_region_admin(db: Session, username: str, created_at: str = None, region_id: int = None) -> bool:
     """管理员删除任意用户的区域"""
     from app.service.auth.database.models import User
     from app.service.auth.database.connection import SessionLocal as SessionLocal_user
@@ -370,6 +370,7 @@ def delete_region_admin(db: Session, username: str, created_at: str) -> bool:
 
     # 查找并删除区域
     regions = db.query(UserRegion).filter(
+        and_(UserRegion.user_id == user_id, UserRegion.id == region_id) if region_id is not None else
         and_(UserRegion.user_id == user_id, UserRegion.created_at == created_at)
     ).all()
 
