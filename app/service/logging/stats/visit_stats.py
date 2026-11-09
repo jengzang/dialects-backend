@@ -3,6 +3,8 @@ Visit statistics business logic.
 """
 
 from datetime import timedelta
+from threading import Lock
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -10,6 +12,32 @@ from starlette.concurrency import run_in_threadpool
 from app.common.path import LOGS_DATABASE_PATH
 from app.common.time_utils import today_shanghai, to_shanghai_iso
 from app.sql.db_pool import get_db_pool
+
+
+_VISIT_COUNT_CACHE_TTL_SECONDS = 60
+_visit_count_cache: Dict[str, tuple[float, int]] = {}
+_visit_count_cache_lock = Lock()
+
+
+def _get_cached_visit_count(key: str, loader) -> int:
+    """Cache a small visit count and serialize refreshes for each process."""
+    now = monotonic()
+    with _visit_count_cache_lock:
+        expired_keys = [
+            cache_key
+            for cache_key, (expires_at, _) in _visit_count_cache.items()
+            if expires_at <= now
+        ]
+        for cache_key in expired_keys:
+            _visit_count_cache.pop(cache_key, None)
+
+        cached = _visit_count_cache.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+
+        value = loader()
+        _visit_count_cache[key] = (monotonic() + _VISIT_COUNT_CACHE_TTL_SECONDS, value)
+        return value
 
 
 def _sync_total_visits() -> int:
@@ -35,12 +63,17 @@ def _sync_today_visits() -> int:
 
 async def get_total_visits() -> int:
     """Get total visits."""
-    return await run_in_threadpool(_sync_total_visits)
+    return await run_in_threadpool(_get_cached_visit_count, "total", _sync_total_visits)
 
 
 async def get_today_visits() -> int:
     """Get today's visits using Asia/Shanghai day boundaries."""
-    return await run_in_threadpool(_sync_today_visits)
+    today_key = today_shanghai().isoformat()
+    return await run_in_threadpool(
+        _get_cached_visit_count,
+        f"today:{today_key}",
+        _sync_today_visits,
+    )
 
 
 def get_visit_history(
