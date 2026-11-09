@@ -93,16 +93,16 @@ def get_rankings(
 
 
 @router.get("/available-apis", response_model=AvailableApisResponse)
-def get_available_apis(exclude_static: bool = False, exclude_prefix: list[str] | None = Query(None), db: Session = Depends(get_db)):
+def get_available_apis(exclude_static: bool = False, exclude_prefix: list[str] | None = Query(None, max_length=20), db: Session = Depends(get_db)):
     """
     获取所有可用的API路径列表
 
     返回系统中所有有使用记录的API路径，供前端构建下拉菜单使用。
     """
-    apis = leaderboard_service.get_available_apis(db)
     # Query defaults are only resolved by FastAPI when called as an endpoint.
     try:
         prefixes = normalize_prefixes(exclude_prefix if isinstance(exclude_prefix, list) else None)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    apis = leaderboard_service.get_available_apis(db)
     return AvailableApisResponse(apis=[path for path in apis if not (exclude_static and is_static_path(path)) and not is_excluded_path(path, prefixes)])

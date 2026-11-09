@@ -36,7 +36,7 @@ async def get_hourly_trend_route(
 
 
 @router.get("/daily")
-async def get_daily_trend_route(
+def get_daily_trend_route(
     days: int = Query(30, ge=1, le=1000),
     path: Optional[str] = None,
     exclude_static: bool = False,
@@ -54,7 +54,7 @@ async def get_daily_trend_route(
 
 
 @router.get("/ranking")
-async def get_api_ranking_route(
+def get_api_ranking_route(
     date: Optional[str] = None,
     days: Optional[int] = Query(None, ge=1, le=1000),
     limit: int = Query(10, ge=1, le=500),
@@ -83,7 +83,7 @@ async def get_api_ranking_route(
 
 
 @router.get("/api-history")
-async def get_api_history_route(
+def get_api_history_route(
     path: str,
     days: int = Query(30, ge=1, le=1000),
     exclude_static: bool = False,

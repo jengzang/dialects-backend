@@ -141,3 +141,15 @@ def test_empty_prefix_http_is_equivalent_to_omission(monkeypatch):
     app.include_router(router)
     client = TestClient(app)
     assert client.get('/ranking?exclude_prefix=').json() == client.get('/ranking').json()
+
+
+def test_available_apis_validates_before_query(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from app.routes.admin.analytics import leaderboard
+    def unexpected_query(db):
+        raise AssertionError('database must not be queried for invalid prefixes')
+    monkeypatch.setattr(leaderboard.leaderboard_service, 'get_available_apis', unexpected_query)
+    with pytest.raises(HTTPException) as exc:
+        leaderboard.get_available_apis(exclude_prefix=['bad'], db=None)
+    assert exc.value.status_code == 422
