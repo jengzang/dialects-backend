@@ -72,3 +72,43 @@ def test_filter_excludes_spa_pages_but_preserves_api_routes(monkeypatch):
     assert stats.get_daily_trend(30, exclude_static=True)['summary']['total_calls'] == len(apis)
     assert {x['path'] for x in stats.get_api_ranking(limit=100, exclude_static=True)['ranking']} == set(apis)
     assert stats.get_api_history('/menu', exclude_static=True)['summary']['total_calls'] == 0
+
+
+def test_excluded_prefixes_apply_consistently_and_literally(monkeypatch):
+    conn = sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE api_usage_daily (date TEXT, path TEXT, call_count INTEGER)')
+    paths = ['/admin', '/admin/users', '/administrator', '/logs/test', '/api/auth/me', '/api/authors', '/a_b/item', '/axb/item', '/api/search']
+    conn.executemany('INSERT INTO api_usage_daily VALUES (?, ?, 1)', [('2099-01-01', p) for p in paths])
+    monkeypatch.setattr(stats, 'get_db_pool', lambda _: Pool(conn))
+    prefixes = ['/admin/', '/logs', '/api/auth', '/a_b']
+    assert stats.get_daily_trend(30)['summary']['total_calls'] == len(paths)
+    assert stats.get_daily_trend(30, exclude_prefixes=prefixes)['summary']['total_calls'] == 4
+    ranking = stats.get_api_ranking(exclude_prefixes=prefixes)
+    assert ranking['total_calls'] == 4
+    assert {item['path'] for item in ranking['ranking']} == {'/administrator', '/api/authors', '/axb/item', '/api/search'}
+    assert stats.get_api_history('/admin/users', exclude_prefixes=prefixes)['summary']['total_calls'] == 0
+    assert stats.get_api_history('/administrator', exclude_prefixes=prefixes)['summary']['total_calls'] == 1
+
+
+def test_available_apis_excludes_prefixes(monkeypatch):
+    from app.routes.admin.analytics import leaderboard
+    monkeypatch.setattr(leaderboard.leaderboard_service, 'get_available_apis', lambda db: ['/admin/a', '/administrator', '/api/auth/me'])
+    assert leaderboard.get_available_apis(exclude_prefix=['/admin', '/api/auth'], db=None).apis == ['/administrator']
+
+
+def test_repeated_query_parameters_and_validation(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.routes.logging.hourly_daily import router
+    conn = sqlite3.connect(':memory:', check_same_thread=False)
+    conn.execute('CREATE TABLE api_usage_daily (date TEXT, path TEXT, call_count INTEGER)')
+    conn.executemany('INSERT INTO api_usage_daily VALUES (?, ?, 1)', [('2099-01-01', '/admin/a'), ('2099-01-01', '/logs/a'), ('2099-01-01', '/administrator')])
+    monkeypatch.setattr(stats, 'get_db_pool', lambda _: Pool(conn))
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    result = client.get('/ranking', params=[('exclude_prefix', '/admin'), ('exclude_prefix', '/logs')])
+    assert result.status_code == 200
+    assert result.json()['total_calls'] == 1
+    assert client.get('/daily', params={'exclude_prefix': 'invalid'}).status_code == 422
+    assert client.get('/ranking', params=[('exclude_prefix', f'/x{i}') for i in range(21)]).status_code == 422

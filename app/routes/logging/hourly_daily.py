@@ -4,13 +4,21 @@
 提供小时级、每日级的 API 调用统计数据查询接口
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
+from app.service.logging.stats.path_prefixes import normalize_prefixes
 from typing import Optional
 
 from app.service.logging.stats import hourly_daily_stats
 
 
 router = APIRouter()
+
+
+def parse_excluded_prefixes(exclude_prefix: list[str] | None = Query(None, max_length=20)) -> list[str]:
+    try:
+        return normalize_prefixes(exclude_prefix)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/hourly")
@@ -31,7 +39,8 @@ async def get_hourly_trend_route(
 async def get_daily_trend_route(
     days: int = Query(30, ge=1, le=1000),
     path: Optional[str] = None,
-    exclude_static: bool = False
+    exclude_static: bool = False,
+    exclude_prefixes: list[str] = Depends(parse_excluded_prefixes)
 ):
     """
     获取每日调用趋势
@@ -40,7 +49,7 @@ async def get_daily_trend_route(
         days: 最近N天，默认30天，最多365天
         path: 指定API路径（可选），不指定则返回所有API的总和
     """
-    result = hourly_daily_stats.get_daily_trend(days=days, path=path, exclude_static=exclude_static)
+    result = hourly_daily_stats.get_daily_trend(days=days, path=path, exclude_static=exclude_static, exclude_prefixes=exclude_prefixes)
     return result
 
 
@@ -49,7 +58,8 @@ async def get_api_ranking_route(
     date: Optional[str] = None,
     days: Optional[int] = Query(None, ge=1, le=1000),
     limit: int = Query(10, ge=1, le=500),
-    exclude_static: bool = False
+    exclude_static: bool = False,
+    exclude_prefixes: list[str] = Depends(parse_excluded_prefixes)
 ):
     """
     获取 API 排行榜
@@ -64,7 +74,8 @@ async def get_api_ranking_route(
             date=date,
             days=days,
             limit=limit,
-            exclude_static=exclude_static
+            exclude_static=exclude_static,
+            exclude_prefixes=exclude_prefixes
         )
         return result
     except ValueError as e:
@@ -75,7 +86,8 @@ async def get_api_ranking_route(
 async def get_api_history_route(
     path: str,
     days: int = Query(30, ge=1, le=1000),
-    exclude_static: bool = False
+    exclude_static: bool = False,
+    exclude_prefixes: list[str] = Depends(parse_excluded_prefixes)
 ):
     """
     获取指定 API 的历史趋势
@@ -84,5 +96,5 @@ async def get_api_history_route(
         path: API路径（必填）
         days: 最近N天，默认30天，最多365天
     """
-    result = hourly_daily_stats.get_api_history(path=path, days=days, exclude_static=exclude_static)
+    result = hourly_daily_stats.get_api_history(path=path, days=days, exclude_static=exclude_static, exclude_prefixes=exclude_prefixes)
     return result
