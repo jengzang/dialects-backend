@@ -4,6 +4,8 @@
 def normalize_prefixes(prefixes):
     result = []
     for prefix in prefixes or ():
+        if prefix == '':
+            continue
         if not prefix.startswith('/') or prefix.strip() != prefix or len(prefix) > 255:
             raise ValueError('exclude_prefix must be an absolute path of at most 255 characters')
         normalized = prefix.rstrip('/') or '/'

@@ -112,3 +112,32 @@ def test_repeated_query_parameters_and_validation(monkeypatch):
     assert result.json()['total_calls'] == 1
     assert client.get('/daily', params={'exclude_prefix': 'invalid'}).status_code == 422
     assert client.get('/ranking', params=[('exclude_prefix', f'/x{i}') for i in range(21)]).status_code == 422
+
+
+def test_scan_and_file_patterns_are_filtered_consistently(monkeypatch):
+    from app.service.logging.stats.static_paths import is_static_path
+    unwanted = ['/.env', '/api/.env.production', '/.git/config', '/admin/.git/HEAD', '/wp-admin/js/', '/app/wp-content/a', '/phpMyAdmin/', '/sql/actuator/env', '/cgi-bin/luci', '/backup.tar.gz', '/index.html', '/config.yaml']
+    valid = ['/api/search', '/api/auth/me', '/api/environment', '/api/actuators', '/api/git/status']
+    conn = sqlite3.connect(':memory:')
+    conn.execute('CREATE TABLE api_usage_daily (date TEXT, path TEXT, call_count INTEGER)')
+    conn.executemany('INSERT INTO api_usage_daily VALUES (?, ?, 1)', [('2099-01-01', p) for p in unwanted + valid])
+    monkeypatch.setattr(stats, 'get_db_pool', lambda _: Pool(conn))
+    assert all(is_static_path(p) for p in unwanted)
+    assert not any(is_static_path(p) for p in valid)
+    assert stats.get_api_ranking(exclude_static=True)['total_calls'] == len(valid)
+    assert stats.get_daily_trend(30, exclude_static=True)['summary']['total_calls'] == len(valid)
+    assert stats.get_daily_trend(30, exclude_prefixes=[''])['summary']['total_calls'] == len(unwanted + valid)
+
+
+def test_empty_prefix_http_is_equivalent_to_omission(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.routes.logging.hourly_daily import router
+    conn = sqlite3.connect(':memory:', check_same_thread=False)
+    conn.execute('CREATE TABLE api_usage_daily (date TEXT, path TEXT, call_count INTEGER)')
+    conn.execute("INSERT INTO api_usage_daily VALUES ('2099-01-01', '/admin/users', 5)")
+    monkeypatch.setattr(stats, 'get_db_pool', lambda _: Pool(conn))
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    assert client.get('/ranking?exclude_prefix=').json() == client.get('/ranking').json()
