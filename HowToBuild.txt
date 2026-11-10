@@ -17,17 +17,39 @@ ls -lah --full-time /srv/  # 人类可读大小 + 秒级时间（默认是 mtime
 # 在服务器加载镜像
 docker load -i /srv/myapp.tar
 
+# QQ 邮箱找回密码：首次在服务器执行一次，后续更新镜像会继续使用此配置文件
+# 新依赖 dkimpy 会在 docker build 时随 requirements.txt 自动安装
+# 授权码在提示时输入，不会显示，也不要填写到本文件或提交到 Git
+mkdir -p /srv/myapp
+if [ ! -f /srv/myapp/password-reset.env ]; then
+  (
+    umask 077
+    read -r -s -p "请输入 QQ 邮箱 IMAP 授权码：" reset_imap_password
+    printf '\n'
+    if [ -z "$reset_imap_password" ]; then
+      printf '授权码不能为空，请重新执行配置步骤。\n' >&2
+      exit 1
+    fi
+    printf 'PASSWORD_RESET_ENABLED=true\nPASSWORD_RESET_IMAP_PASSWORD=%s\n' "$reset_imap_password" > /srv/myapp/password-reset.env
+  )
+fi
+chmod 600 /srv/myapp/password-reset.env
+# 确认以上步骤成功后再删除旧容器；不要把此配置文件放进 data 目录，避免替换 data 时丢失
+# 更换授权码时，编辑 /srv/myapp/password-reset.env，再重新创建容器
+
 # 先删旧容器
 docker rm -f myapp
 
 # 运行容器（把宿主机 /srv/myapp/data 挂到容器 /app/data）
 docker run -d --name myapp -p 80:5000 \
+  --env-file /srv/myapp/password-reset.env \
   -v /srv/myapp/data:/app/data \
   -v /srv/myapp/logs:/app/logs \
   myapp:latest
 # 用ngix（推荐：添加了 statics volume 挂载）
 docker run -d --name myapp \
   --network host \
+  --env-file /srv/myapp/password-reset.env \
   -e FORWARDED_ALLOW_IPS="*" \
   -v /srv/myapp/data:/app/data \
   -v /srv/myapp/logs:/app/logs \
@@ -40,6 +62,7 @@ docker run -d --name myapp \
   myapp:latest
 
 #如果是本地先测试
+# 以下本地命令默认不开启自动找回；需要测试时添加 --env-file，指向本地单独保存的配置文件
 docker run -d --name myapp -p 8080:5000 `
   -v "C:\Users\joengzaang\myfiles\server\fastapi\data:/app/data" `
   myapp:latest
@@ -47,6 +70,14 @@ docker run -d --name myapp -p 8080:5000 `
 # 查看状态/日志
 docker ps
 docker logs -f myapp
+
+# 检查新依赖和邮箱配置（不会输出授权码；这一步不代表已经连接邮箱）
+docker exec myapp python -c "import os, importlib.metadata; print('dkimpy:', importlib.metadata.version('dkimpy')); print('PASSWORD_RESET_ENABLED:', os.getenv('PASSWORD_RESET_ENABLED', 'false')); print('IMAP credential configured:', bool(os.getenv('PASSWORD_RESET_IMAP_PASSWORD')))"
+# 开启后由现有后台调度器每 30 秒检查一次 2639548777@qq.com，服务器需能访问 imap.qq.com:993 和 DNS
+# 无需自动转发、开放入站 25 端口或手动建表；前端也要发布新版本才能显示找回入口
+# 用户在网页填写登记邮箱、新密码和确认密码，再从登记邮箱发邮件；不会重置为统一默认密码
+# 邮件主题：RESET-REQUEST；正文单独一行：RESET-REQUEST: <网页生成的申请编号>；不要在邮件中填写密码
+# 申请 30 分钟有效，验签通过后新密码才生效；失败可联系 QQ：2639548777 申诉
 
 # 传data
 scp C:\Users\joengzaang\myfiles\server\fastapi\data.tar.gz root@47.115.57.138:/srv/myapp/
