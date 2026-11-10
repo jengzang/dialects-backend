@@ -110,3 +110,49 @@ def test_rate_limits_before_expensive_hashing(db):
 def test_password_rejects_weak_or_bcrypt_truncated_values(db, password):
     with pytest.raises(ValueError):
         create_request(db, 'owner@qq.com', password, '127.0.0.1')
+
+
+def test_concurrent_delivery_only_changes_password_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    engine = create_engine('sqlite:///' + str(tmp_path / 'concurrent.db'))
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as db:
+        user = account(db)
+        request = create_request(db, user.email, 'replacement-secret', '127.0.0.1')
+    def deliver(_):
+        with factory() as db:
+            return apply_request(db, request['request_id'], 'owner@qq.com')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(deliver, range(2))) == 1
+    engine.dispose()
+
+
+def test_failed_session_revocation_rolls_back_password_and_consumption(db):
+    from sqlalchemy import event
+    from app.service.auth.database.models import PasswordResetRequest
+    user = account(db)
+    request = create_request(db, user.email, 'replacement-secret', '127.0.0.1')
+    def fail_revocation(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith('UPDATE sessions'):
+            raise RuntimeError('simulated revocation failure')
+    event.listen(db.bind, 'before_cursor_execute', fail_revocation)
+    try:
+        with pytest.raises(RuntimeError):
+            apply_request(db, request['request_id'], 'owner@qq.com')
+    finally:
+        event.remove(db.bind, 'before_cursor_execute', fail_revocation)
+    db.refresh(user)
+    assert verify_password('original-secret', user.hashed_password)
+    assert db.query(PasswordResetRequest).one().consumed_at is None
+
+
+def test_reset_requests_do_not_block_existing_account_deletion(db):
+    from sqlalchemy import text
+    from app.service.auth.database.models import PasswordResetRequest
+    db.execute(text('PRAGMA foreign_keys=ON'))
+    user = account(db)
+    create_request(db, user.email, 'replacement-secret', '127.0.0.1')
+    db.delete(user)
+    db.commit()
+    assert db.query(PasswordResetRequest).count() == 0

@@ -66,3 +66,9 @@ def test_dns_timeout_can_be_retried(signing_key):
         raise dkim.DnsTimeoutError('temporary DNS failure')
     with pytest.raises(MailVerificationTemporaryError):
         authenticated_request(mail(signing_key), dnsfunc=unavailable)
+
+
+def test_malformed_signature_cannot_poison_the_mailbox(signing_key):
+    raw = mail(signing_key)
+    unsigned = raw[raw.index(b'From:'):]
+    assert authenticated_request(b'DKIM-Signature: bad-signature\r\n' + unsigned) is None

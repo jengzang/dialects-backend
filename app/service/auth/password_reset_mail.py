@@ -6,7 +6,7 @@ from email.parser import BytesParser
 import dkim
 import dns.exception
 import dns.resolver
-from dkim.util import parse_tag_value
+from dkim.util import InvalidTagValueList, parse_tag_value
 
 MAX_MAIL_BYTES = 256 * 1024
 TOKEN_LINE = re.compile(r'^RESET-REQUEST:[ \t]*([A-Za-z0-9_-]{43})[ \t]*\r?$', re.MULTILINE)
@@ -62,6 +62,6 @@ def authenticated_request(raw, *, dnsfunc=None):
                     raise MailVerificationTemporaryError('Mail signature DNS temporarily unavailable') from exc
             if verifier.verify(idx=index, dnsfunc=lookup):
                 return sender, tokens[0]
-    except (ValueError, TypeError, UnicodeError, LookupError, dkim.DKIMException):
+    except (ValueError, TypeError, UnicodeError, LookupError, InvalidTagValueList, dkim.DKIMException):
         return None
     return None

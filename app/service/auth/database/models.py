@@ -9,7 +9,7 @@ class PasswordResetRequest(Base):
     __tablename__ = 'password_reset_requests'
 
     token_hash = Column(String(64), primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
     email = Column(String(100), nullable=False, index=True)
     ip = Column(String(45), nullable=False, index=True)
     password_hash = Column(String(255), nullable=True)

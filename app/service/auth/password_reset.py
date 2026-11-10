@@ -60,6 +60,7 @@ def create_request(db, email, password, ip, *, now=None):
         db.query(PasswordResetRequest).filter(
             PasswordResetRequest.token_hash == digest(token),
             PasswordResetRequest.user_id.isnot(None),
+            PasswordResetRequest.consumed_at.is_(None),
         ).update({'password_hash': password_hash}, synchronize_session=False)
         db.commit()
     except Exception:

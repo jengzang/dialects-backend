@@ -164,6 +164,17 @@ def aggregate_keyword_statistics() -> None:
 
 def start_scheduler() -> None:
     """Start background scheduled jobs."""
+    from app.service.auth.password_reset import mailbox_enabled
+
+    if mailbox_enabled():
+        from app.service.auth.password_reset_mailbox import poll_configured_mailbox
+
+        scheduler.add_job(
+            poll_configured_mailbox, 'interval', seconds=30,
+            id='password_reset_mailbox', max_instances=1, coalesce=True,
+            replace_existing=True,
+        )
+
     scheduler.add_job(
         cleanup_old_logs,
         CronTrigger(day_of_week="sun", hour=3, minute=0),
