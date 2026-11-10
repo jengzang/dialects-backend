@@ -26,10 +26,24 @@ from app.schemas import auth as schemas
 from app.service.auth.core import service
 from app.service.auth.database.connection import get_db
 from app.common.auth_config import REQUIRE_EMAIL_VERIFICATION
+from app.schemas.auth.user import PasswordResetCreate
+from app.service.auth.password_reset import create_request, mailbox_enabled, ResetRateLimit
 
 router = APIRouter()
 # Swagger 的 "Authorize" 按钮会用到这个 tokenUrl
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+@router.post('/password-reset/requests', status_code=202)
+def request_password_reset(body: PasswordResetCreate, request: Request, db: Session = Depends(get_db)):
+    if not mailbox_enabled():
+        raise HTTPException(status_code=503, detail={'code': 'password_reset_unavailable'})
+    try:
+        return create_request(db, str(body.email), body.new_password, utils.extract_client_ip(request))
+    except ResetRateLimit as exc:
+        raise HTTPException(status_code=429, detail={'code': 'password_reset_rate_limited'}, headers={'Retry-After': '600'}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={'code': 'password_reset_invalid_password'}) from exc
 
 
 def _load_active_user_from_token(

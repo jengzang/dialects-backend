@@ -3,6 +3,30 @@ from sqlalchemy.orm import relationship
 
 from sqlalchemy.orm import declarative_base
 Base = declarative_base()
+
+
+class PasswordResetRequest(Base):
+    __tablename__ = 'password_reset_requests'
+
+    token_hash = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    email = Column(String(100), nullable=False, index=True)
+    ip = Column(String(45), nullable=False, index=True)
+    password_hash = Column(String(255), nullable=True)
+    credential_digest = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    consumed_at = Column(DateTime, nullable=True)
+
+
+class PasswordResetMailbox(Base):
+    __tablename__ = 'password_reset_mailbox'
+
+    account = Column(String(100), primary_key=True)
+    uidvalidity = Column(String(32), nullable=False)
+    last_uid = Column(Integer, nullable=False, default=0)
+
+
 class User(Base):
     __tablename__ = "users"
 
