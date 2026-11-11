@@ -23,72 +23,25 @@ def get_max_value(value: str):
         return re.split('[,/]', value_outside)[0]
     return value
 def handle_form_submission(form_data: dict, user: User, db: Session):
-    # 取得表單資料
-    location = form_data.get('location')
-    region = form_data.get('region')
-    coordinates = form_data.get('coordinates')
-    phonology = form_data.get('phonology')
-    feature = form_data.get('feature')
-    value = form_data.get('value')
-    description = form_data.get('description', None)
+    from fastapi import HTTPException
+    from app.service.user.submission.mutations import check_create_quota, write_transaction
 
-    if not location or not region or not coordinates or not phonology or not feature or not value:
-        return {"success": False, "message": "[!] 所有字段（除說明）必須填寫！"}
-
-
-    max_value = get_max_value(value)
-
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-    # 用戶限制（非管理員）
-    if not user.role:
-        count_last_hour = db.query(Information).filter(
-            Information.user_id == user.id,
-            Information.created_at >= one_hour_ago
-        ).count()
-
-        total_count = db.query(Information).filter(
-            Information.user_id == user.id
-        ).count()
-
-        if count_last_hour >= 500:
-            return {"success": False, "message": "💥 每小時最多提交 500 份資料"}
-        if total_count >= 5000:
-            return {"success": False, "message": "🚫 最多只能提交 5000 份資料"}
-
-    # 寫入資料
-    info = Information(
-        簡稱=location,
-        音典分區=region,
-        經緯度=coordinates,
-        聲韻調=phonology,
-        特徵=feature,
-        值=value,
-        說明=description,
-        存儲標記=1,
-        maxValue=max_value,
-        user_id=user.id,
-        username=user.username,
-        created_at=datetime.utcnow()
-    )
-
-    db.add(info)
-    db.commit()
-
-    # [OK] 再次查詢用戶目前的總提交數
-    total_submitted = db.query(Information).filter(
-        Information.user_id == user.id
-    ).count()
-    submitted_this_hour = db.query(Information).filter(
-        Information.user_id == user.id,
-        Information.created_at >= one_hour_ago
-    ).count()
-
-    return {
-        "success": True,
-        "message": (
-            f"[DONE] 這是你提交的第 {total_submitted} 份數據！\n"
-            f"[SAVE] 本小時已提交 {submitted_this_hour} 份數據。"
-        )
+    if user is None:
+        raise HTTPException(401, detail="请先登录")
+    fields = {
+        '簡稱': form_data.get('location'), '音典分區': form_data.get('region'),
+        '經緯度': form_data.get('coordinates'), '聲韻調': form_data.get('phonology'),
+        '特徵': form_data.get('feature'), '值': form_data.get('value'),
+        '說明': form_data.get('description'),
     }
-
-
+    if not all(isinstance(fields[key], str) and fields[key].strip() for key in fields if key != '說明'):
+        return {"success": False, "message": "所有字段（除说明）必须填写"}
+    with write_transaction(lambda: db):
+        check_create_quota(db, user, 1)
+        db.add(Information(**fields, user_id=user.id, username=user.username,
+                           存儲標記=1, maxValue=get_max_value(fields['值']), created_at=datetime.utcnow()))
+        db.flush()
+        total = db.query(Information).filter(Information.user_id == user.id).count()
+        recent = db.query(Information).filter(Information.user_id == user.id,
+                    Information.created_at >= datetime.utcnow() - timedelta(hours=1)).count()
+    return {"success": True, "message": f"提交成功，目前共有 {total} 份数据，本小时已提交 {recent} 份"}

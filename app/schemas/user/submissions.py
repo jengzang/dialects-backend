@@ -9,7 +9,7 @@
 
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class FormData(BaseModel):
@@ -121,6 +121,22 @@ class CustomFeatureGroupListResponse(BaseModel):
 
 
 class CustomDataRecord(BaseModel):
+    id: int = Field(gt=0)
+    version: int = Field(gt=0)
+    created_at_utc: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def add_utc_timestamp(cls, value):
+        from app.common.time_utils import assume_utc
+        if isinstance(value, dict):
+            result = dict(value)
+        else:
+            result = {name: getattr(value, name) for name in cls.model_fields if hasattr(value, name)}
+        created = result.get("created_at")
+        if created is not None:
+            result["created_at_utc"] = assume_utc(created).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        return result
     簡稱: str
     音典分區: str
     經緯度: str

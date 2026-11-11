@@ -1,6 +1,7 @@
 """
 Helper functions for job management.
 """
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from fastapi import HTTPException
 
@@ -70,8 +71,6 @@ def update_job_status(task_manager, task_id: str, job_id: str, **updates):
     Raises:
         Exception: If task or job not found
     """
-    from datetime import datetime
-
     task = task_manager.get_task(task_id)
     if not task:
         raise Exception(f"Task not found: {task_id}")
@@ -82,7 +81,7 @@ def update_job_status(task_manager, task_id: str, job_id: str, **updates):
         if job['job_id'] == job_id:
             for key, value in updates.items():
                 job[key] = value
-            job['updated_at'] = datetime.now().isoformat()
+            job['updated_at'] = datetime.now(timezone.utc).isoformat()
             job_found = True
             break
 

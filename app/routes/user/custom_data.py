@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -8,7 +7,6 @@ from app.service.auth.core.dependencies import get_current_user
 from app.service.auth.database.models import User
 from app.service.user.core.database import SessionLocal as SessionLocal_info
 from app.service.user.core.models import Information, UserRegion
-from app.service.user.submission.submit import get_max_value
 from app.service.user.submission.get_custom import _expand_phonology_list
 from app.schemas.admin.submissions import InformationBase
 
@@ -24,7 +22,11 @@ from app.schemas.user import (
     CustomDataAllResponse,
 )
 
-router = APIRouter()
+from app.routes.user.custom_mutation_limits import LimitedMutationRoute
+from app.schemas.user.custom_mutations import BatchUpdateRequest, BatchDeleteByIdRequest, SaveCustomDataRequest
+from app.service.user.submission import mutations, legacy_mutations
+
+router = APIRouter(route_class=LimitedMutationRoute)
 
 
 def _require_current_user(current_user: Optional[User]) -> User:
@@ -257,182 +259,30 @@ async def get_custom_data_by_feature(
 
 
 @router.post("/batch-create")
-async def batch_create_custom_data(
-    infos: List[InformationBase],
-    current_user: Optional[User] = Depends(get_current_user)
-):
-    """批量創建 custom 數據"""
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="請先登錄")
-
-    session_info = SessionLocal_info()
-
-    try:
-        if len(infos) > 50:
-            raise HTTPException(
-                status_code=400,
-                detail=f"❌ 單次批量提交最多 50 條數據（當前提交 {len(infos)} 條）"
-            )
-
-        if current_user.role != "admin":
-            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-
-            count_last_hour = session_info.query(Information).filter(
-                Information.user_id == current_user.id,
-                Information.created_at >= one_hour_ago
-            ).count()
-
-            if count_last_hour + len(infos) > 500:
-                remaining = 500 - count_last_hour
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"💥 每小時最多提交 500 份資料（本小時已提交 {count_last_hour} 份，還可提交 {remaining} 份）"
-                )
-
-            total_count = session_info.query(Information).filter(
-                Information.user_id == current_user.id
-            ).count()
-
-            if total_count + len(infos) > 5000:
-                remaining = 5000 - total_count
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"🚫 最多只能提交 5000 份資料（已提交 {total_count} 份，還可提交 {remaining} 份）"
-                )
-
-        created_records = []
-        base_time = datetime.utcnow()
-
-        for i, info in enumerate(infos):
-            if not all([info.簡稱, info.音典分區, info.經緯度, info.特徵, info.值]):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"第 {i+1} 條記錄缺少必填字段"
-                )
-
-            record = Information(
-                user_id=current_user.id,
-                username=current_user.username,
-                簡稱=info.簡稱,
-                音典分區=info.音典分區,
-                經緯度=info.經緯度,
-                聲韻調=info.聲韻調,
-                特徵=info.特徵,
-                值=info.值,
-                說明=info.說明,
-                created_at=base_time + timedelta(milliseconds=i*50),
-                maxValue=get_max_value(info.值)
-            )
-            session_info.add(record)
-            created_records.append(record)
-
-        session_info.commit()
-
-        return {
-            "message": f"成功創建 {len(created_records)} 條記錄",
-            "data": created_records
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        session_info.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-    finally:
-        session_info.close()
+def batch_create_custom_data(infos: List[InformationBase], current_user: Optional[User] = Depends(get_current_user)):
+    return legacy_mutations.create_legacy(_require_current_user(current_user), infos, SessionLocal_info)
 
 
 @router.put("/edit")
-async def edit_custom_data(
-    edit_request: CustomDataEdit,
-    current_user: Optional[User] = Depends(get_current_user)
-):
-    """編輯已有的 custom 數據"""
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="請先登錄")
-
-    session_info = SessionLocal_info()
-
-    try:
-        record = session_info.query(Information).filter(
-            Information.user_id == current_user.id,
-            Information.created_at == edit_request.created_at
-        ).first()
-
-        if not record:
-            raise HTTPException(
-                status_code=404,
-                detail="記錄不存在或無權訪問"
-            )
-
-        if edit_request.簡稱 is not None:
-            record.簡稱 = edit_request.簡稱
-        if edit_request.音典分區 is not None:
-            record.音典分區 = edit_request.音典分區
-        if edit_request.經緯度 is not None:
-            record.經緯度 = edit_request.經緯度
-        if edit_request.聲韻調 is not None:
-            record.聲韻調 = edit_request.聲韻調
-        if edit_request.特徵 is not None:
-            record.特徵 = edit_request.特徵
-        if edit_request.值 is not None:
-            record.值 = edit_request.值
-            record.maxValue = get_max_value(edit_request.值)
-        if edit_request.說明 is not None:
-            record.說明 = edit_request.說明
-
-        session_info.commit()
-        session_info.refresh(record)
-
-        return {
-            "message": "更新成功",
-            "data": record
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        session_info.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-    finally:
-        session_info.close()
+def edit_custom_data(edit_request: CustomDataEdit, current_user: Optional[User] = Depends(get_current_user)):
+    return legacy_mutations.edit_legacy(_require_current_user(current_user), edit_request, SessionLocal_info)
 
 
 @router.delete("/batch-delete")
-async def batch_delete_custom_data(
-    delete_request: BatchDeleteRequest,
-    current_user: Optional[User] = Depends(get_current_user)
-):
-    """批量刪除 custom 數據"""
-    if current_user is None:
-        raise HTTPException(status_code=401, detail="請先登錄")
+def batch_delete_custom_data(delete_request: BatchDeleteRequest, current_user: Optional[User] = Depends(get_current_user)):
+    return legacy_mutations.delete_legacy(_require_current_user(current_user), delete_request.created_at_list, SessionLocal_info)
 
-    session_info = SessionLocal_info()
 
-    try:
-        deleted_records = session_info.query(Information).filter(
-            Information.user_id == current_user.id,
-            Information.created_at.in_(delete_request.created_at_list)
-        ).all()
+@router.put("/batch-update")
+def batch_update_custom_data(request: BatchUpdateRequest, current_user: Optional[User] = Depends(get_current_user)):
+    return mutations.batch_update(_require_current_user(current_user), request, SessionLocal_info)
 
-        if not deleted_records:
-            raise HTTPException(
-                status_code=404,
-                detail="沒有找到匹配的記錄"
-            )
 
-        for record in deleted_records:
-            session_info.delete(record)
+@router.delete("/batch-delete-by-id")
+def batch_delete_custom_data_by_id(request: BatchDeleteByIdRequest, current_user: Optional[User] = Depends(get_current_user)):
+    return mutations.batch_delete_by_id(_require_current_user(current_user), request, SessionLocal_info)
 
-        session_info.commit()
 
-        return {
-            "message": f"成功刪除 {len(deleted_records)} 條記錄",
-            "deleted_count": len(deleted_records),
-            "deleted_records": deleted_records
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        session_info.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-    finally:
-        session_info.close()
+@router.post("/save")
+def save_custom_data(request: SaveCustomDataRequest, current_user: Optional[User] = Depends(get_current_user)):
+    return mutations.save_custom_data(_require_current_user(current_user), request, SessionLocal_info)

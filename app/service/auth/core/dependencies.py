@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -88,7 +88,7 @@ def _build_rate_limit_detail(
 ) -> dict:
     reset_at = None
     if retry_after_seconds is not None:
-        reset_at = _format_reset_at(int(datetime.utcnow().timestamp()) + retry_after_seconds)
+        reset_at = _format_reset_at(int(datetime.now(timezone.utc).timestamp()) + retry_after_seconds)
 
     return {
         "code": "rate_limit_exceeded",

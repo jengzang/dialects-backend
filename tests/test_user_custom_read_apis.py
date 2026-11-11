@@ -267,6 +267,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
     def test_get_from_submission_keeps_direct_custom_locations_when_mixed_with_standard_locations(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         record = SimpleNamespace(
+            id=101, version=2,
             簡稱="test1",
             聲韻調="韻母",
             特徵="流攝",
@@ -296,10 +297,14 @@ class CustomDataReadServiceTests(unittest.TestCase):
         self.assertEqual(result[0]["簡稱"], "test1")
         self.assertEqual(result[0]["特徵"], "流攝")
         self.assertEqual(result[0]["經緯度"], [111.1, 22.2])
+        self.assertEqual(result[0]["id"], 101)
+        self.assertEqual(result[0]["version"], 2)
+        self.assertTrue(result[0]["created_at_utc"].endswith("Z"))
 
     def test_get_from_submission_splits_space_joined_locations_and_keeps_custom_hits(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         record = SimpleNamespace(
+            id=101, version=2,
             簡稱="茶山增埗",
             聲韻調="韻母",
             特徵="流",
@@ -332,6 +337,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
     def test_get_from_submission_allows_featureless_phonology_filter_for_tone_payloads(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         tone_record = SimpleNamespace(
+            id=102, version=2,
             簡稱="茶山增埗",
             聲韻調="調值",
             特徵="陰平",
@@ -342,6 +348,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
             created_at=datetime(2026, 6, 1, 10, 0, 0),
         )
         non_tone_record = SimpleNamespace(
+            id=103, version=2,
             簡稱="茶山增埗",
             聲韻調="韻母",
             特徵="流",
@@ -376,6 +383,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
     def test_get_from_submission_filters_feature_and_phonology_together(self) -> None:
         user = SimpleNamespace(id=7, username="tester")
         char_record = SimpleNamespace(
+            id=104, version=2,
             簡稱="茶山增埗",
             聲韻調="漢字",
             特徵="笨",
@@ -386,6 +394,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
             created_at=datetime(2026, 6, 1, 10, 0, 0),
         )
         other_char_record = SimpleNamespace(
+            id=105, version=2,
             簡稱="茶山增埗",
             聲韻調="漢字",
             特徵="蛋",
@@ -511,6 +520,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
             created_at=datetime(2026, 6, 1, 10, 0, 0),
         )
         row.id = 1
+        row.version = 1
         fake_session = _FakeSession(_FakeRecordQuery([row]))
 
         with patch("app.routes.user.custom_data.SessionLocal_info", return_value=fake_session):
@@ -537,6 +547,7 @@ class CustomDataReadServiceTests(unittest.TestCase):
             created_at=datetime(2026, 6, 1, 10, 0, 0),
         )
         row.id = 2
+        row.version = 1
         fake_session = _FakeSession(_FakeRecordQuery([row]))
 
         with patch("app.routes.user.custom_data.SessionLocal_info", return_value=fake_session):

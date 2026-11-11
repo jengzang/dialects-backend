@@ -4,6 +4,8 @@
 
 功能介绍依据 Vue 前端中文教程整理；运行方式、配置和接口依据当前后端代码核对。界面交互与绘图由前端完成，后端负责查询、分析、认证、数据管理及工具任务。
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/jengzang/dialects-backend)
+
 - [API 参考与 Schema](api.md)
 - [完整 OpenAPI JSON](docs/openapi.json)
 - [专题文档索引](docs/README.md)

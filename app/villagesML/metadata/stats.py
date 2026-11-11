@@ -7,7 +7,7 @@ from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..dependencies import get_db_connection, get_dbpath, execute_query
 from ..schema_runtime import qcolumn, qtable, quote_identifier, resolve_db_path
@@ -19,6 +19,10 @@ from ..schema_config import DEFAULT_DATABASE_KEY
 from contextlib import nullcontext
 
 router = APIRouter(prefix="/metadata/stats")
+
+
+def _format_file_timestamp_utc(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
 
 
 def _table_exists(db: sqlite3.Connection, dbpath: str, logical_table: str) -> bool:
@@ -302,10 +306,9 @@ def _get_table_info_sync(dbpath: str, connection=None):
             # 获取最后修改时间（SQLite 没有直接的表修改时间，使用数据库文件时间）
             try:
                 import os
-                from datetime import datetime
                 if os.path.exists(db_file):
                     mtime = os.path.getmtime(db_file)
-                    last_modified = datetime.fromtimestamp(mtime).isoformat()
+                    last_modified = _format_file_timestamp_utc(mtime)
                 else:
                     last_modified = None
             except:

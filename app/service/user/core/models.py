@@ -9,8 +9,11 @@ Base = declarative_base()
 
 class Information(Base):
     __tablename__ = "informations"
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id = Column(Integer, primary_key=True)
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": version}
     簡稱 = Column(String, nullable=False, index=True)
     音典分區 = Column(String, nullable=False, index=True)
     經緯度 = Column(String, nullable=False)
@@ -80,4 +83,21 @@ class UserSuggestion(Base):
         Index("idx_user_suggestions_status", "status"),
         Index("idx_user_suggestions_category", "category"),
         Index("idx_user_suggestions_created_at", "created_at"),
+    )
+
+
+class CustomMutationReceipt(Base):
+    """Only a normalized digest and bounded result; never stores input content."""
+    __tablename__ = "custom_mutation_receipts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    request_id = Column(String(36), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    result_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=now_utc_naive)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "request_id", name="uq_custom_receipt_user_request"),
+        Index("idx_custom_receipt_created_at", "created_at"),
     )

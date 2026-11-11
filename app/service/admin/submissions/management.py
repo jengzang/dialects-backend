@@ -113,70 +113,29 @@ def get_custom_by_username(
     return user_data
 
 
-def delete_custom_by_admin(
-    db_info: DBSession,
-    db_user: DBSession,
-    requests: List[Dict[str, Any]],
-    current_user: User
-) -> Dict[str, Any]:
-    """
-    管理员删除custom数据
-
-    Args:
-        db_info: Information数据库会话
-        db_user: User数据库会话
-        requests: 删除请求列表，每个包含username和created_at
-        current_user: 当前管理员用户
-
-    Returns:
-        结果字典
-    """
-    deleted_records = []
-
+def delete_custom_by_admin(db_info, db_user, requests, current_user):
+    """Legacy timestamps must resolve uniquely; validate every target before deleting."""
+    if not requests or len(requests) > 50:
+        return {"success": False, "error": "单次删除必须为 1 至 50 条"}
+    records = []
+    seen = set()
     for request in requests:
         username = request.get("username")
-        created_at = request.get("created_at")
-
-        # 查找用户
         user = db_user.query(User).filter(User.username == username).first()
-        if not user:
-            return {
-                "success": False,
-                "error": f"用戶 {username} 未找到"
-            }
-
-        # 权限检查：管理员不能删除其他管理员的数据
-        if user.role == "admin":
-            if user.username != current_user.username:
-                return {
-                    "success": False,
-                    "error": "不能刪除管理員的數據！"
-                }
-
-        # 查找并删除符合条件的记录
-        user_data = db_info.query(Information).filter(
+        if not user or (user.role == "admin" and user.username != current_user.username):
+            return {"success": False, "error": "用户不存在或无权删除"}
+        matches = db_info.query(Information).filter(
             Information.user_id == user.id,
-            Information.created_at == created_at
-        ).all()
-
-        if not user_data:
-            return {
-                "success": False,
-                "error": f"未找到符合条件的数据: 用户名 {username}, 创建时间 {created_at}"
-            }
-
-        # 删除匹配到的所有数据
-        for data in user_data:
-            db_info.delete(data)
-            deleted_records.append(data)
-
-    # 提交事务
+            Information.created_at == request.get("created_at"),
+        ).limit(2).all()
+        if len(matches) != 1 or matches[0].id in seen:
+            return {"success": False, "error": "记录不存在、重复或创建时间不唯一，请使用 ID 删除"}
+        records.append(matches[0])
+        seen.add(matches[0].id)
+    for row in records:
+        db_info.delete(row)
     db_info.commit()
-
-    return {
-        "success": True,
-        "deleted_records": deleted_records
-    }
+    return {"success": True, "deleted_records": records}
 
 
 def create_custom_by_admin(

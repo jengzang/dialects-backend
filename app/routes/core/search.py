@@ -46,7 +46,7 @@ async def search_chars(
     # 按实际字符总数限制，防止通过 chars=天地 这种形式绕过数量限制
     total_char_count = sum(len(char) for char in chars)
 
-    if total_char_count > 20:
+    if total_char_count > 10:
         raise HTTPException(
             status_code=400,
             detail=f"最多只能查询20个字，当前提交了{total_char_count}个字",

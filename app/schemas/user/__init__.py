@@ -3,3 +3,8 @@
 
 from .submissions import *
 from .suggestions import *
+from .custom_mutations import (
+    BatchUpdateRequest,
+    BatchDeleteByIdRequest,
+    SaveCustomDataRequest,
+)

@@ -3,6 +3,8 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.common.time_utils import assume_utc
+
 from app.service.auth.database.models import User
 from app.service.user.core.models import Information
 from app.service.geo.getloc_by_name_region import query_dialect_abbreviations_orm
@@ -95,6 +97,9 @@ def get_from_submission(
         for record in q.all():
             latitude_longitude = list(map(float, re.split(r'[，,]', record.經緯度)))
             result.append({
+                "id": record.id,
+                "version": record.version,
+                "created_at_utc": assume_utc(record.created_at).isoformat(timespec="microseconds").replace("+00:00", "Z"),
                 "簡稱": record.簡稱,
                 "聲韻調": record.聲韻調,
                 "特徵": record.特徵,

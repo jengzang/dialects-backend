@@ -92,3 +92,12 @@ def test_region_delete_requires_identity():
         AdminRegionDelete(username='alice')
     assert AdminRegionDelete(username='alice', id=1).id == 1
     assert AdminRegionDelete(username='alice', created_at='2026-01-01').created_at
+
+
+def test_legacy_admin_delete_refuses_ambiguous_timestamp(db):
+    a, b = record('1', 0), record('2', 0)
+    db.add_all([a, b]); db.commit()
+    result = management.delete_custom_by_admin(db, Users(), [{'username': 'alice', 'created_at': a.created_at}], SimpleNamespace(username='admin'))
+    assert not result['success']
+    db.expire_all()
+    assert db.query(Information).count() == 2

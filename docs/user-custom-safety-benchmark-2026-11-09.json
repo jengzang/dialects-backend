@@ -1,0 +1,448 @@
+{
+  "environment": {
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "process_peak_rss_bytes": 81166336,
+  "scope": "local TestClient HTTP + temporary SQLite; not 2-core/2GB production measurement; RSS is shared process peak, not per request",
+  "cases": [
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 1,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 0.968,
+      "write_p95_ms": 1.675,
+      "probe_samples": 2,
+      "probe_p95_ms": 1.312,
+      "sql_statements_including_reads": 44,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 1,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 1,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 0.83,
+      "write_p95_ms": 1.874,
+      "probe_samples": 3,
+      "probe_p95_ms": 1.085,
+      "sql_statements_including_reads": 45,
+      "begin_immediate_wait_p95_ms": 0.007,
+      "rows_after": 1,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 1,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 20
+      },
+      "write_p50_ms": 1.735,
+      "write_p95_ms": 3.215,
+      "probe_samples": 3,
+      "probe_p95_ms": 1.32,
+      "sql_statements_including_reads": 85,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 2,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 1,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "429": 10,
+        "200": 10
+      },
+      "write_p50_ms": 1.191,
+      "write_p95_ms": 3.086,
+      "probe_samples": 2,
+      "probe_p95_ms": 1.44,
+      "sql_statements_including_reads": 54,
+      "begin_immediate_wait_p95_ms": 0.102,
+      "rows_after": 2,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 1,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 40
+      },
+      "write_p50_ms": 1.691,
+      "write_p95_ms": 5.533,
+      "probe_samples": 6,
+      "probe_p95_ms": 1.627,
+      "sql_statements_including_reads": 168,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 4,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 1,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 21,
+        "429": 19
+      },
+      "write_p50_ms": 2.326,
+      "write_p95_ms": 3.794,
+      "probe_samples": 4,
+      "probe_p95_ms": 2.346,
+      "sql_statements_including_reads": 109,
+      "begin_immediate_wait_p95_ms": 0.169,
+      "rows_after": 4,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 10,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 1.132,
+      "write_p95_ms": 1.661,
+      "probe_samples": 2,
+      "probe_p95_ms": 0.902,
+      "sql_statements_including_reads": 134,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 10,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 10,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 1.169,
+      "write_p95_ms": 1.498,
+      "probe_samples": 3,
+      "probe_p95_ms": 1.316,
+      "sql_statements_including_reads": 135,
+      "begin_immediate_wait_p95_ms": 0.006,
+      "rows_after": 10,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 10,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 20
+      },
+      "write_p50_ms": 1.154,
+      "write_p95_ms": 6.739,
+      "probe_samples": 4,
+      "probe_p95_ms": 1.332,
+      "sql_statements_including_reads": 266,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 20,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 10,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 13,
+        "429": 7
+      },
+      "write_p50_ms": 1.98,
+      "write_p95_ms": 3.148,
+      "probe_samples": 3,
+      "probe_p95_ms": 1.349,
+      "sql_statements_including_reads": 181,
+      "begin_immediate_wait_p95_ms": 0.116,
+      "rows_after": 20,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 10,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 40
+      },
+      "write_p50_ms": 1.197,
+      "write_p95_ms": 11.96,
+      "probe_samples": 9,
+      "probe_p95_ms": 1.089,
+      "sql_statements_including_reads": 531,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 40,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 10,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "429": 26,
+        "200": 14
+      },
+      "write_p50_ms": 2.896,
+      "write_p95_ms": 13.786,
+      "probe_samples": 5,
+      "probe_p95_ms": 2.703,
+      "sql_statements_including_reads": 215,
+      "begin_immediate_wait_p95_ms": 0.12,
+      "rows_after": 40,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 50,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 2.894,
+      "write_p95_ms": 2.957,
+      "probe_samples": 5,
+      "probe_p95_ms": 0.618,
+      "sql_statements_including_reads": 537,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 50,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 50,
+      "write_concurrency": 1,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 10
+      },
+      "write_p50_ms": 2.514,
+      "write_p95_ms": 3.326,
+      "probe_samples": 4,
+      "probe_p95_ms": 1.139,
+      "sql_statements_including_reads": 536,
+      "begin_immediate_wait_p95_ms": 0.006,
+      "rows_after": 50,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 50,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 20
+      },
+      "write_p50_ms": 2.757,
+      "write_p95_ms": 16.612,
+      "probe_samples": 10,
+      "probe_p95_ms": 1.058,
+      "sql_statements_including_reads": 1072,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 100,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 50,
+      "write_concurrency": 2,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "429": 9,
+        "200": 11
+      },
+      "write_p50_ms": 4.45,
+      "write_p95_ms": 6.119,
+      "probe_samples": 6,
+      "probe_p95_ms": 1.729,
+      "sql_statements_including_reads": 600,
+      "begin_immediate_wait_p95_ms": 0.021,
+      "rows_after": 100,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "legacy_two_commit",
+      "rows_per_request": 50,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "200": 40
+      },
+      "write_p50_ms": 3.356,
+      "write_p95_ms": 50.965,
+      "probe_samples": 19,
+      "probe_p95_ms": 1.356,
+      "sql_statements_including_reads": 2141,
+      "begin_immediate_wait_p95_ms": null,
+      "rows_after": 200,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    },
+    {
+      "mode": "atomic",
+      "rows_per_request": 50,
+      "write_concurrency": 4,
+      "iterations_per_worker": 10,
+      "statuses": {
+        "429": 30,
+        "200": 10
+      },
+      "write_p50_ms": 5.656,
+      "write_p95_ms": 11.925,
+      "probe_samples": 9,
+      "probe_p95_ms": 3.334,
+      "sql_statements_including_reads": 571,
+      "begin_immediate_wait_p95_ms": 0.609,
+      "rows_after": 200,
+      "id_query_plan": [
+        [
+          2,
+          0,
+          52,
+          "SEARCH informations USING COVERING INDEX ix_informations_user_id (user_id=? AND rowid=?)"
+        ]
+      ]
+    }
+  ]
+}
